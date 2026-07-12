@@ -56,6 +56,28 @@ fn entry() -> Result<&'static Entry, AppError> {
     Ok(ENTRY.get_or_init(|| created))
 }
 
+// Process-lifetime credential cache. Every keychain read can trigger a user
+// prompt (especially for ad-hoc-signed dev builds, where macOS re-prompts on
+// each rebuild), so the keychain is read at most once per app session; store
+// and clear keep the cache coherent.
+fn cache() -> &'static std::sync::Mutex<Option<Option<StoredCredentials>>> {
+    static CACHE: OnceLock<std::sync::Mutex<Option<Option<StoredCredentials>>>> = OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn cache_put(value: Option<StoredCredentials>) {
+    if let Ok(mut slot) = cache().lock() {
+        *slot = Some(value);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn reset_cache_for_testing() {
+    if let Ok(mut slot) = cache().lock() {
+        *slot = None;
+    }
+}
+
 pub fn store_credentials(creds: &StoredCredentials) -> Result<(), AppError> {
     let serialized = serde_json::to_string(creds).map_err(|e| AppError::Internal {
         message: format!("failed to serialize credentials: {e}"),
@@ -64,13 +86,24 @@ pub fn store_credentials(creds: &StoredCredentials) -> Result<(), AppError> {
         .set_password(&serialized)
         .map_err(|e| AppError::Internal {
             message: format!("failed to store credentials in keyring: {e}"),
-        })
+        })?;
+    cache_put(Some(creds.clone()));
+    Ok(())
 }
 
 pub fn load_credentials() -> Result<Option<StoredCredentials>, AppError> {
+    if let Ok(slot) = cache().lock() {
+        if let Some(cached) = slot.as_ref() {
+            return Ok(cached.clone());
+        }
+    }
+
     let raw = match entry()?.get_password() {
         Ok(raw) => raw,
-        Err(keyring::Error::NoEntry) => return Ok(None),
+        Err(keyring::Error::NoEntry) => {
+            cache_put(None);
+            return Ok(None);
+        }
         Err(e) => {
             return Err(AppError::Internal {
                 message: format!("failed to load credentials from keyring: {e}"),
@@ -80,17 +113,20 @@ pub fn load_credentials() -> Result<Option<StoredCredentials>, AppError> {
 
     if raw.starts_with('{') {
         if let Ok(parsed) = serde_json::from_str::<StoredCredentials>(&raw) {
+            cache_put(Some(parsed.clone()));
             return Ok(Some(parsed));
         }
     }
 
     // Legacy entry: a bare personal access token string.
-    Ok(Some(StoredCredentials {
+    let legacy = StoredCredentials {
         access_token: raw,
         refresh_token: None,
         expires_at: None,
         client_id: None,
-    }))
+    };
+    cache_put(Some(legacy.clone()));
+    Ok(Some(legacy))
 }
 
 pub fn store_token(token: &str) -> Result<(), AppError> {
@@ -108,7 +144,10 @@ pub fn load_token() -> Result<Option<String>, AppError> {
 
 pub fn clear_token() -> Result<(), AppError> {
     match entry()?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Ok(()) | Err(keyring::Error::NoEntry) => {
+            cache_put(None);
+            Ok(())
+        }
         Err(e) => Err(AppError::Internal {
             message: format!("failed to clear token from keyring: {e}"),
         }),
@@ -134,6 +173,7 @@ mod tests {
     fn store_load_clear_roundtrip() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use_mock_keyring();
+        reset_cache_for_testing();
         // Other tests in this module share the same underlying mock entry;
         // start from a known-empty state regardless of run order.
         clear_token().unwrap();
@@ -153,6 +193,7 @@ mod tests {
     fn store_credentials_roundtrips_all_fields() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use_mock_keyring();
+        reset_cache_for_testing();
         let creds = StoredCredentials {
             access_token: "gho_access".to_string(),
             refresh_token: Some("ghr_refresh".to_string()),
@@ -173,6 +214,7 @@ mod tests {
     fn load_credentials_falls_back_to_legacy_pat() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use_mock_keyring();
+        reset_cache_for_testing();
         entry().unwrap().set_password("ghp_x").unwrap();
 
         let loaded = load_credentials().unwrap().expect("credentials present");
@@ -186,6 +228,7 @@ mod tests {
     fn store_token_is_readable_by_load_credentials() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use_mock_keyring();
+        reset_cache_for_testing();
         store_token("ghp_via_store_token").unwrap();
 
         let loaded = load_credentials().unwrap().expect("credentials present");
