@@ -9,6 +9,7 @@ import { memo, useCallback, useMemo } from "react";
 import { ErrorPanel } from "@/components/error-panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isDisplayable } from "@/features/changes/file-change-meta";
+import { GithubCommentCard } from "@/features/github/github-comment-card";
 import { SuggestionCard } from "@/features/memory/suggestion-card";
 import { describeAnchorRange } from "@/features/reviews/anchor-range";
 import { CommentCard } from "@/features/reviews/comment-card";
@@ -16,6 +17,8 @@ import { CommentComposer } from "@/features/reviews/comment-composer";
 import { commentAnnotationSide } from "@/features/reviews/use-review-comments";
 import { anchorSideToPatchSide } from "@/lib/diff/anchor";
 import type { AppError } from "@/lib/errors/app-error";
+import { placeInlineComment } from "@/lib/github/inline-comment-map";
+import type { PrInlineComment } from "@/types/github";
 import type { ReviewComment, SuggestedComment } from "@/types/review";
 
 export type DiffView = "split" | "unified";
@@ -23,11 +26,16 @@ export type DiffView = "split" | "unified";
 type AnnotationMeta =
   | { kind: "comment"; comment: ReviewComment }
   | { kind: "composer" }
-  | { kind: "suggestion"; suggestion: SuggestedComment };
+  | { kind: "suggestion"; suggestion: SuggestedComment }
+  | { kind: "github-comment"; thread: PrInlineComment[] };
 
 export type DiffAnnotationProps = {
   comments: ReviewComment[];
   suggestions: SuggestedComment[];
+  /** Existing GitHub inline threads placed in this file (top-level + replies). */
+  githubThreads: PrInlineComment[][];
+  githubViewerLogin: string;
+  onDeleteGithubComment: (commentId: number) => void;
   selection: SelectedLineRange | null;
   composerOpen: boolean;
   activeCommentId: string | null;
@@ -141,6 +149,9 @@ const RenderedDiff = memo(function RenderedDiff({
   theme,
   comments,
   suggestions,
+  githubThreads,
+  githubViewerLogin,
+  onDeleteGithubComment,
   selection,
   composerOpen,
   activeCommentId,
@@ -186,6 +197,16 @@ const RenderedDiff = memo(function RenderedDiff({
         metadata: { kind: "suggestion", suggestion },
       });
     }
+    for (const thread of githubThreads) {
+      const placement = placeInlineComment(thread[0]);
+      if (placement) {
+        result.push({
+          side: placement.side,
+          lineNumber: placement.lineNumber,
+          metadata: { kind: "github-comment", thread },
+        });
+      }
+    }
     if (composerOpen && selection) {
       result.push({
         side: selection.endSide ?? selection.side ?? "additions",
@@ -194,7 +215,7 @@ const RenderedDiff = memo(function RenderedDiff({
       });
     }
     return result;
-  }, [comments, suggestions, composerOpen, selection]);
+  }, [comments, suggestions, githubThreads, composerOpen, selection]);
 
   const composerCaption = useMemo(() => {
     if (!selection) {
@@ -235,6 +256,17 @@ const RenderedDiff = memo(function RenderedDiff({
           </div>
         );
       }
+      if (meta.kind === "github-comment") {
+        return (
+          <div className="px-3 py-1.5">
+            <GithubCommentCard
+              onDelete={onDeleteGithubComment}
+              thread={meta.thread}
+              viewerLogin={githubViewerLogin}
+            />
+          </div>
+        );
+      }
       return (
         <div className="px-3 py-1.5">
           <CommentCard
@@ -249,10 +281,12 @@ const RenderedDiff = memo(function RenderedDiff({
     [
       activeCommentId,
       composerCaption,
+      githubViewerLogin,
       onCancelComposer,
       onSaveComment,
       onEditComment,
       onDeleteComment,
+      onDeleteGithubComment,
       onAcceptSuggestion,
       onDismissSuggestion,
       onEditAcceptSuggestion,

@@ -26,9 +26,14 @@ published automatically.
 - Deterministic reviewer-memory suggestions (accept / edit / dismiss /
   disable), with feedback that adjusts future confidence
 - Keyboard shortcuts and a command palette
-- GitHub pull-request review: open a PR by URL, comment inline, and submit
-  one grouped review (Comment / Approve / Request changes) — token stored in
-  the OS keychain, all requests made from Rust
+- GitHub pull-request review: browse a repository's open PRs (or open by
+  URL), comment inline, and submit one grouped review (Comment / Approve /
+  Request changes) — sign in via OAuth device flow (or a PAT), token stored
+  in the OS keychain, all requests made from Rust
+- Review-native PR surface: CI/check status, mergeability, existing reviews
+  (with dismiss), existing inline comments rendered in the diff,
+  conversation comments, close/reopen, and guarded one-click merge
+  (merge/squash/rebase, optional branch deletion)
 - Import of your past GitHub review comments into reviewer memory
   (explicit, scoped to one repository, cancellable, deduplicated)
 

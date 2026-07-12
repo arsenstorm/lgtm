@@ -157,6 +157,70 @@ pub struct ImportPage {
     pub has_more: bool,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeResult {
+    pub merged: bool,
+    pub sha: Option<String>,
+    pub message: String,
+    pub branch_deleted: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewInfo {
+    pub id: u64,
+    pub author_login: String,
+    pub state: String,
+    pub body: String,
+    pub submitted_at: Option<String>,
+    pub html_url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrInlineComment {
+    pub id: u64,
+    pub author_login: String,
+    pub path: String,
+    pub line: Option<u64>,
+    pub original_line: Option<u64>,
+    pub side: Option<String>,
+    pub body: String,
+    pub created_at: String,
+    pub html_url: String,
+    pub in_reply_to_id: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationComment {
+    pub id: u64,
+    pub author_login: String,
+    pub body: String,
+    pub created_at: String,
+    pub html_url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckRunInfo {
+    pub name: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+    pub details_url: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrCiStatus {
+    pub check_runs: Vec<CheckRunInfo>,
+    pub commit_state: String,
+    pub mergeable: Option<bool>,
+    pub mergeable_state: Option<String>,
+    pub head_sha: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

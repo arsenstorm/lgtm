@@ -28,6 +28,7 @@ import { OpenPrDialog } from "@/features/github/open-pr-dialog";
 import { PrBrowserDialog } from "@/features/github/pr-browser-dialog";
 import type { SubmitContext } from "@/features/github/submit-review";
 import { TokenDialog } from "@/features/github/token-dialog";
+import { type PrLiveState, usePrState } from "@/features/github/use-pr-state";
 import { usePrDiff, usePrSession } from "@/features/github/use-pr-workspace";
 import { useSuggestions } from "@/features/memory/use-suggestions";
 import { RepositoryPicker } from "@/features/repositories/repository-picker";
@@ -44,8 +45,10 @@ import {
 } from "@/features/reviews/use-review-shortcuts";
 import { buildAnchor } from "@/lib/diff/anchor";
 import type { AppError } from "@/lib/errors/app-error";
+import { placeInlineComment } from "@/lib/github/inline-comment-map";
 import { parseGithubRemote } from "@/lib/github/remote";
 import { GITHUB_PATH_PREFIX } from "@/lib/github/repo-identity";
+import type { PrInlineComment, PullRequestInfo } from "@/types/github";
 import type { RepositoryRecord, ReviewComment } from "@/types/review";
 import { HeaderBar, PrHeaderBar } from "./header-bar";
 import { StatusBar } from "./status-bar";
@@ -102,6 +105,7 @@ export function AppShell() {
         onOpenPicker={repo.openFromPicker}
         onOpenPr={() => openPrDialog()}
         onOpenRecent={onOpenRecent}
+        onRefreshBundle={repo.openPr}
         opening={repo.opening}
         recents={repo.recents}
         recentsLoading={repo.recentsLoading}
@@ -137,6 +141,7 @@ function ActiveView({
   onClose,
   onManageToken,
   onOpenPr,
+  onRefreshBundle,
   ...pickerProps
 }: {
   active: ActiveSource | null;
@@ -144,6 +149,7 @@ function ActiveView({
   onClose: () => void;
   onManageToken: () => void;
   onOpenPr: () => void;
+  onRefreshBundle: (url: string) => Promise<AppError | null>;
   recents: RepositoryRecord[];
   recentsLoading: boolean;
   opening: boolean;
@@ -171,6 +177,7 @@ function ActiveView({
         onClose={onClose}
         onManageToken={onManageToken}
         onOpenPrDialog={onOpenPr}
+        onRefreshBundle={onRefreshBundle}
       />
     );
   }
@@ -257,11 +264,13 @@ function PrReviewWorkspace({
   onClose,
   onManageToken,
   onOpenPrDialog,
+  onRefreshBundle,
 }: {
   active: Extract<ActiveSource, { kind: "github-pr" }>;
   onClose: () => void;
   onManageToken: () => void;
   onOpenPrDialog: () => void;
+  onRefreshBundle: (url: string) => Promise<AppError | null>;
 }) {
   const { bundle, record } = active;
   const { info } = bundle;
@@ -278,6 +287,21 @@ function PrReviewWorkspace({
   });
   const repoName = `${info.owner}/${info.repository}`;
 
+  const refreshBundle = useCallback(() => {
+    onRefreshBundle(info.htmlUrl).catch(() => {
+      // Bundle refresh is best-effort; the merge/close already succeeded.
+    });
+  }, [onRefreshBundle, info.htmlUrl]);
+
+  const prLive = usePrState({
+    owner: info.owner,
+    repository: info.repository,
+    pullNumber: info.pullNumber,
+    diffData: diff.data,
+    onMutated: refreshBundle,
+    onRevisionChanged: diff.refresh,
+  });
+
   return (
     <>
       <ReviewWorkspaceBody
@@ -287,9 +311,12 @@ function PrReviewWorkspace({
         onImport={openImport}
         onManageToken={onManageToken}
         onOpenPrDialog={onOpenPrDialog}
+        prInfo={info}
+        prLive={prLive}
         record={record}
         renderHeader={(view, onViewChange) => (
           <PrHeaderBar
+            ciStatus={prLive.ciStatus}
             info={info}
             onClose={onClose}
             onImport={openImport}
@@ -337,6 +364,13 @@ type ReviewWorkspaceBodyProps = {
   onBrowsePrs?: () => void;
   onImport?: () => void;
   submitBase?: Pick<SubmitContext, "owner" | "repository" | "pullNumber">;
+  prLive?: PrLiveState;
+  prInfo?: PullRequestInfo;
+};
+
+const NO_THREADS: PrInlineComment[][] = [];
+const noop = () => {
+  // Local mode has no GitHub inline comments to delete.
 };
 
 function ReviewWorkspaceBody({
@@ -353,6 +387,8 @@ function ReviewWorkspaceBody({
   onBrowsePrs,
   onImport,
   submitBase,
+  prLive,
+  prInfo,
 }: ReviewWorkspaceBodyProps) {
   const { resolvedTheme } = useTheme();
   const theme = resolvedTheme === "dark" ? "dark" : "light";
@@ -425,6 +461,35 @@ function ReviewWorkspaceBody({
   const fileSuggestions = selected
     ? (suggestions.byFile.get(selected.name) ?? [])
     : [];
+
+  // Split existing GitHub inline threads: those that place in the current diff
+  // become annotations; the rest surface as "Outdated on GitHub" in the sheet.
+  const { placedByFile, outdatedThreads } = useMemo(() => {
+    const placed = new Map<string, PrInlineComment[][]>();
+    const outdated: PrInlineComment[][] = [];
+    if (!prLive) {
+      return { placedByFile: placed, outdatedThreads: NO_THREADS };
+    }
+    const names = new Set((diff.data?.files ?? []).map((file) => file.name));
+    for (const thread of prLive.inlineThreads.values()) {
+      const head = thread[0];
+      if (placeInlineComment(head) && names.has(head.path)) {
+        const bucket = placed.get(head.path);
+        if (bucket) {
+          bucket.push(thread);
+        } else {
+          placed.set(head.path, [thread]);
+        }
+      } else {
+        outdated.push(thread);
+      }
+    }
+    return { placedByFile: placed, outdatedThreads: outdated };
+  }, [prLive, diff.data]);
+
+  const fileGithubThreads = selected
+    ? (placedByFile.get(selected.name) ?? NO_THREADS)
+    : NO_THREADS;
 
   const saveComment = useCallback(
     async (body: string) => {
@@ -609,6 +674,39 @@ function ReviewWorkspaceBody({
         run: () => setSummaryOpen(true),
       });
     }
+    if (prLive && prInfo) {
+      const state = prInfo.state.toLowerCase();
+      if (state === "open") {
+        extras.push(
+          {
+            id: "merge-pr",
+            label: "Merge pull request…",
+            hint: [],
+            key: "",
+            run: () => setSummaryOpen(true),
+          },
+          {
+            id: "close-pr",
+            label: "Close pull request",
+            hint: [],
+            key: "",
+            run: () => {
+              prLive.setState("closed");
+            },
+          }
+        );
+      } else if (state === "closed") {
+        extras.push({
+          id: "reopen-pr",
+          label: "Reopen pull request",
+          hint: [],
+          key: "",
+          run: () => {
+            prLive.setState("open");
+          },
+        });
+      }
+    }
     if (onImport) {
       extras.push({
         id: "import-comments",
@@ -647,6 +745,8 @@ function ReviewWorkspaceBody({
   }, [
     actions,
     submitBase,
+    prLive,
+    prInfo,
     onImport,
     onBrowsePrs,
     onOpenPrDialog,
@@ -703,11 +803,14 @@ function ReviewWorkspaceBody({
             composerOpen={composerOpen}
             error={diff.error}
             file={selected}
+            githubThreads={fileGithubThreads}
+            githubViewerLogin={prInfo?.viewerLogin ?? ""}
             hasFiles={files.length > 0}
             loading={diff.loading}
             onAcceptSuggestion={suggestions.accept}
             onCancelComposer={() => setComposerOpen(false)}
             onDeleteComment={comments.remove}
+            onDeleteGithubComment={prLive?.deleteInlineComment ?? noop}
             onDismissSuggestion={suggestions.dismiss}
             onEditAcceptSuggestion={suggestions.editAndAccept}
             onEditComment={comments.edit}
@@ -744,7 +847,10 @@ function ReviewWorkspaceBody({
         onNavigate={navigateToComment}
         onOpenChange={setSummaryOpen}
         open={summaryOpen}
+        outdatedThreads={outdatedThreads}
         outdatedTotal={outdatedTotal}
+        prInfo={prInfo}
+        prLive={prLive}
         repoName={repoName}
         submit={submit}
         total={comments.comments.length}

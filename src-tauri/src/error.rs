@@ -36,6 +36,8 @@ pub enum AppError {
     PullRequestRevisionChanged { expected: String, actual: String },
     #[error("Network request to GitHub failed")]
     NetworkFailed { message: String },
+    #[error("GitHub refused the merge")]
+    MergeBlocked { message: String },
 }
 
 impl AppError {
@@ -56,6 +58,7 @@ impl AppError {
             AppError::RepositoryNotAccessible { .. } => "repository-not-accessible",
             AppError::PullRequestRevisionChanged { .. } => "pull-request-revision-changed",
             AppError::NetworkFailed { .. } => "network-failed",
+            AppError::MergeBlocked { .. } => "merge-blocked",
         }
     }
 
@@ -89,6 +92,7 @@ impl AppError {
                 Some(format!("expected {expected}, found {actual}"))
             }
             AppError::NetworkFailed { message } => Some(message.clone()),
+            AppError::MergeBlocked { message } => Some(message.clone()),
         }
     }
 }

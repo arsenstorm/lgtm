@@ -68,3 +68,51 @@ export type PullRequestSummary = {
   updatedAt: string;
   htmlUrl: string;
 };
+
+export type MergeMethod = "merge" | "squash" | "rebase";
+export type MergeResult = {
+  merged: boolean;
+  sha: string | null;
+  message: string;
+  branchDeleted: boolean;
+};
+export type ReviewInfo = {
+  id: number;
+  authorLogin: string;
+  state: string;
+  body: string;
+  submittedAt: string | null;
+  htmlUrl: string;
+};
+export type PrInlineComment = {
+  id: number;
+  authorLogin: string;
+  path: string;
+  line: number | null;
+  originalLine: number | null;
+  side: string | null;
+  body: string;
+  createdAt: string;
+  htmlUrl: string;
+  inReplyToId: number | null;
+};
+export type ConversationComment = {
+  id: number;
+  authorLogin: string;
+  body: string;
+  createdAt: string;
+  htmlUrl: string;
+};
+export type CheckRunInfo = {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  detailsUrl: string | null;
+};
+export type PrCiStatus = {
+  checkRuns: CheckRunInfo[];
+  commitState: string;
+  mergeable: boolean | null;
+  mergeableState: string | null;
+  headSha: string;
+};

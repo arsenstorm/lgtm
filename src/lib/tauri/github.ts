@@ -1,11 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ConversationComment,
   DeviceFlowStart,
   GithubPrBundle,
   GithubReviewCommentDraft,
   GithubReviewEvent,
   ImportPage,
+  MergeMethod,
+  MergeResult,
+  PrCiStatus,
+  PrInlineComment,
   PullRequestSummary,
+  ReviewInfo,
   SubmittedReview,
 } from "../../types/github";
 import { toAppError } from "../errors/app-error";
@@ -111,6 +117,156 @@ export async function listOpenPullRequests(
     return await invoke<PullRequestSummary[]>("github_list_pull_requests", {
       owner,
       repository,
+    });
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
+export async function mergePullRequest(args: {
+  owner: string;
+  repository: string;
+  pullNumber: number;
+  expectedHeadSha: string;
+  method: MergeMethod;
+  commitTitle: string | null;
+  commitMessage: string | null;
+  deleteBranch: boolean;
+}): Promise<MergeResult> {
+  try {
+    return await invoke<MergeResult>("github_merge_pr", { args });
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
+export async function setPullRequestState(
+  owner: string,
+  repository: string,
+  pullNumber: number,
+  state: "open" | "closed"
+): Promise<string> {
+  try {
+    return await invoke<string>("github_set_pr_state", {
+      owner,
+      repository,
+      pullNumber,
+      state,
+    });
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
+export async function listReviews(
+  owner: string,
+  repository: string,
+  pullNumber: number
+): Promise<ReviewInfo[]> {
+  try {
+    return await invoke<ReviewInfo[]>("github_list_reviews", {
+      owner,
+      repository,
+      pullNumber,
+    });
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
+export async function dismissReview(
+  owner: string,
+  repository: string,
+  pullNumber: number,
+  reviewId: number,
+  message: string
+): Promise<void> {
+  try {
+    await invoke<void>("github_dismiss_review", {
+      owner,
+      repository,
+      pullNumber,
+      reviewId,
+      message,
+    });
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
+export async function listPrInlineComments(
+  owner: string,
+  repository: string,
+  pullNumber: number
+): Promise<PrInlineComment[]> {
+  try {
+    return await invoke<PrInlineComment[]>("github_list_pr_comments", {
+      owner,
+      repository,
+      pullNumber,
+    });
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
+export async function deleteReviewComment(
+  owner: string,
+  repository: string,
+  commentId: number
+): Promise<void> {
+  try {
+    await invoke<void>("github_delete_review_comment", {
+      owner,
+      repository,
+      commentId,
+    });
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
+export async function addConversationComment(
+  owner: string,
+  repository: string,
+  pullNumber: number,
+  body: string
+): Promise<ConversationComment> {
+  try {
+    return await invoke<ConversationComment>(
+      "github_add_conversation_comment",
+      { owner, repository, pullNumber, body }
+    );
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
+export async function listConversationComments(
+  owner: string,
+  repository: string,
+  pullNumber: number
+): Promise<ConversationComment[]> {
+  try {
+    return await invoke<ConversationComment[]>(
+      "github_list_conversation_comments",
+      { owner, repository, pullNumber }
+    );
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
+export async function getPrCiStatus(
+  owner: string,
+  repository: string,
+  pullNumber: number
+): Promise<PrCiStatus> {
+  try {
+    return await invoke<PrCiStatus>("github_pr_ci_status", {
+      owner,
+      repository,
+      pullNumber,
     });
   } catch (e) {
     throw toAppError(e);

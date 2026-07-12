@@ -83,6 +83,13 @@ All git invocations go through one runner (`src-tauri/src/git/exec.rs`):
   the one the review was written against; a mismatch aborts with
   `pull-request-revision-changed` instead of posting against unseen code.
   Submission happens exactly once per confirmation — no automatic retry.
+- Merging is the one remote *write* capability (GitHub App permission
+  `Contents: Read and write`). It is always human-initiated behind an
+  explicit confirmation, passes the expected head SHA so GitHub itself
+  rejects a race (409), surfaces GitHub's own refusal reasons (405 →
+  `merge-blocked`), and never deletes fork head branches. The local
+  repository remains strictly read-only — LGTM never mutates the working
+  tree, index, or local refs.
 - Errors map to structured codes (`authentication-failed`,
   `github-rate-limited`, `github-permission-denied`,
   `pull-request-not-found`, `pull-request-revision-changed`,

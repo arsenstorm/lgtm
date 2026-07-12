@@ -9,10 +9,16 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { splitPath } from "@/features/changes/file-change-meta";
+import { ConversationSection } from "@/features/github/conversation-section";
+import { DecisionSection } from "@/features/github/decision-section";
+import { GithubCommentCard } from "@/features/github/github-comment-card";
+import { ReviewsSection } from "@/features/github/reviews-section";
 import {
   type SubmitContext,
   SubmitReview,
 } from "@/features/github/submit-review";
+import type { PrLiveState } from "@/features/github/use-pr-state";
+import type { PrInlineComment, PullRequestInfo } from "@/types/github";
 import type { ReviewComment } from "@/types/review";
 import { CommentCard } from "./comment-card";
 import { copyReviewMarkdown } from "./export-markdown";
@@ -31,6 +37,11 @@ type ReviewSummaryProps = {
   onNavigate: (comment: ReviewComment) => void;
   /** Present in PR mode: enables grouped GitHub review submission. */
   submit?: SubmitContext;
+  /** Present in PR mode: live GitHub state (CI, reviews, discussion, merge). */
+  prLive?: PrLiveState;
+  prInfo?: PullRequestInfo;
+  /** GitHub inline threads that no longer place in the current diff. */
+  outdatedThreads?: PrInlineComment[][];
 };
 
 /**
@@ -51,7 +62,11 @@ export function ReviewSummary({
   onDelete,
   onNavigate,
   submit,
+  prLive,
+  prInfo,
+  outdatedThreads,
 }: ReviewSummaryProps) {
+  const prSections = prLive && prInfo ? { prLive, prInfo } : null;
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
@@ -81,7 +96,7 @@ export function ReviewSummary({
           </Button>
         </SheetHeader>
 
-        {total === 0 && !submit ? (
+        {total === 0 && !(submit || prSections) ? (
           <EmptyState />
         ) : (
           <ScrollArea className="min-h-0 flex-1">
@@ -105,8 +120,15 @@ export function ReviewSummary({
                 ))}
               </div>
             )}
-            {submit ? (
+            {submit && (!prInfo || prInfo.state.toLowerCase() === "open") ? (
               <SubmitReview comments={comments} submit={submit} />
+            ) : null}
+            {prSections ? (
+              <PrSections
+                outdatedThreads={outdatedThreads}
+                prInfo={prSections.prInfo}
+                prLive={prSections.prLive}
+              />
             ) : null}
           </ScrollArea>
         )}
@@ -144,6 +166,74 @@ function FileGroup({
             onDelete={onDelete}
             onEdit={onEdit}
             onNavigate={onNavigate}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PrSections({
+  prLive,
+  prInfo,
+  outdatedThreads,
+}: {
+  prLive: PrLiveState;
+  prInfo: PullRequestInfo;
+  outdatedThreads?: PrInlineComment[][];
+}) {
+  return (
+    <>
+      <DecisionSection info={prInfo} prLive={prLive} />
+      <ReviewsSection
+        busy={prLive.busy.dismiss}
+        onDismiss={prLive.dismiss}
+        reviews={prLive.reviews}
+      />
+      {outdatedThreads && outdatedThreads.length > 0 ? (
+        <OutdatedGithub
+          busy={prLive.busy.deleteComment}
+          onDelete={prLive.deleteInlineComment}
+          threads={outdatedThreads}
+          viewerLogin={prInfo.viewerLogin}
+        />
+      ) : null}
+      <ConversationSection
+        busy={prLive.busy.comment}
+        comments={prLive.conversation}
+        onAdd={prLive.addComment}
+      />
+    </>
+  );
+}
+
+function OutdatedGithub({
+  threads,
+  viewerLogin,
+  busy,
+  onDelete,
+}: {
+  threads: PrInlineComment[][];
+  viewerLogin: string;
+  busy: boolean;
+  onDelete: (commentId: number) => void;
+}) {
+  return (
+    <section className="flex flex-col gap-2 border-t p-4">
+      <h3 className="font-medium text-sm">
+        Outdated on GitHub ({threads.length})
+      </h3>
+      <p className="text-muted-foreground text-xs">
+        These GitHub comments no longer match a line in the current diff.
+      </p>
+      <div className="flex flex-col gap-2">
+        {threads.map((thread) => (
+          <GithubCommentCard
+            deleting={busy}
+            key={thread[0].id}
+            onDelete={onDelete}
+            thread={thread}
+            viewerLogin={viewerLogin}
           />
         ))}
       </div>

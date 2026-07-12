@@ -14,6 +14,7 @@ export type AppErrorCode =
   | "pull-request-not-found"
   | "repository-not-accessible"
   | "pull-request-revision-changed"
+  | "merge-blocked"
   | "network-failed";
 
 export type AppError = {

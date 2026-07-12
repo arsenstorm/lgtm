@@ -126,6 +126,82 @@ impl GithubClient {
             message: format!("failed to parse GitHub response: {e}"),
         })
     }
+
+    pub async fn put_json<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, AppError> {
+        let resp = self
+            .request(reqwest::Method::PUT, path)
+            .header("Accept", "application/vnd.github+json")
+            .json(body)
+            .send()
+            .await
+            .map_err(network_error)?;
+        let bytes = read_body_checked(resp, None).await?;
+        serde_json::from_slice(&bytes).map_err(|e| AppError::Internal {
+            message: format!("failed to parse GitHub response: {e}"),
+        })
+    }
+
+    pub async fn patch_json<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, AppError> {
+        let resp = self
+            .request(reqwest::Method::PATCH, path)
+            .header("Accept", "application/vnd.github+json")
+            .json(body)
+            .send()
+            .await
+            .map_err(network_error)?;
+        let bytes = read_body_checked(resp, None).await?;
+        serde_json::from_slice(&bytes).map_err(|e| AppError::Internal {
+            message: format!("failed to parse GitHub response: {e}"),
+        })
+    }
+
+    /// DELETE expecting 204; 404 is treated as already-deleted success.
+    pub async fn delete(&self, path: &str) -> Result<(), AppError> {
+        let resp = self
+            .request(reqwest::Method::DELETE, path)
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+            .map_err(network_error)?;
+
+        if matches!(resp.status().as_u16(), 204 | 404) {
+            return Ok(());
+        }
+
+        read_body_checked(resp, None).await.map(|_| ())
+    }
+
+    /// PUT that returns the raw status + capped body text WITHOUT status
+    /// mapping, for callers that need endpoint-specific status semantics
+    /// (merge).
+    pub async fn put_json_raw<B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<(u16, String), AppError> {
+        let resp = self
+            .request(reqwest::Method::PUT, path)
+            .header("Accept", "application/vnd.github+json")
+            .json(body)
+            .send()
+            .await
+            .map_err(network_error)?;
+
+        let status = resp.status();
+        let bytes = read_body_capped(resp).await?;
+        Ok((
+            status.as_u16(),
+            String::from_utf8_lossy(&bytes).into_owned(),
+        ))
+    }
 }
 
 fn network_error(e: reqwest::Error) -> AppError {
@@ -182,6 +258,28 @@ async fn refresh_credentials(creds: &StoredCredentials) -> Result<StoredCredenti
     Ok(refreshed)
 }
 
+/// Reads the response body, enforcing the size cap. Shared by
+/// `read_body_checked` and `put_json_raw`, which differ only in whether they
+/// apply status-code mapping afterward.
+async fn read_body_capped(resp: reqwest::Response) -> Result<Vec<u8>, AppError> {
+    if let Some(len) = resp.content_length() {
+        if len > MAX_BODY_BYTES {
+            return Err(AppError::DiffTooLarge);
+        }
+    }
+
+    // ponytail: reqwest doesn't make it easy to cap a streamed body without
+    // pulling in extra stream-adapter plumbing; buffering fully and checking
+    // the length is the documented fallback. Content-Length check above
+    // already rejects the common case before we get here.
+    let bytes = resp.bytes().await.map_err(network_error)?;
+    if bytes.len() as u64 > MAX_BODY_BYTES {
+        return Err(AppError::DiffTooLarge);
+    }
+
+    Ok(bytes.to_vec())
+}
+
 /// Reads the response body, enforcing the size cap, then applies status-code
 /// mapping via `map_status`. Body is read first (bounded by Content-Length or
 /// the streamed byte count) so error bodies can be included in NetworkFailed.
@@ -189,12 +287,6 @@ async fn read_body_checked(
     resp: reqwest::Response,
     reference: Option<&str>,
 ) -> Result<Vec<u8>, AppError> {
-    if let Some(len) = resp.content_length() {
-        if len > MAX_BODY_BYTES {
-            return Err(AppError::DiffTooLarge);
-        }
-    }
-
     let status = resp.status();
     let ratelimit_remaining = resp
         .headers()
@@ -207,14 +299,7 @@ async fn read_body_checked(
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
 
-    // ponytail: reqwest doesn't make it easy to cap a streamed body without
-    // pulling in extra stream-adapter plumbing; buffering fully and checking
-    // the length is the documented fallback. Content-Length check above
-    // already rejects the common case before we get here.
-    let bytes = resp.bytes().await.map_err(network_error)?;
-    if bytes.len() as u64 > MAX_BODY_BYTES {
-        return Err(AppError::DiffTooLarge);
-    }
+    let bytes = read_body_capped(resp).await?;
 
     if let Some(err) = map_status(
         status.as_u16(),
@@ -243,7 +328,7 @@ async fn read_body_checked(
         };
     }
 
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 /// Pure status-code -> AppError mapping, kept separate from I/O so it can be
