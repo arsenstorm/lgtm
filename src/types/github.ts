@@ -19,6 +19,13 @@ export type PullRequestInfo = {
 
 export type GithubPrBundle = { info: PullRequestInfo; patch: string };
 
+export type DeviceFlowStart = {
+  userCode: string;
+  verificationUri: string;
+  expiresIn: number;
+  interval: number;
+};
+
 export type GithubSide = "LEFT" | "RIGHT";
 
 export type GithubReviewCommentDraft = {

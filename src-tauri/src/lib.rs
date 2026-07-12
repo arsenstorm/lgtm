@@ -32,6 +32,7 @@ pub fn run() {
                 .add_migrations("sqlite:lgtm.db", migrations)
                 .build(),
         )
+        .manage(crate::github::device::DeviceFlowManager::default())
         .invoke_handler(tauri::generate_handler![
             commands::repository::open_repository,
             commands::git::get_diff,
@@ -40,7 +41,10 @@ pub fn run() {
             commands::github::github_clear_token,
             commands::github::github_open_pr,
             commands::github::github_submit_review,
-            commands::github::github_import_review_comments
+            commands::github::github_import_review_comments,
+            commands::github::github_device_start,
+            commands::github::github_device_wait,
+            commands::github::github_device_cancel
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

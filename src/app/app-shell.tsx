@@ -593,7 +593,7 @@ function ReviewWorkspaceBody({
       },
       {
         id: "github-token",
-        label: "GitHub token…",
+        label: "Connect to GitHub…",
         hint: [],
         key: "",
         run: onManageToken,

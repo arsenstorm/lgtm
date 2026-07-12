@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 use crate::github::client::GithubClient;
+use crate::github::device::{self, DeviceFlowManager, DeviceFlowStart};
 use crate::github::{
     self, GithubReviewCommentInput, ImportPage, ImportedGithubComment, PrRef, PullRequestInfo,
     SubmittedReview,
@@ -139,7 +140,7 @@ pub struct GithubPrBundle {
 #[tauri::command]
 pub async fn github_open_pr(url: String) -> Result<GithubPrBundle, AppError> {
     let pr_ref = github::parse_pr_url(&url)?;
-    let client = GithubClient::from_keyring()?;
+    let client = GithubClient::resolve().await?;
 
     let path = format!(
         "/repos/{}/{}/pulls/{}",
@@ -219,7 +220,7 @@ pub async fn github_submit_review(args: SubmitReviewArgs) -> Result<SubmittedRev
         repository: args.repository.clone(),
         pull_number: args.pull_number,
     };
-    let client = GithubClient::from_keyring()?;
+    let client = GithubClient::resolve().await?;
 
     let path = format!(
         "/repos/{}/{}/pulls/{}",
@@ -275,7 +276,7 @@ pub async fn github_import_review_comments(
         });
     }
 
-    let client = GithubClient::from_keyring()?;
+    let client = GithubClient::resolve().await?;
     let viewer: GhUser = client.get_json("/user").await?;
 
     let path = format!(
@@ -304,6 +305,29 @@ pub async fn github_import_review_comments(
         .collect();
 
     Ok(ImportPage { comments, has_more })
+}
+
+#[tauri::command]
+pub async fn github_device_start(
+    state: tauri::State<'_, DeviceFlowManager>,
+    client_id: Option<String>,
+) -> Result<DeviceFlowStart, AppError> {
+    device::start(&state, client_id).await
+}
+
+#[tauri::command]
+pub async fn github_device_wait(
+    state: tauri::State<'_, DeviceFlowManager>,
+) -> Result<String, AppError> {
+    device::wait(&state).await
+}
+
+#[tauri::command]
+pub async fn github_device_cancel(
+    state: tauri::State<'_, DeviceFlowManager>,
+) -> Result<(), AppError> {
+    device::cancel(&state);
+    Ok(())
 }
 
 #[cfg(test)]

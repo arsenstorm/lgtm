@@ -8,12 +8,16 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::error::AppError;
-use crate::github::token;
+use crate::github::device::{self, TokenGrant};
+use crate::github::token::{self, StoredCredentials};
 
 const BASE_URL: &str = "https://api.github.com";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_BODY_BYTES: u64 = 10 * 1024 * 1024;
 const USER_AGENT: &str = "lgtm-desktop";
+/// Refresh a device-flow token this many seconds before it actually expires,
+/// so a request started right at the boundary doesn't race the expiry.
+const REFRESH_MARGIN_SECS: i64 = 120;
 
 /// Wraps the GitHub token so it can never leak through a `{:?}` print.
 pub struct RedactedToken(pub String);
@@ -24,7 +28,7 @@ impl std::fmt::Debug for RedactedToken {
     }
 }
 
-fn http_client() -> &'static reqwest::Client {
+pub(crate) fn http_client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
@@ -53,9 +57,21 @@ impl GithubClient {
         }
     }
 
-    pub fn from_keyring() -> Result<Self, AppError> {
-        let token = token::load_token()?.ok_or(AppError::AuthenticationFailed)?;
-        Ok(Self::new(token))
+    /// Loads credentials and transparently refreshes an expiring device-flow
+    /// token (2-minute early margin). PATs (no expiry) pass straight through.
+    pub async fn resolve() -> Result<Self, AppError> {
+        let creds = token::load_credentials()?.ok_or(AppError::AuthenticationFailed)?;
+        let refresh_needed = needs_refresh(
+            creds.expires_at,
+            creds.refresh_token.is_some(),
+            creds.client_id.is_some(),
+            device::now_unix(),
+        );
+        if !refresh_needed {
+            return Ok(Self::new(creds.access_token));
+        }
+        let refreshed = refresh_credentials(&creds).await?;
+        Ok(Self::new(refreshed.access_token))
     }
 
     fn request(&self, method: reqwest::Method, path_and_query: &str) -> reqwest::RequestBuilder {
@@ -116,6 +132,54 @@ fn network_error(e: reqwest::Error) -> AppError {
     AppError::NetworkFailed {
         message: e.to_string(),
     }
+}
+
+/// Pure refresh-decision logic, kept I/O-free so it's unit testable. A token
+/// only needs refreshing if it actually expires (has `expires_at`) and we
+/// have both a refresh token and the client ID that minted it.
+fn needs_refresh(expires_at: Option<i64>, has_refresh: bool, has_client: bool, now: i64) -> bool {
+    match expires_at {
+        Some(exp) if has_refresh && has_client => now + REFRESH_MARGIN_SECS >= exp,
+        _ => false,
+    }
+}
+
+async fn refresh_credentials(creds: &StoredCredentials) -> Result<StoredCredentials, AppError> {
+    let (Some(refresh_token), Some(client_id)) =
+        (creds.refresh_token.as_deref(), creds.client_id.as_deref())
+    else {
+        return Err(AppError::AuthenticationFailed);
+    };
+
+    let resp = http_client()
+        .post(device::ACCESS_TOKEN_URL)
+        .header("Accept", "application/json")
+        .form(&[
+            ("client_id", client_id),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+        ])
+        .send()
+        .await
+        .map_err(network_error)?;
+
+    let grant: TokenGrant = resp.json().await.map_err(network_error)?;
+
+    if grant.error.is_some() {
+        return Err(AppError::AuthenticationFailed);
+    }
+    let Some(access_token) = grant.access_token else {
+        return Err(AppError::AuthenticationFailed);
+    };
+
+    let refreshed = StoredCredentials {
+        access_token,
+        refresh_token: grant.refresh_token.or_else(|| creds.refresh_token.clone()),
+        expires_at: grant.expires_in.map(|secs| device::now_unix() + secs),
+        client_id: creds.client_id.clone(),
+    };
+    token::store_credentials(&refreshed)?;
+    Ok(refreshed)
 }
 
 /// Reads the response body, enforcing the size cap, then applies status-code
@@ -267,5 +331,27 @@ mod tests {
     fn maps_2xx_to_none() {
         assert!(map_status(200, None, None, None).is_none());
         assert!(map_status(204, None, None, None).is_none());
+    }
+
+    #[test]
+    fn needs_refresh_false_for_pat_without_expiry() {
+        assert!(!needs_refresh(None, false, false, 1_000));
+    }
+
+    #[test]
+    fn needs_refresh_true_when_expiring_soon_with_refresh_and_client() {
+        // Expires in 60s, inside the 120s margin.
+        assert!(needs_refresh(Some(1_060), true, true, 1_000));
+    }
+
+    #[test]
+    fn needs_refresh_false_when_expiry_is_far_out() {
+        // Expires in 10 minutes.
+        assert!(!needs_refresh(Some(1_600), true, true, 1_000));
+    }
+
+    #[test]
+    fn needs_refresh_false_without_refresh_token() {
+        assert!(!needs_refresh(Some(1_060), false, true, 1_000));
     }
 }

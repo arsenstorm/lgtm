@@ -1,4 +1,5 @@
 pub mod client;
+pub mod device;
 pub mod token;
 
 use serde::{Deserialize, Serialize};

@@ -3,7 +3,6 @@ import {
   RiGithubLine,
   RiGitPullRequestLine,
   RiGitRepositoryLine,
-  RiKey2Line,
 } from "@remixicon/react";
 import { formatDistanceToNow } from "date-fns";
 import { ErrorPanel } from "@/components/error-panel";
@@ -75,8 +74,8 @@ export function RepositoryPicker({
             </Button>
           </div>
           <Button onClick={onManageToken} size="sm" variant="ghost">
-            <RiKey2Line aria-hidden />
-            GitHub token
+            <RiGithubLine aria-hidden />
+            Connect to GitHub
           </Button>
         </header>
 
