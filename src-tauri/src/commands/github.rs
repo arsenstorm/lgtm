@@ -114,11 +114,13 @@ fn with_pr_reference(err: AppError, pr_ref: &PrRef) -> AppError {
     }
 }
 
-/// Same rewrite as `with_pr_reference`, for list endpoints that only have an
-/// owner/repository (no single PR number) to attach.
+/// Repo-level endpoints 404 both when the repository doesn't exist and when
+/// the token can't see it (e.g. a private repo without the GitHub App
+/// installed), so the PR-level "not found" would mislead — remap to a
+/// repository-scoped error.
 fn with_repo_reference(err: AppError, reference: &str) -> AppError {
     match err {
-        AppError::PullRequestNotFound { .. } => AppError::PullRequestNotFound {
+        AppError::PullRequestNotFound { .. } => AppError::RepositoryNotAccessible {
             reference: reference.to_string(),
         },
         other => other,

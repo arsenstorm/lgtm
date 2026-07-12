@@ -30,6 +30,8 @@ pub enum AppError {
     GithubPermissionDenied,
     #[error("Pull request not found")]
     PullRequestNotFound { reference: String },
+    #[error("Repository not found or not accessible with your GitHub access")]
+    RepositoryNotAccessible { reference: String },
     #[error("Pull request revision changed")]
     PullRequestRevisionChanged { expected: String, actual: String },
     #[error("Network request to GitHub failed")]
@@ -51,6 +53,7 @@ impl AppError {
             AppError::GithubRateLimited { .. } => "github-rate-limited",
             AppError::GithubPermissionDenied => "github-permission-denied",
             AppError::PullRequestNotFound { .. } => "pull-request-not-found",
+            AppError::RepositoryNotAccessible { .. } => "repository-not-accessible",
             AppError::PullRequestRevisionChanged { .. } => "pull-request-revision-changed",
             AppError::NetworkFailed { .. } => "network-failed",
         }
@@ -79,7 +82,8 @@ impl AppError {
             AppError::GitUnavailable | AppError::DiffTooLarge => None,
             AppError::AuthenticationFailed | AppError::GithubPermissionDenied => None,
             AppError::GithubRateLimited { reset } => reset.clone(),
-            AppError::PullRequestNotFound { reference } => Some(reference.clone()),
+            AppError::PullRequestNotFound { reference }
+            | AppError::RepositoryNotAccessible { reference } => Some(reference.clone()),
             AppError::PullRequestRevisionChanged { expected, actual } => {
                 Some(format!("expected {expected}, found {actual}"))
             }

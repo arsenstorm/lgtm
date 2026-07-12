@@ -210,6 +210,7 @@ function PrListError({
   onManageToken: () => void;
 }) {
   const needsToken = error.code === "authentication-failed";
+  const notAccessible = error.code === "repository-not-accessible";
   return (
     <div className="flex flex-col gap-2 rounded-2xl border border-destructive/40 bg-destructive/5 px-3 py-3 text-sm">
       <p className="text-destructive">
@@ -217,6 +218,13 @@ function PrListError({
           ? "Connect to GitHub to see this repository's pull requests."
           : error.message}
       </p>
+      {notAccessible ? (
+        <p className="text-muted-foreground text-xs">
+          If this is a private repository, make sure the LGTM GitHub App is
+          installed on it (GitHub → Settings → Applications → Installed GitHub
+          Apps). Authorizing the app is not the same as installing it.
+        </p>
+      ) : null}
       {needsToken ? (
         <Button
           className="w-fit"

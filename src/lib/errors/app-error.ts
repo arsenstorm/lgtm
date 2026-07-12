@@ -12,6 +12,7 @@ export type AppErrorCode =
   | "github-rate-limited"
   | "github-permission-denied"
   | "pull-request-not-found"
+  | "repository-not-accessible"
   | "pull-request-revision-changed"
   | "network-failed";
 
