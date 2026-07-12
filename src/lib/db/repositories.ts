@@ -72,3 +72,38 @@ export async function touchRepository(id: string): Promise<void> {
     [new Date().toISOString(), id]
   );
 }
+
+export async function listAllRepositories(): Promise<RepositoryRecord[]> {
+  const db = await getDb();
+  const rows = await db.select<RepositoryRow[]>(
+    "SELECT * FROM repositories ORDER BY last_opened_at DESC"
+  );
+  return rows.map(rowToRepository);
+}
+
+/**
+ * Reassigns everything owned by `fromId` to `toId`, then deletes `fromId`.
+ * Used to fold a synthetic github:// record into the local clone's record.
+ */
+export async function mergeRepositoryRecords(
+  fromId: string,
+  toId: string
+): Promise<void> {
+  if (fromId === toId) {
+    return;
+  }
+  const db = await getDb();
+  await db.execute(
+    "UPDATE review_sessions SET repository_id = $1 WHERE repository_id = $2",
+    [toId, fromId]
+  );
+  await db.execute(
+    "UPDATE memory_examples SET repository_id = $1 WHERE repository_id = $2",
+    [toId, fromId]
+  );
+  await db.execute(
+    "UPDATE imported_github_comments SET repository_id = $1 WHERE repository_id = $2",
+    [toId, fromId]
+  );
+  await db.execute("DELETE FROM repositories WHERE id = $1", [fromId]);
+}

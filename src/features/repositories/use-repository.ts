@@ -5,6 +5,7 @@ import {
   upsertRepository,
 } from "@/lib/db/repositories";
 import { type AppError, toAppError } from "@/lib/errors/app-error";
+import { repositoryRecordForPr } from "@/lib/github/repo-identity";
 import { openRepository } from "@/lib/tauri/commands";
 import { openGithubPr } from "@/lib/tauri/github";
 import type { RepositoryInfo } from "@/types/git";
@@ -15,8 +16,6 @@ import type { RepositoryRecord } from "@/types/review";
 export type ActiveSource =
   | { kind: "local"; info: RepositoryInfo; record: RepositoryRecord }
   | { kind: "github-pr"; bundle: GithubPrBundle; record: RepositoryRecord };
-
-export const GITHUB_PATH_PREFIX = "github://";
 
 type RepositoryState = {
   active: ActiveSource | null;
@@ -86,19 +85,10 @@ export function useRepository() {
       try {
         const bundle = await openGithubPr(url);
         const { owner, repository } = bundle.info;
-        // Synthetic record so sessions/memory scope to the GitHub repo. Only
-        // path/displayName/remoteUrl/defaultBaseBranch are persisted.
-        const record = await upsertRepository({
-          rootPath: `${GITHUB_PATH_PREFIX}${owner}/${repository}`,
-          displayName: `${owner}/${repository}`,
-          currentBranch: null,
-          headSha: null,
-          detached: false,
-          unborn: false,
-          remoteUrl: `https://github.com/${owner}/${repository}`,
-          defaultBaseBranch: null,
-          branches: [],
-        });
+        // Resolves to the local clone's record when one exists (merging any
+        // stale synthetic record into it), otherwise a synthetic github://
+        // record so sessions/memory still scope to the GitHub repo.
+        const record = await repositoryRecordForPr(owner, repository);
         setState((prev) => ({
           ...prev,
           active: { kind: "github-pr", bundle, record },

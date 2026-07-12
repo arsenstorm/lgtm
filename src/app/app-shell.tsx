@@ -33,7 +33,6 @@ import { useSuggestions } from "@/features/memory/use-suggestions";
 import { RepositoryPicker } from "@/features/repositories/repository-picker";
 import {
   type ActiveSource,
-  GITHUB_PATH_PREFIX,
   useRepository,
 } from "@/features/repositories/use-repository";
 import { CommandPalette } from "@/features/reviews/command-palette";
@@ -46,6 +45,7 @@ import {
 import { buildAnchor } from "@/lib/diff/anchor";
 import type { AppError } from "@/lib/errors/app-error";
 import { parseGithubRemote } from "@/lib/github/remote";
+import { GITHUB_PATH_PREFIX } from "@/lib/github/repo-identity";
 import type { RepositoryRecord, ReviewComment } from "@/types/review";
 import { HeaderBar, PrHeaderBar } from "./header-bar";
 import { StatusBar } from "./status-bar";

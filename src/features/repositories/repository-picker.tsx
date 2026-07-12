@@ -18,8 +18,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { splitPath } from "@/features/changes/file-change-meta";
 import type { AppError } from "@/lib/errors/app-error";
+import { GITHUB_PATH_PREFIX } from "@/lib/github/repo-identity";
 import type { RepositoryRecord } from "@/types/review";
-import { GITHUB_PATH_PREFIX } from "./use-repository";
 
 type RepositoryPickerProps = {
   recents: RepositoryRecord[];
