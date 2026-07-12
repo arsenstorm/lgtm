@@ -27,7 +27,7 @@ pub enum AppError {
     #[error("GitHub API rate limit exceeded")]
     GithubRateLimited { reset: Option<String> },
     #[error("GitHub permission denied")]
-    GithubPermissionDenied,
+    GithubPermissionDenied { detail: Option<String> },
     #[error("Pull request not found")]
     PullRequestNotFound { reference: String },
     #[error("Repository not found or not accessible with your GitHub access")]
@@ -51,7 +51,7 @@ impl AppError {
             AppError::Internal { .. } => "internal",
             AppError::AuthenticationFailed => "authentication-failed",
             AppError::GithubRateLimited { .. } => "github-rate-limited",
-            AppError::GithubPermissionDenied => "github-permission-denied",
+            AppError::GithubPermissionDenied { .. } => "github-permission-denied",
             AppError::PullRequestNotFound { .. } => "pull-request-not-found",
             AppError::RepositoryNotAccessible { .. } => "repository-not-accessible",
             AppError::PullRequestRevisionChanged { .. } => "pull-request-revision-changed",
@@ -80,7 +80,8 @@ impl AppError {
                 Some(message.clone())
             }
             AppError::GitUnavailable | AppError::DiffTooLarge => None,
-            AppError::AuthenticationFailed | AppError::GithubPermissionDenied => None,
+            AppError::AuthenticationFailed => None,
+            AppError::GithubPermissionDenied { detail } => detail.clone(),
             AppError::GithubRateLimited { reset } => reset.clone(),
             AppError::PullRequestNotFound { reference }
             | AppError::RepositoryNotAccessible { reference } => Some(reference.clone()),

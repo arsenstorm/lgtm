@@ -225,6 +225,11 @@ function PrListError({
           Apps). Authorizing the app is not the same as installing it.
         </p>
       ) : null}
+      {!needsToken && error.details ? (
+        <p className="break-words text-muted-foreground text-xs">
+          {error.details}
+        </p>
+      ) : null}
       {needsToken ? (
         <Button
           className="w-fit"

@@ -222,17 +222,25 @@ async fn read_body_checked(
         ratelimit_reset.as_deref(),
         reference,
     ) {
-        // The pure mapping fn (kept network/body-free for unit testing) uses a
-        // generic message for the fallback NetworkFailed case; enrich it with
-        // the trimmed response body here, where we actually have it.
-        if let AppError::NetworkFailed { .. } = &err {
-            let body_text = String::from_utf8_lossy(&bytes);
-            let trimmed: String = body_text.trim().chars().take(500).collect();
-            return Err(AppError::NetworkFailed {
+        // The pure mapping fn (kept network/body-free for unit testing) uses
+        // generic content for cases that benefit from the response body;
+        // enrich them here, where we actually have it. GitHub's 403 bodies
+        // name the missing permission (e.g. "Resource not accessible by
+        // integration"), which is the difference between a debuggable error
+        // and a dead end.
+        let body_text = String::from_utf8_lossy(&bytes);
+        let trimmed: String = body_text.trim().chars().take(500).collect();
+        return match err {
+            AppError::NetworkFailed { .. } => Err(AppError::NetworkFailed {
                 message: format!("GitHub returned status {status}: {trimmed}"),
-            });
-        }
-        return Err(err);
+            }),
+            AppError::GithubPermissionDenied { .. } if !trimmed.is_empty() => {
+                Err(AppError::GithubPermissionDenied {
+                    detail: Some(trimmed),
+                })
+            }
+            other => Err(other),
+        };
     }
 
     Ok(bytes.to_vec())
@@ -258,7 +266,7 @@ pub fn map_status(
         429 => Some(AppError::GithubRateLimited {
             reset: ratelimit_reset.map(str::to_string),
         }),
-        403 => Some(AppError::GithubPermissionDenied),
+        403 => Some(AppError::GithubPermissionDenied { detail: None }),
         404 => Some(AppError::PullRequestNotFound {
             reference: reference.unwrap_or("unknown").to_string(),
         }),
@@ -293,11 +301,11 @@ mod tests {
     fn maps_403_without_exhausted_ratelimit_to_permission_denied() {
         assert!(matches!(
             map_status(403, Some("42"), None, None),
-            Some(AppError::GithubPermissionDenied)
+            Some(AppError::GithubPermissionDenied { .. })
         ));
         assert!(matches!(
             map_status(403, None, None, None),
-            Some(AppError::GithubPermissionDenied)
+            Some(AppError::GithubPermissionDenied { .. })
         ));
     }
 
