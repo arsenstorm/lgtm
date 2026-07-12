@@ -25,6 +25,7 @@ import { useReviewSession } from "@/features/changes/use-review-session";
 import { type DiffView, DiffViewer } from "@/features/diff/diff-viewer";
 import { ImportDialog } from "@/features/github/import-dialog";
 import { OpenPrDialog } from "@/features/github/open-pr-dialog";
+import { PrBrowserDialog } from "@/features/github/pr-browser-dialog";
 import type { SubmitContext } from "@/features/github/submit-review";
 import { TokenDialog } from "@/features/github/token-dialog";
 import { usePrDiff, usePrSession } from "@/features/github/use-pr-workspace";
@@ -44,6 +45,7 @@ import {
 } from "@/features/reviews/use-review-shortcuts";
 import { buildAnchor } from "@/lib/diff/anchor";
 import type { AppError } from "@/lib/errors/app-error";
+import { parseGithubRemote } from "@/lib/github/remote";
 import type { RepositoryRecord, ReviewComment } from "@/types/review";
 import { HeaderBar, PrHeaderBar } from "./header-bar";
 import { StatusBar } from "./status-bar";
@@ -55,12 +57,23 @@ export function AppShell() {
   const [tokenOpen, setTokenOpen] = useState(false);
   const [prOpen, setPrOpen] = useState(false);
   const [prPrefill, setPrPrefill] = useState("");
+  const [prBrowserOpen, setPrBrowserOpen] = useState(false);
 
   const openPrDialog = useCallback((prefill = "") => {
     setPrPrefill(prefill);
     setPrOpen(true);
   }, []);
   const openTokenDialog = useCallback(() => setTokenOpen(true), []);
+  const openPrBrowser = useCallback(() => {
+    setPrOpen(false);
+    setPrBrowserOpen(true);
+  }, []);
+
+  // The PR browser only makes sense for a local repo with a GitHub remote.
+  const activeLocal = repo.active?.kind === "local" ? repo.active : null;
+  const localRemote = activeLocal
+    ? parseGithubRemote(activeLocal.info.remoteUrl)
+    : null;
 
   const { openPath } = repo;
   const onOpenRecent = useCallback(
@@ -82,6 +95,7 @@ export function AppShell() {
       <ActiveView
         active={repo.active}
         error={repo.error}
+        onBrowsePrs={localRemote ? openPrBrowser : undefined}
         onClose={repo.close}
         onDismissError={repo.dismissError}
         onManageToken={openTokenDialog}
@@ -94,6 +108,7 @@ export function AppShell() {
       />
       <TokenDialog onOpenChange={setTokenOpen} open={tokenOpen} />
       <OpenPrDialog
+        onBrowsePrs={localRemote ? openPrBrowser : undefined}
         onManageToken={openTokenDialog}
         onOpen={repo.openPr}
         onOpenChange={setPrOpen}
@@ -101,18 +116,31 @@ export function AppShell() {
         opening={repo.opening}
         prefillUrl={prPrefill}
       />
+      {localRemote ? (
+        <PrBrowserDialog
+          onManageToken={openTokenDialog}
+          onOpen={repo.openPr}
+          onOpenChange={setPrBrowserOpen}
+          open={prBrowserOpen}
+          opening={repo.opening}
+          owner={localRemote.owner}
+          repository={localRemote.repository}
+        />
+      ) : null}
     </>
   );
 }
 
 function ActiveView({
   active,
+  onBrowsePrs,
   onClose,
   onManageToken,
   onOpenPr,
   ...pickerProps
 }: {
   active: ActiveSource | null;
+  onBrowsePrs?: () => void;
   onClose: () => void;
   onManageToken: () => void;
   onOpenPr: () => void;
@@ -150,6 +178,7 @@ function ActiveView({
     <LocalReviewWorkspace
       active={active}
       key={active.record.id}
+      onBrowsePrs={onBrowsePrs}
       onClose={onClose}
       onManageToken={onManageToken}
       onOpenPrDialog={onOpenPr}
@@ -167,11 +196,13 @@ type DiffController = {
 
 function LocalReviewWorkspace({
   active,
+  onBrowsePrs,
   onClose,
   onManageToken,
   onOpenPrDialog,
 }: {
   active: Extract<ActiveSource, { kind: "local" }>;
+  onBrowsePrs?: () => void;
   onClose: () => void;
   onManageToken: () => void;
   onOpenPrDialog: () => void;
@@ -196,6 +227,7 @@ function LocalReviewWorkspace({
       comparisonKey={comparisonKey}
       comparisonLabel={describeComparison(mode)}
       diff={diff}
+      onBrowsePrs={onBrowsePrs}
       onManageToken={onManageToken}
       onOpenPrDialog={onOpenPrDialog}
       record={record}
@@ -203,6 +235,7 @@ function LocalReviewWorkspace({
         <HeaderBar
           info={info}
           mode={mode}
+          onBrowsePrs={onBrowsePrs}
           onClose={onClose}
           onManageToken={onManageToken}
           onModeChange={setMode}
@@ -301,6 +334,7 @@ type ReviewWorkspaceBodyProps = {
   ) => ReactNode;
   onManageToken: () => void;
   onOpenPrDialog: () => void;
+  onBrowsePrs?: () => void;
   onImport?: () => void;
   submitBase?: Pick<SubmitContext, "owner" | "repository" | "pullNumber">;
 };
@@ -316,6 +350,7 @@ function ReviewWorkspaceBody({
   renderHeader,
   onManageToken,
   onOpenPrDialog,
+  onBrowsePrs,
   onImport,
   submitBase,
 }: ReviewWorkspaceBodyProps) {
@@ -583,6 +618,15 @@ function ReviewWorkspaceBody({
         run: onImport,
       });
     }
+    if (onBrowsePrs) {
+      extras.push({
+        id: "browse-prs",
+        label: "Browse pull requests…",
+        hint: [],
+        key: "",
+        run: onBrowsePrs,
+      });
+    }
     extras.push(
       {
         id: "open-pr",
@@ -600,7 +644,14 @@ function ReviewWorkspaceBody({
       }
     );
     return [...actions, ...extras];
-  }, [actions, submitBase, onImport, onOpenPrDialog, onManageToken]);
+  }, [
+    actions,
+    submitBase,
+    onImport,
+    onBrowsePrs,
+    onOpenPrDialog,
+    onManageToken,
+  ]);
 
   const submit = useMemo<SubmitContext | undefined>(() => {
     if (!submitBase) {

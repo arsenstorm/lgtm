@@ -5,6 +5,7 @@ import type {
   GithubReviewCommentDraft,
   GithubReviewEvent,
   ImportPage,
+  PullRequestSummary,
   SubmittedReview,
 } from "../../types/github";
 import { toAppError } from "../errors/app-error";
@@ -96,6 +97,20 @@ export async function importGithubReviewComments(
       owner,
       repository,
       page,
+    });
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
+export async function listOpenPullRequests(
+  owner: string,
+  repository: string
+): Promise<PullRequestSummary[]> {
+  try {
+    return await invoke<PullRequestSummary[]>("github_list_pull_requests", {
+      owner,
+      repository,
     });
   } catch (e) {
     throw toAppError(e);

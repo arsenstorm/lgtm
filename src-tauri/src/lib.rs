@@ -42,6 +42,7 @@ pub fn run() {
             commands::github::github_open_pr,
             commands::github::github_submit_review,
             commands::github::github_import_review_comments,
+            commands::github::github_list_pull_requests,
             commands::github::github_device_start,
             commands::github::github_device_wait,
             commands::github::github_device_cancel

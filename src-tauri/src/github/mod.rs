@@ -27,6 +27,19 @@ pub struct PullRequestInfo {
     pub viewer_login: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestSummary {
+    pub number: u64,
+    pub title: String,
+    pub author_login: String,
+    pub base_ref: String,
+    pub head_ref: String,
+    pub draft: bool,
+    pub updated_at: String,
+    pub html_url: String,
+}
+
 pub struct PrRef {
     pub owner: String,
     pub repository: String,

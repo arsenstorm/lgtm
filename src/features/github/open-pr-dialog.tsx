@@ -20,6 +20,9 @@ type OpenPrDialogProps = {
   /** Resolves to an error to show inline, or null on success. */
   onOpen: (url: string) => Promise<AppError | null>;
   onManageToken: () => void;
+  /** Present only when the active repo has a GitHub remote; swaps to the
+   * PR browser instead of pasting a URL. */
+  onBrowsePrs?: () => void;
 };
 
 /**
@@ -34,6 +37,7 @@ export function OpenPrDialog({
   opening,
   onOpen,
   onManageToken,
+  onBrowsePrs,
 }: OpenPrDialogProps) {
   const [url, setUrl] = useState(prefillUrl);
   const [error, setError] = useState<AppError | null>(null);
@@ -97,6 +101,16 @@ export function OpenPrDialog({
             </Button>
           </div>
         </form>
+
+        {onBrowsePrs ? (
+          <button
+            className="w-fit text-muted-foreground text-sm underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onBrowsePrs}
+            type="button"
+          >
+            or browse this repository&rsquo;s open pull requests
+          </button>
+        ) : null}
 
         {error ? (
           <div className="flex flex-col gap-2 rounded-2xl border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">

@@ -5,7 +5,7 @@ use crate::github::client::GithubClient;
 use crate::github::device::{self, DeviceFlowManager, DeviceFlowStart};
 use crate::github::{
     self, GithubReviewCommentInput, ImportPage, ImportedGithubComment, PrRef, PullRequestInfo,
-    SubmittedReview,
+    PullRequestSummary, SubmittedReview,
 };
 
 // ---- Private GitHub API response shapes (only the fields we use). ----
@@ -34,6 +34,25 @@ struct GhPullRequest {
     changed_files: u64,
     additions: u64,
     deletions: u64,
+    html_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhShortRef {
+    #[serde(rename = "ref")]
+    ref_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhPullSummary {
+    number: u64,
+    title: String,
+    user: GhUser,
+    base: GhShortRef,
+    head: GhShortRef,
+    #[serde(default)]
+    draft: bool,
+    updated_at: String,
     html_url: String,
 }
 
@@ -92,6 +111,30 @@ fn with_pr_reference(err: AppError, pr_ref: &PrRef) -> AppError {
             reference: pr_ref.display(),
         },
         other => other,
+    }
+}
+
+/// Same rewrite as `with_pr_reference`, for list endpoints that only have an
+/// owner/repository (no single PR number) to attach.
+fn with_repo_reference(err: AppError, reference: &str) -> AppError {
+    match err {
+        AppError::PullRequestNotFound { .. } => AppError::PullRequestNotFound {
+            reference: reference.to_string(),
+        },
+        other => other,
+    }
+}
+
+fn pull_request_summary(pr: GhPullSummary) -> PullRequestSummary {
+    PullRequestSummary {
+        number: pr.number,
+        title: pr.title,
+        author_login: pr.user.login,
+        base_ref: pr.base.ref_name,
+        head_ref: pr.head.ref_name,
+        draft: pr.draft,
+        updated_at: pr.updated_at,
+        html_url: pr.html_url,
     }
 }
 
@@ -308,6 +351,26 @@ pub async fn github_import_review_comments(
 }
 
 #[tauri::command]
+pub async fn github_list_pull_requests(
+    owner: String,
+    repository: String,
+) -> Result<Vec<PullRequestSummary>, AppError> {
+    github::validate_owner_repo(&owner, &repository)?;
+    let client = GithubClient::resolve().await?;
+
+    let path = format!(
+        "/repos/{owner}/{repository}/pulls?state=open&sort=updated&direction=desc&per_page=50"
+    );
+    let reference = format!("{owner}/{repository}");
+    let prs: Vec<GhPullSummary> = client
+        .get_json(&path)
+        .await
+        .map_err(|e| with_repo_reference(e, &reference))?;
+
+    Ok(prs.into_iter().map(pull_request_summary).collect())
+}
+
+#[tauri::command]
 pub async fn github_device_start(
     state: tauri::State<'_, DeviceFlowManager>,
     client_id: Option<String>,
@@ -375,5 +438,48 @@ mod tests {
             Some(42)
         );
         assert_eq!(pull_number_from_url("not-a-url"), None);
+    }
+
+    #[test]
+    fn pull_summaries_map_and_default_missing_draft_to_false() {
+        let json = r#"[
+            {
+                "number": 42,
+                "title": "Add feature",
+                "user": {"login": "octocat"},
+                "base": {"ref": "main"},
+                "head": {"ref": "feature-branch"},
+                "draft": true,
+                "updated_at": "2024-01-01T00:00:00Z",
+                "html_url": "https://github.com/foo/bar/pull/42"
+            },
+            {
+                "number": 7,
+                "title": "Fix bug",
+                "user": {"login": "someone"},
+                "base": {"ref": "main"},
+                "head": {"ref": "fix-branch"},
+                "updated_at": "2024-02-02T00:00:00Z",
+                "html_url": "https://github.com/foo/bar/pull/7"
+            }
+        ]"#;
+
+        let parsed: Vec<GhPullSummary> = serde_json::from_str(json).unwrap();
+        let summaries: Vec<PullRequestSummary> =
+            parsed.into_iter().map(pull_request_summary).collect();
+
+        assert_eq!(summaries.len(), 2);
+
+        assert_eq!(summaries[0].number, 42);
+        assert_eq!(summaries[0].title, "Add feature");
+        assert_eq!(summaries[0].author_login, "octocat");
+        assert_eq!(summaries[0].base_ref, "main");
+        assert_eq!(summaries[0].head_ref, "feature-branch");
+        assert!(summaries[0].draft);
+        assert_eq!(summaries[0].updated_at, "2024-01-01T00:00:00Z");
+        assert_eq!(summaries[0].html_url, "https://github.com/foo/bar/pull/42");
+
+        assert_eq!(summaries[1].number, 7);
+        assert!(!summaries[1].draft);
     }
 }

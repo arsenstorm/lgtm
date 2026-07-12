@@ -57,3 +57,14 @@ export type ImportPage = {
   comments: ImportedGithubComment[];
   hasMore: boolean;
 };
+
+export type PullRequestSummary = {
+  number: number;
+  title: string;
+  authorLogin: string;
+  baseRef: string;
+  headRef: string;
+  draft: boolean;
+  updatedAt: string;
+  htmlUrl: string;
+};
