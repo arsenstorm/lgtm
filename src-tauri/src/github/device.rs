@@ -92,6 +92,9 @@ pub(crate) fn now_unix() -> i64 {
 /// baked-in default (if non-empty), else an error telling the user to
 /// configure one. Either way the result is validated against
 /// `[A-Za-z0-9._-]{1,100}` before it's allowed anywhere near a URL.
+// The emptiness guard is deliberate: it keeps the error path correct if the
+// baked-in default is ever removed again.
+#[allow(clippy::const_is_empty)]
 pub fn resolve_client_id(override_id: Option<&str>) -> Result<String, AppError> {
     let trimmed_override = override_id.map(str::trim).filter(|s| !s.is_empty());
 

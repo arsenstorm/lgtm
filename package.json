@@ -53,6 +53,8 @@
     "check": "ultracite check",
     "fix": "ultracite fix",
     "prepare": "husky",
+    "compile": "tsc --noEmit",
+    "audit": "bun audit --prod",
     "test": "vitest run"
   },
   "type": "module",
