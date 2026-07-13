@@ -478,6 +478,23 @@ function ReviewWorkspaceBody({
     return () => window.clearTimeout(timer);
   }, [activeCommentId]);
 
+  // The widest line number across the whole diff pins the gutter width, so
+  // switching files doesn't shift the code column sideways.
+  const gutterDigits = useMemo(() => {
+    let maxLine = 0;
+    for (const file of files) {
+      const hunk = file.hunks.at(-1);
+      if (hunk) {
+        maxLine = Math.max(
+          maxLine,
+          hunk.additionStart + hunk.additionCount,
+          hunk.deletionStart + hunk.deletionCount
+        );
+      }
+    }
+    return `${maxLine}`.length;
+  }, [files]);
+
   const selected = files.find((file) => file.name === selectedFile) ?? null;
   const viewedCount = files.filter((file) =>
     review.viewed.has(file.name)
@@ -843,6 +860,7 @@ function ReviewWorkspaceBody({
             file={selected}
             githubThreads={fileGithubThreads}
             githubViewerLogin={prInfo?.viewerLogin ?? ""}
+            gutterDigits={gutterDigits}
             hasFiles={files.length > 0}
             loading={diff.loading}
             onAcceptSuggestion={suggestions.accept}

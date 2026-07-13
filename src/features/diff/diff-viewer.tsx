@@ -59,6 +59,9 @@ export type DiffAnnotationProps = {
 type DiffViewerProps = DiffAnnotationProps & {
   file: FileDiffMetadata | null;
   hasFiles: boolean;
+  /** Digit count of the widest line number across the diff; pins the gutter
+   * width so file switches don't shift the code column. */
+  gutterDigits: number;
   view: DiffView;
   theme: "light" | "dark";
   comparisonKey: string;
@@ -71,6 +74,7 @@ type DiffViewerProps = DiffAnnotationProps & {
 export function DiffViewer({
   file,
   hasFiles,
+  gutterDigits,
   view,
   theme,
   comparisonKey,
@@ -134,8 +138,18 @@ export function DiffViewer({
     );
   }
 
+  // Custom properties inherit into the renderer's shadow root; max() lets a
+  // file's own computed width still win if it's somehow wider.
+  const gutterStyle = {
+    "--diffs-min-number-column-width": `max(${gutterDigits}ch, var(--diffs-min-number-column-width-default, 3ch))`,
+  } as React.CSSProperties;
+
   return (
-    <div className="h-full overflow-auto" {...dragSelectHandlers}>
+    <div
+      className="h-full overflow-auto"
+      style={gutterStyle}
+      {...dragSelectHandlers}
+    >
       <RenderedDiff
         file={file}
         // Stable key per file + comparison + view forces a clean remount
