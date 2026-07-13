@@ -160,7 +160,7 @@ export function PrBrowserDialog({
           {/* Positioned to sit flush with the dialog's built-in close button. */}
           <Button
             aria-label="Refresh"
-            className="absolute top-4 right-14 bg-secondary"
+            className="absolute top-4 right-14"
             disabled={loading}
             onClick={reload}
             size="icon-sm"

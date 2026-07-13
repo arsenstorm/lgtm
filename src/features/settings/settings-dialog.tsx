@@ -338,11 +338,7 @@ function KeybindsSection() {
           </KbdGroup>
         </div>
       </div>
-      <div className="flex items-center justify-between gap-4 pt-3">
-        <p className="text-muted-foreground text-xs">
-          Shortcuts are active in the review workspace and never fire while
-          you're typing.
-        </p>
+      <div className="flex justify-end pt-3">
         <Button
           className="text-muted-foreground"
           onClick={() => {

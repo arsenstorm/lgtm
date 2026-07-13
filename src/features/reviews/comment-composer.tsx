@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
 
 type CommentComposerProps = {
@@ -46,7 +45,7 @@ export function CommentComposer({
     // biome-ignore lint/a11y/noStaticElementInteractions: pointer guard keeps the diff selection intact; no semantic role applies.
     // biome-ignore lint/a11y/noNoninteractiveElementInteractions: pointer guard keeps the diff selection intact; no semantic role applies.
     <div
-      className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-2"
+      className="flex flex-col gap-2 rounded-lg border bg-card p-2.5 text-card-foreground shadow-sm"
       onMouseDown={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -68,17 +67,15 @@ export function CommentComposer({
         ref={ref}
         value={body}
       />
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center gap-2">
+        <span className="mr-auto text-muted-foreground text-xs">
+          ⌘↵ to {submitLabel.toLowerCase()}
+        </span>
         <Button onClick={onCancel} size="xs" type="button" variant="ghost">
           Cancel
-          <Kbd>Esc</Kbd>
         </Button>
         <Button disabled={!trimmed} onClick={submit} size="xs" type="button">
           {submitLabel}
-          <KbdGroup>
-            <Kbd>⌘</Kbd>
-            <Kbd>↵</Kbd>
-          </KbdGroup>
         </Button>
       </div>
     </div>

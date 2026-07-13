@@ -1,5 +1,15 @@
-import { RiClipboardLine, RiFileList2Line } from "@remixicon/react";
+import {
+  RiClipboardLine,
+  RiFileList2Line,
+  RiMore2Line,
+} from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet,
@@ -28,7 +38,6 @@ type ReviewSummaryProps = {
   onOpenChange: (open: boolean) => void;
   byFile: Map<string, ReviewComment[]>;
   total: number;
-  outdatedTotal: number;
   repoName: string;
   comparisonLabel: string;
   comments: ReviewComment[];
@@ -54,7 +63,6 @@ export function ReviewSummary({
   onOpenChange,
   byFile,
   total,
-  outdatedTotal,
   repoName,
   comparisonLabel,
   comments,
@@ -69,31 +77,44 @@ export function ReviewSummary({
   const prSections = prLive && prInfo ? { prLive, prInfo } : null;
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
-      <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
+      <SheetContent className="flex w-full flex-col gap-0 bg-background p-0 sm:max-w-md">
         <SheetHeader className="gap-2 border-b p-4">
           <SheetTitle>Review summary</SheetTitle>
-          <SheetDescription>
-            {total} comment{total === 1 ? "" : "s"}
-            {outdatedTotal > 0 ? ` · ${outdatedTotal} outdated` : ""}
+          <SheetDescription className="sr-only">
+            Draft review comments grouped by file.
           </SheetDescription>
-          <Button
-            className="w-fit"
-            disabled={total === 0}
-            onClick={() =>
-              copyReviewMarkdown({
-                repoName,
-                comparisonLabel,
-                date: new Date(),
-                comments,
-              })
-            }
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <RiClipboardLine aria-hidden />
-            Copy as Markdown
-          </Button>
+          <DropdownMenu>
+            {/* Positioned to sit flush with the sheet's built-in close button. */}
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  aria-label="More review options"
+                  className="absolute top-4 right-14"
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  <RiMore2Line aria-hidden />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                disabled={total === 0}
+                onClick={() =>
+                  copyReviewMarkdown({
+                    repoName,
+                    comparisonLabel,
+                    date: new Date(),
+                    comments,
+                  })
+                }
+              >
+                <RiClipboardLine aria-hidden />
+                Copy as Markdown
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </SheetHeader>
 
         {total === 0 && !(submit || prSections) ? (
@@ -248,10 +269,6 @@ function EmptyState() {
         <RiFileList2Line aria-hidden className="size-6" />
       </div>
       <p className="font-medium text-sm">No comments yet</p>
-      <p className="text-muted-foreground text-sm">
-        Select lines in the diff and press <span className="font-mono">c</span>{" "}
-        to leave a comment.
-      </p>
     </div>
   );
 }
