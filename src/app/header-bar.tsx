@@ -413,11 +413,19 @@ function HeadSelector({
         <DropdownMenuRadioGroup onValueChange={selectHead} value={selectedHead}>
           <DropdownMenuLabel>Review branch</DropdownMenuLabel>
           {info.branches.map((branch) => (
-            <DropdownMenuRadioItem key={branch} value={branch}>
+            <DropdownMenuRadioItem key={branch} title={branch} value={branch}>
               <span className="truncate font-mono text-xs">{branch}</span>
               {branch === info.currentBranch ? (
-                <span className="ml-auto shrink-0 pl-2 text-muted-foreground text-xs">
-                  checked out
+                <span
+                  className={cn(
+                    "ml-auto shrink-0 pl-2 font-mono text-[10px] text-muted-foreground",
+                    // Rows reserve pr-8 for the selection check; when this row
+                    // isn't selected, reclaim it so HEAD sits flush right.
+                    branch !== selectedHead && "-mr-6"
+                  )}
+                  title="Checked out"
+                >
+                  HEAD
                 </span>
               ) : null}
             </DropdownMenuRadioItem>
@@ -427,7 +435,11 @@ function HeadSelector({
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Remote branches</DropdownMenuLabel>
               {info.remoteBranches.map((branch) => (
-                <DropdownMenuRadioItem key={branch} value={branch}>
+                <DropdownMenuRadioItem
+                  key={branch}
+                  title={branch}
+                  value={branch}
+                >
                   <span className="truncate font-mono text-xs">{branch}</span>
                 </DropdownMenuRadioItem>
               ))}
@@ -502,7 +514,11 @@ function ComparisonSelector({
               {headOverridden ? null : <DropdownMenuSeparator />}
               <DropdownMenuLabel>Compare against branch</DropdownMenuLabel>
               {info.branches.map((branch) => (
-                <DropdownMenuRadioItem key={branch} value={branch}>
+                <DropdownMenuRadioItem
+                  key={branch}
+                  title={branch}
+                  value={branch}
+                >
                   <span className="truncate font-mono text-xs">{branch}</span>
                 </DropdownMenuRadioItem>
               ))}
@@ -513,7 +529,11 @@ function ComparisonSelector({
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Remote branches</DropdownMenuLabel>
               {info.remoteBranches.map((branch) => (
-                <DropdownMenuRadioItem key={branch} value={branch}>
+                <DropdownMenuRadioItem
+                  key={branch}
+                  title={branch}
+                  value={branch}
+                >
                   <span className="truncate font-mono text-xs">{branch}</span>
                 </DropdownMenuRadioItem>
               ))}
