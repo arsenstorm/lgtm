@@ -24,6 +24,7 @@ import { type DiffData, useDiff } from "@/features/changes/use-diff";
 import { useFileReview } from "@/features/changes/use-file-review";
 import { useReviewSession } from "@/features/changes/use-review-session";
 import { type DiffView, DiffViewer } from "@/features/diff/diff-viewer";
+import { diffWorkerPool } from "@/features/diff/worker-pool";
 import { ImportDialog } from "@/features/github/import-dialog";
 import { OpenPrDialog } from "@/features/github/open-pr-dialog";
 import { PrBrowserDialog } from "@/features/github/pr-browser-dialog";
@@ -409,6 +410,15 @@ function ReviewWorkspaceBody({
   prInfo,
 }: ReviewWorkspaceBodyProps) {
   useAutoRefresh(diff.refresh);
+
+  // Pre-highlight every file as soon as the diff lands so j/k navigation
+  // mounts straight from the worker pool's cache instead of highlighting on
+  // first view.
+  useEffect(() => {
+    for (const file of diff.data?.files ?? []) {
+      diffWorkerPool.primeDiffHighlightCache(file);
+    }
+  }, [diff.data]);
 
   const { resolvedTheme } = useTheme();
   const theme = resolvedTheme === "dark" ? "dark" : "light";

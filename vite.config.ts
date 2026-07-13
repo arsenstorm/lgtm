@@ -15,6 +15,12 @@ export default defineConfig(async () => ({
     },
   },
 
+  // The @pierre/diffs highlight worker code-splits, which the default iife
+  // worker format rejects.
+  worker: {
+    format: "es" as const,
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

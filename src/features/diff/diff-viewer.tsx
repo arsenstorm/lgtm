@@ -3,6 +3,7 @@ import {
   FileDiff,
   type FileDiffMetadata,
   type SelectedLineRange,
+  WorkerPoolContext,
 } from "@pierre/diffs/react";
 import { RiFileForbidLine, RiGitCommitLine } from "@remixicon/react";
 import { memo, useCallback, useMemo } from "react";
@@ -21,6 +22,7 @@ import { placeInlineComment } from "@/lib/github/inline-comment-map";
 import type { PrInlineComment } from "@/types/github";
 import type { ReviewComment, SuggestedComment } from "@/types/review";
 import { useCodeDragSelect } from "./use-code-drag-select";
+import { diffWorkerPool } from "./worker-pool";
 
 export type DiffView = "split" | "unified";
 
@@ -300,17 +302,18 @@ const RenderedDiff = memo(function RenderedDiff({
     ]
   );
 
-  // ponytail: worker pool disabled — main-thread highlight is plenty for a
-  // single visible file and avoids bundling a web worker into the Tauri webview.
+  // The worker pool highlights off the main thread and caches results across
+  // the keyed remounts above, so holding j/k switches files without jank.
   return (
-    <FileDiff
-      disableWorkerPool
-      fileDiff={file}
-      lineAnnotations={lineAnnotations}
-      options={options}
-      renderAnnotation={renderAnnotation}
-      selectedLines={selection}
-    />
+    <WorkerPoolContext.Provider value={diffWorkerPool}>
+      <FileDiff
+        fileDiff={file}
+        lineAnnotations={lineAnnotations}
+        options={options}
+        renderAnnotation={renderAnnotation}
+        selectedLines={selection}
+      />
+    </WorkerPoolContext.Provider>
   );
 });
 

@@ -36,6 +36,25 @@ const PARSE_ERROR: AppError = {
   details: "parsePatchFiles returned an unexpected shape for this patch.",
 };
 
+const FNV_OFFSET_BASIS = 0x81_1c_9d_c5;
+const FNV_PRIME = 0x01_00_01_93;
+
+/**
+ * FNV-1a content hash used as the parsePatchFiles cache-key prefix. The same
+ * patch always yields the same per-file cacheKeys, so the worker pool's
+ * highlight cache survives file switches and refreshes that change nothing.
+ */
+export function patchCacheKeyPrefix(patch: string): string {
+  let hash = FNV_OFFSET_BASIS;
+  for (let i = 0; i < patch.length; i++) {
+    // biome-ignore lint/suspicious/noBitwiseOperators: FNV-1a is bitwise by definition.
+    hash ^= patch.charCodeAt(i);
+    hash = Math.imul(hash, FNV_PRIME);
+  }
+  // biome-ignore lint/suspicious/noBitwiseOperators: >>> 0 casts to unsigned before stringifying.
+  return (hash >>> 0).toString(36);
+}
+
 /**
  * Fetches a raw patch via `fetcher`, parses it, and keeps the parsed diff +
  * session SHAs in sync. A monotonic fetch token guards against races: when the
@@ -69,7 +88,9 @@ export function useParsedDiff(fetcher: DiffFetcher, sessionId: string | null) {
         const result = await fetcher();
         let files: FileDiffMetadata[];
         try {
-          files = parsePatchFiles(result.patch)[0]?.files ?? [];
+          files =
+            parsePatchFiles(result.patch, patchCacheKeyPrefix(result.patch))[0]
+              ?.files ?? [];
         } catch {
           throw PARSE_ERROR;
         }
