@@ -36,6 +36,8 @@ const COMMON_DIFF_ARGS: [&str; 7] = [
     "--dst-prefix=b/",
 ];
 
+const MAX_UNTRACKED_PATCHES: usize = 100;
+
 fn is_remote_ref(name: &str) -> bool {
     name.starts_with("origin/")
 }
@@ -142,19 +144,36 @@ pub async fn get_diff(
             let mut args: Vec<&str> = vec!["diff"];
             args.extend_from_slice(&COMMON_DIFF_ARGS);
             args.push(target);
-            let patch = run_git_ok(repo_root, &args).await?.stdout_text();
+            let mut patch = run_git_ok(repo_root, &args).await?.stdout_text();
 
             let untracked_out = run_git_ok(
                 repo_root,
                 &["ls-files", "--others", "--exclude-standard", "-z"],
             )
             .await?;
-            let untracked = untracked_out
+            let untracked: Vec<String> = untracked_out
                 .stdout
                 .split(|&b| b == 0)
                 .filter(|chunk| !chunk.is_empty())
                 .map(|chunk| String::from_utf8_lossy(chunk).into_owned())
                 .collect();
+
+            // ponytail: one git spawn per untracked file, capped; overflow stays
+            // list-only in the sidebar. Batching would need index mutation, which
+            // LGTM never does to the repo under review.
+            for path in untracked.iter().take(MAX_UNTRACKED_PATCHES) {
+                let mut file_args: Vec<&str> = vec!["diff"];
+                file_args.extend_from_slice(&COMMON_DIFF_ARGS);
+                file_args.extend_from_slice(&["--no-index", "--", "/dev/null", path]);
+                if let Ok(out) = run_git(repo_root, &file_args).await {
+                    // --no-index exits 1 when the sides differ — that's success.
+                    // Anything else (unreadable file, oversized output) leaves the
+                    // file list-only rather than failing the whole diff.
+                    if matches!(out.status, Some(0) | Some(1)) {
+                        patch.push_str(&out.stdout_text());
+                    }
+                }
+            }
 
             Ok(DiffResult {
                 patch,
@@ -219,24 +238,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn working_tree_diff_excludes_untracked() {
+    async fn working_tree_diff_inlines_untracked_as_new_files() {
         let dir = init_repo();
         write_file(dir.path(), "tracked.txt", "one\n");
         git(dir.path(), &["add", "tracked.txt"]);
         commit(dir.path(), "initial");
 
         write_file(dir.path(), "tracked.txt", "one\ntwo\n");
-        write_file(dir.path(), "untracked.txt", "new\n");
+        write_file(dir.path(), "untracked.txt", "new content\n");
+        write_file(dir.path(), "empty.txt", "");
 
         let root = canonical(dir.path());
         let result = get_diff(&root, &DiffSourceArgs::WorkingTree, &std::env::temp_dir())
             .await
             .unwrap();
 
-        assert!(result.patch.contains("diff --git a/"));
         assert!(result.patch.contains("tracked.txt"));
-        assert!(!result.patch.contains("untracked.txt"));
-        assert_eq!(result.untracked, vec!["untracked.txt".to_string()]);
+        // Untracked content renders as a standard new-file diff.
+        assert!(result
+            .patch
+            .contains("diff --git a/untracked.txt b/untracked.txt"));
+        assert!(result.patch.contains("new file mode"));
+        assert!(result.patch.contains("+new content"));
+        // Empty untracked files still get a header (no hunks).
+        assert!(result.patch.contains("diff --git a/empty.txt b/empty.txt"));
+        // The name list is unchanged, sorted by git.
+        assert_eq!(
+            result.untracked,
+            vec!["empty.txt".to_string(), "untracked.txt".to_string()]
+        );
     }
 
     #[tokio::test]

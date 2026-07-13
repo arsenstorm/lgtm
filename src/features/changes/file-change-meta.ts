@@ -38,6 +38,13 @@ export function changeGlyph(type: FileDiffMetadata["type"]): ChangeGlyph {
   return CHANGE_GLYPHS[type];
 }
 
+/** Untracked files render as regular rows but keep their own glyph. */
+export const UNTRACKED_GLYPH: ChangeGlyph = {
+  letter: "U",
+  label: "Untracked",
+  className: "text-muted-foreground",
+};
+
 export type FileStats = { additions: number; deletions: number };
 
 export function fileStats(file: FileDiffMetadata): FileStats {

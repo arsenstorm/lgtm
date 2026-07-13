@@ -18,6 +18,7 @@ import {
   fileStats,
   isDisplayable,
   splitPath,
+  UNTRACKED_GLYPH,
 } from "./file-change-meta";
 
 type ChangedFileListProps = {
@@ -61,6 +62,10 @@ export function ChangedFileList({
     );
   }
 
+  const untrackedSet = new Set(untracked);
+  const shownNames = new Set(files.map((file) => file.name));
+  const listOnly = untracked.filter((path) => !shownNames.has(path));
+
   return (
     <div className="flex flex-col py-1">
       {files.map((file) => (
@@ -68,6 +73,7 @@ export function ChangedFileList({
           comments={commentCounts.get(file.name)}
           file={file}
           isSelected={file.name === selectedFile}
+          isUntracked={untrackedSet.has(file.name)}
           isViewed={viewed.has(file.name)}
           key={file.name}
           onSelect={onSelect}
@@ -76,14 +82,14 @@ export function ChangedFileList({
         />
       ))}
 
-      {untracked.length > 0 ? (
+      {listOnly.length > 0 ? (
         <div className="mt-2">
           <div className="flex items-center gap-1.5 px-3 py-1.5 text-muted-foreground text-xs uppercase tracking-wide">
             Untracked
             <span className="lowercase tracking-normal">(not shown)</span>
           </div>
           <ul>
-            {untracked.map((path) => (
+            {listOnly.map((path) => (
               <UntrackedRow key={path} path={path} />
             ))}
           </ul>
@@ -96,6 +102,7 @@ export function ChangedFileList({
 function FileRow({
   file,
   isSelected,
+  isUntracked,
   isViewed,
   comments,
   suggestions,
@@ -104,13 +111,14 @@ function FileRow({
 }: {
   file: FileDiffMetadata;
   isSelected: boolean;
+  isUntracked: boolean;
   isViewed: boolean;
   comments: FileCommentCount | undefined;
   suggestions: number;
   onSelect: (name: string) => void;
   onToggleViewed: (name: string) => void;
 }) {
-  const glyph = changeGlyph(file.type);
+  const glyph = isUntracked ? UNTRACKED_GLYPH : changeGlyph(file.type);
   const { additions, deletions } = fileStats(file);
   const { dir, name } = splitPath(file.name);
   const displayable = isDisplayable(file);
