@@ -103,5 +103,6 @@ export async function repositoryRecordForPr(
     remoteUrl: `https://github.com/${owner}/${repository}`,
     defaultBaseBranch: null,
     branches: [],
+    remoteBranches: [],
   });
 }

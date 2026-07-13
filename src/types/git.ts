@@ -8,11 +8,12 @@ export type RepositoryInfo = {
   remoteUrl: string | null;
   defaultBaseBranch: string | null;
   branches: string[];
+  remoteBranches: string[];
 };
 
 export type DiffSourceArgs =
   | { kind: "working-tree" }
-  | { kind: "branch"; base: string };
+  | { kind: "branch"; base: string; head?: string };
 
 export type DiffResult = {
   patch: string;

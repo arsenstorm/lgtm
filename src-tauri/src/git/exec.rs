@@ -47,6 +47,15 @@ pub async fn run_git_with_limits(
     args: &[&str],
     limits: &ExecLimits,
 ) -> Result<GitOutput, AppError> {
+    run_git_with_env(repo_dir, args, limits, &[]).await
+}
+
+pub async fn run_git_with_env(
+    repo_dir: &Path,
+    args: &[&str],
+    limits: &ExecLimits,
+    extra_env: &[(String, String)],
+) -> Result<GitOutput, AppError> {
     let mut cmd = tokio::process::Command::new("git");
     cmd.arg("-C")
         .arg(repo_dir)
@@ -62,6 +71,10 @@ pub async fn run_git_with_limits(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+
+    for (key, value) in extra_env {
+        cmd.env(key, value);
+    }
 
     let command_label = format!("git {}", args.first().copied().unwrap_or(""));
     run_command_with_limits(cmd, command_label, limits).await

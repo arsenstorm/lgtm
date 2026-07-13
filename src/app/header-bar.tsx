@@ -89,7 +89,11 @@ export function HeaderBar({
             {info.displayName}
           </span>
         )}
-        <BranchBadge info={info} />
+        {info.branches.length > 0 || info.remoteBranches.length > 0 ? (
+          <HeadSelector info={info} mode={mode} onModeChange={onModeChange} />
+        ) : (
+          <BranchBadge info={info} />
+        )}
         <span className="shrink-0 text-muted-foreground text-xs">vs</span>
         <ComparisonSelector
           info={info}
@@ -349,6 +353,90 @@ function BranchBadge({ info }: { info: RepositoryInfo }) {
   );
 }
 
+function HeadSelector({
+  info,
+  mode,
+  onModeChange,
+}: {
+  info: RepositoryInfo;
+  mode: ComparisonMode;
+  onModeChange: (mode: ComparisonMode) => void;
+}) {
+  const selectedHead =
+    mode.kind === "branch" && mode.head
+      ? mode.head
+      : (info.currentBranch ?? "HEAD");
+
+  const selectHead = (next: string) => {
+    if (next === info.currentBranch) {
+      if (mode.kind === "branch") {
+        onModeChange({ kind: "branch", base: mode.base });
+      }
+      return;
+    }
+    const base =
+      mode.kind === "branch"
+        ? mode.base
+        : (info.defaultBaseBranch ?? info.currentBranch ?? "HEAD");
+    onModeChange({ kind: "branch", base, head: next });
+  };
+
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              render={
+                <button
+                  className="flex min-w-0 shrink items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 font-mono text-muted-foreground text-xs transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  type="button"
+                >
+                  <RiGitBranchLine aria-hidden className="size-3 shrink-0" />
+                  <span className="truncate">{selectedHead}</span>
+                  <RiArrowDownSLine aria-hidden className="size-3 shrink-0" />
+                </button>
+              }
+            />
+          }
+        />
+        <TooltipContent>
+          Switch the branch under review — never touches your checkout
+        </TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent
+        align="start"
+        className="max-h-80 w-64 overflow-auto"
+      >
+        <DropdownMenuLabel>Review branch</DropdownMenuLabel>
+        <DropdownMenuRadioGroup onValueChange={selectHead} value={selectedHead}>
+          {info.branches.map((branch) => (
+            <DropdownMenuRadioItem key={branch} value={branch}>
+              <span className="truncate font-mono text-xs">{branch}</span>
+              {branch === info.currentBranch ? (
+                <span className="ml-auto shrink-0 pl-2 text-muted-foreground text-xs">
+                  checked out
+                </span>
+              ) : null}
+            </DropdownMenuRadioItem>
+          ))}
+          {info.remoteBranches.length > 0 ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Remote branches</DropdownMenuLabel>
+              {info.remoteBranches.map((branch) => (
+                <DropdownMenuRadioItem key={branch} value={branch}>
+                  <span className="truncate font-mono text-xs">{branch}</span>
+                </DropdownMenuRadioItem>
+              ))}
+            </>
+          ) : null}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function ComparisonSelector({
   info,
   mode,
@@ -360,6 +448,9 @@ function ComparisonSelector({
 }) {
   const value = mode.kind === "branch" ? mode.base : WORKING_TREE_VALUE;
   const base = mode.kind === "branch" ? mode.base : "Working tree";
+  // Another branch has no working tree, so the option only applies when the
+  // reviewed head is the checkout itself.
+  const headOverridden = mode.kind === "branch" && mode.head != null;
 
   return (
     <DropdownMenu>
@@ -390,19 +481,36 @@ function ComparisonSelector({
             if (next === WORKING_TREE_VALUE) {
               onModeChange({ kind: "working-tree" });
             } else {
-              onModeChange({ kind: "branch", base: next });
+              onModeChange({
+                kind: "branch",
+                base: next,
+                head: mode.kind === "branch" ? mode.head : undefined,
+              });
             }
           }}
           value={value}
         >
-          <DropdownMenuRadioItem value={WORKING_TREE_VALUE}>
-            Working tree
-          </DropdownMenuRadioItem>
+          {headOverridden ? null : (
+            <DropdownMenuRadioItem value={WORKING_TREE_VALUE}>
+              Working tree
+            </DropdownMenuRadioItem>
+          )}
           {info.branches.length > 0 ? (
             <>
-              <DropdownMenuSeparator />
+              {headOverridden ? null : <DropdownMenuSeparator />}
               <DropdownMenuLabel>Compare against branch</DropdownMenuLabel>
               {info.branches.map((branch) => (
+                <DropdownMenuRadioItem key={branch} value={branch}>
+                  <span className="truncate font-mono text-xs">{branch}</span>
+                </DropdownMenuRadioItem>
+              ))}
+            </>
+          ) : null}
+          {info.remoteBranches.length > 0 ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Remote branches</DropdownMenuLabel>
+              {info.remoteBranches.map((branch) => (
                 <DropdownMenuRadioItem key={branch} value={branch}>
                   <span className="truncate font-mono text-xs">{branch}</span>
                 </DropdownMenuRadioItem>

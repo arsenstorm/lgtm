@@ -204,6 +204,15 @@ impl GithubClient {
     }
 }
 
+/// Access token for git transport (shadow fetch). None when no credentials
+/// are stored or refresh fails; callers then fetch unauthenticated.
+pub async fn resolve_token_for_git() -> Option<String> {
+    GithubClient::resolve()
+        .await
+        .ok()
+        .map(|client| client.token.0)
+}
+
 fn network_error(e: reqwest::Error) -> AppError {
     AppError::NetworkFailed {
         message: e.to_string(),

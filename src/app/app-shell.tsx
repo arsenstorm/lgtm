@@ -237,15 +237,22 @@ function LocalReviewWorkspace({
   const session = useReviewSession({
     repositoryId: record.id,
     mode,
-    headRevision: info.currentBranch ?? "HEAD",
+    headRevision:
+      mode.kind === "branch" && mode.head
+        ? mode.head
+        : (info.currentBranch ?? "HEAD"),
   });
   const diff = useDiff({
     rootPath: info.rootPath,
     mode,
     sessionId: session?.id ?? null,
   });
-  const comparisonKey =
-    mode.kind === "branch" ? `branch:${mode.base}` : "working-tree";
+  let comparisonKey = "working-tree";
+  if (mode.kind === "branch") {
+    comparisonKey = mode.head
+      ? `branch:${mode.base}@${mode.head}`
+      : `branch:${mode.base}`;
+  }
 
   return (
     <ReviewWorkspaceBody
@@ -909,7 +916,6 @@ function ReviewWorkspaceBody({
         onOpenChange={setSummaryOpen}
         open={summaryOpen}
         outdatedThreads={outdatedThreads}
-        outdatedTotal={outdatedTotal}
         prInfo={prInfo}
         prLive={prLive}
         repoName={repoName}

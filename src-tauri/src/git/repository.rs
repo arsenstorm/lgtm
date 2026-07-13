@@ -15,6 +15,7 @@ pub struct RepositoryInfo {
     pub remote_url: Option<String>,
     pub default_base_branch: Option<String>,
     pub branches: Vec<String>,
+    pub remote_branches: Vec<String>,
 }
 
 pub async fn open_repository(path: &str) -> Result<RepositoryInfo, AppError> {
@@ -86,6 +87,25 @@ pub async fn open_repository(path: &str) -> Result<RepositoryInfo, AppError> {
         .filter(|l| !l.is_empty())
         .collect();
 
+    let remote_refs = run_git(
+        &root,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/remotes/origin",
+        ],
+    )
+    .await;
+    let remote_branches: Vec<String> = match remote_refs {
+        Ok(out) if out.ok() => out
+            .stdout_text()
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && l != "origin" && l != "origin/HEAD")
+            .collect(),
+        _ => Vec::new(),
+    };
+
     Ok(RepositoryInfo {
         root_path,
         display_name,
@@ -96,6 +116,7 @@ pub async fn open_repository(path: &str) -> Result<RepositoryInfo, AppError> {
         remote_url,
         default_base_branch,
         branches,
+        remote_branches,
     })
 }
 
@@ -168,6 +189,7 @@ mod tests {
         assert!(info.head_sha.is_some());
         assert!(!info.detached);
         assert!(!info.unborn);
+        assert!(info.remote_branches.is_empty());
     }
 
     #[tokio::test]
