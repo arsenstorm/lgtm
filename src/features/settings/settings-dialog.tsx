@@ -28,6 +28,12 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useGithubAuth } from "@/features/github/use-github-auth";
 import { useMemoryCollection } from "@/features/memory/use-memory-collection";
+import {
+  type KeybindableId,
+  resetKeybinds,
+  setKeybind,
+  useKeybinds,
+} from "@/features/reviews/use-keybinds";
 
 type SettingsSection = "general" | "github" | "memory" | "keybinds" | "help";
 
@@ -43,17 +49,16 @@ const SECTIONS: { id: SettingsSection; label: string; icon: ReactNode }[] = [
   { id: "help", label: "Help", icon: <RiQuestionLine aria-hidden /> },
 ];
 
-// Mirrors the review shortcuts registered in src/app/app-shell.tsx.
-const KEYBINDS: { keys: string[]; label: string }[] = [
-  { keys: ["J"], label: "Next file" },
-  { keys: ["K"], label: "Previous file" },
-  { keys: ["N"], label: "Next comment" },
-  { keys: ["P"], label: "Previous comment" },
-  { keys: ["C"], label: "Comment on selected lines" },
-  { keys: ["V"], label: "Toggle file viewed" },
-  { keys: ["R"], label: "Refresh diff" },
-  { keys: ["S"], label: "Open review summary" },
-  { keys: ["⌘", "K"], label: "Command palette" },
+// Labels for the rebindable actions in src/app/app-shell.tsx.
+const KEYBIND_ROWS: { id: KeybindableId; label: string }[] = [
+  { id: "next-file", label: "Next file" },
+  { id: "prev-file", label: "Previous file" },
+  { id: "next-comment", label: "Next comment" },
+  { id: "prev-comment", label: "Previous comment" },
+  { id: "comment", label: "Comment on selected lines" },
+  { id: "toggle-viewed", label: "Toggle file viewed" },
+  { id: "refresh", label: "Refresh diff" },
+  { id: "summary", label: "Open review summary" },
 ];
 
 const THEME_OPTIONS = [
@@ -240,27 +245,117 @@ function MemorySection() {
 }
 
 function KeybindsSection() {
+  const keys = useKeybinds();
+  const [capturing, setCapturing] = useState<KeybindableId | null>(null);
+  const [conflict, setConflict] = useState<{
+    id: KeybindableId;
+    withLabel: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (capturing === null) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        setCapturing(null);
+        setConflict(null);
+        return;
+      }
+      if (
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.key.length !== 1 ||
+        event.key === " "
+      ) {
+        return;
+      }
+      setKeybind(capturing, event.key)
+        .then((result) => {
+          if (result.ok) {
+            setCapturing(null);
+            setConflict(null);
+          } else {
+            const row = KEYBIND_ROWS.find(
+              (item) => item.id === result.conflictWith
+            );
+            setConflict({
+              id: capturing,
+              withLabel: row?.label ?? result.conflictWith,
+            });
+          }
+        })
+        .catch(() => {
+          // Rebind write failed; leave capture as-is for the user to retry.
+        });
+    };
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, [capturing]);
+
+  const startCapture = (id: KeybindableId) => {
+    setConflict(null);
+    setCapturing((prev) => (prev === id ? null : id));
+  };
+
   return (
     <div>
       <div className="divide-y">
-        {KEYBINDS.map((bind) => (
-          <div
-            className="flex items-center justify-between gap-4 py-2.5"
-            key={bind.label}
-          >
-            <span className="text-sm">{bind.label}</span>
-            <KbdGroup>
-              {bind.keys.map((chunk) => (
-                <Kbd key={chunk}>{chunk}</Kbd>
-              ))}
-            </KbdGroup>
+        {KEYBIND_ROWS.map((row) => (
+          <div className="py-2.5" key={row.id}>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm">{row.label}</span>
+              <Button
+                onClick={() => startCapture(row.id)}
+                size="sm"
+                variant="ghost"
+              >
+                {capturing === row.id ? (
+                  <span className="text-muted-foreground text-xs">
+                    Press a key…
+                  </span>
+                ) : (
+                  <Kbd>{keys[row.id].toUpperCase()}</Kbd>
+                )}
+              </Button>
+            </div>
+            {conflict?.id === row.id ? (
+              <p className="text-destructive text-xs">
+                Already used by {conflict.withLabel}
+              </p>
+            ) : null}
           </div>
         ))}
+        <div className="flex items-center justify-between gap-4 py-2.5">
+          <span className="text-sm">Command palette</span>
+          <KbdGroup>
+            <Kbd>⌘</Kbd>
+            <Kbd>K</Kbd>
+          </KbdGroup>
+        </div>
       </div>
-      <p className="pt-3 text-muted-foreground text-xs">
-        Shortcuts are active in the review workspace and never fire while you're
-        typing.
-      </p>
+      <div className="flex items-center justify-between gap-4 pt-3">
+        <p className="text-muted-foreground text-xs">
+          Shortcuts are active in the review workspace and never fire while
+          you're typing.
+        </p>
+        <Button
+          className="text-muted-foreground"
+          onClick={() => {
+            resetKeybinds().catch(() => {
+              // Reset write failed; live values stay put until the next edit.
+            });
+          }}
+          size="sm"
+          variant="ghost"
+        >
+          Reset to defaults
+        </Button>
+      </div>
     </div>
   );
 }

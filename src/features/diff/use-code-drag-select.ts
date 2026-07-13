@@ -32,10 +32,11 @@ function sameRange(a: SelectedLineRange, b: SelectedLineRange): boolean {
  * The diff lives in an open shadow root, so rows are resolved from each
  * event's `composedPath()`; native text selection is left alone (copying
  * still works) and gutter presses are ignored — the diff renderer owns those.
- * A plain click never selects; the drag arms only after real pointer travel.
+ * A plain click never selects — the drag arms only after real pointer
+ * travel — and instead emits `null` to clear any existing selection.
  */
 export function useCodeDragSelect(
-  onSelectionChange: (range: SelectedLineRange) => void
+  onSelectionChange: (range: SelectedLineRange | null) => void
 ) {
   const dragRef = useRef<DragState | null>(null);
 
@@ -90,7 +91,18 @@ export function useCodeDragSelect(
       onSelectionChange(range);
     };
 
-    const endDrag = (event: ReactPointerEvent) => {
+    const onPointerUp = (event: ReactPointerEvent) => {
+      const drag = dragRef.current;
+      if (drag?.pointerId !== event.pointerId) {
+        return;
+      }
+      dragRef.current = null;
+      if (!drag.active) {
+        onSelectionChange(null);
+      }
+    };
+
+    const onPointerCancel = (event: ReactPointerEvent) => {
       if (dragRef.current?.pointerId === event.pointerId) {
         dragRef.current = null;
       }
@@ -99,8 +111,8 @@ export function useCodeDragSelect(
     return {
       onPointerDown,
       onPointerMove,
-      onPointerUp: endDrag,
-      onPointerCancel: endDrag,
+      onPointerUp,
+      onPointerCancel,
     };
   }, [onSelectionChange]);
 }

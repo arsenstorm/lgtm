@@ -40,6 +40,7 @@ import {
 } from "@/features/repositories/use-repository";
 import { CommandPalette } from "@/features/reviews/command-palette";
 import { ReviewSummary } from "@/features/reviews/review-summary";
+import { useKeybinds } from "@/features/reviews/use-keybinds";
 import { useReviewComments } from "@/features/reviews/use-review-comments";
 import {
   type ReviewAction,
@@ -565,10 +566,12 @@ function ReviewWorkspaceBody({
     [selected, selection, session, diff.data, comments]
   );
 
+  const keys = useKeybinds();
+
   const openComposer = useCallback(() => {
     if (!selection) {
       toast("Select lines first", {
-        description: "Drag across the gutter, then press c.",
+        description: `Drag across the code, then press ${keys.comment.toUpperCase()}.`,
       });
       return;
     }
@@ -581,7 +584,7 @@ function ReviewWorkspaceBody({
       return;
     }
     setComposerOpen(true);
-  }, [selection]);
+  }, [selection, keys.comment]);
 
   const navigateToComment = useCallback((comment: ReviewComment) => {
     setSelectedFile(comment.anchor.path);
@@ -626,63 +629,63 @@ function ReviewWorkspaceBody({
       {
         id: "next-file",
         label: "Next file",
-        hint: ["J"],
-        key: "j",
+        hint: [keys["next-file"].toUpperCase()],
+        key: keys["next-file"],
         run: () => stepFile(1),
         disabled: files.length < 2,
       },
       {
         id: "prev-file",
         label: "Previous file",
-        hint: ["K"],
-        key: "k",
+        hint: [keys["prev-file"].toUpperCase()],
+        key: keys["prev-file"],
         run: () => stepFile(-1),
         disabled: files.length < 2,
       },
       {
         id: "next-comment",
         label: "Next comment",
-        hint: ["N"],
-        key: "n",
+        hint: [keys["next-comment"].toUpperCase()],
+        key: keys["next-comment"],
         run: () => stepComment(1),
         disabled: comments.ordered.length === 0,
       },
       {
         id: "prev-comment",
         label: "Previous comment",
-        hint: ["P"],
-        key: "p",
+        hint: [keys["prev-comment"].toUpperCase()],
+        key: keys["prev-comment"],
         run: () => stepComment(-1),
         disabled: comments.ordered.length === 0,
       },
       {
         id: "comment",
         label: "Comment on selection",
-        hint: ["C"],
-        key: "c",
+        hint: [keys.comment.toUpperCase()],
+        key: keys.comment,
         run: openComposer,
         disabled: !selected,
       },
       {
         id: "toggle-viewed",
         label: "Toggle file viewed",
-        hint: ["V"],
-        key: "v",
+        hint: [keys["toggle-viewed"].toUpperCase()],
+        key: keys["toggle-viewed"],
         run: () => selected && review.toggle(selected.name),
         disabled: !selected,
       },
       {
         id: "refresh",
         label: "Refresh diff",
-        hint: ["R"],
-        key: "r",
+        hint: [keys.refresh.toUpperCase()],
+        key: keys.refresh,
         run: diff.refresh,
       },
       {
         id: "summary",
         label: "Open review summary",
-        hint: ["S"],
-        key: "s",
+        hint: [keys.summary.toUpperCase()],
+        key: keys.summary,
         run: () => setSummaryOpen(true),
       },
       {
@@ -703,6 +706,7 @@ function ReviewWorkspaceBody({
       stepComment,
       review,
       diff.refresh,
+      keys,
     ]
   );
 

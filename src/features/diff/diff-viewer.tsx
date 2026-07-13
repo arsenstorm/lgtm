@@ -84,9 +84,19 @@ export function DiffViewer({
   onRetry,
   ...annotationProps
 }: DiffViewerProps) {
-  const dragSelectHandlers = useCodeDragSelect(
-    annotationProps.onSelectionChange
+  const { composerOpen, onSelectionChange } = annotationProps;
+  const handleDragSelection = useCallback(
+    (range: SelectedLineRange | null) => {
+      // A plain click clears the selection — unless the composer is open,
+      // where it would silently discard the draft anchored to it.
+      if (range === null && composerOpen) {
+        return;
+      }
+      onSelectionChange(range);
+    },
+    [composerOpen, onSelectionChange]
   );
+  const dragSelectHandlers = useCodeDragSelect(handleDragSelection);
 
   if (error) {
     return (
