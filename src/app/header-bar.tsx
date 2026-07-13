@@ -408,8 +408,10 @@ function HeadSelector({
         align="start"
         className="max-h-80 w-64 overflow-auto"
       >
-        <DropdownMenuLabel>Review branch</DropdownMenuLabel>
+        {/* Base UI GroupLabel throws outside a (Radio)Group, so the label
+            lives inside the radio group. */}
         <DropdownMenuRadioGroup onValueChange={selectHead} value={selectedHead}>
+          <DropdownMenuLabel>Review branch</DropdownMenuLabel>
           {info.branches.map((branch) => (
             <DropdownMenuRadioItem key={branch} value={branch}>
               <span className="truncate font-mono text-xs">{branch}</span>
