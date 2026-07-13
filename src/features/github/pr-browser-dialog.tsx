@@ -1,10 +1,12 @@
 import {
   RiArrowLeftLine,
+  RiGitMergeLine,
   RiGitPullRequestLine,
   RiRefreshLine,
 } from "@remixicon/react";
+import { cn } from "cnfast";
 import { formatDistanceToNow } from "date-fns";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +20,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { type AppError, toAppError } from "@/lib/errors/app-error";
-import { listOpenPullRequests } from "@/lib/tauri/github";
+import { listPullRequests } from "@/lib/tauri/github";
 import type { PullRequestSummary } from "@/types/github";
 
 type PrBrowserDialogProps = {
@@ -38,6 +40,26 @@ type ListState = {
   error: AppError | null;
 };
 
+type StateFilter = "open" | "closed" | "all";
+
+// Height of the body region; matches ~7 PrRow-sized rows so every state
+// (skeleton, error, empty, list) is the same size and the dialog never jumps.
+const BODY_HEIGHT = "h-[400px]";
+
+const EMPTY_LABELS: Record<StateFilter, string> = {
+  open: "No open pull requests",
+  closed: "No closed pull requests",
+  all: "No pull requests",
+};
+
+function matchesFilter(pr: PullRequestSummary, filter: StateFilter): boolean {
+  if (filter === "all") {
+    return true;
+  }
+  // Merged PRs are "closed" on GitHub; they surface under the Closed filter.
+  return pr.state === filter;
+}
+
 function usePrList(owner: string, repository: string, open: boolean) {
   const [state, setState] = useState<ListState>({
     prs: [],
@@ -48,7 +70,7 @@ function usePrList(owner: string, repository: string, open: boolean) {
   const load = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      const prs = await listOpenPullRequests(owner, repository);
+      const prs = await listPullRequests(owner, repository);
       setState({ prs, loading: false, error: null });
     } catch (error) {
       setState({ prs: [], loading: false, error: toAppError(error) });
@@ -66,9 +88,10 @@ function usePrList(owner: string, repository: string, open: boolean) {
 }
 
 /**
- * Browses a repository's open pull requests and opens one into the review
- * workspace. Fetches the 50 most recently updated on open; selecting a row
- * hands off to the same open-PR flow used by the URL dialog.
+ * Browses a repository's pull requests (all states) and opens one into the
+ * review workspace. Fetches the 100 most recently updated on open; selecting a
+ * row hands off to the same open-PR flow used by the URL dialog. Closed and
+ * merged PRs are selectable — opening them works downstream.
  */
 export function PrBrowserDialog({
   open,
@@ -82,13 +105,28 @@ export function PrBrowserDialog({
   const { prs, loading, error, reload } = usePrList(owner, repository, open);
   const [openingUrl, setOpeningUrl] = useState<string | null>(null);
   const [openError, setOpenError] = useState<AppError | null>(null);
+  const [filter, setFilter] = useState<StateFilter>("open");
 
   useEffect(() => {
     if (open) {
       setOpenError(null);
       setOpeningUrl(null);
+      setFilter("open");
     }
   }, [open]);
+
+  const counts = useMemo(
+    () => ({
+      open: prs.filter((pr) => pr.state === "open").length,
+      closed: prs.filter((pr) => pr.state === "closed").length,
+      all: prs.length,
+    }),
+    [prs]
+  );
+  const filtered = useMemo(
+    () => prs.filter((pr) => matchesFilter(pr, filter)),
+    [prs, filter]
+  );
 
   const selectPr = useCallback(
     async (url: string) => {
@@ -113,12 +151,12 @@ export function PrBrowserDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-6">
             <DialogTitle className="flex items-center gap-2">
               <RiGitPullRequestLine aria-hidden className="size-4" />
-              Open pull requests
+              Pull requests
             </DialogTitle>
             <Button
               aria-label="Refresh"
@@ -135,22 +173,78 @@ export function PrBrowserDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <StateFilterControl
+          counts={counts}
+          onChange={setFilter}
+          showCounts={!(loading || listError)}
+          value={filter}
+        />
+
         <PrListBody
           error={listError}
+          filter={filter}
           loading={loading}
           onManageToken={onManageToken}
           onSelect={selectPr}
           openingUrl={openingUrl}
-          prs={prs}
+          prs={filtered}
         />
       </DialogContent>
     </Dialog>
   );
 }
 
+const FILTER_OPTIONS: { value: StateFilter; label: string }[] = [
+  { value: "open", label: "Open" },
+  { value: "closed", label: "Closed" },
+  { value: "all", label: "All" },
+];
+
+function StateFilterControl({
+  value,
+  counts,
+  showCounts,
+  onChange,
+}: {
+  value: StateFilter;
+  counts: Record<StateFilter, number>;
+  showCounts: boolean;
+  onChange: (filter: StateFilter) => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
+      {FILTER_OPTIONS.map((option) => {
+        const active = value === option.value;
+        return (
+          <button
+            aria-pressed={active}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 font-medium text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              active
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            type="button"
+          >
+            {option.label}
+            {showCounts ? (
+              <span className="text-muted-foreground text-xs tabular-nums">
+                {counts[option.value]}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function PrListBody({
   loading,
   error,
+  filter,
   prs,
   openingUrl,
   onSelect,
@@ -158,6 +252,7 @@ function PrListBody({
 }: {
   loading: boolean;
   error: AppError | null;
+  filter: StateFilter;
   prs: PullRequestSummary[];
   openingUrl: string | null;
   onSelect: (url: string) => void;
@@ -165,28 +260,37 @@ function PrListBody({
 }) {
   if (loading) {
     return (
-      <div className="flex flex-col gap-1">
-        {["a", "b", "c", "d", "e"].map((key) => (
-          <Skeleton className="h-12 rounded-lg" key={key} />
+      <div className={cn(BODY_HEIGHT, "flex flex-col")}>
+        {["a", "b", "c", "d", "e", "f", "g"].map((key) => (
+          <PrRowSkeleton key={key} />
         ))}
       </div>
     );
   }
 
   if (error) {
-    return <PrListError error={error} onManageToken={onManageToken} />;
+    return (
+      <div className={cn(BODY_HEIGHT, "flex flex-col justify-center")}>
+        <PrListError error={error} onManageToken={onManageToken} />
+      </div>
+    );
   }
 
   if (prs.length === 0) {
     return (
-      <p className="py-8 text-center text-muted-foreground text-sm">
-        No open pull requests
-      </p>
+      <div
+        className={cn(
+          BODY_HEIGHT,
+          "flex items-center justify-center text-muted-foreground text-sm"
+        )}
+      >
+        {EMPTY_LABELS[filter]}
+      </div>
     );
   }
 
   return (
-    <ScrollArea className="-mx-2 max-h-[60vh]">
+    <ScrollArea className={cn(BODY_HEIGHT, "-mx-2")}>
       <ul className="flex flex-col px-2">
         {prs.map((pr) => (
           <PrRow
@@ -199,6 +303,21 @@ function PrListBody({
         ))}
       </ul>
     </ScrollArea>
+  );
+}
+
+// Mirrors PrRow's structure (px-2 py-2, gap-1, two text lines) so skeleton and
+// loaded rows are pixel-identical in height — no layout shift on load.
+function PrRowSkeleton() {
+  return (
+    <div className="flex flex-col gap-1 px-2 py-2">
+      <div className="flex h-5 items-center">
+        <Skeleton className="h-3.5 w-2/3" />
+      </div>
+      <div className="flex h-4 items-center">
+        <Skeleton className="h-3 w-1/3" />
+      </div>
+    </div>
   );
 }
 
@@ -275,6 +394,7 @@ function PrRow({
               Draft
             </Badge>
           ) : null}
+          <PrStateBadge pr={pr} />
           {busy ? <Spinner className="size-3.5 shrink-0" /> : null}
         </span>
         <span className="flex min-w-0 items-center gap-2 text-muted-foreground text-xs">
@@ -291,4 +411,29 @@ function PrRow({
       </button>
     </li>
   );
+}
+
+function PrStateBadge({ pr }: { pr: PullRequestSummary }) {
+  if (pr.merged) {
+    return (
+      <Badge
+        className="shrink-0 gap-1 border-violet-600/40 text-violet-600 dark:text-violet-400"
+        variant="outline"
+      >
+        <RiGitMergeLine aria-hidden />
+        Merged
+      </Badge>
+    );
+  }
+  if (pr.state === "closed") {
+    return (
+      <Badge
+        className="shrink-0 border-red-600/40 text-red-600 dark:text-red-400"
+        variant="outline"
+      >
+        Closed
+      </Badge>
+    );
+  }
+  return null;
 }

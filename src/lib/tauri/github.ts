@@ -109,7 +109,7 @@ export async function importGithubReviewComments(
   }
 }
 
-export async function listOpenPullRequests(
+export async function listPullRequests(
   owner: string,
   repository: string
 ): Promise<PullRequestSummary[]> {

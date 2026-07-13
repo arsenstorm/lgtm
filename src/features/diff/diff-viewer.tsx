@@ -16,6 +16,7 @@ import { CommentCard } from "@/features/reviews/comment-card";
 import { CommentComposer } from "@/features/reviews/comment-composer";
 import { commentAnnotationSide } from "@/features/reviews/use-review-comments";
 import { anchorSideToPatchSide } from "@/lib/diff/anchor";
+import { selectionToLineRange } from "@/lib/diff/dom-selection";
 import type { AppError } from "@/lib/errors/app-error";
 import { placeInlineComment } from "@/lib/github/inline-comment-map";
 import type { PrInlineComment } from "@/types/github";
@@ -128,7 +129,15 @@ export function DiffViewer({
   }
 
   return (
-    <div className="h-full overflow-auto">
+    <div
+      className="h-full overflow-auto"
+      onPointerUp={(event) => {
+        const range = selectionToLineRange(event.currentTarget);
+        if (range) {
+          annotationProps.onSelectionChange(range);
+        }
+      }}
+    >
       <RenderedDiff
         file={file}
         // Stable key per file + comparison + view forces a clean remount
@@ -177,6 +186,7 @@ const RenderedDiff = memo(function RenderedDiff({
       overflow: "scroll" as const,
       enableLineSelection: true,
       onLineSelected: onSelectionChange,
+      onLineSelectionChange: onSelectionChange,
     }),
     [view, theme, onSelectionChange]
   );

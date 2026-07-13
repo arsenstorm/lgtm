@@ -67,6 +67,8 @@ export type PullRequestSummary = {
   draft: boolean;
   updatedAt: string;
   htmlUrl: string;
+  state: string;
+  merged: boolean;
 };
 
 export type MergeMethod = "merge" | "squash" | "rebase";

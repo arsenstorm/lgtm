@@ -66,6 +66,9 @@ struct GhPullSummary {
     draft: bool,
     updated_at: String,
     html_url: String,
+    state: String,
+    #[serde(default)]
+    merged_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,6 +152,8 @@ fn pull_request_summary(pr: GhPullSummary) -> PullRequestSummary {
         draft: pr.draft,
         updated_at: pr.updated_at,
         html_url: pr.html_url,
+        state: pr.state,
+        merged: pr.merged_at.is_some(),
     }
 }
 
@@ -373,7 +378,7 @@ pub async fn github_list_pull_requests(
     let client = GithubClient::resolve().await?;
 
     let path = format!(
-        "/repos/{owner}/{repository}/pulls?state=open&sort=updated&direction=desc&per_page=50"
+        "/repos/{owner}/{repository}/pulls?state=all&sort=updated&direction=desc&per_page=100"
     );
     let reference = format!("{owner}/{repository}");
     let prs: Vec<GhPullSummary> = client
@@ -1010,7 +1015,9 @@ mod tests {
                 "head": {"ref": "feature-branch"},
                 "draft": true,
                 "updated_at": "2024-01-01T00:00:00Z",
-                "html_url": "https://github.com/foo/bar/pull/42"
+                "html_url": "https://github.com/foo/bar/pull/42",
+                "state": "closed",
+                "merged_at": "2026-07-01T00:00:00Z"
             },
             {
                 "number": 7,
@@ -1019,7 +1026,8 @@ mod tests {
                 "base": {"ref": "main"},
                 "head": {"ref": "fix-branch"},
                 "updated_at": "2024-02-02T00:00:00Z",
-                "html_url": "https://github.com/foo/bar/pull/7"
+                "html_url": "https://github.com/foo/bar/pull/7",
+                "state": "open"
             }
         ]"#;
 
@@ -1037,9 +1045,13 @@ mod tests {
         assert!(summaries[0].draft);
         assert_eq!(summaries[0].updated_at, "2024-01-01T00:00:00Z");
         assert_eq!(summaries[0].html_url, "https://github.com/foo/bar/pull/42");
+        assert_eq!(summaries[0].state, "closed");
+        assert!(summaries[0].merged);
 
         assert_eq!(summaries[1].number, 7);
         assert!(!summaries[1].draft);
+        assert_eq!(summaries[1].state, "open");
+        assert!(!summaries[1].merged);
     }
 
     #[test]

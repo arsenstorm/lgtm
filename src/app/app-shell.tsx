@@ -19,6 +19,7 @@ import {
   type ComparisonMode,
   describeComparison,
 } from "@/features/changes/comparison";
+import { useAutoRefresh } from "@/features/changes/use-auto-refresh";
 import { type DiffData, useDiff } from "@/features/changes/use-diff";
 import { useFileReview } from "@/features/changes/use-file-review";
 import { useReviewSession } from "@/features/changes/use-review-session";
@@ -43,6 +44,7 @@ import {
   type ReviewAction,
   useReviewShortcuts,
 } from "@/features/reviews/use-review-shortcuts";
+import { SettingsDialog } from "@/features/settings/settings-dialog";
 import { buildAnchor } from "@/lib/diff/anchor";
 import type { AppError } from "@/lib/errors/app-error";
 import { placeInlineComment } from "@/lib/github/inline-comment-map";
@@ -58,6 +60,7 @@ const FLASH_MS = 2000;
 export function AppShell() {
   const repo = useRepository();
   const [tokenOpen, setTokenOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [prOpen, setPrOpen] = useState(false);
   const [prPrefill, setPrPrefill] = useState("");
   const [prBrowserOpen, setPrBrowserOpen] = useState(false);
@@ -67,6 +70,7 @@ export function AppShell() {
     setPrOpen(true);
   }, []);
   const openTokenDialog = useCallback(() => setTokenOpen(true), []);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
   const openPrBrowser = useCallback(() => {
     setPrOpen(false);
     setPrBrowserOpen(true);
@@ -105,12 +109,18 @@ export function AppShell() {
         onOpenPicker={repo.openFromPicker}
         onOpenPr={() => openPrDialog()}
         onOpenRecent={onOpenRecent}
+        onOpenSettings={openSettings}
         onRefreshBundle={repo.openPr}
         opening={repo.opening}
         recents={repo.recents}
         recentsLoading={repo.recentsLoading}
       />
       <TokenDialog onOpenChange={setTokenOpen} open={tokenOpen} />
+      <SettingsDialog
+        onManageGithub={openTokenDialog}
+        onOpenChange={setSettingsOpen}
+        open={settingsOpen}
+      />
       <OpenPrDialog
         onBrowsePrs={localRemote ? openPrBrowser : undefined}
         onManageToken={openTokenDialog}
@@ -141,6 +151,7 @@ function ActiveView({
   onClose,
   onManageToken,
   onOpenPr,
+  onOpenSettings,
   onRefreshBundle,
   ...pickerProps
 }: {
@@ -149,6 +160,7 @@ function ActiveView({
   onClose: () => void;
   onManageToken: () => void;
   onOpenPr: () => void;
+  onOpenSettings: () => void;
   onRefreshBundle: (url: string) => Promise<AppError | null>;
   recents: RepositoryRecord[];
   recentsLoading: boolean;
@@ -177,6 +189,7 @@ function ActiveView({
         onClose={onClose}
         onManageToken={onManageToken}
         onOpenPrDialog={onOpenPr}
+        onOpenSettings={onOpenSettings}
         onRefreshBundle={onRefreshBundle}
       />
     );
@@ -189,6 +202,7 @@ function ActiveView({
       onClose={onClose}
       onManageToken={onManageToken}
       onOpenPrDialog={onOpenPr}
+      onOpenSettings={onOpenSettings}
     />
   );
 }
@@ -207,12 +221,14 @@ function LocalReviewWorkspace({
   onClose,
   onManageToken,
   onOpenPrDialog,
+  onOpenSettings,
 }: {
   active: Extract<ActiveSource, { kind: "local" }>;
   onBrowsePrs?: () => void;
   onClose: () => void;
   onManageToken: () => void;
   onOpenPrDialog: () => void;
+  onOpenSettings: () => void;
 }) {
   const { info, record } = active;
   const [mode, setMode] = useState<ComparisonMode>({ kind: "working-tree" });
@@ -237,6 +253,7 @@ function LocalReviewWorkspace({
       onBrowsePrs={onBrowsePrs}
       onManageToken={onManageToken}
       onOpenPrDialog={onOpenPrDialog}
+      onOpenSettings={onOpenSettings}
       record={record}
       renderHeader={(view, onViewChange) => (
         <HeaderBar
@@ -244,11 +261,9 @@ function LocalReviewWorkspace({
           mode={mode}
           onBrowsePrs={onBrowsePrs}
           onClose={onClose}
-          onManageToken={onManageToken}
           onModeChange={setMode}
-          onRefresh={diff.refresh}
+          onOpenSettings={onOpenSettings}
           onViewChange={onViewChange}
-          refreshing={diff.refreshing}
           view={view}
         />
       )}
@@ -264,12 +279,14 @@ function PrReviewWorkspace({
   onClose,
   onManageToken,
   onOpenPrDialog,
+  onOpenSettings,
   onRefreshBundle,
 }: {
   active: Extract<ActiveSource, { kind: "github-pr" }>;
   onClose: () => void;
   onManageToken: () => void;
   onOpenPrDialog: () => void;
+  onOpenSettings: () => void;
   onRefreshBundle: (url: string) => Promise<AppError | null>;
 }) {
   const { bundle, record } = active;
@@ -311,6 +328,7 @@ function PrReviewWorkspace({
         onImport={openImport}
         onManageToken={onManageToken}
         onOpenPrDialog={onOpenPrDialog}
+        onOpenSettings={onOpenSettings}
         prInfo={info}
         prLive={prLive}
         record={record}
@@ -320,10 +338,8 @@ function PrReviewWorkspace({
             info={info}
             onClose={onClose}
             onImport={openImport}
-            onManageToken={onManageToken}
-            onRefresh={diff.refresh}
+            onOpenSettings={onOpenSettings}
             onViewChange={onViewChange}
-            refreshing={diff.refreshing}
             view={view}
           />
         )}
@@ -361,6 +377,7 @@ type ReviewWorkspaceBodyProps = {
   ) => ReactNode;
   onManageToken: () => void;
   onOpenPrDialog: () => void;
+  onOpenSettings: () => void;
   onBrowsePrs?: () => void;
   onImport?: () => void;
   submitBase?: Pick<SubmitContext, "owner" | "repository" | "pullNumber">;
@@ -384,12 +401,15 @@ function ReviewWorkspaceBody({
   renderHeader,
   onManageToken,
   onOpenPrDialog,
+  onOpenSettings,
   onBrowsePrs,
   onImport,
   submitBase,
   prLive,
   prInfo,
 }: ReviewWorkspaceBodyProps) {
+  useAutoRefresh(diff.refresh);
+
   const { resolvedTheme } = useTheme();
   const theme = resolvedTheme === "dark" ? "dark" : "light";
 
@@ -739,6 +759,13 @@ function ReviewWorkspaceBody({
         hint: [],
         key: "",
         run: onManageToken,
+      },
+      {
+        id: "settings",
+        label: "Settings…",
+        hint: [],
+        key: "",
+        run: onOpenSettings,
       }
     );
     return [...actions, ...extras];
@@ -751,6 +778,7 @@ function ReviewWorkspaceBody({
     onBrowsePrs,
     onOpenPrDialog,
     onManageToken,
+    onOpenSettings,
   ]);
 
   const submit = useMemo<SubmitContext | undefined>(() => {
@@ -776,7 +804,7 @@ function ReviewWorkspaceBody({
       {renderHeader(view, setView)}
 
       <ResizablePanelGroup className="flex-1" orientation="horizontal">
-        <ResizablePanel defaultSize={26} minSize="180px">
+        <ResizablePanel defaultSize="300px" maxSize="50%" minSize="200px">
           <ScrollArea className="h-full">
             <ChangedFileList
               commentCounts={comments.counts}
@@ -794,7 +822,7 @@ function ReviewWorkspaceBody({
 
         <ResizableHandle withHandle />
 
-        <ResizablePanel defaultSize={74} minSize={30}>
+        <ResizablePanel minSize={30}>
           <DiffViewer
             activeCommentId={activeCommentId}
             comments={fileComments}
@@ -829,10 +857,10 @@ function ReviewWorkspaceBody({
       <StatusBar
         changedCount={files.length}
         commentCount={comments.comments.length}
-        comparisonLabel={comparisonLabel}
         headSha={diff.data?.headSha ?? statusHeadSha}
         onOpenReview={() => setSummaryOpen(true)}
         outdatedCount={outdatedTotal}
+        refreshing={diff.refreshing}
         suggestionCount={suggestions.total}
         untrackedCount={untracked.length}
         viewedCount={viewedCount}

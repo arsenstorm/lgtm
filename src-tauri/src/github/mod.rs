@@ -38,6 +38,8 @@ pub struct PullRequestSummary {
     pub draft: bool,
     pub updated_at: String,
     pub html_url: String,
+    pub state: String,
+    pub merged: bool,
 }
 
 pub struct PrRef {

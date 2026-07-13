@@ -1,11 +1,12 @@
 import { RiChatThreadLine, RiSparkling2Line } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 type StatusBarProps = {
   changedCount: number;
   viewedCount: number;
   untrackedCount: number;
-  comparisonLabel: string;
+  refreshing: boolean;
   headSha: string | null;
   commentCount: number;
   outdatedCount: number;
@@ -17,7 +18,7 @@ export function StatusBar({
   changedCount,
   viewedCount,
   untrackedCount,
-  comparisonLabel,
+  refreshing,
   headSha,
   commentCount,
   outdatedCount,
@@ -37,7 +38,8 @@ export function StatusBar({
           {suggestionCount} suggestion{suggestionCount === 1 ? "" : "s"}
         </span>
       ) : null}
-      <span className="mx-auto truncate">{comparisonLabel}</span>
+      <span className="flex-1" />
+      {refreshing ? <Spinner className="size-3" /> : null}
       {headSha ? (
         <span className="font-mono">HEAD {headSha.slice(0, 7)}</span>
       ) : null}

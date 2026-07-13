@@ -45,7 +45,7 @@ export function RepositoryPicker({
   onDismissError,
 }: RepositoryPickerProps) {
   return (
-    <main className="flex h-dvh w-full items-center justify-center bg-background p-6">
+    <main className="flex h-dvh w-full items-center justify-center overflow-y-auto bg-background p-6">
       <div className="flex w-full max-w-xl flex-col gap-6">
         <header className="flex flex-col items-center gap-3 text-center">
           <div className="flex size-12 items-center justify-center rounded-2xl bg-muted">
