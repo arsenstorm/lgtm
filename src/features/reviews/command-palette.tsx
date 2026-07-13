@@ -6,6 +6,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandShortcut,
 } from "@/components/ui/command";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import type { ReviewAction } from "./use-review-shortcuts";
@@ -29,24 +30,30 @@ export function CommandPalette({
         <CommandList>
           <CommandEmpty>No matching action.</CommandEmpty>
           <CommandGroup heading="Review">
-            {actions.map((action) => (
-              <CommandItem
-                disabled={action.disabled}
-                key={action.id}
-                onSelect={() => {
-                  onOpenChange(false);
-                  action.run();
-                }}
-                value={action.label}
-              >
-                {action.label}
-                <KbdGroup className="ml-auto">
-                  {action.hint.map((chunk) => (
-                    <Kbd key={chunk}>{chunk}</Kbd>
-                  ))}
-                </KbdGroup>
-              </CommandItem>
-            ))}
+            {/* Disabled actions are hidden, not greyed out. */}
+            {actions
+              .filter((action) => !action.disabled)
+              .map((action) => (
+                <CommandItem
+                  key={action.id}
+                  onSelect={() => {
+                    onOpenChange(false);
+                    action.run();
+                  }}
+                  value={action.label}
+                >
+                  {action.label}
+                  {action.hint.length > 0 ? (
+                    <CommandShortcut>
+                      <KbdGroup>
+                        {action.hint.map((chunk) => (
+                          <Kbd key={chunk}>{chunk}</Kbd>
+                        ))}
+                      </KbdGroup>
+                    </CommandShortcut>
+                  ) : null}
+                </CommandItem>
+              ))}
           </CommandGroup>
         </CommandList>
       </Command>

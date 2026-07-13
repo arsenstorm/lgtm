@@ -795,7 +795,8 @@ function ReviewWorkspaceBody({
         run: onOpenSettings,
       }
     );
-    return [...actions, ...extras];
+    // The palette needn't list the shortcut that opens itself.
+    return [...actions.filter((action) => action.id !== "palette"), ...extras];
   }, [
     actions,
     submitBase,
