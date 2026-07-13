@@ -2,14 +2,18 @@ import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 
 import { cn } from "cnfast";
 
+// Tooltips wait for a deliberate hover, but once one is visible, moving to a
+// neighboring trigger within `timeout` shows the next tooltip instantly.
 function TooltipProvider({
-  delay = 0,
+  delay = 1500,
+  timeout = 1500,
   ...props
 }: TooltipPrimitive.Provider.Props) {
   return (
     <TooltipPrimitive.Provider
       data-slot="tooltip-provider"
       delay={delay}
+      timeout={timeout}
       {...props}
     />
   );

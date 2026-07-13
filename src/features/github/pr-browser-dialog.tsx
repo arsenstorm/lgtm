@@ -153,21 +153,21 @@ export function PrBrowserDialog({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <div className="flex items-center justify-between gap-2 pr-6">
-            <DialogTitle className="flex items-center gap-2">
-              <RiGitPullRequestLine aria-hidden className="size-4" />
-              Pull requests
-            </DialogTitle>
-            <Button
-              aria-label="Refresh"
-              disabled={loading}
-              onClick={reload}
-              size="icon-sm"
-              variant="ghost"
-            >
-              {loading ? <Spinner /> : <RiRefreshLine aria-hidden />}
-            </Button>
-          </div>
+          <DialogTitle className="flex items-center gap-2">
+            <RiGitPullRequestLine aria-hidden className="size-4" />
+            Pull requests
+          </DialogTitle>
+          {/* Positioned to sit flush with the dialog's built-in close button. */}
+          <Button
+            aria-label="Refresh"
+            className="absolute top-4 right-14 bg-secondary"
+            disabled={loading}
+            onClick={reload}
+            size="icon-sm"
+            variant="ghost"
+          >
+            {loading ? <Spinner /> : <RiRefreshLine aria-hidden />}
+          </Button>
           <DialogDescription className="font-mono">
             {owner}/{repository}
           </DialogDescription>

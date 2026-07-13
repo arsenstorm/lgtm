@@ -4,12 +4,35 @@ type PatchSideName = "additions" | "deletions";
 
 type LinePoint = { line: number; side: PatchSideName };
 
-function rowFromNode(node: Node | null): HTMLElement | null {
-  if (!node) {
-    return null;
+const ROW_SELECTOR = "[data-line][data-line-type]";
+const GUTTER_SELECTOR = "[data-column-number]";
+
+function firstElement(path: readonly EventTarget[]): Element | null {
+  for (const target of path) {
+    if (target instanceof Element) {
+      return target;
+    }
   }
-  const element = node instanceof Element ? node : node.parentElement;
-  return element?.closest<HTMLElement>("[data-line][data-line-type]") ?? null;
+  return null;
+}
+
+/**
+ * Resolves the diff line row under a pointer event. The diff renders inside an
+ * open shadow root, so the event's `composedPath()` is the only reliable way
+ * to reach the row elements (document-level selection APIs can't see them in
+ * WebKit).
+ */
+export function rowFromEventPath(
+  path: readonly EventTarget[]
+): HTMLElement | null {
+  const element = firstElement(path);
+  const row = element?.closest(ROW_SELECTOR);
+  return row instanceof HTMLElement ? row : null;
+}
+
+/** True when the pointer event landed on a line-number gutter cell. */
+export function pathTouchesGutter(path: readonly EventTarget[]): boolean {
+  return firstElement(path)?.closest(GUTTER_SELECTOR) != null;
 }
 
 function pointFromRow(row: HTMLElement): LinePoint | null {
@@ -35,19 +58,14 @@ function pointFromRow(row: HTMLElement): LinePoint | null {
 }
 
 /**
- * Maps two DOM nodes (native text-selection endpoints) to a diff line range.
- * Returns null when either endpoint is outside a rendered diff line or the
- * endpoints sit on opposite sides of a split diff (those can't anchor).
+ * Maps two diff line rows (drag anchor and current pointer row) to a line
+ * range. Returns null when either row can't be resolved or the rows sit on
+ * opposite sides of a split diff (those can't anchor a comment).
  */
-export function lineRangeFromNodes(
-  startNode: Node,
-  endNode: Node
+export function lineRangeFromRows(
+  startRow: HTMLElement,
+  endRow: HTMLElement
 ): SelectedLineRange | null {
-  const startRow = rowFromNode(startNode);
-  const endRow = rowFromNode(endNode);
-  if (!(startRow && endRow)) {
-    return null;
-  }
   const start = pointFromRow(startRow);
   const end = pointFromRow(endRow);
   if (!(start && end) || start.side !== end.side) {
@@ -60,22 +78,4 @@ export function lineRangeFromNodes(
     side: low.side,
     endSide: high.side,
   };
-}
-
-/**
- * Reads the window's current text selection and, when it lies inside
- * `container`, converts it to a diff line range.
- */
-export function selectionToLineRange(
-  container: HTMLElement
-): SelectedLineRange | null {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
-    return null;
-  }
-  const range = selection.getRangeAt(0);
-  if (!container.contains(range.commonAncestorContainer)) {
-    return null;
-  }
-  return lineRangeFromNodes(range.startContainer, range.endContainer);
 }
