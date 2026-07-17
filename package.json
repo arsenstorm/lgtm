@@ -1,11 +1,14 @@
 {
   "dependencies": {
     "@base-ui/react": "^1.6.0",
+    "@pierre/diffs": "^1.2.12",
     "@remixicon/react": "^4.9.0",
     "@shadcn/react": "^0.2.1",
     "@tailwindcss/vite": "^4.3.2",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-sql": "^2.4.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -28,13 +31,18 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.12",
     "@tauri-apps/cli": "^2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "happy-dom": "^20.10.6",
     "husky": "^9.1.7",
     "typescript": "~5.8.3",
     "ultracite": "7.6.1",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.10"
   },
   "name": "lgtm",
   "scripts": {
@@ -44,7 +52,10 @@
     "tauri": "tauri",
     "check": "ultracite check",
     "fix": "ultracite fix",
-    "prepare": "husky"
+    "prepare": "husky",
+    "compile": "tsc --noEmit",
+    "audit": "bun audit --prod",
+    "test": "vitest run"
   },
   "type": "module",
   "version": "0.1.0",

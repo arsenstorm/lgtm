@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "lgtm",
-        "width": 800,
-        "height": 600
+        "title": "LGTM",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 940,
+        "minHeight": 600
       }
     ],
     "security": {

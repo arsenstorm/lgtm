@@ -1,7 +1,10 @@
 import { RiLoaderLine } from "@remixicon/react";
 import { cn } from "cnfast";
 
-function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
+function Spinner({
+  className,
+  ...props
+}: React.ComponentProps<typeof RiLoaderLine>) {
   return (
     <RiLoaderLine
       aria-label="Loading"
