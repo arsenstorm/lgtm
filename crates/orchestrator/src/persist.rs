@@ -14,7 +14,17 @@ pub struct Stored {
     pub events: Vec<StoredEvent>,
 }
 
+/// Ids become file names, so a tampered file on disk must not be able to
+/// send the next save anywhere but the tasks directory.
+fn is_safe_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 32 && id.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
 pub fn save(dir: &Path, rec: &TaskRecord) {
+    if !is_safe_id(&rec.task.id) {
+        tracing::error!(task = %rec.task.id, "refusing to persist task with unsafe id");
+        return;
+    }
     let stored = Stored {
         task: rec.task.clone(),
         events: rec.events.clone(),
@@ -49,9 +59,26 @@ pub fn load_all(dir: &Path) -> Vec<Stored> {
             .and_then(|bytes| {
                 serde_json::from_slice::<Stored>(&bytes).map_err(std::io::Error::other)
             }) {
+            Ok(stored) if !is_safe_id(&stored.task.id) => {
+                tracing::error!(task = %stored.task.id, "refusing to load task with unsafe id");
+            }
             Ok(stored) => out.push(stored),
             Err(err) => tracing::error!(path = %path.display(), %err, "failed to load task"),
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_safe_id;
+
+    #[test]
+    fn safe_ids_are_file_names() {
+        assert!(is_safe_id("0123abcd"));
+        assert!(!is_safe_id(""));
+        assert!(!is_safe_id("../x"));
+        assert!(!is_safe_id("a/b"));
+        assert!(!is_safe_id(&"a".repeat(33)));
+    }
 }
