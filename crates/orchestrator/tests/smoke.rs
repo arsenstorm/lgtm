@@ -165,6 +165,9 @@ async fn end_to_end() {
         changed_files: vec!["a".into()],
         validation: Vec::new(),
         plan: None,
+        review: None,
+        policy: None,
+        cost_usd: 0.0,
     };
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {
@@ -414,6 +417,9 @@ async fn end_to_end() {
         changed_files: vec!["a".into()],
         validation: Vec::new(),
         plan: None,
+        review: None,
+        policy: None,
+        cost_usd: 0.0,
     };
     w2.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {

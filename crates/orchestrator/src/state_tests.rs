@@ -236,6 +236,9 @@ fn apply_event_transitions() {
         changed_files: vec!["a.rs".into()],
         validation: Vec::new(),
         plan: None,
+        review: None,
+        policy: None,
+        cost_usd: 0.0,
     };
     state.apply_event(&id, TaskEvent::Completed { result });
     assert_eq!(status(&state, &id), TaskStatus::AwaitingReview);
@@ -372,6 +375,9 @@ fn message_requires_awaiting_review() {
         changed_files: vec!["a.rs".into()],
         validation: Vec::new(),
         plan: None,
+        review: None,
+        policy: None,
+        cost_usd: 0.0,
     };
     state.apply_event(
         &id,
@@ -521,6 +527,9 @@ fn planned(state: &mut State, steps: Vec<PlanStep>) -> TaskId {
                 changed_files: Vec::new(),
                 validation: Vec::new(),
                 plan: Some(Plan { steps }),
+                review: None,
+                policy: None,
+                cost_usd: 0.0,
             },
         },
     );
@@ -551,6 +560,9 @@ fn approve(state: &mut State, id: &str) {
                 changed_files: vec!["a.rs".into()],
                 validation: Vec::new(),
                 plan: None,
+                review: None,
+                policy: None,
+                cost_usd: 0.0,
             },
         },
     );

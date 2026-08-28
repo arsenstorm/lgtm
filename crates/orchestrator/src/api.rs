@@ -11,8 +11,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
-    CiState, Executor, IssueRef, LinearRef, OrchestratorMessage, StoredEvent, Task, TaskEvent,
-    TaskKind, TaskSpec, TaskStatus, WorkerStatus,
+    Executor, IssueRef, LinearRef, OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskKind,
+    TaskSpec, TaskStatus, WorkerStatus,
 };
 use serde::Deserialize;
 use tokio::sync::broadcast;
@@ -37,6 +37,15 @@ impl From<CmdError> for ApiError {
         match err {
             CmdError::NotFound => ApiError(StatusCode::NOT_FOUND, "task not found".into()),
             CmdError::Conflict(msg) => conflict(msg),
+        }
+    }
+}
+
+impl From<crate::github::MergeError> for ApiError {
+    fn from(err: crate::github::MergeError) -> Self {
+        match err {
+            crate::github::MergeError::Cmd(err) => err.into(),
+            crate::github::MergeError::Github(err) => bad_gateway(err),
         }
     }
 }
@@ -218,52 +227,7 @@ async fn merge(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
 ) -> Result<Json<Task>, ApiError> {
-    let (github, repo, number) = {
-        let state = app.state.lock().unwrap();
-        let task = state
-            .tasks
-            .get(&id)
-            .map(|rec| &rec.task)
-            .ok_or(ApiError(StatusCode::NOT_FOUND, "task not found".into()))?;
-        if task.status != TaskStatus::Approved {
-            return Err(conflict("task is not approved".into()));
-        }
-        let pull = task
-            .pull_request
-            .as_ref()
-            .ok_or_else(|| conflict("task has no pull request".into()))?;
-        match task.ci.as_ref().map(|ci| ci.state) {
-            Some(CiState::Success) => {}
-            Some(CiState::Failure) => return Err(conflict("ci is failing".into())),
-            Some(CiState::Pending) | None => return Err(conflict("ci is pending".into())),
-        }
-        let repo = lgtm_github::parse_repo(&task.spec.repository).ok_or_else(|| {
-            conflict(format!("unrecognised repository: {}", task.spec.repository))
-        })?;
-        (github(&app)?, repo, pull.number)
-    };
-    match github.pull_mergeable(&repo, number).await {
-        Ok(Some(true)) => {}
-        Ok(Some(false)) => return Err(conflict("pull request is not mergeable".into())),
-        Ok(None) => {
-            return Err(conflict(
-                "pull request mergeability is unknown, retry".into(),
-            ))
-        }
-        Err(err) => return Err(bad_gateway(err)),
-    }
-    github
-        .merge_pull(&repo, number)
-        .await
-        .map_err(bad_gateway)?;
-    let task = {
-        let mut state = app.state.lock().unwrap();
-        let (task, changed) = state.mark_merged(&id)?;
-        app.persist_ids(&state, &changed);
-        task
-    };
-    crate::linear::after_transition(&app, &id, TaskStatus::Approved, false);
-    Ok(Json(task))
+    Ok(Json(crate::github::merge_task(&app, &id).await?))
 }
 
 #[derive(Deserialize)]

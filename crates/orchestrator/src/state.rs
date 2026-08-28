@@ -421,9 +421,14 @@ impl State {
             }
             TaskEvent::Pushed { .. } if !terminal => rec.task.status = TaskStatus::Approved,
             TaskEvent::Discarded if !terminal => rec.task.status = TaskStatus::Rejected,
+            // Retry and the two policy notes are for the reader, not the
+            // status; a run in progress stays exactly where it was.
             TaskEvent::Started
             | TaskEvent::Output { .. }
             | TaskEvent::Message { .. }
+            | TaskEvent::Retry { .. }
+            | TaskEvent::AutoApproved
+            | TaskEvent::AutoMerged
             | TaskEvent::Pushed { .. }
             | TaskEvent::Discarded => {}
         }
