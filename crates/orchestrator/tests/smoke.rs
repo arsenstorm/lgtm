@@ -151,6 +151,7 @@ async fn end_to_end() {
         branch: format!("lgtm/{}", task.id),
         diff: "d".into(),
         changed_files: vec!["a".into()],
+        validation: Vec::new(),
     };
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {
@@ -216,6 +217,20 @@ async fn end_to_end() {
     }
     assert_eq!(count, 3);
 
+    // `from` past a terminal task's history: nothing to replay, and the
+    // status is terminal, so the socket closes right away.
+    let mut ev3 = ws(
+        &format!("ws://{addr}/api/tasks/{}/events?from={count}", task.id),
+        true,
+    )
+    .await;
+    let closed = match ev3.next().await {
+        None => true,
+        Some(Ok(m)) => m.is_close(),
+        Some(Err(_)) => true,
+    };
+    assert!(closed, "terminal task must close even with from={count}");
+
     // second task, started, then the worker drops: the grace period keeps it
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -247,6 +262,17 @@ async fn end_to_end() {
         .await
         .unwrap();
     assert_eq!(detail["task"]["status"], "running");
+
+    // message on a task that is not awaiting review -> 409
+    let r = http
+        .post(format!("{base}/api/tasks/{}/message", task2.id))
+        .bearer_auth("tok")
+        .json(&serde_json::json!({ "text": "still going" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409);
+
     let workers: Vec<WorkerStatus> = http
         .get(format!("{base}/api/workers"))
         .bearer_auth("tok")
@@ -370,6 +396,7 @@ async fn end_to_end() {
         branch: format!("lgtm/{}", task_a.id),
         diff: "d".into(),
         changed_files: vec!["a".into()],
+        validation: Vec::new(),
     };
     w2.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {
