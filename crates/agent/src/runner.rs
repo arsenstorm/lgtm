@@ -11,7 +11,8 @@ use tokio::sync::oneshot;
 
 use crate::connection::Ctx;
 use crate::git::{
-    add_worktree, branch_name, commit, git, mirror_path, session_path, task_path, worktree_path,
+    add_worktree, branch_name, commit, fetch, git, mirror_path, session_path, task_path,
+    worktree_path,
 };
 use crate::plan::{extract_plan, planning_prompt, revision_prompt};
 use crate::proc::{final_text, pump, tail_buffer, tail_lines, text_buffer};
@@ -238,23 +239,11 @@ async fn prepare_repo(task: &Task, ctx: &Arc<Ctx>) -> Result<PathBuf> {
         .lock()
         .expect("mirrors poisoned")
         .insert(task.id.clone(), mirror.clone());
-    let mirror_s = mirror.display().to_string();
-    if mirror.exists() {
-        git(
-            &[
-                "-C",
-                &mirror_s,
-                "fetch",
-                "--prune",
-                "origin",
-                "+refs/heads/*:refs/heads/*",
-            ],
-            None,
-        )
-        .await?;
-    } else {
+    if !mirror.exists() {
+        let mirror_s = mirror.display().to_string();
         git(&["clone", "--bare", &task.spec.repository, &mirror_s], None).await?;
     }
+    fetch(&mirror).await?;
     Ok(mirror)
 }
 

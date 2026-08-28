@@ -95,6 +95,24 @@ pub fn branch_name(task_id: &str) -> String {
     format!("lgtm/{task_id}")
 }
 
+/// Fetches into `refs/remotes/origin/*`: a mirror's `refs/heads/*` may be
+/// checked out by a live worktree, which git refuses to fetch into.
+pub async fn fetch(mirror: &Path) -> Result<()> {
+    git(
+        &[
+            "-C",
+            &mirror.display().to_string(),
+            "fetch",
+            "--prune",
+            "origin",
+            "+refs/heads/*:refs/remotes/origin/*",
+        ],
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
 /// Creates the task's worktree on a fresh branch, replacing any leftover from
 /// an earlier run of the same task.
 pub async fn add_worktree(
@@ -131,7 +149,7 @@ pub async fn add_worktree(
             "-b",
             branch,
             &worktree_s,
-            base_branch,
+            &format!("origin/{base_branch}"),
         ],
         None,
     )
@@ -154,7 +172,7 @@ pub async fn commit(
         args.extend_from_slice(&["commit", "-q", "-m", &message]);
         git(&args, cwd).await?;
     }
-    let range = format!("{base_branch}...{branch}");
+    let range = format!("origin/{base_branch}...{branch}");
     let diff = git(&["diff", &range], cwd).await?;
     let names = git(&["diff", "--name-only", &range], cwd).await?;
     Ok(TaskResult {
