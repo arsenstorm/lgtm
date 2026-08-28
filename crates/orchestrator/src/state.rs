@@ -2,7 +2,6 @@
 //! tested without sockets or files.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -15,8 +14,10 @@ const LIVE_CAPACITY: usize = 1024;
 
 pub struct App {
     pub token: String,
-    pub tasks_dir: PathBuf,
     pub state: Mutex<State>,
+    /// Writes go to a task that owns the directory; a request handler never
+    /// holds a path of its own.
+    pub persist: mpsc::UnboundedSender<crate::persist::Stored>,
 }
 
 #[derive(Default)]

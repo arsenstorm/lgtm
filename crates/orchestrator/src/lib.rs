@@ -32,16 +32,19 @@ pub async fn serve(bind: SocketAddr, token: String, data_dir: PathBuf) -> anyhow
         }
         let rec = TaskRecord::new(task, stored.events);
         if interrupted {
-            persist::save(&tasks_dir, &rec);
+            persist::save(&tasks_dir, &persist::Stored::from(&rec));
         }
         state.tasks.insert(rec.task.id.clone(), rec);
     }
     tracing::info!(tasks = state.tasks.len(), "loaded tasks");
 
+    let (persist_tx, persist_rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(persist::writer(tasks_dir, persist_rx));
+
     let app = Arc::new(App {
         token,
-        tasks_dir,
         state: Mutex::new(state),
+        persist: persist_tx,
     });
     let router = Router::new()
         .nest("/api", api::router(app.clone()))

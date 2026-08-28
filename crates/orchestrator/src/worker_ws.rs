@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
-use crate::persist;
+use crate::persist::Stored;
 use crate::state::{App, WorkerConn};
 
 pub async fn handler(State(app): State<Arc<App>>, ws: WebSocketUpgrade) -> Response {
@@ -100,7 +100,7 @@ async fn hello(
 fn apply(app: &App, task_id: &str, event: TaskEvent) {
     let mut state = app.state.lock().unwrap();
     if let Some(rec) = state.apply_event(task_id, event) {
-        persist::save(&app.tasks_dir, rec);
+        let _ = app.persist.send(Stored::from(rec));
     }
 }
 

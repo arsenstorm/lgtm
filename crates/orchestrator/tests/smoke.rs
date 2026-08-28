@@ -247,7 +247,8 @@ async fn end_to_end() {
         .unwrap();
     assert!(workers.is_empty());
 
-    // persisted files, sorted list
+    // persisted files, sorted list. Writes go through a background task now.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     assert!(dir.join("tasks").join(format!("{}.json", task.id)).exists());
     let tasks: Vec<Task> = http
         .get(format!("{base}/api/tasks"))

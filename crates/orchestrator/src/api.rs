@@ -15,7 +15,7 @@ use lgtm_protocol::{
 };
 use tokio::sync::broadcast;
 
-use crate::persist::{self, Stored};
+use crate::persist::Stored;
 use crate::state::{App, CmdError};
 
 struct ApiError(StatusCode, String);
@@ -87,7 +87,7 @@ async fn create_task(
     let mut state = app.state.lock().unwrap();
     let task = state.create_task(spec).map_err(conflict)?;
     if let Some(rec) = state.tasks.get(&task.id) {
-        persist::save(&app.tasks_dir, rec);
+        let _ = app.persist.send(Stored::from(rec));
     }
     Ok((StatusCode::CREATED, Json(task)))
 }

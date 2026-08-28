@@ -1,9 +1,10 @@
 //! One JSON file per task under `<data_dir>/tasks`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use lgtm_protocol::{StoredEvent, Task};
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 use crate::state::TaskRecord;
 
@@ -12,6 +13,23 @@ use crate::state::TaskRecord;
 pub struct Stored {
     pub task: Task,
     pub events: Vec<StoredEvent>,
+}
+
+impl From<&TaskRecord> for Stored {
+    fn from(rec: &TaskRecord) -> Self {
+        Self {
+            task: rec.task.clone(),
+            events: rec.events.clone(),
+        }
+    }
+}
+
+/// Owns the tasks directory so no request handler ever holds it, and keeps
+/// writes for a task in the order its events arrived.
+pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Stored>) {
+    while let Some(stored) = rx.recv().await {
+        save(&dir, &stored);
+    }
 }
 
 /// Ids are eight hex chars (see `State::new_id`). Round-tripping through an
@@ -24,23 +42,19 @@ fn file_stem(id: &str) -> Option<String> {
     u32::from_str_radix(id, 16).ok().map(|n| format!("{n:08x}"))
 }
 
-pub fn save(dir: &Path, rec: &TaskRecord) {
-    let Some(stem) = file_stem(&rec.task.id) else {
-        tracing::error!(task = %rec.task.id, "refusing to persist task with unsafe id");
+pub fn save(dir: &Path, stored: &Stored) {
+    let Some(stem) = file_stem(&stored.task.id) else {
+        tracing::error!(task = %stored.task.id, "refusing to persist task with unsafe id");
         return;
-    };
-    let stored = Stored {
-        task: rec.task.clone(),
-        events: rec.events.clone(),
     };
     let final_path = dir.join(format!("{stem}.json"));
     let tmp_path = dir.join(format!("{stem}.json.tmp"));
-    let write = serde_json::to_vec_pretty(&stored)
+    let write = serde_json::to_vec_pretty(stored)
         .map_err(std::io::Error::other)
         .and_then(|bytes| std::fs::write(&tmp_path, bytes))
         .and_then(|()| std::fs::rename(&tmp_path, &final_path));
     if let Err(err) = write {
-        tracing::error!(task = %rec.task.id, %err, "failed to persist task");
+        tracing::error!(task = %stored.task.id, %err, "failed to persist task");
     }
 }
 
