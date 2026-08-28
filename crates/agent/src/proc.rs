@@ -47,20 +47,50 @@ pub fn final_text(text: &Text) -> String {
         .unwrap_or_else(|| answer.assistant.clone())
 }
 
+/// Dollars reported by every `result` line seen so far. Shared across the runs
+/// of one task, so retries and the review add to the same total.
+pub type Cost = Arc<Mutex<f64>>;
+
+pub fn cost_buffer() -> Cost {
+    Arc::new(Mutex::new(0.0))
+}
+
+pub fn cost_total(cost: &Cost) -> f64 {
+    *cost.lock().expect("cost poisoned")
+}
+
+/// What one run of the pump records besides forwarding the line.
+#[derive(Default, Clone)]
+pub struct Sinks {
+    pub tail: Option<Tail>,
+    /// Where to write the session id from the init line.
+    pub session: Option<PathBuf>,
+    pub text: Option<Text>,
+    pub cost: Option<Cost>,
+}
+
 pub async fn pump<R: AsyncRead + Unpin>(
     reader: R,
     stream: OutputStream,
     ctx: Arc<Ctx>,
     task_id: TaskId,
-    tail: Option<Tail>,
-    session: Option<PathBuf>,
-    text: Option<Text>,
+    sinks: Sinks,
 ) {
-    let mut session = session;
+    let Sinks {
+        tail,
+        mut session,
+        text,
+        cost,
+    } = sinks;
     let mut lines = BufReader::new(reader).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         if let Some(text) = &text {
             capture_answer(&line, text);
+        }
+        if let Some(cost) = &cost {
+            if let Some(spent) = result_cost(&line) {
+                *cost.lock().expect("cost poisoned") += spent;
+            }
         }
         if let Some(path) = &session {
             if let Some(id) = init_session_id(&line) {
@@ -109,6 +139,16 @@ fn capture_answer(line: &str, text: &Text) {
     }
 }
 
+/// What the run cost, from Claude's stream-json `result` line. Every other
+/// line is ignored, and so is a result line without a cost.
+pub fn result_cost(line: &str) -> Option<f64> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if value.get("type")?.as_str()? != "result" {
+        return None;
+    }
+    value.get("total_cost_usd")?.as_f64()
+}
+
 /// The `session_id` of Claude's stream-json init line, so a follow-up can
 /// `--resume` it. Every other line is ignored.
 pub fn init_session_id(line: &str) -> Option<String> {
@@ -144,6 +184,15 @@ mod tests {
         assert_eq!(final_text(&text), "thinking aloud");
         capture_answer(r#"{"type":"result","result":"the plan"}"#, &text);
         assert_eq!(final_text(&text), "the plan");
+    }
+
+    #[test]
+    fn reads_the_cost_from_the_result_line() {
+        let line = r#"{"type":"result","subtype":"success","is_error":false,"duration_ms":12,"total_cost_usd":0.0731,"result":"done"}"#;
+        assert_eq!(result_cost(line), Some(0.0731));
+        assert!(result_cost(r#"{"type":"assistant","message":{}}"#).is_none());
+        assert!(result_cost(r#"{"type":"result","result":"done"}"#).is_none());
+        assert!(result_cost("not json").is_none());
     }
 
     #[test]

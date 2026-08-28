@@ -1,22 +1,18 @@
 //! Task lifecycle: worktree, executor process, commit, validation, push, discard.
 
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{bail, Context, Result};
-use lgtm_protocol::{Executor, OutputStream, Task, TaskEvent, TaskId, TaskKind, TaskResult};
-use tokio::process::Command;
+use anyhow::{bail, Result};
+use lgtm_protocol::{Task, TaskEvent, TaskId, TaskKind};
 use tokio::sync::oneshot;
 
+use crate::automation::{execute, recorded_session};
 use crate::connection::Ctx;
 use crate::git::{
-    add_worktree, branch_name, commit, fetch, git, mirror_path, session_path, task_path,
-    worktree_path,
+    add_worktree, branch_name, fetch, git, mirror_path, session_path, task_path, worktree_path,
 };
-use crate::plan::{extract_plan, planning_prompt, revision_prompt};
-use crate::proc::{final_text, pump, tail_buffer, tail_lines, text_buffer};
-use crate::validate::{load_validation, run_validation, tail};
+use crate::plan::{planning_prompt, revision_prompt};
 
 pub async fn run_task(task: Task, ctx: Arc<Ctx>, cancel: oneshot::Receiver<()>) {
     if let Err(err) = run(&task, &ctx, cancel).await {
@@ -97,137 +93,11 @@ async fn resume(
         let prompt = revision_prompt(&task.spec.prompt, text);
         return execute(&task, &prompt, None, &worktree, ctx, cancel).await;
     }
-    let session = tokio::fs::read_to_string(session_path(&ctx.data_dir, task_id))
-        .await
-        .ok()
-        .map(|id| id.trim().to_string())
-        .filter(|id| !id.is_empty());
+    let session = recorded_session(ctx, task_id).await;
     if session.is_none() {
         tracing::warn!("no session id for {task_id}, running the follow-up fresh");
     }
     execute(&task, text, session, &worktree, ctx, cancel).await
-}
-
-/// One agent run: spawn, pump, wait, commit, validate, report.
-async fn execute(
-    task: &Task,
-    prompt: &str,
-    resume: Option<String>,
-    worktree: &Path,
-    ctx: &Arc<Ctx>,
-    cancel: oneshot::Receiver<()>,
-) -> Result<()> {
-    let branch = branch_name(&task.id);
-    let planning = task.spec.kind == TaskKind::Plan;
-    let binary = task.spec.executor.binary();
-    let path = which::which(binary).with_context(|| format!("{binary} not found on PATH"))?;
-    let mut cmd = Command::new(&path);
-    match task.spec.executor {
-        Executor::Claude => {
-            cmd.args(["-p", prompt]);
-            if let Some(session) = resume.as_ref().filter(|_| !planning) {
-                cmd.args(["--resume", session]);
-            }
-            cmd.args([
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--permission-mode",
-                if planning { "default" } else { "acceptEdits" },
-            ]);
-        }
-        Executor::Codex => {
-            cmd.args(["exec", prompt]);
-        }
-    };
-    let mut child = cmd
-        .current_dir(worktree)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .with_context(|| format!("spawn {}", path.display()))?;
-    ctx.emit(&task.id, TaskEvent::Started);
-
-    let stderr_tail = tail_buffer();
-    let answer = planning.then(text_buffer);
-    let stdout = child.stdout.take().context("no stdout")?;
-    let stderr = child.stderr.take().context("no stderr")?;
-    let pump_out = tokio::spawn(pump(
-        stdout,
-        OutputStream::Stdout,
-        ctx.clone(),
-        task.id.clone(),
-        None,
-        Some(session_path(&ctx.data_dir, &task.id)),
-        answer.clone(),
-    ));
-    let pump_err = tokio::spawn(pump(
-        stderr,
-        OutputStream::Stderr,
-        ctx.clone(),
-        task.id.clone(),
-        Some(stderr_tail.clone()),
-        None,
-        None,
-    ));
-
-    let waited = tokio::select! {
-        status = child.wait() => Some(status),
-        _ = cancel => None,
-    };
-    let status = match waited {
-        Some(status) => status?,
-        None => {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            ctx.emit(&task.id, TaskEvent::Cancelled);
-            return Ok(());
-        }
-    };
-    let _ = tokio::join!(pump_out, pump_err);
-
-    if !status.success() {
-        ctx.emit(
-            &task.id,
-            TaskEvent::Failed {
-                error: format!(
-                    "{binary} exited with {status}\n{}",
-                    tail(&tail_lines(&stderr_tail))
-                ),
-            },
-        );
-        return Ok(());
-    }
-
-    if let Some(answer) = answer {
-        ctx.emit(&task.id, planned(&branch, &final_text(&answer)));
-        return Ok(());
-    }
-
-    let mut result = commit(prompt, &task.spec.base_branch, &branch, worktree).await?;
-    result.validation = run_validation(worktree, &load_validation(worktree)).await;
-    ctx.emit(&task.id, TaskEvent::Completed { result });
-    Ok(())
-}
-
-/// A plan run leaves no diff, so its result carries only the parsed plan.
-fn planned(branch: &str, text: &str) -> TaskEvent {
-    match extract_plan(text) {
-        Ok(plan) => TaskEvent::Completed {
-            result: TaskResult {
-                branch: branch.to_string(),
-                diff: String::new(),
-                changed_files: Vec::new(),
-                validation: Vec::new(),
-                plan: Some(plan),
-            },
-        },
-        Err(err) => TaskEvent::Failed {
-            error: format!("{err:#}"),
-        },
-    }
 }
 
 /// Clones the bare mirror or refreshes it, and records it for a later discard.
