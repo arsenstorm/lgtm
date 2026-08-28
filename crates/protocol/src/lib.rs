@@ -168,7 +168,7 @@ pub enum WorkerMessage {
 pub enum OrchestratorMessage {
     HelloAck,
     Start {
-        task: Task,
+        task: Box<Task>,
     },
     Cancel {
         task_id: TaskId,
@@ -262,7 +262,7 @@ mod tests {
         for msg in [
             OrchestratorMessage::HelloAck,
             OrchestratorMessage::Start {
-                task: sample_task(),
+                task: Box::new(sample_task()),
             },
             OrchestratorMessage::Cancel {
                 task_id: "0123abcd".into(),
