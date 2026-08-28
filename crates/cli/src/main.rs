@@ -173,7 +173,7 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         Command::Workers => {
             let workers: Vec<WorkerStatus> = client.get("/api/workers").await?;
             println!(
-                "{:<16}{:<8}{:<8}{:<16}RUNNING",
+                "{:<16}{:<8}{:<8}{:<16}SLOTS",
                 "NAME", "OS", "ARCH", "EXECUTORS"
             );
             for w in workers {
@@ -184,13 +184,10 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                     .map(|e| e.binary())
                     .collect::<Vec<_>>()
                     .join(",");
+                let slots = format!("{}/{}", w.running.len(), w.info.slots);
                 println!(
                     "{:<16}{:<8}{:<8}{:<16}{}",
-                    w.info.name,
-                    w.info.os,
-                    w.info.arch,
-                    executors,
-                    w.running.len()
+                    w.info.name, w.info.os, w.info.arch, executors, slots
                 );
             }
             Ok(0)

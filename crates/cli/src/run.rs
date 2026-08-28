@@ -27,11 +27,10 @@ pub async fn run(
         worker,
     };
     let task: Task = client.post("/api/tasks", Some(&spec)).await?;
-    eprintln!(
-        "task {} → {}",
-        task.id,
-        task.worker.as_deref().unwrap_or("unassigned")
-    );
+    match task.worker.as_deref() {
+        Some(worker) => eprintln!("task {} → {worker}", task.id),
+        None => eprintln!("task {} queued, waiting for a worker", task.id),
+    }
 
     let mut request = events_url(orchestrator, &task.id)?.into_client_request()?;
     request.headers_mut().insert(
