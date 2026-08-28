@@ -6,7 +6,7 @@
 //! bookkeeping, rate-limit pings, successful results already implied by
 //! `Completed`).
 
-use lgtm_protocol::{OutputStream, TaskEvent, ValidationResult};
+use lgtm_protocol::{OutputStream, Plan, TaskEvent, ValidationResult};
 use serde_json::Value;
 use std::io::Write;
 
@@ -25,6 +25,9 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
             line,
         } => render_stdout(line, out),
         TaskEvent::Completed { result } => {
+            if let Some(plan) = &result.plan {
+                return writeln!(out, "plan: {} steps", plan.steps.len());
+            }
             let total = result.validation.len();
             if total == 0 {
                 return writeln!(
@@ -63,6 +66,18 @@ pub fn print_validation(results: &[ValidationResult], out: &mut impl Write) -> s
             for line in result.output_tail.lines() {
                 writeln!(out, "    {line}")?;
             }
+        }
+    }
+    Ok(())
+}
+
+/// Renders a plan's steps, one line per step, 1-based, with a dependency
+/// note underneath a step that has any.
+pub fn print_plan(plan: &Plan, out: &mut impl Write) -> std::io::Result<()> {
+    for (i, step) in plan.steps.iter().enumerate() {
+        writeln!(out, "{}. {}  {}", i + 1, step.key, step.title)?;
+        if !step.depends_on.is_empty() {
+            writeln!(out, "  (after: {})", step.depends_on.join(", "))?;
         }
     }
     Ok(())
