@@ -56,6 +56,8 @@ fn default_slots() -> u32 {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // ring and aws-lc-rs can both be linked; rustls will not guess.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let args = Args::parse();
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse()?))

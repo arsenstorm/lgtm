@@ -270,6 +270,9 @@ fn require_token(token: Option<String>) -> String {
 
 #[tokio::main]
 async fn main() {
+    // Both ring (tungstenite) and aws-lc-rs (axum-server) are linked; rustls
+    // refuses to guess between them, so pick one for every TLS client here.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     let code = match dispatch(cli).await {
         Ok(code) => code,
