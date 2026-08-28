@@ -2,7 +2,9 @@
 
 mod connection;
 mod git;
+mod proc;
 mod runner;
+mod validate;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
