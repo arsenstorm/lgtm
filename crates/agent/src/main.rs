@@ -7,6 +7,7 @@ mod runner;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -72,8 +73,47 @@ async fn main() -> Result<()> {
         mirrors: Mutex::new(HashMap::new()),
     });
 
+    tokio::spawn(shutdown(ctx.clone()));
+
     connection::run(&args.orchestrator, &token, &info, ctx, rx).await;
     Ok(())
+}
+
+/// The process is killed without unwinding, so `kill_on_drop` never runs.
+/// Cancel every task by hand and give the runners a moment to kill their children.
+async fn shutdown(ctx: Arc<Ctx>) {
+    terminated().await;
+    tracing::info!("shutting down, cancelling running tasks");
+    let senders: Vec<_> = ctx
+        .running
+        .lock()
+        .expect("running map poisoned")
+        .drain()
+        .map(|(_, sender)| sender)
+        .collect();
+    for sender in senders {
+        let _ = sender.send(());
+    }
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    std::process::exit(0);
+}
+
+#[cfg(unix)]
+async fn terminated() {
+    use tokio::signal::unix::{signal, SignalKind};
+    let Ok(mut term) = signal(SignalKind::terminate()) else {
+        let _ = tokio::signal::ctrl_c().await;
+        return;
+    };
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = term.recv() => {}
+    }
+}
+
+#[cfg(not(unix))]
+async fn terminated() {
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 fn default_name() -> String {
