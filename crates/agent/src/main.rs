@@ -31,6 +31,14 @@ struct Args {
     /// Where mirrors and worktrees live.
     #[arg(long, env = "LGTM_DATA_DIR")]
     data_dir: Option<PathBuf>,
+    /// Maximum tasks to run at once.
+    #[arg(long, env = "LGTM_SLOTS")]
+    slots: Option<u32>,
+}
+
+fn default_slots() -> u32 {
+    let cpus = std::thread::available_parallelism().map_or(1, |n| n.get() as u32);
+    (cpus / 4).max(1)
 }
 
 #[tokio::main]
@@ -51,8 +59,9 @@ async fn main() -> Result<()> {
         .into_iter()
         .filter(|e| which::which(e.binary()).is_ok())
         .collect();
+    let slots = args.slots.unwrap_or_else(default_slots);
     tracing::info!(
-        "worker {name} in {} executors {executors:?}",
+        "worker {name} in {} executors {executors:?} slots {slots}",
         data_dir.display()
     );
 
@@ -61,6 +70,7 @@ async fn main() -> Result<()> {
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
         executors,
+        slots,
     };
 
     // One channel for the process lifetime: events emitted while disconnected
