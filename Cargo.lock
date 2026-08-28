@@ -757,9 +757,11 @@ dependencies = [
  "axum",
  "futures-util",
  "lgtm-protocol",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-tungstenite",
  "tracing",
  "uuid",
 ]
