@@ -74,6 +74,31 @@ pub struct LinearRef {
     pub url: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskKind {
+    /// Run the prompt and produce a diff.
+    #[default]
+    Run,
+    /// Read the repository and propose steps; produces a `Plan`, no diff.
+    Plan,
+}
+
+/// One proposed task in a plan. `depends_on` names other steps' keys.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PlanStep {
+    pub key: String,
+    pub title: String,
+    pub prompt: String,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Plan {
+    pub steps: Vec<PlanStep>,
+}
+
 /// What the developer asked for. Also the body of `POST /api/tasks`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct TaskSpec {
@@ -88,6 +113,14 @@ pub struct TaskSpec {
     pub issue: Option<IssueRef>,
     #[serde(default)]
     pub linear: Option<LinearRef>,
+    #[serde(default)]
+    pub kind: TaskKind,
+    /// The plan task this one was created from.
+    #[serde(default)]
+    pub parent: Option<TaskId>,
+    /// Tasks that must be approved before this one may start.
+    #[serde(default)]
+    pub depends_on: Vec<TaskId>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,6 +163,9 @@ pub struct TaskResult {
     pub changed_files: Vec<String>,
     #[serde(default)]
     pub validation: Vec<ValidationResult>,
+    /// Set for `TaskKind::Plan` tasks; `diff` is empty then.
+    #[serde(default)]
+    pub plan: Option<Plan>,
 }
 
 impl TaskResult {
@@ -296,6 +332,9 @@ mod tests {
                     identifier: "ENG-123".into(),
                     url: "https://linear.app/w/issue/ENG-123".into(),
                 }),
+                kind: TaskKind::Plan,
+                parent: Some("00000000".into()),
+                depends_on: vec!["11111111".into()],
             },
             status: TaskStatus::Queued,
             worker: None,
@@ -338,6 +377,14 @@ mod tests {
                 ok: false,
                 output_tail: "1 failed".into(),
             }],
+            plan: Some(Plan {
+                steps: vec![PlanStep {
+                    key: "schema".into(),
+                    title: "Add schema".into(),
+                    prompt: "Add the table".into(),
+                    depends_on: vec![],
+                }],
+            }),
         };
         assert!(result.validation_failed());
         for event in [
@@ -425,6 +472,8 @@ mod tests {
         .unwrap();
         assert!(task.pull_request.is_none() && task.ci.is_none() && task.spec.issue.is_none());
         assert!(task.spec.linear.is_none());
+        assert_eq!(task.spec.kind, TaskKind::Run);
+        assert!(task.spec.parent.is_none() && task.spec.depends_on.is_empty());
         let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
         assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
     }
