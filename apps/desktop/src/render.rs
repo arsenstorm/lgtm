@@ -59,6 +59,12 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
                 format!("completed: {changed} files changed, {passed}/{total} checks passed"),
             )]
         }
+        TaskEvent::Retry { attempt, reason } => vec![Line::new(
+            Kind::Status,
+            format!("retry {attempt}: {reason}"),
+        )],
+        TaskEvent::AutoApproved => vec![Line::new(Kind::Status, "approved by policy")],
+        TaskEvent::AutoMerged => vec![Line::new(Kind::Status, "merged by policy")],
         TaskEvent::Failed { error } => vec![Line::new(Kind::Status, format!("failed: {error}"))],
         TaskEvent::Cancelled => vec![Line::new(Kind::Status, "cancelled")],
         TaskEvent::Pushed { branch, .. } => {
@@ -203,5 +209,17 @@ mod tests {
             line: "boom".into(),
         };
         assert_eq!(render(&event), vec![Line::new(Kind::Stderr, "! boom")]);
+    }
+
+    #[test]
+    fn retry_shows_attempt_and_reason() {
+        let event = TaskEvent::Retry {
+            attempt: 2,
+            reason: "checks failed".into(),
+        };
+        assert_eq!(
+            render(&event),
+            vec![Line::new(Kind::Status, "retry 2: checks failed")]
+        );
     }
 }

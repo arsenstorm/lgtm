@@ -13,7 +13,7 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::Input;
 use gpui_component::tab::{Tab, TabBar};
 use gpui_component::{ActiveTheme as _, Sizable as _};
-use lgtm_protocol::{CiState, CiStatus, Task, TaskKind, TaskStatus};
+use lgtm_protocol::{CiState, CiStatus, Severity, Task, TaskKind, TaskStatus};
 
 const ADD: u32 = 0x1a7f37;
 const DEL: u32 = 0xcf222e;
@@ -284,14 +284,16 @@ fn diff_pane(task: &Task, cx: &Context<LgtmApp>) -> AnyElement {
 }
 
 fn checks(task: &Task, cx: &Context<LgtmApp>) -> AnyElement {
-    let checks = task
-        .result
-        .as_ref()
-        .map(|result| result.validation.clone())
-        .unwrap_or_default();
-    if checks.is_empty() {
+    let result = task.result.as_ref();
+    let checks = result.map(|r| r.validation.clone()).unwrap_or_default();
+    let review = result.and_then(|r| r.review.as_ref());
+    let findings = review.map(|r| r.findings.as_slice()).unwrap_or_default();
+    let cost = result.map(|r| r.cost_usd).unwrap_or(0.0);
+
+    if checks.is_empty() && findings.is_empty() && cost <= 0.0 {
         return muted("no checks configured", cx);
     }
+
     div()
         .flex()
         .flex_col()
@@ -326,6 +328,36 @@ fn checks(task: &Task, cx: &Context<LgtmApp>) -> AnyElement {
                     )
                 })
         }))
+        .when(!findings.is_empty(), |this| {
+            this.child(div().font_weight(FontWeight::BOLD).child("Review"))
+                .children(findings.iter().map(|finding| {
+                    let (mark, color) = match finding.severity {
+                        Severity::Blocking => ("✖", cx.theme().danger),
+                        Severity::Warning => ("⚠", cx.theme().warning),
+                    };
+                    let location = match finding.line {
+                        Some(line) => format!("{}:{line}", finding.file),
+                        None => finding.file.clone(),
+                    };
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(div().text_color(color).child(mark))
+                        .child(
+                            div()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(location),
+                        )
+                        .child(div().child(finding.message.clone()))
+                }))
+        })
+        .when(cost > 0.0, |this| {
+            this.child(
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!("cost: ${cost:.2}")),
+            )
+        })
         .into_any_element()
 }
 
