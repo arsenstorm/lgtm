@@ -1,7 +1,9 @@
 //! Unit tests for `state.rs`: pure transitions, no sockets and no files.
 
 use super::*;
-use lgtm_protocol::{Executor, IssueRef, LinearRef, PullRequest, TaskResult};
+use lgtm_protocol::{
+    Executor, IssueRef, LinearRef, Plan, PlanStep, PullRequest, TaskKind, TaskResult,
+};
 
 fn info(name: &str, slots: u32, executors: Vec<Executor>) -> WorkerInfo {
     WorkerInfo {
@@ -39,6 +41,9 @@ fn spec(executor: Executor, worker: Option<&str>) -> TaskSpec {
         worker: worker.map(str::to_string),
         issue: None,
         linear: None,
+        kind: TaskKind::Run,
+        parent: None,
+        depends_on: Vec::new(),
     }
 }
 
@@ -230,6 +235,7 @@ fn apply_event_transitions() {
         diff: "diff".into(),
         changed_files: vec!["a.rs".into()],
         validation: Vec::new(),
+        plan: None,
     };
     state.apply_event(&id, TaskEvent::Completed { result });
     assert_eq!(status(&state, &id), TaskStatus::AwaitingReview);
@@ -321,7 +327,7 @@ fn merge_only_from_approved() {
     let _a = connect(&mut state, "a", 1, 1);
     let id = approved(&mut state, None, "cafe1234");
 
-    let merged = state.mark_merged(&id).unwrap();
+    let merged = state.mark_merged(&id).unwrap().0;
     assert_eq!(merged.status, TaskStatus::Merged);
     assert_eq!(status(&state, &id), TaskStatus::Merged);
     assert!(TaskStatus::Merged.is_terminal());
@@ -365,6 +371,7 @@ fn message_requires_awaiting_review() {
         diff: "diff".into(),
         changed_files: vec!["a.rs".into()],
         validation: Vec::new(),
+        plan: None,
     };
     state.apply_event(
         &id,
@@ -487,6 +494,208 @@ fn linear_sync_plan_follows_status() {
     assert!(
         linear_sync_plan(&approved, TaskStatus::Approved, false).is_empty(),
         "the comment is only for the transition that recorded the pull request"
+    );
+}
+
+fn step(key: &str, depends_on: &[&str]) -> PlanStep {
+    PlanStep {
+        key: key.into(),
+        title: format!("Step {key}"),
+        prompt: format!("do {key}"),
+        depends_on: depends_on.iter().map(|dep| (*dep).to_string()).collect(),
+    }
+}
+
+/// A plan task that ran and is awaiting review with `steps` to approve.
+fn planned(state: &mut State, steps: Vec<PlanStep>) -> TaskId {
+    let mut spec = spec(Executor::Claude, None);
+    spec.kind = TaskKind::Plan;
+    let id = state.create_task(spec).unwrap().0.id;
+    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(
+        &id,
+        TaskEvent::Completed {
+            result: TaskResult {
+                branch: format!("lgtm/{id}"),
+                diff: String::new(),
+                changed_files: Vec::new(),
+                validation: Vec::new(),
+                plan: Some(Plan { steps }),
+            },
+        },
+    );
+    id
+}
+
+/// The tasks a plan created, in step order.
+fn children(state: &State, parent: &str) -> Vec<Task> {
+    let mut out: Vec<Task> = state
+        .tasks
+        .values()
+        .filter(|rec| rec.task.spec.parent.as_deref() == Some(parent))
+        .map(|rec| rec.task.clone())
+        .collect();
+    out.sort_by_key(|task| task.created_at);
+    out
+}
+
+/// Drives a child task to `Approved` the way a worker and a reviewer would.
+fn approve(state: &mut State, id: &str) {
+    state.apply_event(id, TaskEvent::Started);
+    state.apply_event(
+        id,
+        TaskEvent::Completed {
+            result: TaskResult {
+                branch: format!("lgtm/{id}"),
+                diff: "diff".into(),
+                changed_files: vec!["a.rs".into()],
+                validation: Vec::new(),
+                plan: None,
+            },
+        },
+    );
+    state.apply_event(
+        id,
+        TaskEvent::Pushed {
+            branch: format!("lgtm/{id}"),
+            sha: "abc".into(),
+        },
+    );
+}
+
+#[test]
+fn approve_plan_creates_children() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let plan = planned(
+        &mut state,
+        vec![step("a", &[]), step("b", &["a"]), step("c", &["a", "b"])],
+    );
+
+    let (task, changed) = state.approve_plan(&plan).unwrap();
+    assert_eq!(task.status, TaskStatus::Approved);
+    let kids = children(&state, &plan);
+    assert_eq!(kids.len(), 3);
+    for kid in &kids {
+        assert!(changed.contains(&kid.id));
+        assert_eq!(kid.spec.kind, TaskKind::Run);
+    }
+
+    assert!(kids[0].spec.depends_on.is_empty());
+    assert_eq!(kids[0].spec.base_branch, "main");
+    assert_eq!(kids[0].spec.prompt, "Step a\n\ndo a");
+    assert_eq!(kids[1].spec.depends_on, vec![kids[0].id.clone()]);
+    assert_eq!(
+        kids[1].spec.base_branch,
+        format!("lgtm/{}", kids[0].id),
+        "a single dependency's branch is the base"
+    );
+    assert_eq!(
+        kids[2].spec.depends_on,
+        vec![kids[0].id.clone(), kids[1].id.clone()]
+    );
+    assert_eq!(
+        kids[2].spec.base_branch, "main",
+        "two dependencies have no shared branch"
+    );
+
+    assert_eq!(kids[0].worker.as_deref(), Some("w"));
+    for kid in &kids[1..] {
+        assert_eq!(status(&state, &kid.id), TaskStatus::Queued);
+        assert_eq!(kid.worker, None, "blocked by its dependencies");
+    }
+
+    // Cancelling a blocked task takes its own dependents with it.
+    state.cancel(&kids[1].id).unwrap();
+    assert_eq!(status(&state, &kids[2].id), TaskStatus::Failed);
+    assert_eq!(
+        state.tasks[&kids[2].id].task.error.as_deref(),
+        Some(format!("dependency {} cancelled", kids[1].id).as_str())
+    );
+}
+
+#[test]
+fn approve_plan_rejects_unknown_key() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let plan = planned(&mut state, vec![step("a", &["zzz"])]);
+
+    assert!(matches!(
+        state.approve_plan(&plan),
+        Err(CmdError::Conflict(msg)) if msg == "unknown step key zzz"
+    ));
+    assert!(children(&state, &plan).is_empty());
+    assert_eq!(status(&state, &plan), TaskStatus::AwaitingReview);
+}
+
+#[test]
+fn approve_plan_rejects_forward_reference() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let plan = planned(&mut state, vec![step("a", &["b"]), step("b", &[])]);
+
+    assert!(matches!(
+        state.approve_plan(&plan),
+        Err(CmdError::Conflict(msg)) if msg == "unknown step key b"
+    ));
+    assert!(children(&state, &plan).is_empty());
+}
+
+#[test]
+fn blocked_task_runs_after_dependency_approved() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let plan = planned(&mut state, vec![step("a", &[]), step("b", &["a"])]);
+    state.approve_plan(&plan).unwrap();
+    let kids = children(&state, &plan);
+    let (a, b) = (kids[0].id.clone(), kids[1].id.clone());
+    assert_eq!(state.tasks[&b].task.worker, None);
+
+    approve(&mut state, &a);
+    assert_eq!(status(&state, &a), TaskStatus::Approved);
+    assert_eq!(
+        state.tasks[&b].task.worker.as_deref(),
+        Some("w"),
+        "approval released the dependent task"
+    );
+}
+
+#[test]
+fn dependency_failure_cascades() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let plan = planned(
+        &mut state,
+        vec![step("a", &[]), step("b", &["a"]), step("c", &["b"])],
+    );
+    state.approve_plan(&plan).unwrap();
+    let kids = children(&state, &plan);
+    let (a, b, c) = (kids[0].id.clone(), kids[1].id.clone(), kids[2].id.clone());
+
+    let changed = state.apply_event(&a, TaskEvent::Discarded);
+    assert_eq!(status(&state, &a), TaskStatus::Rejected);
+    assert!(changed.contains(&b) && changed.contains(&c));
+    assert_eq!(status(&state, &b), TaskStatus::Failed);
+    assert_eq!(
+        state.tasks[&b].task.error.as_deref(),
+        Some(format!("dependency {a} rejected").as_str())
+    );
+    assert_eq!(status(&state, &c), TaskStatus::Failed);
+    assert_eq!(
+        state.tasks[&c].task.error.as_deref(),
+        Some(format!("dependency {b} failed").as_str())
+    );
+}
+
+#[test]
+fn unknown_dependency_is_refused() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let mut spec = spec(Executor::Claude, None);
+    spec.depends_on = vec!["deadbeef".into()];
+    assert_eq!(
+        state.check_eligible(&spec).unwrap_err(),
+        "unknown dependency deadbeef"
     );
 }
 
