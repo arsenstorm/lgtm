@@ -6,7 +6,7 @@
 //! bookkeeping, rate-limit pings, successful results already implied by
 //! `Completed`).
 
-use lgtm_protocol::{OutputStream, Plan, TaskEvent, ValidationResult};
+use lgtm_protocol::{OutputStream, Plan, Review, Severity, TaskEvent, ValidationResult};
 use serde_json::Value;
 use std::io::Write;
 
@@ -43,6 +43,9 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
                 result.changed_files.len()
             )
         }
+        TaskEvent::Retry { attempt, reason } => writeln!(out, "retry {attempt}: {reason}"),
+        TaskEvent::AutoApproved => writeln!(out, "approved by policy"),
+        TaskEvent::AutoMerged => writeln!(out, "merged by policy"),
         TaskEvent::Failed { error } => writeln!(out, "failed: {error}"),
         TaskEvent::Cancelled => writeln!(out, "cancelled"),
         TaskEvent::Pushed { branch, .. } => writeln!(out, "pushed {branch}"),
@@ -67,6 +70,39 @@ pub fn print_validation(results: &[ValidationResult], out: &mut impl Write) -> s
                 writeln!(out, "    {line}")?;
             }
         }
+    }
+    Ok(())
+}
+
+/// Renders each finding after a `Completed` event, one line per finding. A
+/// blank line precedes them. No-op when the review has no findings (the
+/// reviewer agent found nothing to flag).
+pub fn print_review(review: &Review, out: &mut impl Write) -> std::io::Result<()> {
+    if review.findings.is_empty() {
+        return Ok(());
+    }
+    writeln!(out)?;
+    for finding in &review.findings {
+        let mark = match finding.severity {
+            Severity::Blocking => '✖',
+            Severity::Warning => '⚠',
+        };
+        let location = match (finding.file.is_empty(), finding.line) {
+            (true, None) => String::new(),
+            (true, Some(line)) => format!("{line} "),
+            (false, Some(line)) => format!("{}:{line} ", finding.file),
+            (false, None) => format!("{} ", finding.file),
+        };
+        writeln!(out, "{mark} {location}{}", finding.message)?;
+    }
+    Ok(())
+}
+
+/// Renders the task's total agent cost after a `Completed` event. No-op
+/// when the cost is zero (not reported, or a free local model).
+pub fn print_cost(cost: f64, out: &mut impl Write) -> std::io::Result<()> {
+    if cost > 0.0 {
+        writeln!(out, "cost: ${cost:.2}")?;
     }
     Ok(())
 }
@@ -152,7 +188,7 @@ fn tool_detail(input: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lgtm_protocol::{OutputStream, TaskEvent};
+    use lgtm_protocol::{Finding, OutputStream, TaskEvent};
 
     fn render_line(line: &str) -> String {
         let event = TaskEvent::Output {
@@ -234,5 +270,68 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "\n✓ test\n✗ lint\n    line1\n    line2\n"
         );
+    }
+
+    #[test]
+    fn print_review_is_silent_without_findings() {
+        let mut out = Vec::new();
+        print_review(&Review::default(), &mut out).unwrap();
+        assert_eq!(out, b"");
+    }
+
+    #[test]
+    fn print_review_formats_both_severities_and_optional_parts() {
+        let review = Review {
+            findings: vec![
+                Finding {
+                    severity: Severity::Blocking,
+                    file: "src/a.rs".into(),
+                    line: Some(3),
+                    message: "unwrap on user input".into(),
+                },
+                Finding {
+                    severity: Severity::Warning,
+                    file: "src/b.rs".into(),
+                    line: None,
+                    message: "unused import".into(),
+                },
+                Finding {
+                    severity: Severity::Warning,
+                    file: String::new(),
+                    line: Some(9),
+                    message: "line without a file".into(),
+                },
+                Finding {
+                    severity: Severity::Blocking,
+                    file: String::new(),
+                    line: None,
+                    message: "no location at all".into(),
+                },
+            ],
+        };
+        let mut out = Vec::new();
+        print_review(&review, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "\n\
+             ✖ src/a.rs:3 unwrap on user input\n\
+             ⚠ src/b.rs unused import\n\
+             ⚠ 9 line without a file\n\
+             ✖ no location at all\n"
+        );
+    }
+
+    #[test]
+    fn print_cost_hides_zero() {
+        let mut out = Vec::new();
+        print_cost(0.0, &mut out).unwrap();
+        assert_eq!(out, b"");
+    }
+
+    #[test]
+    fn print_cost_shows_positive_amount() {
+        let mut out = Vec::new();
+        print_cost(0.42, &mut out).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "cost: $0.42\n");
     }
 }

@@ -3,7 +3,7 @@
 use crate::http::Client;
 use crate::render;
 use futures_util::StreamExt;
-use lgtm_protocol::{Executor, StoredEvent, Task, TaskEvent, TaskKind, TaskSpec};
+use lgtm_protocol::{Executor, Review, StoredEvent, Task, TaskEvent, TaskKind, TaskSpec};
 use serde::Serialize;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -141,7 +141,16 @@ pub async fn stream(
                     println!("\n{} files changed", result.changed_files.len());
                     println!("{}", result.diff);
                     render::print_validation(&result.validation, &mut stdout)?;
-                    return Ok(if result.validation_failed() { 3 } else { 0 });
+                    if let Some(review) = &result.review {
+                        render::print_review(review, &mut stdout)?;
+                    }
+                    render::print_cost(result.cost_usd, &mut stdout)?;
+                    let blocking = result.review.as_ref().is_some_and(Review::has_blocking);
+                    return Ok(if result.validation_failed() || blocking {
+                        3
+                    } else {
+                        0
+                    });
                 }
             },
             TaskEvent::Failed { error } => {

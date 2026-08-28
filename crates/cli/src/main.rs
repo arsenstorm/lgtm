@@ -4,7 +4,9 @@ mod run;
 
 use clap::{Parser, Subcommand};
 use http::Client;
-use lgtm_protocol::{CiState, Executor, StoredEvent, Task, TaskKind, TaskStatus, WorkerStatus};
+use lgtm_protocol::{
+    CiState, Executor, Review, StoredEvent, Task, TaskKind, TaskStatus, WorkerStatus,
+};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -395,7 +397,9 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                 let worker = t.worker.as_deref().unwrap_or("-");
                 let prefix = if t.spec.parent.is_some() { "↳ " } else { "" };
                 let prompt = format!("{prefix}{}", first_line_truncated(&t.spec.prompt, 60));
-                let failed = t.result.as_ref().is_some_and(|r| r.validation_failed());
+                let failed = t.result.as_ref().is_some_and(|r| {
+                    r.validation_failed() || r.review.as_ref().is_some_and(Review::has_blocking)
+                });
                 let status = display_status(&t, &tasks);
                 let status = if failed { format!("{status}!") } else { status };
                 let pr = pr_cell(&t);
@@ -423,6 +427,10 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             }
             if let Some(result) = &detail.task.result {
                 render::print_validation(&result.validation, &mut std::io::stdout())?;
+                if let Some(review) = &result.review {
+                    render::print_review(review, &mut std::io::stdout())?;
+                }
+                render::print_cost(result.cost_usd, &mut std::io::stdout())?;
                 if let Some(plan) = &result.plan {
                     render::print_plan(plan, &mut std::io::stdout())?;
                 }
