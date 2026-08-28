@@ -12,6 +12,7 @@ fn info(name: &str, slots: u32, executors: Vec<Executor>) -> WorkerInfo {
         arch: "x86_64".into(),
         executors,
         slots,
+        ephemeral: false,
     }
 }
 
@@ -206,6 +207,23 @@ fn grace_expiry_fails_tasks() {
         Some("worker disconnected")
     );
     assert!(!state.workers.contains_key("a"));
+}
+
+#[test]
+fn goodbye_removes_worker_at_once() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+
+    assert!(state.worker_goodbye("a", 99).is_empty());
+    assert!(
+        state.workers.contains_key("a"),
+        "a stale socket says nothing"
+    );
+
+    assert!(state.worker_goodbye("a", 1).is_empty());
+    assert!(!state.workers.contains_key("a"));
+    // No grace timer is left to fire for it.
+    assert!(state.disconnect("a", 1).is_none());
 }
 
 #[test]
