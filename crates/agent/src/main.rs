@@ -2,6 +2,7 @@
 
 mod connection;
 mod git;
+mod plan;
 mod proc;
 mod runner;
 mod validate;

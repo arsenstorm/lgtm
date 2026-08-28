@@ -5,16 +5,16 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
-use lgtm_protocol::{Executor, OutputStream, Task, TaskEvent, TaskId, TaskResult};
+use lgtm_protocol::{Executor, OutputStream, Task, TaskEvent, TaskId, TaskKind, TaskResult};
 use tokio::process::Command;
 use tokio::sync::oneshot;
 
 use crate::connection::Ctx;
 use crate::git::{
-    branch_name, commit_message, git, has_staged_changes, mirror_path, session_path, task_path,
-    worktree_path, IDENTITY,
+    add_worktree, branch_name, commit, git, mirror_path, session_path, task_path, worktree_path,
 };
-use crate::proc::{pump, tail_buffer, tail_lines};
+use crate::plan::{extract_plan, planning_prompt, revision_prompt};
+use crate::proc::{final_text, pump, tail_buffer, tail_lines, text_buffer};
 use crate::validate::{load_validation, run_validation, tail};
 
 pub async fn run_task(task: Task, ctx: Arc<Ctx>, cancel: oneshot::Receiver<()>) {
@@ -66,42 +66,13 @@ async fn run(task: &Task, ctx: &Arc<Ctx>, cancel: oneshot::Receiver<()>) -> Resu
     .await?;
 
     let mirror = prepare_repo(task, ctx).await?;
-    let mirror_s = mirror.display().to_string();
-    let worktree_s = worktree.display().to_string();
+    add_worktree(&mirror, &worktree, &branch, &task.spec.base_branch).await?;
 
-    if worktree.exists() {
-        let _ = git(
-            &[
-                "-C",
-                &mirror_s,
-                "worktree",
-                "remove",
-                "--force",
-                &worktree_s,
-            ],
-            None,
-        )
-        .await;
-        let _ = git(&["-C", &mirror_s, "branch", "-D", &branch], None).await;
-        // `worktree remove` fails on a directory git never registered.
-        let _ = tokio::fs::remove_dir_all(&worktree).await;
-    }
-    git(
-        &[
-            "-C",
-            &mirror_s,
-            "worktree",
-            "add",
-            "-b",
-            &branch,
-            &worktree_s,
-            &task.spec.base_branch,
-        ],
-        None,
-    )
-    .await?;
-
-    execute(task, &task.spec.prompt, None, &worktree, ctx, cancel).await
+    let prompt = match task.spec.kind {
+        TaskKind::Plan => planning_prompt(&task.spec.prompt),
+        TaskKind::Run => task.spec.prompt.clone(),
+    };
+    execute(task, &prompt, None, &worktree, ctx, cancel).await
 }
 
 async fn resume(
@@ -120,6 +91,10 @@ async fn resume(
     let worktree = worktree_path(&ctx.data_dir, task_id);
     if !worktree.exists() {
         bail!("worktree missing");
+    }
+    if task.spec.kind == TaskKind::Plan {
+        let prompt = revision_prompt(&task.spec.prompt, text);
+        return execute(&task, &prompt, None, &worktree, ctx, cancel).await;
     }
     let session = tokio::fs::read_to_string(session_path(&ctx.data_dir, task_id))
         .await
@@ -142,13 +117,14 @@ async fn execute(
     cancel: oneshot::Receiver<()>,
 ) -> Result<()> {
     let branch = branch_name(&task.id);
+    let planning = task.spec.kind == TaskKind::Plan;
     let binary = task.spec.executor.binary();
     let path = which::which(binary).with_context(|| format!("{binary} not found on PATH"))?;
     let mut cmd = Command::new(&path);
     match task.spec.executor {
         Executor::Claude => {
             cmd.args(["-p", prompt]);
-            if let Some(session) = &resume {
+            if let Some(session) = resume.as_ref().filter(|_| !planning) {
                 cmd.args(["--resume", session]);
             }
             cmd.args([
@@ -156,7 +132,7 @@ async fn execute(
                 "stream-json",
                 "--verbose",
                 "--permission-mode",
-                "acceptEdits",
+                if planning { "default" } else { "acceptEdits" },
             ]);
         }
         Executor::Codex => {
@@ -174,6 +150,7 @@ async fn execute(
     ctx.emit(&task.id, TaskEvent::Started);
 
     let stderr_tail = tail_buffer();
+    let answer = planning.then(text_buffer);
     let stdout = child.stdout.take().context("no stdout")?;
     let stderr = child.stderr.take().context("no stderr")?;
     let pump_out = tokio::spawn(pump(
@@ -183,6 +160,7 @@ async fn execute(
         task.id.clone(),
         None,
         Some(session_path(&ctx.data_dir, &task.id)),
+        answer.clone(),
     ));
     let pump_err = tokio::spawn(pump(
         stderr,
@@ -190,6 +168,7 @@ async fn execute(
         ctx.clone(),
         task.id.clone(),
         Some(stderr_tail.clone()),
+        None,
         None,
     ));
 
@@ -221,10 +200,33 @@ async fn execute(
         return Ok(());
     }
 
+    if let Some(answer) = answer {
+        ctx.emit(&task.id, planned(&branch, &final_text(&answer)));
+        return Ok(());
+    }
+
     let mut result = commit(prompt, &task.spec.base_branch, &branch, worktree).await?;
     result.validation = run_validation(worktree, &load_validation(worktree)).await;
     ctx.emit(&task.id, TaskEvent::Completed { result });
     Ok(())
+}
+
+/// A plan run leaves no diff, so its result carries only the parsed plan.
+fn planned(branch: &str, text: &str) -> TaskEvent {
+    match extract_plan(text) {
+        Ok(plan) => TaskEvent::Completed {
+            result: TaskResult {
+                branch: branch.to_string(),
+                diff: String::new(),
+                changed_files: Vec::new(),
+                validation: Vec::new(),
+                plan: Some(plan),
+            },
+        },
+        Err(err) => TaskEvent::Failed {
+            error: format!("{err:#}"),
+        },
+    }
 }
 
 /// Clones the bare mirror or refreshes it, and records it for a later discard.
@@ -254,31 +256,6 @@ async fn prepare_repo(task: &Task, ctx: &Arc<Ctx>) -> Result<PathBuf> {
         git(&["clone", "--bare", &task.spec.repository, &mirror_s], None).await?;
     }
     Ok(mirror)
-}
-
-async fn commit(
-    prompt: &str,
-    base_branch: &str,
-    branch: &str,
-    worktree: &Path,
-) -> Result<TaskResult> {
-    let cwd = Some(worktree);
-    git(&["add", "-A"], cwd).await?;
-    if has_staged_changes(worktree).await? {
-        let message = commit_message(prompt);
-        let mut args = IDENTITY.to_vec();
-        args.extend_from_slice(&["commit", "-q", "-m", &message]);
-        git(&args, cwd).await?;
-    }
-    let range = format!("{base_branch}...{branch}");
-    let diff = git(&["diff", &range], cwd).await?;
-    let names = git(&["diff", "--name-only", &range], cwd).await?;
-    Ok(TaskResult {
-        branch: branch.to_string(),
-        diff,
-        changed_files: names.lines().map(str::to_string).collect(),
-        validation: Vec::new(),
-    })
 }
 
 pub async fn push_task(task_id: TaskId, ctx: Arc<Ctx>) {
