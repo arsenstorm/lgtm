@@ -65,6 +65,17 @@ pub struct TaskSpec {
     pub worker: Option<String>,
 }
 
+/// One check from the repository's `.lgtm/config.toml`, run by the worker
+/// after the agent finished.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ValidationResult {
+    pub name: String,
+    pub command: String,
+    pub ok: bool,
+    /// Last lines of combined stdout and stderr.
+    pub output_tail: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct TaskResult {
     /// Branch on the worker holding the committed change, `lgtm/<task-id>`.
@@ -72,6 +83,14 @@ pub struct TaskResult {
     /// `git diff <merge-base> <branch>` output.
     pub diff: String,
     pub changed_files: Vec<String>,
+    #[serde(default)]
+    pub validation: Vec<ValidationResult>,
+}
+
+impl TaskResult {
+    pub fn validation_failed(&self) -> bool {
+        self.validation.iter().any(|v| !v.ok)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -123,8 +142,13 @@ pub enum OutputStream {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TaskEvent {
-    /// Worktree is ready and the agent process has been spawned.
+    /// Worktree is ready and the agent process has been spawned. Sent again
+    /// for every follow-up run.
     Started,
+    /// A follow-up from the developer, recorded before the run it triggers.
+    Message {
+        text: String,
+    },
     /// One line from the agent process, without the trailing newline.
     Output {
         stream: OutputStream,
@@ -183,6 +207,11 @@ pub enum OrchestratorMessage {
     Cancel {
         task_id: TaskId,
     },
+    /// Resume the task's agent session in its worktree with this follow-up.
+    Message {
+        task_id: TaskId,
+        text: String,
+    },
     /// Push `lgtm/<task-id>` to origin.
     Push {
         task_id: TaskId,
@@ -234,9 +263,19 @@ mod tests {
             branch: "lgtm/0123abcd".into(),
             diff: "--- a\n+++ b\n".into(),
             changed_files: vec!["HEALTH.md".into()],
+            validation: vec![ValidationResult {
+                name: "test".into(),
+                command: "bun test".into(),
+                ok: false,
+                output_tail: "1 failed".into(),
+            }],
         };
+        assert!(result.validation_failed());
         for event in [
             TaskEvent::Started,
+            TaskEvent::Message {
+                text: "use the existing helper".into(),
+            },
             TaskEvent::Output {
                 stream: OutputStream::Stdout,
                 line: "{}".into(),
@@ -279,6 +318,10 @@ mod tests {
             OrchestratorMessage::Cancel {
                 task_id: "0123abcd".into(),
             },
+            OrchestratorMessage::Message {
+                task_id: "0123abcd".into(),
+                text: "again".into(),
+            },
             OrchestratorMessage::Push {
                 task_id: "0123abcd".into(),
             },
@@ -302,6 +345,10 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(hello, WorkerMessage::Hello { running, .. } if running.is_empty()));
+        let result: TaskResult =
+            serde_json::from_str(r#"{"branch":"lgtm/0123abcd","diff":"","changed_files":[]}"#)
+                .unwrap();
+        assert!(result.validation.is_empty());
     }
 
     #[test]
