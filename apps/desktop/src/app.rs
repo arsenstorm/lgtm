@@ -254,6 +254,7 @@ impl LgtmApp {
             executor: Executor::Claude,
             worker: Some(worker).filter(|w| !w.trim().is_empty()),
             issue: None,
+            linear: None,
         };
         net::act(
             self.client.clone(),
