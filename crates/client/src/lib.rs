@@ -34,6 +34,14 @@ struct FollowUp<'a> {
     text: &'a str,
 }
 
+#[derive(Serialize)]
+struct FromIssue<'a> {
+    issue: &'a str,
+    base_branch: &'a str,
+    executor: lgtm_protocol::Executor,
+    worker: Option<&'a str>,
+}
+
 impl Client {
     pub fn new(orchestrator: impl Into<String>, token: impl Into<String>) -> Self {
         Client {
@@ -120,6 +128,30 @@ impl Client {
         self.post(
             &format!("/api/tasks/{id}/message"),
             Some(&FollowUp { text }),
+        )
+        .await
+    }
+
+    pub async fn merge(&self, id: &str) -> anyhow::Result<lgtm_protocol::Task> {
+        self.post(&format!("/api/tasks/{id}/merge"), None::<&()>)
+            .await
+    }
+
+    pub async fn create_task_from_issue(
+        &self,
+        issue: &str,
+        base_branch: &str,
+        executor: lgtm_protocol::Executor,
+        worker: Option<&str>,
+    ) -> anyhow::Result<lgtm_protocol::Task> {
+        self.post(
+            "/api/tasks/from-issue",
+            Some(&FromIssue {
+                issue,
+                base_branch,
+                executor,
+                worker,
+            }),
         )
         .await
     }
