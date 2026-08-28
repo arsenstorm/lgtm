@@ -2,6 +2,7 @@
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 pub struct Client {
     base: String,
@@ -15,13 +16,21 @@ struct ErrorBody {
 }
 
 impl Client {
-    pub fn new(base: String, token: String) -> Self {
-        Client {
+    /// `ca` is an extra PEM root certificate to trust, for orchestrators
+    /// serving a self-signed cert (`--ca` / `LGTM_CA`).
+    pub fn new(base: String, token: String, ca: Option<&Path>) -> anyhow::Result<Self> {
+        let mut builder = reqwest::Client::builder();
+        if let Some(path) = ca {
+            let pem = std::fs::read(path)
+                .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
+            builder = builder.add_root_certificate(reqwest::Certificate::from_pem(&pem)?);
+        }
+        Ok(Client {
             // Trimmed so callers can always write paths starting with "/".
             base: base.trim_end_matches('/').to_string(),
             token,
-            http: reqwest::Client::new(),
-        }
+            http: builder.build()?,
+        })
     }
 
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {

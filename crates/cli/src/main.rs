@@ -24,6 +24,10 @@ struct Cli {
     /// message can be a plain sentence instead of clap's usage dump.
     #[arg(long, env = "LGTM_TOKEN", global = true)]
     token: Option<String>,
+    /// Extra PEM root certificate to trust, for an orchestrator serving a
+    /// self-signed TLS cert.
+    #[arg(long, env = "LGTM_CA", global = true)]
+    ca: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -35,6 +39,24 @@ enum Command {
         bind: String,
         #[arg(long, env = "LGTM_DATA_DIR")]
         data_dir: Option<PathBuf>,
+        /// PEM certificate; requires `--tls-key` too. Plain HTTP if neither
+        /// is given.
+        #[arg(long)]
+        tls_cert: Option<PathBuf>,
+        /// PEM private key; requires `--tls-cert` too.
+        #[arg(long)]
+        tls_key: Option<PathBuf>,
+        /// Command that brings up an ephemeral worker when the queue needs
+        /// one, run through `sh -c`.
+        #[arg(long, env = "LGTM_PROVISION")]
+        provision: Option<String>,
+        /// Ceiling on connected ephemeral workers.
+        #[arg(long, default_value_t = 4)]
+        provision_max: u32,
+        /// Where a provisioned worker should connect back to. Defaults to
+        /// this orchestrator's bind address.
+        #[arg(long, env = "LGTM_PUBLIC_URL")]
+        public_url: Option<String>,
     },
     Workers,
     Run {
@@ -208,6 +230,15 @@ fn first_line_truncated(s: &str, max: usize) -> String {
     }
 }
 
+/// Best-guess URL a provisioned worker can reach this orchestrator at, when
+/// `--public-url` isn't given: `bind`'s scheme plus host, with `0.0.0.0`
+/// (which a worker on another machine can't dial) swapped for `127.0.0.1`.
+fn default_public_url(bind: &str, tls: bool) -> String {
+    let scheme = if tls { "https" } else { "http" };
+    let host = bind.replacen("0.0.0.0", "127.0.0.1", 1);
+    format!("{scheme}://{host}")
+}
+
 fn default_data_dir() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -254,10 +285,20 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
     let Cli {
         orchestrator,
         token,
+        ca,
         command,
     } = cli;
 
-    if let Command::Serve { bind, data_dir } = command {
+    if let Command::Serve {
+        bind,
+        data_dir,
+        tls_cert,
+        tls_key,
+        provision,
+        provision_max,
+        public_url,
+    } = command
+    {
         let token = require_token(token);
         tracing_subscriber::fmt()
             .with_env_filter(
@@ -267,20 +308,37 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             .init();
         let bind_addr: std::net::SocketAddr = bind.parse()?;
         let data_dir = data_dir.unwrap_or_else(default_data_dir);
-        lgtm_orchestrator::serve(bind_addr, token, data_dir).await?;
+        let tls = match (tls_cert, tls_key) {
+            (Some(cert), Some(key)) => Some((cert, key)),
+            (None, None) => None,
+            _ => anyhow::bail!("pass both --tls-cert and --tls-key"),
+        };
+        let provision = provision.map(|command| lgtm_orchestrator::ProvisionOptions {
+            command,
+            max: provision_max,
+            public_url: public_url.unwrap_or_else(|| default_public_url(&bind, tls.is_some())),
+        });
+        lgtm_orchestrator::serve(lgtm_orchestrator::ServeOptions {
+            bind: bind_addr,
+            token,
+            data_dir,
+            tls,
+            provision,
+        })
+        .await?;
         return Ok(0);
     }
 
     let token = require_token(token);
-    let client = Client::new(orchestrator.clone(), token.clone());
+    let client = Client::new(orchestrator.clone(), token.clone(), ca.as_deref())?;
 
     match command {
         Command::Serve { .. } => unreachable!("handled above"),
         Command::Workers => {
             let workers: Vec<WorkerStatus> = client.get("/api/workers").await?;
             println!(
-                "{:<16}{:<8}{:<8}{:<16}SLOTS",
-                "NAME", "OS", "ARCH", "EXECUTORS"
+                "{:<16}{:<8}{:<8}{:<16}{:<10}SLOTS",
+                "NAME", "OS", "ARCH", "EXECUTORS", "KIND"
             );
             for w in workers {
                 let executors = w
@@ -291,9 +349,14 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                     .collect::<Vec<_>>()
                     .join(",");
                 let slots = format!("{}/{}", w.running.len(), w.info.slots);
+                let kind = if w.info.ephemeral {
+                    "ephemeral"
+                } else {
+                    "fixed"
+                };
                 println!(
-                    "{:<16}{:<8}{:<8}{:<16}{}",
-                    w.info.name, w.info.os, w.info.arch, executors, slots
+                    "{:<16}{:<8}{:<8}{:<16}{:<10}{}",
+                    w.info.name, w.info.os, w.info.arch, executors, kind, slots
                 );
             }
             Ok(0)
@@ -323,8 +386,17 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             }
             match (issue, linear) {
                 (Some(issue), _) => {
-                    run::run_from_issue(&client, &orchestrator, &token, issue, base, agent, on)
-                        .await
+                    run::run_from_issue(
+                        &client,
+                        &orchestrator,
+                        &token,
+                        ca.as_deref(),
+                        issue,
+                        base,
+                        agent,
+                        on,
+                    )
+                    .await
                 }
                 (None, Some(linear)) => {
                     let repo = match repo {
@@ -335,6 +407,7 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                         &client,
                         &orchestrator,
                         &token,
+                        ca.as_deref(),
                         linear,
                         repo,
                         base,
@@ -352,6 +425,7 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                         &client,
                         &orchestrator,
                         &token,
+                        ca.as_deref(),
                         repo,
                         base,
                         prompt.expect("checked above: issue, linear, or prompt is present"),
@@ -378,6 +452,7 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                 &client,
                 &orchestrator,
                 &token,
+                ca.as_deref(),
                 repo,
                 base,
                 goal,
@@ -497,7 +572,7 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                 )
                 .await?;
             eprintln!("task {id} → follow-up sent");
-            run::stream(&orchestrator, &token, &id, from).await
+            run::stream(&orchestrator, &token, ca.as_deref(), &id, from).await
         }
     }
 }
@@ -506,6 +581,30 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
 mod tests {
     use super::*;
     use lgtm_protocol::{CiStatus, PullRequest, TaskSpec};
+
+    #[test]
+    fn default_public_url_swaps_unreachable_bind_host() {
+        assert_eq!(
+            default_public_url("0.0.0.0:4750", false),
+            "http://127.0.0.1:4750"
+        );
+    }
+
+    #[test]
+    fn default_public_url_uses_https_scheme_under_tls() {
+        assert_eq!(
+            default_public_url("0.0.0.0:4750", true),
+            "https://127.0.0.1:4750"
+        );
+    }
+
+    #[test]
+    fn default_public_url_keeps_a_reachable_host() {
+        assert_eq!(
+            default_public_url("10.0.0.5:4750", false),
+            "http://10.0.0.5:4750"
+        );
+    }
 
     fn sample_task(pull_request: Option<PullRequest>, ci: Option<CiStatus>) -> Task {
         Task {
