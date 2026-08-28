@@ -253,6 +253,7 @@ impl LgtmApp {
             prompt,
             executor: Executor::Claude,
             worker: Some(worker).filter(|w| !w.trim().is_empty()),
+            issue: None,
         };
         net::act(
             self.client.clone(),
@@ -300,6 +301,7 @@ pub fn status_label(status: TaskStatus) -> &'static str {
         TaskStatus::Running => "running",
         TaskStatus::AwaitingReview => "awaiting_review",
         TaskStatus::Approved => "approved",
+        TaskStatus::Merged => "merged",
         TaskStatus::Rejected => "rejected",
         TaskStatus::Failed => "failed",
         TaskStatus::Cancelled => "cancelled",

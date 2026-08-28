@@ -82,6 +82,9 @@ fn task_row(task: &Task, active: bool, cx: &App) -> Stateful<Div> {
     if task.result.as_ref().is_some_and(|r| r.validation_failed()) {
         status.push('!');
     }
+    if let Some(pr) = &task.pull_request {
+        status.push_str(&format!(" #{}", pr.number));
+    }
     div()
         .id(SharedString::from(format!("task-{}", task.id)))
         .flex()

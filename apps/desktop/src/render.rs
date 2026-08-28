@@ -61,7 +61,9 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
         }
         TaskEvent::Failed { error } => vec![Line::new(Kind::Status, format!("failed: {error}"))],
         TaskEvent::Cancelled => vec![Line::new(Kind::Status, "cancelled")],
-        TaskEvent::Pushed { branch } => vec![Line::new(Kind::Status, format!("pushed {branch}"))],
+        TaskEvent::Pushed { branch, .. } => {
+            vec![Line::new(Kind::Status, format!("pushed {branch}"))]
+        }
         TaskEvent::Discarded => vec![Line::new(Kind::Status, "discarded")],
     }
 }
