@@ -3440,6 +3440,7 @@ dependencies = [
  "gpui-component",
  "lgtm-client",
  "lgtm-protocol",
+ "rustls",
  "serde",
  "serde_json",
  "tokio",
