@@ -775,6 +775,17 @@ dependencies = [
 [[package]]
 name = "lgtm-client"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "lgtm-orchestrator",
+ "lgtm-protocol",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+]
 
 [[package]]
 name = "lgtm-desktop"
