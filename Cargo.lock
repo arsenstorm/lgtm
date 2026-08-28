@@ -3381,6 +3381,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lgtm-linear"
+version = "0.1.0"
+
+[[package]]
 name = "lgtm-orchestrator"
 version = "0.1.0"
 dependencies = [
