@@ -33,6 +33,7 @@ async fn end_to_end() {
         executor: Executor::Claude,
         worker: None,
         issue: None,
+        linear: None,
     };
     let err = client.create_task(&spec).await.unwrap_err();
     assert!(err.to_string().contains("no eligible worker"), "{err}");
