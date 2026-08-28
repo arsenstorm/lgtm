@@ -17,6 +17,12 @@ async fn ws(
 
 #[tokio::test]
 async fn end_to_end() {
+    // The GitHub routes must answer as if no token were configured, whatever
+    // the machine running the test has. `GitHub::from_env` falls back to
+    // `gh auth token`, so the empty PATH is what keeps a developer's login out
+    // of the test; nothing else here shells out.
+    std::env::remove_var("GITHUB_TOKEN");
+    std::env::set_var("PATH", "");
     let dir = std::env::temp_dir().join(format!("lgtm-smoke-{}", std::process::id()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -42,6 +48,7 @@ async fn end_to_end() {
         prompt: "p".into(),
         executor: Executor::Claude,
         worker: None,
+        issue: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -199,7 +206,10 @@ async fn end_to_end() {
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {
             task_id: task.id.clone(),
-            event: TaskEvent::Pushed { branch: "b".into() },
+            event: TaskEvent::Pushed {
+                branch: "b".into(),
+                sha: "deadbeef".into(),
+            },
         })
         .unwrap(),
     ))
@@ -436,6 +446,38 @@ async fn end_to_end() {
     .await
     .unwrap();
     assert!(matches!(bad.next().await, Some(Ok(TMsg::Close(_))) | None));
+
+    // from-issue and merge without a GitHub token
+    let r = http
+        .post(format!("{base}/api/tasks/from-issue"))
+        .bearer_auth("tok")
+        .json(&serde_json::json!({
+            "issue": "arsenstorm/lgtm#7",
+            "base_branch": "main",
+            "executor": "claude",
+            "worker": null,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409);
+    assert_eq!(
+        r.text().await.unwrap(),
+        r#"{"error":"GITHUB_TOKEN is not configured"}"#
+    );
+
+    // merge on a queued task stops at the status guard
+    let r = http
+        .post(format!("{base}/api/tasks/{}/merge", task_b.id))
+        .bearer_auth("tok")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409);
+    assert_eq!(
+        r.text().await.unwrap(),
+        r#"{"error":"task is not approved"}"#
+    );
 
     // 404s
     assert_eq!(

@@ -1,7 +1,7 @@
 //! Unit tests for `state.rs`: pure transitions, no sockets and no files.
 
 use super::*;
-use lgtm_protocol::{Executor, TaskResult};
+use lgtm_protocol::{Executor, IssueRef, TaskResult};
 
 fn info(name: &str, slots: u32, executors: Vec<Executor>) -> WorkerInfo {
     WorkerInfo {
@@ -37,6 +37,7 @@ fn spec(executor: Executor, worker: Option<&str>) -> TaskSpec {
         prompt: "do the thing".into(),
         executor,
         worker: worker.map(str::to_string),
+        issue: None,
     }
 }
 
@@ -238,10 +239,111 @@ fn apply_event_transitions() {
         &id,
         TaskEvent::Pushed {
             branch: format!("lgtm/{id}"),
+            sha: "deadbeef".into(),
         },
     );
     assert_eq!(status(&state, &id), TaskStatus::Approved);
     assert_eq!(state.tasks[&id].events.len(), 3);
+    assert_eq!(state.tasks[&id].pushed_sha().as_deref(), Some("deadbeef"));
+}
+
+/// Drives a task all the way to `Approved` on a GitHub repository.
+fn approved(state: &mut State, issue: Option<u64>, sha: &str) -> TaskId {
+    let mut spec = spec(Executor::Claude, None);
+    spec.repository = "https://github.com/arsenstorm/lgtm.git".into();
+    spec.prompt =
+        "add a /health endpoint that reports the build sha and the uptime\n\ndetails".into();
+    spec.issue = issue.map(|number| IssueRef {
+        owner: "arsenstorm".into(),
+        repo: "lgtm".into(),
+        number,
+    });
+    let id = state.create_task(spec).unwrap().0.id;
+    state.apply_event(
+        &id,
+        TaskEvent::Pushed {
+            branch: format!("lgtm/{id}"),
+            sha: sha.into(),
+        },
+    );
+    id
+}
+
+#[test]
+fn pull_request_plan_needs_github_and_approval() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let id = approved(&mut state, Some(7), "cafe1234");
+
+    let plan = state.pull_request_plan(&id, true).unwrap();
+    assert_eq!(plan.repo.owner, "arsenstorm");
+    assert_eq!(plan.repo.repo, "lgtm");
+    assert_eq!(plan.head, format!("lgtm/{id}"));
+    assert_eq!(plan.base, "main");
+    assert_eq!(plan.sha, "cafe1234");
+    assert!(plan.title.chars().count() <= 72, "{}", plan.title);
+    assert!(!plan.title.contains('\n'));
+    assert!(plan.body.contains("Closes #7"));
+    assert!(plan.body.contains(&format!("Created by LGTM task {id}")));
+
+    assert!(state.pull_request_plan(&id, false).is_none(), "github off");
+    assert!(state.pull_request_plan("nope", true).is_none());
+
+    // A task without an issue says nothing about closing one.
+    let plain = approved(&mut state, None, "beef");
+    let plan = state.pull_request_plan(&plain, true).unwrap();
+    assert!(!plan.body.contains("Closes"));
+
+    // Not approved yet, and not on GitHub, are both nothing to open.
+    let running = create(&mut state, Executor::Claude).id;
+    state.apply_event(&running, TaskEvent::Started);
+    assert_eq!(status(&state, &running), TaskStatus::Running);
+    assert!(state.pull_request_plan(&running, true).is_none());
+    let elsewhere = create(&mut state, Executor::Claude).id;
+    state.apply_event(
+        &elsewhere,
+        TaskEvent::Pushed {
+            branch: "b".into(),
+            sha: "abc".into(),
+        },
+    );
+    assert_eq!(status(&state, &elsewhere), TaskStatus::Approved);
+    assert!(
+        state.pull_request_plan(&elsewhere, true).is_none(),
+        "example.com is not GitHub"
+    );
+}
+
+#[test]
+fn merge_only_from_approved() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let id = approved(&mut state, None, "cafe1234");
+
+    let merged = state.mark_merged(&id).unwrap();
+    assert_eq!(merged.status, TaskStatus::Merged);
+    assert_eq!(status(&state, &id), TaskStatus::Merged);
+    assert!(TaskStatus::Merged.is_terminal());
+
+    // Merged is terminal, so nothing re-opens it.
+    assert!(matches!(
+        state.mark_merged(&id),
+        Err(CmdError::Conflict(msg)) if msg == "task is not approved"
+    ));
+    assert!(matches!(state.mark_merged("nope"), Err(CmdError::NotFound)));
+    assert!(
+        state.pull_request_plan(&id, true).is_none(),
+        "a merged task is not approved any more"
+    );
+
+    state.apply_event(
+        &id,
+        TaskEvent::Pushed {
+            branch: "b".into(),
+            sha: "later".into(),
+        },
+    );
+    assert_eq!(status(&state, &id), TaskStatus::Merged);
 }
 
 #[test]

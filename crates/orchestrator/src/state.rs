@@ -20,6 +20,9 @@ pub struct App {
     /// Writes go to a task that owns the directory; a request handler never
     /// holds a path of its own.
     pub persist: mpsc::UnboundedSender<crate::persist::Stored>,
+    /// `None` when no `GITHUB_TOKEN` was set, which turns the pull request,
+    /// CI and merge routes off.
+    pub github: Option<lgtm_github::GitHub>,
 }
 
 impl App {
@@ -84,7 +87,34 @@ impl TaskRecord {
         let (live, _) = broadcast::channel(LIVE_CAPACITY);
         Self { task, events, live }
     }
+
+    /// Head of the pushed branch, from the last `Pushed` event that carried
+    /// one. Workers before phase 5 pushed without a sha.
+    pub fn pushed_sha(&self) -> Option<String> {
+        self.events
+            .iter()
+            .rev()
+            .find_map(|stored| match &stored.event {
+                TaskEvent::Pushed { sha, .. } if !sha.is_empty() => Some(sha.clone()),
+                _ => None,
+            })
+    }
 }
+
+/// Everything needed to open one pull request, resolved under the lock so the
+/// GitHub call itself can run without it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrPlan {
+    pub repo: lgtm_github::Repo,
+    pub head: String,
+    pub base: String,
+    pub title: String,
+    pub body: String,
+    /// Head sha to poll checks for, empty when the worker did not report one.
+    pub sha: String,
+}
+
+const TITLE_MAX: usize = 72;
 
 /// Why a command against a task could not run.
 #[derive(Debug)]
@@ -200,6 +230,8 @@ impl State {
             created_at: now_ms(),
             result: None,
             error: None,
+            pull_request: None,
+            ci: None,
         };
         let id = task.id.clone();
         tracing::info!(task = %id, "task created");
@@ -344,9 +376,13 @@ impl State {
                     rec.task.status = TaskStatus::Cancelled;
                 }
             }
-            TaskEvent::Pushed { .. } => rec.task.status = TaskStatus::Approved,
-            TaskEvent::Discarded => rec.task.status = TaskStatus::Rejected,
-            TaskEvent::Started | TaskEvent::Output { .. } | TaskEvent::Message { .. } => {}
+            TaskEvent::Pushed { .. } if !terminal => rec.task.status = TaskStatus::Approved,
+            TaskEvent::Discarded if !terminal => rec.task.status = TaskStatus::Rejected,
+            TaskEvent::Started
+            | TaskEvent::Output { .. }
+            | TaskEvent::Message { .. }
+            | TaskEvent::Pushed { .. }
+            | TaskEvent::Discarded => {}
         }
         let status = rec.task.status;
         let worker = rec.task.worker.clone();
@@ -383,6 +419,51 @@ impl State {
             .filter(|worker| worker.is_connected())
             .ok_or_else(|| CmdError::Conflict(format!("worker {name} is not connected")))?;
         worker.send(msg(task_id.to_string()));
+        Ok(rec.task.clone())
+    }
+
+    /// The pull request an approved task still needs, or `None` when there is
+    /// nothing to open: GitHub is off, the task is not approved, it already
+    /// has a pull request, or its repository is not on GitHub.
+    pub fn pull_request_plan(&self, task_id: &str, github_enabled: bool) -> Option<PrPlan> {
+        if !github_enabled {
+            return None;
+        }
+        let rec = self.tasks.get(task_id)?;
+        if rec.task.status != TaskStatus::Approved || rec.task.pull_request.is_some() {
+            return None;
+        }
+        let spec = &rec.task.spec;
+        let repo = lgtm_github::parse_repo(&spec.repository)?;
+        let mut body = format!("{}\n\n", spec.prompt);
+        if let Some(issue) = &spec.issue {
+            body.push_str(&format!("Closes #{}\n\n", issue.number));
+        }
+        body.push_str(&format!("Created by LGTM task {task_id}"));
+        Some(PrPlan {
+            repo,
+            head: format!("lgtm/{task_id}"),
+            base: spec.base_branch.clone(),
+            title: spec
+                .prompt
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .chars()
+                .take(TITLE_MAX)
+                .collect(),
+            body,
+            sha: rec.pushed_sha().unwrap_or_default(),
+        })
+    }
+
+    pub fn mark_merged(&mut self, task_id: &str) -> Result<Task, CmdError> {
+        let rec = self.tasks.get_mut(task_id).ok_or(CmdError::NotFound)?;
+        if rec.task.status != TaskStatus::Approved {
+            return Err(CmdError::Conflict("task is not approved".into()));
+        }
+        rec.task.status = TaskStatus::Merged;
+        tracing::info!(task = %task_id, "task merged");
         Ok(rec.task.clone())
     }
 
