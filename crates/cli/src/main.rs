@@ -47,6 +47,9 @@ enum Command {
         /// GitHub issue to work from, e.g. an issue URL or `owner/repo#123`.
         #[arg(long)]
         issue: Option<String>,
+        /// Linear issue to work from, e.g. `ENG-123` or a linear.app issue URL.
+        #[arg(long)]
+        linear: Option<String>,
         prompt: Option<String>,
     },
     Tasks,
@@ -239,22 +242,46 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             base,
             agent,
             issue,
+            linear,
             prompt,
         } => {
+            if issue.is_some() && linear.is_some() {
+                anyhow::bail!("pass only one of --issue or --linear");
+            }
             let (issue, prompt) = match (issue, prompt) {
                 (Some(issue), prompt) => (Some(issue), prompt),
                 (None, Some(prompt)) => match prompt.strip_prefix("github:") {
                     Some(rest) => (Some(rest.to_string()), None),
                     None => (None, Some(prompt)),
                 },
-                (None, None) => anyhow::bail!("pass a prompt or --issue"),
+                (None, None) => (None, None),
             };
-            match issue {
-                Some(issue) => {
+            if issue.is_none() && linear.is_none() && prompt.is_none() {
+                anyhow::bail!("pass a prompt, --issue, or --linear");
+            }
+            match (issue, linear) {
+                (Some(issue), _) => {
                     run::run_from_issue(&client, &orchestrator, &token, issue, base, agent, on)
                         .await
                 }
-                None => {
+                (None, Some(linear)) => {
+                    let repo = match repo {
+                        Some(r) => r,
+                        None => default_repo()?,
+                    };
+                    run::run_from_linear(
+                        &client,
+                        &orchestrator,
+                        &token,
+                        linear,
+                        repo,
+                        base,
+                        agent,
+                        on,
+                    )
+                    .await
+                }
+                (None, None) => {
                     let repo = match repo {
                         Some(r) => r,
                         None => default_repo()?,
@@ -265,7 +292,7 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                         &token,
                         repo,
                         base,
-                        prompt.expect("checked above: issue or prompt is present"),
+                        prompt.expect("checked above: issue, linear, or prompt is present"),
                         agent,
                         on,
                     )
@@ -301,6 +328,9 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             }
             if let Some(ci) = &detail.task.ci {
                 println!("ci: {} {}", ci_str(ci.state), ci.url);
+            }
+            if let Some(linear) = &detail.task.spec.linear {
+                println!("linear: {}", linear.url);
             }
             for e in detail.events {
                 println!("{} {}", e.at, serde_json::to_string(&e.event)?);
@@ -390,6 +420,7 @@ mod tests {
                 executor: Executor::Claude,
                 worker: None,
                 issue: None,
+                linear: None,
             },
             status: TaskStatus::Approved,
             worker: None,
