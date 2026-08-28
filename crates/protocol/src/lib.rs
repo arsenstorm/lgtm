@@ -154,7 +154,47 @@ pub struct ValidationResult {
     pub output_tail: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Severity {
+    Blocking,
+    Warning,
+}
+
+/// One remark from the reviewer agent.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Finding {
+    pub severity: Severity,
+    #[serde(default)]
+    pub file: String,
+    #[serde(default)]
+    pub line: Option<u32>,
+    pub message: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct Review {
+    pub findings: Vec<Finding>,
+}
+
+impl Review {
+    pub fn has_blocking(&self) -> bool {
+        self.findings
+            .iter()
+            .any(|f| f.severity == Severity::Blocking)
+    }
+}
+
+/// The repository's `[policy]` bits the orchestrator acts on.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Policy {
+    #[serde(default)]
+    pub auto_approve: bool,
+    #[serde(default)]
+    pub auto_merge: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TaskResult {
     /// Branch on the worker holding the committed change, `lgtm/<task-id>`.
     pub branch: String,
@@ -166,6 +206,13 @@ pub struct TaskResult {
     /// Set for `TaskKind::Plan` tasks; `diff` is empty then.
     #[serde(default)]
     pub plan: Option<Plan>,
+    #[serde(default)]
+    pub review: Option<Review>,
+    #[serde(default)]
+    pub policy: Option<Policy>,
+    /// Sum of every agent run's reported cost for this task run.
+    #[serde(default)]
+    pub cost_usd: f64,
 }
 
 impl TaskResult {
@@ -174,7 +221,7 @@ impl TaskResult {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Task {
     pub id: TaskId,
     pub spec: TaskSpec,
@@ -224,7 +271,7 @@ pub enum OutputStream {
 }
 
 /// Something that happened to one task on a worker.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TaskEvent {
     /// Worktree is ready and the agent process has been spawned. Sent again
@@ -243,6 +290,16 @@ pub enum TaskEvent {
     Completed {
         result: TaskResult,
     },
+    /// The worker is running the agent again: a crash with retries left, or
+    /// failing checks it was told to fix.
+    Retry {
+        attempt: u32,
+        reason: String,
+    },
+    /// Approved by policy rather than by hand; a `Pushed` event follows.
+    AutoApproved,
+    /// Merged by policy once CI passed.
+    AutoMerged,
     /// Agent exited non-zero, or preparation failed.
     Failed {
         error: String,
@@ -259,14 +316,14 @@ pub enum TaskEvent {
 }
 
 /// An event with the orchestrator's receipt time, unix milliseconds.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct StoredEvent {
     pub at: u64,
     pub event: TaskEvent,
 }
 
 /// Worker → orchestrator, over the worker WebSocket.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WorkerMessage {
     /// First frame on every connection. `running` lists tasks the worker
@@ -284,7 +341,7 @@ pub enum WorkerMessage {
 }
 
 /// Orchestrator → worker, over the worker WebSocket.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OrchestratorMessage {
     HelloAck,
@@ -385,7 +442,21 @@ mod tests {
                     depends_on: vec![],
                 }],
             }),
+            review: Some(Review {
+                findings: vec![Finding {
+                    severity: Severity::Blocking,
+                    file: "src/a.rs".into(),
+                    line: Some(3),
+                    message: "unwrap on user input".into(),
+                }],
+            }),
+            policy: Some(Policy {
+                auto_approve: true,
+                auto_merge: false,
+            }),
+            cost_usd: 0.42,
         };
+        assert!(result.review.as_ref().unwrap().has_blocking());
         assert!(result.validation_failed());
         for event in [
             TaskEvent::Started,
@@ -403,6 +474,12 @@ mod tests {
                 error: "boom".into(),
             },
             TaskEvent::Cancelled,
+            TaskEvent::Retry {
+                attempt: 1,
+                reason: "checks failed".into(),
+            },
+            TaskEvent::AutoApproved,
+            TaskEvent::AutoMerged,
             TaskEvent::Pushed {
                 branch: "lgtm/0123abcd".into(),
                 sha: "abc123".into(),
@@ -466,6 +543,7 @@ mod tests {
             serde_json::from_str(r#"{"branch":"lgtm/0123abcd","diff":"","changed_files":[]}"#)
                 .unwrap();
         assert!(result.validation.is_empty());
+        assert!(result.review.is_none() && result.policy.is_none() && result.cost_usd == 0.0);
         let task: Task = serde_json::from_str(
             r#"{"id":"0123abcd","spec":{"repository":"r","base_branch":"main","prompt":"p","executor":"claude","worker":null},"status":"approved","worker":"w","created_at":1,"result":null,"error":null}"#,
         )
