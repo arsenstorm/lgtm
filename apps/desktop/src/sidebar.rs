@@ -51,7 +51,7 @@ pub fn render_sidebar(app: &mut LgtmApp, cx: &mut Context<LgtmApp>) -> Div {
                 .children(app.tasks.iter().map(|task| {
                     let id = task.id.clone();
                     let active = selected.as_deref() == Some(id.as_str());
-                    task_row(task, active, cx).on_click(
+                    task_row(task, &app.tasks, active, cx).on_click(
                         cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)),
                     )
                 })),
@@ -77,14 +77,20 @@ pub fn render_sidebar(app: &mut LgtmApp, cx: &mut Context<LgtmApp>) -> Div {
         )
 }
 
-fn task_row(task: &Task, active: bool, cx: &App) -> Stateful<Div> {
-    let mut status = status_label(task.status).to_string();
+fn task_row(task: &Task, tasks: &[Task], active: bool, cx: &App) -> Stateful<Div> {
+    let mut status = status_label(task, tasks).to_string();
     if task.result.as_ref().is_some_and(|r| r.validation_failed()) {
         status.push('!');
     }
     if let Some(pr) = &task.pull_request {
         status.push_str(&format!(" #{}", pr.number));
     }
+    let is_child = task.spec.parent.is_some();
+    let prompt = if is_child {
+        format!("↳ {}", prompt_preview(&task.spec.prompt))
+    } else {
+        prompt_preview(&task.spec.prompt)
+    };
     div()
         .id(SharedString::from(format!("task-{}", task.id)))
         .flex()
@@ -104,6 +110,7 @@ fn task_row(task: &Task, active: bool, cx: &App) -> Stateful<Div> {
         .child(
             div()
                 .text_color(cx.theme().muted_foreground)
-                .child(prompt_preview(&task.spec.prompt)),
+                .when(is_child, |this| this.pl_2())
+                .child(prompt),
         )
 }

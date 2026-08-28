@@ -11,7 +11,7 @@ use gpui::{
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::ActiveTheme as _;
 use lgtm_client::Client;
-use lgtm_protocol::{Executor, Task, TaskSpec, TaskStatus, WorkerStatus};
+use lgtm_protocol::{Executor, Task, TaskKind, TaskSpec, TaskStatus, WorkerStatus};
 use std::time::Duration;
 use tokio::task::JoinHandle;
 
@@ -41,6 +41,7 @@ pub enum Pane {
     Activity,
     Diff,
     Checks,
+    Plan,
 }
 
 pub struct LgtmApp {
@@ -255,6 +256,9 @@ impl LgtmApp {
             worker: Some(worker).filter(|w| !w.trim().is_empty()),
             issue: None,
             linear: None,
+            kind: TaskKind::Run,
+            parent: None,
+            depends_on: vec![],
         };
         net::act(
             self.client.clone(),
@@ -296,8 +300,13 @@ pub fn prompt_preview(prompt: &str) -> String {
     }
 }
 
-pub fn status_label(status: TaskStatus) -> &'static str {
-    match status {
+/// Display status for a task. Queued tasks waiting on unmet dependencies show
+/// as `blocked` instead of `queued` (display only, doesn't affect `status`).
+pub fn status_label(task: &Task, tasks: &[Task]) -> &'static str {
+    if task.status == TaskStatus::Queued && task.worker.is_none() && is_blocked(task, tasks) {
+        return "blocked";
+    }
+    match task.status {
         TaskStatus::Queued => "queued",
         TaskStatus::Running => "running",
         TaskStatus::AwaitingReview => "awaiting_review",
@@ -307,6 +316,18 @@ pub fn status_label(status: TaskStatus) -> &'static str {
         TaskStatus::Failed => "failed",
         TaskStatus::Cancelled => "cancelled",
     }
+}
+
+/// True when `task` depends on another task that isn't yet approved/merged.
+/// Dependencies absent from `tasks` don't block (nothing known to wait on).
+fn is_blocked(task: &Task, tasks: &[Task]) -> bool {
+    !task.spec.depends_on.is_empty()
+        && !task.spec.depends_on.iter().all(|dep_id| {
+            tasks
+                .iter()
+                .find(|t| &t.id == dep_id)
+                .is_none_or(|t| matches!(t.status, TaskStatus::Approved | TaskStatus::Merged))
+        })
 }
 
 impl Focusable for LgtmApp {
@@ -358,5 +379,67 @@ impl Render for LgtmApp {
                     .child(sidebar::render_sidebar(self, cx))
                     .child(panes::render_main(self, window, cx)),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lgtm_protocol::TaskSpec;
+
+    fn task(id: &str, status: TaskStatus, depends_on: Vec<&str>) -> Task {
+        Task {
+            id: id.into(),
+            spec: TaskSpec {
+                repository: "r".into(),
+                base_branch: "main".into(),
+                prompt: "p".into(),
+                executor: Executor::Claude,
+                worker: None,
+                issue: None,
+                linear: None,
+                kind: TaskKind::Run,
+                parent: None,
+                depends_on: depends_on.into_iter().map(String::from).collect(),
+            },
+            status,
+            worker: None,
+            created_at: 0,
+            result: None,
+            error: None,
+            pull_request: None,
+            ci: None,
+        }
+    }
+
+    #[test]
+    fn queued_task_with_unmet_dependency_is_blocked() {
+        let dep = task("dep", TaskStatus::Running, vec![]);
+        let queued = task("q", TaskStatus::Queued, vec!["dep"]);
+        assert_eq!(status_label(&queued, &[dep, queued.clone()]), "blocked");
+    }
+
+    #[test]
+    fn queued_task_with_approved_dependency_is_queued() {
+        let dep = task("dep", TaskStatus::Approved, vec![]);
+        let queued = task("q", TaskStatus::Queued, vec!["dep"]);
+        assert_eq!(status_label(&queued, &[dep, queued.clone()]), "queued");
+    }
+
+    #[test]
+    fn queued_task_with_no_dependencies_is_queued() {
+        let queued = task("q", TaskStatus::Queued, vec![]);
+        assert_eq!(
+            status_label(&queued, std::slice::from_ref(&queued)),
+            "queued"
+        );
+    }
+
+    #[test]
+    fn assigned_worker_is_not_blocked_even_with_unmet_dependency() {
+        let dep = task("dep", TaskStatus::Running, vec![]);
+        let mut queued = task("q", TaskStatus::Queued, vec!["dep"]);
+        queued.worker = Some("compute".into());
+        assert_eq!(status_label(&queued, &[dep, queued.clone()]), "queued");
     }
 }
