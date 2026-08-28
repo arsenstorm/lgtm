@@ -773,6 +773,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lgtm-client"
+version = "0.1.0"
+
+[[package]]
+name = "lgtm-desktop"
+version = "0.1.0"
+
+[[package]]
 name = "lgtm-orchestrator"
 version = "0.1.0"
 dependencies = [
