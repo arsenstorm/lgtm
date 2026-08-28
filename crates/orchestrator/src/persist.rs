@@ -14,23 +14,27 @@ pub struct Stored {
     pub events: Vec<StoredEvent>,
 }
 
-/// Ids become file names, so a tampered file on disk must not be able to
-/// send the next save anywhere but the tasks directory.
-fn is_safe_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 32 && id.bytes().all(|b| b.is_ascii_alphanumeric())
+/// Ids are eight hex chars (see `State::new_id`). Round-tripping through an
+/// integer means the file name is derived from a number, never from the raw
+/// string, so a tampered id can only ever produce another plain hex name.
+fn file_stem(id: &str) -> Option<String> {
+    if id.len() != 8 {
+        return None;
+    }
+    u32::from_str_radix(id, 16).ok().map(|n| format!("{n:08x}"))
 }
 
 pub fn save(dir: &Path, rec: &TaskRecord) {
-    if !is_safe_id(&rec.task.id) {
+    let Some(stem) = file_stem(&rec.task.id) else {
         tracing::error!(task = %rec.task.id, "refusing to persist task with unsafe id");
         return;
-    }
+    };
     let stored = Stored {
         task: rec.task.clone(),
         events: rec.events.clone(),
     };
-    let final_path = dir.join(format!("{}.json", rec.task.id));
-    let tmp_path = dir.join(format!("{}.json.tmp", rec.task.id));
+    let final_path = dir.join(format!("{stem}.json"));
+    let tmp_path = dir.join(format!("{stem}.json.tmp"));
     let write = serde_json::to_vec_pretty(&stored)
         .map_err(std::io::Error::other)
         .and_then(|bytes| std::fs::write(&tmp_path, bytes))
@@ -59,7 +63,7 @@ pub fn load_all(dir: &Path) -> Vec<Stored> {
             .and_then(|bytes| {
                 serde_json::from_slice::<Stored>(&bytes).map_err(std::io::Error::other)
             }) {
-            Ok(stored) if !is_safe_id(&stored.task.id) => {
+            Ok(stored) if file_stem(&stored.task.id).is_none() => {
                 tracing::error!(task = %stored.task.id, "refusing to load task with unsafe id");
             }
             Ok(stored) => out.push(stored),
@@ -71,14 +75,17 @@ pub fn load_all(dir: &Path) -> Vec<Stored> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_safe_id;
+    use super::file_stem;
 
     #[test]
-    fn safe_ids_are_file_names() {
-        assert!(is_safe_id("0123abcd"));
-        assert!(!is_safe_id(""));
-        assert!(!is_safe_id("../x"));
-        assert!(!is_safe_id("a/b"));
-        assert!(!is_safe_id(&"a".repeat(33)));
+    fn only_hex_ids_become_file_names() {
+        assert_eq!(file_stem("0123abcd"), Some("0123abcd".into()));
+        // Uppercase parses, and comes back out as the lowercase name.
+        assert_eq!(file_stem("0123ABCD"), Some("0123abcd".into()));
+        assert_eq!(file_stem(""), None);
+        assert_eq!(file_stem("../x"), None);
+        assert_eq!(file_stem("a/b"), None);
+        assert_eq!(file_stem("0123ABCDE"), None);
+        assert_eq!(file_stem("zzzzzzzz"), None);
     }
 }
