@@ -23,6 +23,9 @@ pub struct App {
     /// `None` when no `GITHUB_TOKEN` was set, which turns the pull request,
     /// CI and merge routes off.
     pub github: Option<lgtm_github::GitHub>,
+    /// `None` when no `LINEAR_API_KEY` was set, which turns the from-linear
+    /// route and every issue sync off.
+    pub linear: Option<lgtm_linear::Linear>,
 }
 
 impl App {
@@ -115,6 +118,37 @@ pub struct PrPlan {
 }
 
 const TITLE_MAX: usize = 72;
+
+/// One thing to tell Linear about a task.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LinearSync {
+    Move(lgtm_linear::Target),
+    Comment(String),
+}
+
+/// What to tell Linear after `task` moved from `previous` to its current
+/// status (or after a pull request was recorded when `pr_recorded`).
+pub fn linear_sync_plan(task: &Task, previous: TaskStatus, pr_recorded: bool) -> Vec<LinearSync> {
+    if task.spec.linear.is_none() {
+        return Vec::new();
+    }
+    let mut plan = Vec::new();
+    match task.status {
+        // A follow-up run moves the issue back out of review.
+        TaskStatus::Running if previous != TaskStatus::Running => {
+            plan.push(LinearSync::Move(lgtm_linear::Target::Started));
+        }
+        TaskStatus::AwaitingReview if previous == TaskStatus::Running => {
+            plan.push(LinearSync::Move(lgtm_linear::Target::InReview));
+        }
+        TaskStatus::Merged => plan.push(LinearSync::Move(lgtm_linear::Target::Completed)),
+        _ => {}
+    }
+    if let Some(pull) = task.pull_request.as_ref().filter(|_| pr_recorded) {
+        plan.push(LinearSync::Comment(format!("Pull request: {}", pull.url)));
+    }
+    plan
+}
 
 /// Why a command against a task could not run.
 #[derive(Debug)]

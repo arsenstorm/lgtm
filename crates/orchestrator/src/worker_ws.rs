@@ -102,14 +102,19 @@ async fn hello(
 
 fn apply(app: &Arc<App>, task_id: &str, event: TaskEvent) {
     let pushed = matches!(event, TaskEvent::Pushed { .. });
-    let plan = {
+    let (previous, plan) = {
         let mut state = app.state.lock().unwrap();
+        let previous = state.tasks.get(task_id).map(|rec| rec.task.status);
         let changed = state.apply_event(task_id, event);
         app.persist_ids(&state, &changed);
-        pushed
+        let plan = pushed
             .then(|| state.pull_request_plan(task_id, app.github.is_some()))
-            .flatten()
+            .flatten();
+        (previous, plan)
     };
+    if let Some(previous) = previous {
+        crate::linear::after_transition(app, task_id, previous, false);
+    }
     if let Some(plan) = plan {
         crate::github::open_pull_request(app.clone(), task_id.to_string(), plan);
     }

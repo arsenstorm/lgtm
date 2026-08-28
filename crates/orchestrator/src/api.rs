@@ -11,8 +11,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
-    CiState, Executor, IssueRef, OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskSpec,
-    TaskStatus, WorkerStatus,
+    CiState, Executor, IssueRef, LinearRef, OrchestratorMessage, StoredEvent, Task, TaskEvent,
+    TaskSpec, TaskStatus, WorkerStatus,
 };
 use serde::Deserialize;
 use tokio::sync::broadcast;
@@ -46,6 +46,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/workers", get(workers))
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/from-issue", post(create_task_from_issue))
+        .route("/tasks/from-linear", post(create_task_from_linear))
         .route("/tasks/:id", get(get_task))
         .route("/tasks/:id/merge", post(merge))
         .route("/tasks/:id/events", get(events))
@@ -148,6 +149,61 @@ async fn create_task_from_issue(
                 repo: repo.repo,
                 number,
             }),
+            linear: None,
+        },
+    )
+}
+
+fn linear(app: &App) -> Result<lgtm_linear::Linear, ApiError> {
+    app.linear
+        .clone()
+        .ok_or_else(|| conflict("LINEAR_API_KEY is not configured".into()))
+}
+
+#[derive(Deserialize)]
+struct FromLinearBody {
+    issue: String,
+    /// Linear knows nothing about repositories, so the caller names one.
+    repository: String,
+    base_branch: String,
+    executor: Executor,
+    #[serde(default)]
+    worker: Option<String>,
+}
+
+async fn create_task_from_linear(
+    State(app): State<Arc<App>>,
+    body: Result<Json<FromLinearBody>, JsonRejection>,
+) -> Result<(StatusCode, Json<Task>), ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let linear = linear(&app)?;
+    let identifier = lgtm_linear::parse_issue(&body.issue).ok_or_else(|| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            format!("unrecognised linear issue: {}", body.issue),
+        )
+    })?;
+    let issue = linear
+        .issue(&identifier)
+        .await
+        .map_err(|err| ApiError(StatusCode::BAD_GATEWAY, format!("linear: {err:#}")))?;
+    queue(
+        &app,
+        TaskSpec {
+            repository: body.repository,
+            base_branch: body.base_branch,
+            prompt: format!(
+                "Resolve Linear issue {}: {}\n\n{}",
+                issue.identifier, issue.title, issue.description
+            ),
+            executor: body.executor,
+            worker: body.worker,
+            issue: None,
+            linear: Some(LinearRef {
+                id: issue.id,
+                identifier: issue.identifier,
+                url: issue.url,
+            }),
         },
     )
 }
@@ -194,9 +250,13 @@ async fn merge(
         .merge_pull(&repo, number)
         .await
         .map_err(bad_gateway)?;
-    let mut state = app.state.lock().unwrap();
-    let task = state.mark_merged(&id)?;
-    app.persist_ids(&state, std::slice::from_ref(&id));
+    let task = {
+        let mut state = app.state.lock().unwrap();
+        let task = state.mark_merged(&id)?;
+        app.persist_ids(&state, std::slice::from_ref(&id));
+        task
+    };
+    crate::linear::after_transition(&app, &id, TaskStatus::Approved, false);
     Ok(Json(task))
 }
 

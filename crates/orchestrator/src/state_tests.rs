@@ -1,7 +1,7 @@
 //! Unit tests for `state.rs`: pure transitions, no sockets and no files.
 
 use super::*;
-use lgtm_protocol::{Executor, IssueRef, TaskResult};
+use lgtm_protocol::{Executor, IssueRef, LinearRef, PullRequest, TaskResult};
 
 fn info(name: &str, slots: u32, executors: Vec<Executor>) -> WorkerInfo {
     WorkerInfo {
@@ -38,6 +38,7 @@ fn spec(executor: Executor, worker: Option<&str>) -> TaskSpec {
         executor,
         worker: worker.map(str::to_string),
         issue: None,
+        linear: None,
     }
 }
 
@@ -397,6 +398,95 @@ fn message_requires_awaiting_review() {
     assert!(
         state.workers["a"].running.is_empty(),
         "slot freed again after the follow-up run"
+    );
+}
+
+/// A bare task in `status`, from a Linear issue or not, with no worker or
+/// events behind it: `linear_sync_plan` reads nothing else.
+fn linear_task(status: TaskStatus, from_linear: bool) -> Task {
+    let mut spec = spec(Executor::Claude, None);
+    spec.linear = from_linear.then(|| LinearRef {
+        id: "uuid".into(),
+        identifier: "ENG-1".into(),
+        url: "https://linear.app/w/issue/ENG-1".into(),
+    });
+    Task {
+        id: "0123abcd".into(),
+        spec,
+        status,
+        worker: None,
+        created_at: 1,
+        result: None,
+        error: None,
+        pull_request: None,
+        ci: None,
+    }
+}
+
+#[test]
+fn linear_sync_plan_follows_status() {
+    use lgtm_linear::Target;
+
+    assert!(
+        linear_sync_plan(
+            &linear_task(TaskStatus::Running, false),
+            TaskStatus::Queued,
+            false
+        )
+        .is_empty(),
+        "a task that did not come from Linear is never synced"
+    );
+
+    let running = linear_task(TaskStatus::Running, true);
+    assert_eq!(
+        linear_sync_plan(&running, TaskStatus::Queued, false),
+        vec![LinearSync::Move(Target::Started)]
+    );
+    assert_eq!(
+        linear_sync_plan(&running, TaskStatus::AwaitingReview, false),
+        vec![LinearSync::Move(Target::Started)],
+        "a follow-up run pulls the issue back out of review"
+    );
+    assert_eq!(
+        linear_sync_plan(
+            &linear_task(TaskStatus::AwaitingReview, true),
+            TaskStatus::Running,
+            false
+        ),
+        vec![LinearSync::Move(Target::InReview)]
+    );
+    assert_eq!(
+        linear_sync_plan(
+            &linear_task(TaskStatus::Merged, true),
+            TaskStatus::Approved,
+            false
+        ),
+        vec![LinearSync::Move(Target::Completed)]
+    );
+    assert!(
+        linear_sync_plan(
+            &linear_task(TaskStatus::Failed, true),
+            TaskStatus::Running,
+            false
+        )
+        .is_empty(),
+        "a failure is the developer's business, not the issue's"
+    );
+
+    let mut approved = linear_task(TaskStatus::Approved, true);
+    approved.pull_request = Some(PullRequest {
+        number: 12,
+        url: "https://github.com/arsenstorm/lgtm/pull/12".into(),
+    });
+    assert_eq!(
+        linear_sync_plan(&approved, TaskStatus::Approved, true),
+        vec![LinearSync::Comment(
+            "Pull request: https://github.com/arsenstorm/lgtm/pull/12".into()
+        )]
+    );
+    assert!(
+        linear_sync_plan(&approved, TaskStatus::Approved, false).is_empty(),
+        "the comment is only for the transition that recorded the pull request"
     );
 }
 
