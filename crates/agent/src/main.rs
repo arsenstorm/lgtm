@@ -9,9 +9,8 @@ mod proc;
 mod runner;
 mod validate;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -39,6 +38,15 @@ struct Args {
     /// Maximum tasks to run at once.
     #[arg(long, env = "LGTM_SLOTS")]
     slots: Option<u32>,
+    /// Exit once `--max-tasks` runs have ended; for disposable machines.
+    #[arg(long, env = "LGTM_EPHEMERAL")]
+    ephemeral: bool,
+    /// Runs to accept before exiting. Only read with `--ephemeral`.
+    #[arg(long, env = "LGTM_MAX_TASKS", default_value_t = 1)]
+    max_tasks: u32,
+    /// Extra CA certificate (PEM) to trust for `wss://`.
+    #[arg(long, env = "LGTM_CA")]
+    ca: Option<PathBuf>,
 }
 
 fn default_slots() -> u32 {
@@ -76,21 +84,30 @@ async fn main() -> Result<()> {
         arch: std::env::consts::ARCH.to_string(),
         executors,
         slots,
+        ephemeral: args.ephemeral,
+    };
+
+    let connector = match &args.ca {
+        Some(path) => {
+            let pem = std::fs::read(path).with_context(|| format!("read CA {}", path.display()))?;
+            let count = connection::load_roots(&pem)?;
+            tracing::info!(
+                "trusting {count} extra CA certificate(s) from {}",
+                path.display()
+            );
+            Some(connection::ca_connector(&pem)?)
+        }
+        None => None,
     };
 
     // One channel for the process lifetime: events emitted while disconnected
     // wait here and flush on the next connection.
     let (tx, rx) = mpsc::unbounded_channel();
-    let ctx = Arc::new(Ctx {
-        data_dir,
-        tx,
-        running: Mutex::new(HashMap::new()),
-        mirrors: Mutex::new(HashMap::new()),
-    });
+    let ctx = Arc::new(Ctx::new(data_dir, tx, args.ephemeral, args.max_tasks));
 
     tokio::spawn(shutdown(ctx.clone()));
 
-    connection::run(&args.orchestrator, &token, &info, ctx, rx).await;
+    connection::run(&args.orchestrator, &token, &info, connector, ctx, rx).await;
     Ok(())
 }
 

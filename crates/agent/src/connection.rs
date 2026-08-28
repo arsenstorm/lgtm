@@ -1,7 +1,8 @@
 //! Outbound WebSocket connection to the orchestrator, with reconnect.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,12 +11,16 @@ use futures_util::{SinkExt, StreamExt};
 use lgtm_protocol::{
     OrchestratorMessage, TaskEvent, TaskId, WorkerInfo, WorkerMessage, WORKER_WS_PATH,
 };
+use rustls_pki_types::{pem::PemObject, CertificateDer};
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::Connector;
 
 use crate::runner;
 
 const RETRY: Duration = Duration::from_secs(3);
+/// Time the writer gets to put `Goodbye` on the wire before the process exits.
+const FLUSH: Duration = Duration::from_secs(1);
 
 /// Shared state every task runner needs.
 pub struct Ctx {
@@ -25,27 +30,116 @@ pub struct Ctx {
     /// Mirror path per task, so a discard after a restart of the task still
     /// knows which bare clone owns the worktree.
     pub mirrors: Mutex<HashMap<TaskId, PathBuf>>,
+    /// Exit once `max_tasks` runs have ended and nothing is running.
+    pub ephemeral: bool,
+    pub max_tasks: u32,
+    /// Runs that ended in Completed, Failed or Cancelled.
+    pub finished: AtomicU32,
+    /// Set once, so the goodbye is sent at most once.
+    exiting: AtomicBool,
 }
 
 impl Ctx {
+    pub fn new(
+        data_dir: PathBuf,
+        tx: mpsc::UnboundedSender<WorkerMessage>,
+        ephemeral: bool,
+        max_tasks: u32,
+    ) -> Self {
+        Self {
+            data_dir,
+            tx,
+            running: Mutex::new(HashMap::new()),
+            mirrors: Mutex::new(HashMap::new()),
+            ephemeral,
+            max_tasks,
+            finished: AtomicU32::new(0),
+            exiting: AtomicBool::new(false),
+        }
+    }
+
     pub fn emit(&self, task_id: &str, event: TaskEvent) {
         let _ = self.tx.send(WorkerMessage::Event {
             task_id: task_id.to_string(),
             event,
         });
     }
+
+    /// One run ended; count it and leave if this worker is done.
+    pub fn task_finished(&self) {
+        self.finished.fetch_add(1, Ordering::Relaxed);
+        self.check_exit();
+    }
+
+    /// Queues the goodbye when an ephemeral worker has nothing left to do.
+    /// The session loop owns the receiver, so it performs the actual exit.
+    pub fn check_exit(&self) {
+        let running = self.running.lock().expect("running map poisoned").len();
+        let finished = self.finished.load(Ordering::Relaxed);
+        if !should_exit(self.ephemeral, finished, self.max_tasks, running) {
+            return;
+        }
+        if self.exiting.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        tracing::info!("ephemeral worker ran {finished} task(s), cleaning up and saying goodbye");
+        cleanup(&self.data_dir);
+        let _ = self.tx.send(WorkerMessage::Goodbye);
+    }
+}
+
+pub const fn should_exit(ephemeral: bool, finished: u32, max_tasks: u32, running: usize) -> bool {
+    ephemeral && finished >= max_tasks && running == 0
+}
+
+/// Everything an ephemeral worker leaves behind on its disposable machine.
+fn cleanup(data_dir: &Path) {
+    for dir in ["worktrees", "repos"] {
+        let _ = std::fs::remove_dir_all(data_dir.join(dir));
+    }
+}
+
+fn certificates(pem: &[u8]) -> Result<Vec<CertificateDer<'static>>> {
+    let certs = CertificateDer::pem_slice_iter(pem)
+        .collect::<Result<Vec<_>, _>>()
+        .context("parse CA PEM")?;
+    if certs.is_empty() {
+        bail!("no certificates in CA PEM");
+    }
+    Ok(certs)
+}
+
+/// Number of certificates in `pem`, or an error if it holds none.
+pub fn load_roots(pem: &[u8]) -> Result<usize> {
+    certificates(pem).map(|certs| certs.len())
+}
+
+/// A rustls connector trusting the webpki roots plus the certificates in `pem`.
+/// Without one, `connect_async_tls_with_config` uses the webpki roots alone.
+pub fn ca_connector(pem: &[u8]) -> Result<Connector> {
+    let mut roots = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    for cert in certificates(pem)? {
+        roots.add(cert).context("add CA certificate")?;
+    }
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    Ok(Connector::Rustls(Arc::new(config)))
 }
 
 pub async fn run(
     orchestrator: &str,
     token: &str,
     info: &WorkerInfo,
+    connector: Option<Connector>,
     ctx: Arc<Ctx>,
     mut rx: mpsc::UnboundedReceiver<WorkerMessage>,
 ) {
     let url = format!("{orchestrator}{WORKER_WS_PATH}");
     loop {
-        match session(&url, token, info, &ctx, &mut rx).await {
+        match session(&url, token, info, connector.clone(), &ctx, &mut rx).await {
             Ok(()) => tracing::warn!("disconnected"),
             Err(err) => tracing::warn!("connection failed: {err:#}"),
         }
@@ -57,10 +151,11 @@ async fn session(
     url: &str,
     token: &str,
     info: &WorkerInfo,
+    connector: Option<Connector>,
     ctx: &Arc<Ctx>,
     rx: &mut mpsc::UnboundedReceiver<WorkerMessage>,
 ) -> Result<()> {
-    let (ws, _) = tokio_tungstenite::connect_async(url)
+    let (ws, _) = tokio_tungstenite::connect_async_tls_with_config(url, None, false, connector)
         .await
         .with_context(|| format!("connect {url}"))?;
     let (mut sink, mut stream) = ws.split();
@@ -93,7 +188,14 @@ async fn session(
         tokio::select! {
             outbound = rx.recv() => {
                 let Some(msg) = outbound else { return Ok(()) };
+                let goodbye = matches!(msg, WorkerMessage::Goodbye);
                 sink.send(Message::Text(serde_json::to_string(&msg)?)).await?;
+                if goodbye {
+                    let _ = sink.close().await;
+                    tokio::time::sleep(FLUSH).await;
+                    tracing::info!("goodbye sent, exiting");
+                    std::process::exit(0);
+                }
             }
             inbound = stream.next() => {
                 match inbound {
@@ -145,5 +247,52 @@ fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
         OrchestratorMessage::Discard { task_id } => {
             tokio::spawn(runner::discard_task(task_id, ctx.clone()));
         }
+    }
+    ctx.check_exit();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `openssl req -x509 -newkey rsa:2048 -nodes -subj /CN=lgtm-test-ca`.
+    const CA_PEM: &[u8] = b"-----BEGIN CERTIFICATE-----
+MIIDDzCCAfegAwIBAgIUL9+SxWy7zOLDfESd5GHjrLqrq84wDQYJKoZIhvcNAQEL
+BQAwFzEVMBMGA1UEAwwMbGd0bS10ZXN0LWNhMB4XDTI2MDgyODE1MzI1OVoXDTM2
+MDgyNTE1MzI1OVowFzEVMBMGA1UEAwwMbGd0bS10ZXN0LWNhMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1DRagyqESgy98ItoZPy3omVrhfuWui0/7PKX
+AKa626m4guh+0+zsD+CGORHbllbQa00T28K673w1YfXodQ+HFp4dzBsO5qbjydPh
+rv3VheCIBoBHysEkEF1JwAmVe0tPYpG1Q1z7V1vC7lYjD6sa0xL4VkaFSEGLZPVr
+oFJJxylBAnxgQvHP7a77W23Kl4x2PegTw2Vi8MbrAeSjsQBUheVmNTaIx5FfZ+vP
+DdJ8rLLToU7JY1AcPALsf8RC9UCX5KSQOEIV3M6XSUMNbOe7MmpDmMDMojNXV+Br
+K16vBfBpkLMKnjpPD1KIaL40XOg335JGP1OBxf1X01Ys2h+NwQIDAQABo1MwUTAd
+BgNVHQ4EFgQUuJsEAOgnoN+wFQgxEpTKmj1R2SQwHwYDVR0jBBgwFoAUuJsEAOgn
+oN+wFQgxEpTKmj1R2SQwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOC
+AQEAOsmJQ7fcrmPeMAnZICyRzE+CP9CWLVdwgPVBJMyCPQZITgyN6XdJ0ovVW/xq
+5LNm69Rf5BtU8Yax6KTmJvQkovpANYOxrOlgPEzqYerGnTLd6GsFj7GOVR8J/dpx
+YOMpdJRkNCrph7xzxwjE8A6eQ0gLT4yA/ezVGf8J1vPy4vJou9izYky+aRv3KAya
+0MJs8aUGH8x0/5+TzeOgrYhI/lU3c5NshDQV/StC4SJzWVzgHAKbFarc3YBD/c1C
+9E9IAT5vyydNPWnX1TXDAiCZAide9s9b+UmtKmBsYL0dI7jvz9/yuVzmKzDtP+L5
+yir6+pWbTODJFSqCYKsj4RTsbw==
+-----END CERTIFICATE-----
+";
+
+    #[test]
+    fn only_a_done_ephemeral_worker_with_nothing_running_exits() {
+        assert!(should_exit(true, 1, 1, 0));
+        assert!(!should_exit(false, 1, 1, 0));
+        assert!(!should_exit(true, 1, 2, 0));
+        assert!(!should_exit(true, 2, 1, 1));
+    }
+
+    #[test]
+    fn ca_pem_parses_and_garbage_does_not() {
+        assert_eq!(load_roots(CA_PEM).unwrap(), 1);
+        assert!(ca_connector(CA_PEM).is_ok());
+        assert!(load_roots(b"not a certificate").is_err());
+        // A PEM block decodes to bytes without being a certificate; rustls is
+        // the one that rejects it.
+        let junk = b"-----BEGIN CERTIFICATE-----\nzzzz\n-----END CERTIFICATE-----\n";
+        assert!(ca_connector(junk).is_err());
     }
 }

@@ -3402,11 +3402,14 @@ dependencies = [
  "lgtm-orchestrator",
  "lgtm-protocol",
  "reqwest",
+ "rustls",
+ "rustls-pemfile",
  "serde",
  "serde_json",
  "tokio",
  "tokio-tungstenite",
  "tracing-subscriber",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
