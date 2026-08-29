@@ -277,7 +277,7 @@ async fn main() {
     let code = match dispatch(cli).await {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("error: {e}");
+            eprintln!("error: {e:#}");
             1
         }
     };
