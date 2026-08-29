@@ -30,6 +30,9 @@ pub struct App {
     pub linear: Option<lgtm_linear::Linear>,
     /// Where events a person would want to see are POSTed; `None` posts none.
     pub webhook: Option<String>,
+    /// Model that decides the next step for a goal, off unless
+    /// `serve --orchestrate` named one.
+    pub orchestrate: Option<lgtm_protocol::Executor>,
 }
 
 impl App {
@@ -522,6 +525,7 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
         | TaskEvent::Validating { .. }
         | TaskEvent::Retry { .. }
         | TaskEvent::PolicyDecision { .. }
+        | TaskEvent::Orchestrated { .. }
         | TaskEvent::AutoApproved
         | TaskEvent::AutoMerged => (None, false),
     };

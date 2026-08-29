@@ -73,6 +73,13 @@ pub enum TaskEvent {
         allowed: bool,
         reasons: Vec<String>,
     },
+    /// What the orchestration model asked for and whether LGTM did it.
+    Orchestrated {
+        action: String,
+        reason: String,
+        applied: bool,
+        note: String,
+    },
     /// Approved by policy rather than by hand; a `Pushed` event follows.
     AutoApproved,
     /// Merged by policy once CI passed.

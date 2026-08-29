@@ -28,6 +28,7 @@ pub async fn serve(args: ServeArgs, token: Option<String>) -> anyhow::Result<i32
         token,
         data_dir,
         provision: provision_options(&args, tls.is_some(), bind_addr),
+        orchestrate: args.orchestrate,
         tls,
         webhook: args.webhook.clone(),
     };
