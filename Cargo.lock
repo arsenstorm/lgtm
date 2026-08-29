@@ -3376,8 +3376,6 @@ name = "lgtm-agent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap",
- "dirs 5.0.1",
  "futures-util",
  "lgtm-protocol",
  "rustls",
@@ -3387,7 +3385,6 @@ dependencies = [
  "tokio-tungstenite",
  "toml 0.8.23",
  "tracing",
- "tracing-subscriber",
  "webpki-roots 0.26.11",
  "which",
 ]
@@ -3399,6 +3396,7 @@ dependencies = [
  "anyhow",
  "clap",
  "futures-util",
+ "lgtm-agent",
  "lgtm-orchestrator",
  "lgtm-protocol",
  "reqwest",
@@ -3408,7 +3406,9 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite",
+ "tracing",
  "tracing-subscriber",
+ "uuid",
  "webpki-roots 0.26.11",
 ]
 
