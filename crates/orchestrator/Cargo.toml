@@ -8,10 +8,12 @@ license.workspace = true
 lgtm-protocol.workspace = true
 lgtm-github.workspace = true
 lgtm-linear.workspace = true
+lgtm-agent.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 axum-server.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+dirs.workspace = true
 futures-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true
