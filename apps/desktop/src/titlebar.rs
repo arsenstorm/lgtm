@@ -3,7 +3,7 @@
 
 use crate::app::LgtmApp;
 use crate::sidebar;
-use crate::theme::{glyph, tokens, Tokens, BAR_H, LIGHTS_W, SPACE};
+use crate::theme::{icon_button, tokens, Tokens, BAR_H, LIGHTS_W, SPACE};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, ClickEvent, Context, Div, InteractiveElement as _, MouseButton, ParentElement as _,
@@ -46,8 +46,6 @@ pub fn bar(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
                     .w(px(sidebar::WIDTH))
                     .h_full()
                     .bg(t.sidebar)
-                    .border_r_1()
-                    .border_color(t.sidebar_border)
                     .child(cluster(app, &t, cx)),
             )
         })
@@ -64,7 +62,7 @@ pub fn bar(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
                 .border_color(t.border)
                 .when(!open, |this| this.child(cluster(app, &t, cx)))
                 .child(div().flex_1())
-                .child(glyph("settings-menu", "…", true, &t).on_click(
+                .child(icon_button("settings-menu", "ellipsis", true, &t).on_click(
                     cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(false, cx)),
                 )),
         )
@@ -80,16 +78,16 @@ fn cluster(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .gap(px(SPACE[0]))
         .pl(px(LIGHTS_W))
         .child(
-            glyph("toggle-sidebar", "◧", true, t)
+            icon_button("toggle-sidebar", "panel-left", true, t)
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_sidebar(cx))),
         )
         .child(div().w(px(SPACE[1])))
         .child(
-            glyph("history-back", "‹", back, t)
+            icon_button("history-back", "chevron-left", back, t)
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.go_back(cx))),
         )
         .child(
-            glyph("history-forward", "›", forward, t)
+            icon_button("history-forward", "chevron-right", forward, t)
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.go_forward(cx))),
         )
 }

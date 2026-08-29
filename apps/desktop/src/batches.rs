@@ -2,7 +2,9 @@
 
 use crate::app::{prompt_preview, status_label, LgtmApp, Overlay};
 use crate::sidebar::{batch_label, now_ms, relative_age, status_color};
-use crate::theme::{tokens, Tokens, HEADER_H, RADIUS, RADIUS_PILL, ROW_H, SPACE, TEXT_SECONDARY};
+use crate::theme::{
+    icon, tokens, Tokens, HEADER_H, ICON, RADIUS, RADIUS_PILL, ROW_H, SPACE, TEXT_SECONDARY,
+};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
@@ -98,7 +100,7 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
 
 fn import_button(id: &'static str, cx: &mut Context<LgtmApp>) -> Button {
     Button::new(id)
-        .label("Import…")
+        .label("Import")
         .outline()
         .small()
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -133,11 +135,15 @@ fn card(app: &LgtmApp, batch: &Batch, t: &Tokens, cx: &mut Context<LgtmApp>) -> 
                 .p(px(SPACE[2]))
                 .cursor_pointer()
                 .hover(|this| this.bg(t.muted))
-                .child(
-                    div()
-                        .text_color(t.muted_fg)
-                        .child(if open { "▾" } else { "▸" }),
-                )
+                .child(icon(
+                    if open {
+                        "chevron-down"
+                    } else {
+                        "chevron-right"
+                    },
+                    ICON,
+                    t.muted_fg,
+                ))
                 .child(
                     div()
                         .flex_1()

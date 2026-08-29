@@ -3,8 +3,8 @@
 use crate::app::LgtmApp;
 use crate::net;
 use crate::theme::{
-    field, glyph, panel, scrim, section_label, tokens, Tokens, HEADER_H, MONO_FONT, RADIUS, SPACE,
-    TEXT_MONO, TEXT_SECONDARY,
+    field, icon_button, panel, scrim, section_label, tokens, Tokens, HEADER_H, MONO_FONT, RADIUS,
+    SPACE, TEXT_MONO, TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -129,9 +129,11 @@ pub fn modal(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                                 .font_weight(FontWeight::MEDIUM)
                                 .child("Import a batch"),
                         )
-                        .child(glyph("import-close", "✕", true, &t).on_click(cx.listener(
-                            |this, _: &ClickEvent, window, cx| this.close_overlay(window, cx),
-                        ))),
+                        .child(
+                            icon_button("import-close", "x", true, &t).on_click(cx.listener(
+                                |this, _: &ClickEvent, window, cx| this.close_overlay(window, cx),
+                            )),
+                        ),
                 )
                 .child(
                     div()

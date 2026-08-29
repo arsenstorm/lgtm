@@ -5,7 +5,7 @@ mod rows;
 use crate::app::LgtmApp;
 use crate::net::Action;
 use crate::review::{MarkViewed, NextFile, PrevFile, ToggleDiffStyle};
-use crate::theme::{self, Tokens, TEXT_COUNT};
+use crate::theme::{self, icon, Tokens, TEXT_COUNT};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, Hsla, InteractiveElement as _, IntoElement,
@@ -183,12 +183,16 @@ fn dir_row(
     cx: &mut Context<LgtmApp>,
 ) -> AnyElement {
     let path = node.path.clone();
-    let chevron = if node.expanded { "▾" } else { "▸" };
+    let chevron = if node.expanded {
+        "chevron-down"
+    } else {
+        "chevron-right"
+    };
     row.id(SharedString::from(format!("dir:{}", node.path)))
         .cursor_pointer()
         .text_color(t.muted_fg)
         .hover(|style| style.bg(t.muted))
-        .child(chevron)
+        .child(icon(chevron, 14., t.muted_fg))
         .child(node.name.clone())
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             if let Some(tree) = this.review.tree.as_mut() {

@@ -3,8 +3,8 @@
 
 use crate::app::LgtmApp;
 use crate::theme::{
-    glyph, panel, scrim, section_label, tokens, Pref, Tokens, HEADER_H, MONO_FONT, RADIUS, ROW_H,
-    SPACE, TEXT_MONO,
+    icon_button, panel, scrim, section_label, tokens, Pref, Tokens, HEADER_H, MONO_FONT, RADIUS,
+    ROW_H, SPACE, TEXT_MONO,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -59,9 +59,11 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                                 .font_weight(FontWeight::MEDIUM)
                                 .child("Settings"),
                         )
-                        .child(glyph("settings-close", "✕", true, &t).on_click(cx.listener(
-                            |this, _: &ClickEvent, window, cx| this.close_overlay(window, cx),
-                        ))),
+                        .child(
+                            icon_button("settings-close", "x", true, &t).on_click(cx.listener(
+                                |this, _: &ClickEvent, window, cx| this.close_overlay(window, cx),
+                            )),
+                        ),
                 )
                 .child(
                     div()

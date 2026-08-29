@@ -5,7 +5,7 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, rgb, rgba, App, Div, Entity, FontWeight, Global, Hsla, InteractiveElement as _,
-    ParentElement as _, Stateful, Styled as _, Window,
+    IntoElement, ParentElement as _, Stateful, Styled as _, Window,
 };
 use gpui_component::input::{Input, InputState};
 use gpui_component::{ActiveTheme as _, Theme, ThemeMode};
@@ -16,6 +16,8 @@ pub const SPACE: [f32; 7] = [4., 8., 12., 16., 24., 32., 48.];
 pub const TEXT_BODY: f32 = 14.;
 /// `text-xs`: secondary copy, section labels, status bars.
 pub const TEXT_SECONDARY: f32 = 12.;
+/// One list row: sidebar entries, menu items, composer controls.
+pub const TEXT_ROW: f32 = 13.;
 /// File paths and code.
 pub const TEXT_MONO: f32 = 12.;
 /// `text-[11px]`: the +/- counts next to a file.
@@ -42,7 +44,7 @@ pub const BAR_H: f32 = 38.;
 /// The traffic lights plus their breathing room.
 pub const LIGHTS_W: f32 = 78.;
 /// The sidebar's status row.
-pub const FOOTER_H: f32 = 32.;
+pub const FOOTER_H: f32 = 40.;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
@@ -219,15 +221,28 @@ pub fn panel(t: &Tokens) -> Div {
         .border_color(t.border)
 }
 
-/// A square glyph button: the window bar's controls and the composer's `+`.
-pub fn glyph(
+/// One Lucide icon, tinted with `color`. gpui paints an SVG as an alpha mask,
+/// so the colour has to be set on the element itself — it isn't inherited.
+pub fn icon(name: &str, size: f32, color: Hsla) -> impl IntoElement {
+    gpui::svg()
+        .path(format!("icons/{name}.svg"))
+        .flex_none()
+        .size(px(size))
+        .text_color(color)
+}
+
+/// A square icon button: the window bar's controls, the composer's `+`, the
+/// close crosses. Muted until hovered, when the icon goes full strength.
+pub fn icon_button(
     id: impl Into<gpui::SharedString>,
-    mark: impl Into<gpui::SharedString>,
+    name: &str,
     enabled: bool,
     t: &Tokens,
 ) -> Stateful<Div> {
+    let group: gpui::SharedString = id.into();
     div()
-        .id(id.into())
+        .id(group.clone())
+        .group(group.clone())
         .flex()
         .flex_shrink_0()
         .items_center()
@@ -235,15 +250,25 @@ pub fn glyph(
         .w(px(GLYPH))
         .h(px(GLYPH))
         .rounded(px(GLYPH / 2.))
-        .text_color(if enabled { t.muted_fg } else { t.border })
         .when(enabled, |this| {
             this.cursor_pointer().hover(|this| this.bg(t.muted))
         })
-        .child(mark.into())
+        .child(
+            gpui::svg()
+                .path(format!("icons/{name}.svg"))
+                .flex_none()
+                .size(px(ICON))
+                .text_color(if enabled { t.muted_fg } else { t.border })
+                .when(enabled, |this| {
+                    this.group_hover(group, |this| this.text_color(t.fg))
+                }),
+        )
 }
 
-/// The glyph button's box.
+/// The icon button's box.
 pub const GLYPH: f32 = 24.;
+/// Every icon in the chrome is drawn at this size.
+pub const ICON: f32 = 16.;
 
 pub fn tokens(cx: &App) -> Tokens {
     if cx.theme().mode.is_dark() {

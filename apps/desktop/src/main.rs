@@ -1,4 +1,5 @@
 mod app;
+mod assets;
 mod batches;
 mod changes;
 mod composer;
@@ -90,46 +91,48 @@ fn main() {
     // ring and aws-lc-rs can both be linked; rustls will not guess.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let config = load_config();
-    Application::new().run(move |cx: &mut App| {
-        theme::init(cx);
-        keys::init(cx);
+    Application::new()
+        .with_assets(assets::Assets)
+        .run(move |cx: &mut App| {
+            theme::init(cx);
+            keys::init(cx);
 
-        let options = WindowOptions {
-            // The app draws its own bar, so the system one only contributes the
-            // traffic lights.
-            titlebar: Some(TitlebarOptions {
-                title: None,
-                appears_transparent: true,
-                traffic_light_position: Some(point(px(12.), px(12.))),
-            }),
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                None,
-                size(px(1200.), px(800.)),
-                cx,
-            ))),
-            window_min_size: Some(size(px(1000.), px(680.))),
-            ..Default::default()
-        };
-
-        cx.open_window(options, |window, cx| {
-            let view: AnyView = match config.clone() {
-                Some(config) => cx
-                    .new(|cx| {
-                        LgtmApp::new(
-                            Client::new(config.orchestrator.clone(), config.token.clone()),
-                            config.orchestrator,
-                            config.token,
-                            config.token_source,
-                            window,
-                            cx,
-                        )
-                    })
-                    .into(),
-                None => cx.new(|_| MissingConfig).into(),
+            let options = WindowOptions {
+                // The app draws its own bar, so the system one only contributes the
+                // traffic lights.
+                titlebar: Some(TitlebarOptions {
+                    title: None,
+                    appears_transparent: true,
+                    traffic_light_position: Some(point(px(12.), px(12.))),
+                }),
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(1200.), px(800.)),
+                    cx,
+                ))),
+                window_min_size: Some(size(px(1000.), px(680.))),
+                ..Default::default()
             };
-            cx.new(|cx| Root::new(view, window, cx))
-        })
-        .expect("open window");
-        cx.activate(true);
-    });
+
+            cx.open_window(options, |window, cx| {
+                let view: AnyView = match config.clone() {
+                    Some(config) => cx
+                        .new(|cx| {
+                            LgtmApp::new(
+                                Client::new(config.orchestrator.clone(), config.token.clone()),
+                                config.orchestrator,
+                                config.token,
+                                config.token_source,
+                                window,
+                                cx,
+                            )
+                        })
+                        .into(),
+                    None => cx.new(|_| MissingConfig).into(),
+                };
+                cx.new(|cx| Root::new(view, window, cx))
+            })
+            .expect("open window");
+            cx.activate(true);
+        });
 }

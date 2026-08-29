@@ -85,7 +85,9 @@ pub struct LgtmApp {
     pub project_menu: bool,
     pub add_repo: bool,
     pub plus_menu: bool,
-    pub plus_view: home::PlusView,
+    /// The `+` menu is showing its base-branch field.
+    pub branch_edit: bool,
+    pub worker_menu: bool,
 
     pub overlay: Overlay,
     pub palette_at: usize,
@@ -204,7 +206,8 @@ impl LgtmApp {
             project_menu: false,
             add_repo: false,
             plus_menu: false,
-            plus_view: home::PlusView::Root,
+            branch_edit: false,
+            worker_menu: false,
             overlay: Overlay::None,
             palette_at: 0,
             expanded: HashSet::new(),
@@ -393,6 +396,7 @@ impl LgtmApp {
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.overlay = Overlay::None;
+        self.close_menus(cx);
         window.focus(&self.focus);
         cx.notify();
     }

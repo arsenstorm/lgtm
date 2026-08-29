@@ -2,7 +2,7 @@
 
 use crate::app::LgtmApp;
 use crate::review::Comment;
-use crate::theme::{self, Tokens};
+use crate::theme::{self, icon, Tokens};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, AppContext as _, ClickEvent, Context, Div, Entity, FontWeight, Hsla,
@@ -377,7 +377,7 @@ fn card(index: usize, comment: &Comment, key: &str, t: &Tokens, cx: &mut Context
                     div()
                         .id(SharedString::from(format!("drop:{key}:{index}")))
                         .cursor_pointer()
-                        .child("✕")
+                        .child(icon("x", 12., t.muted_fg))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             if index < this.review.comments.len() {
                                 this.review.comments.remove(index);
