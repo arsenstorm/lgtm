@@ -46,10 +46,11 @@ fn is_issue_identifier(s: &str) -> bool {
     let Some((team, number)) = s.rsplit_once('-') else {
         return false;
     };
-    !team.is_empty()
-        && team.chars().all(|c| c.is_ascii_uppercase())
-        && !number.is_empty()
-        && number.chars().all(|c| c.is_ascii_digit())
+    all_of(team, char::is_ascii_uppercase) && all_of(number, char::is_ascii_digit)
+}
+
+fn all_of(s: &str, pred: fn(&char) -> bool) -> bool {
+    !s.is_empty() && s.chars().all(|c| pred(&c))
 }
 
 /// Started → first state with kind "started"; Completed → first with kind
@@ -206,6 +207,10 @@ fn parse_issue_response(value: &Value) -> anyhow::Result<Issue> {
     let issue = value
         .pointer("/data/issue")
         .ok_or_else(|| anyhow!("linear: missing issue in response"))?;
+    issue_from_node(issue)
+}
+
+fn issue_from_node(issue: &Value) -> anyhow::Result<Issue> {
     Ok(Issue {
         id: field_str(issue, "id")?,
         identifier: field_str(issue, "identifier")?,
@@ -231,28 +236,7 @@ pub fn parse_issue_list(v: &Value) -> anyhow::Result<Vec<Issue>> {
         .pointer("/data/issues/nodes")
         .and_then(|v| v.as_array())
         .ok_or_else(|| anyhow!("linear: missing issues in response"))?;
-    nodes
-        .iter()
-        .map(|issue| {
-            Ok(Issue {
-                id: field_str(issue, "id")?,
-                identifier: field_str(issue, "identifier")?,
-                title: field_str(issue, "title")?,
-                description: issue
-                    .get("description")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
-                url: field_str(issue, "url")?,
-                team_id: field_str(
-                    issue
-                        .get("team")
-                        .ok_or_else(|| anyhow!("linear: missing team in response"))?,
-                    "id",
-                )?,
-            })
-        })
-        .collect()
+    nodes.iter().map(issue_from_node).collect()
 }
 
 #[cfg(test)]
