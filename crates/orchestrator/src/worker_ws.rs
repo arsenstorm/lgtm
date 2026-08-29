@@ -55,7 +55,7 @@ async fn run(app: Arc<App>, socket: WebSocket) {
             let Ok(text) = serde_json::to_string(&msg) else {
                 continue;
             };
-            if sink.send(Message::Text(text)).await.is_err() {
+            if sink.send(Message::Text(text.into())).await.is_err() {
                 break;
             }
         }

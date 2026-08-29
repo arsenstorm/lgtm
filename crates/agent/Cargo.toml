@@ -12,10 +12,10 @@ tokio.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
 tracing.workspace = true
-which = "6"
+which = "8"
 # rustls is already in the graph via tokio-tungstenite; the `ring` feature gives
 # it a crypto provider (there was none) so `wss://` works at all.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-pki-types = "1"
-webpki-roots = "0.26"
-toml = { version = "0.8", features = ["preserve_order"] }
+webpki-roots = "1"
+toml = { version = "1", features = ["preserve_order"] }

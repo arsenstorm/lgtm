@@ -14,7 +14,7 @@ tokio-tungstenite.workspace = true
 futures-util.workspace = true
 reqwest.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
-webpki-roots = "0.26"
+webpki-roots = "1"
 
 [dev-dependencies]
 lgtm-orchestrator.workspace = true

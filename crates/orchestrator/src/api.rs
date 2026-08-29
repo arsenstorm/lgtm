@@ -10,6 +10,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use futures_util::SinkExt;
 use lgtm_protocol::{
     Batch, BatchSource, BatchSummary, Executor, IssueRef, LinearRef, OrchestratorMessage,
     StoredEvent, Task, TaskEvent, TaskId, TaskKind, TaskSpec, TaskStatus, WorkerStatus,
@@ -57,15 +58,15 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/from-issue", post(create_task_from_issue))
         .route("/tasks/from-linear", post(create_task_from_linear))
-        .route("/tasks/:id", get(get_task))
-        .route("/tasks/:id/merge", post(merge))
-        .route("/tasks/:id/events", get(events))
-        .route("/tasks/:id/message", post(message))
-        .route("/tasks/:id/cancel", post(cancel))
-        .route("/tasks/:id/approve", post(approve))
-        .route("/tasks/:id/reject", post(reject))
+        .route("/tasks/{id}", get(get_task))
+        .route("/tasks/{id}/merge", post(merge))
+        .route("/tasks/{id}/events", get(events))
+        .route("/tasks/{id}/message", post(message))
+        .route("/tasks/{id}/cancel", post(cancel))
+        .route("/tasks/{id}/approve", post(approve))
+        .route("/tasks/{id}/reject", post(reject))
         .route("/batches", get(list_batches).post(create_batch))
-        .route("/batches/:id", get(get_batch))
+        .route("/batches/{id}", get(get_batch))
         .layer(middleware::from_fn_with_state(app, auth))
 }
 
@@ -610,7 +611,7 @@ async fn send(socket: &mut WebSocket, event: &StoredEvent) -> bool {
     let Ok(text) = serde_json::to_string(event) else {
         return false;
     };
-    socket.send(Message::Text(text)).await.is_ok()
+    socket.send(Message::Text(text.into())).await.is_ok()
 }
 
 async fn stream(
