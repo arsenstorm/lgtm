@@ -23,20 +23,15 @@ pub async fn serve(args: ServeArgs, token: Option<String>) -> anyhow::Result<i32
         (None, None) => None,
         _ => anyhow::bail!("pass both --tls-cert and --tls-key"),
     };
-    // A specific bind address is the only one workers can dial.
-    let ip = if bind_addr.ip().is_unspecified() {
-        lgtm_orchestrator::local::advertised_ip()
-    } else {
-        bind_addr.ip().to_string()
-    };
+    let public_url = args
+        .public_url
+        .unwrap_or_else(|| default_public_url(&args.bind, tls.is_some(), &advertised(bind_addr)));
     let provision = args
         .provision
         .map(|command| lgtm_orchestrator::ProvisionOptions {
             command,
             max: args.provision_max,
-            public_url: args
-                .public_url
-                .unwrap_or_else(|| default_public_url(&args.bind, tls.is_some(), &ip)),
+            public_url,
         });
     let serve_opts = lgtm_orchestrator::ServeOptions {
         bind: bind_addr,
@@ -76,6 +71,16 @@ pub async fn worker(
     })
     .await?;
     Ok(0)
+}
+
+/// A specific bind address is the only one workers can dial; `0.0.0.0`
+/// becomes the address this machine advertises.
+fn advertised(bind: std::net::SocketAddr) -> String {
+    if bind.ip().is_unspecified() {
+        lgtm_orchestrator::local::advertised_ip()
+    } else {
+        bind.ip().to_string()
+    }
 }
 
 /// Best-guess URL a provisioned worker can reach this orchestrator at, when

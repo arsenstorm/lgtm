@@ -90,26 +90,31 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
     };
     let token = require_token(cli.token, &data_dir(None));
     let client = client(&cli.orchestrator, token, cli.ca.as_deref())?;
+    run_command(&client, command).await
+}
+
+/// Every command that talks to a running orchestrator.
+async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
     match command {
         Command::Serve(_) | Command::Worker(_) | Command::Upgrade { .. } => {
-            unreachable!("handled above")
+            unreachable!("handled by dispatch")
         }
-        Command::Workers => workers(&client).await,
+        Command::Workers => workers(client).await,
         Command::Run {
             target,
             issue,
             linear,
             prompt,
-        } => run(&client, target, (issue, linear, prompt)).await,
+        } => run(client, target, (issue, linear, prompt)).await,
         Command::Plan { target, goal } => {
             let spec = target.spec(goal, TaskKind::Plan)?;
-            run::announce_and_stream(&client, client.create_task(&spec).await?).await
+            run::announce_and_stream(client, client.create_task(&spec).await?).await
         }
         Command::Tasks => {
             print_task_table(client.tasks().await?);
             Ok(0)
         }
-        Command::Show { id } => show(&client, &id).await,
+        Command::Show { id } => show(client, &id).await,
         Command::Logs { id } => {
             let mut stdout = std::io::stdout();
             for e in client.task(&id).await?.events {
@@ -135,9 +140,9 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             let from = client.task(&id).await?.events.len();
             client.tell(&id, &message).await?;
             eprintln!("task {id} → follow-up sent");
-            run::stream(&client, &id, from).await
+            run::stream(client, &id, from).await
         }
-        Command::Backlog { command } => backlog_command(&client, command).await,
+        Command::Backlog { command } => backlog_command(client, command).await,
     }
 }
 
