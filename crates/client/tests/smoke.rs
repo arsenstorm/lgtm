@@ -65,7 +65,8 @@ async fn end_to_end() {
             info,
             running: Vec::new(),
         })
-        .unwrap(),
+        .unwrap()
+        .into(),
     ))
     .await
     .unwrap();
@@ -92,7 +93,8 @@ async fn end_to_end() {
             task_id: task.id.clone(),
             event: TaskEvent::Started,
         })
-        .unwrap(),
+        .unwrap()
+        .into(),
     ))
     .await
     .unwrap();

@@ -425,8 +425,8 @@ fn require_token(token: Option<String>, data_dir: &std::path::Path) -> String {
 
 #[tokio::main]
 async fn main() {
-    // Both ring (tungstenite) and aws-lc-rs (axum-server) are linked; rustls
-    // refuses to guess between them, so pick one for every TLS client here.
+    // rustls needs a process-wide crypto provider before any TLS client is
+    // built; ring is the only one in the graph, so install it once here.
     let _ = rustls::crypto::ring::default_provider().install_default();
     // A Windows upgrade can't delete the binary it's replacing while it's
     // running; the next run cleans up the leftover sibling.

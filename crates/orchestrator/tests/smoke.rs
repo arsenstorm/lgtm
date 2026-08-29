@@ -97,7 +97,8 @@ async fn end_to_end() {
             info,
             running: Vec::new(),
         })
-        .unwrap(),
+        .unwrap()
+        .into(),
     ))
     .await
     .unwrap();
@@ -157,7 +158,8 @@ async fn end_to_end() {
             task_id: task.id.clone(),
             event: TaskEvent::Started,
         })
-        .unwrap(),
+        .unwrap()
+        .into(),
     ))
     .await
     .unwrap();
@@ -180,7 +182,8 @@ async fn end_to_end() {
             task_id: task.id.clone(),
             event: TaskEvent::Completed { result },
         })
-        .unwrap(),
+        .unwrap()
+        .into(),
     ))
     .await
     .unwrap();
@@ -226,7 +229,8 @@ async fn end_to_end() {
                 sha: "deadbeef".into(),
             },
         })
-        .unwrap(),
+        .unwrap()
+        .into(),
     ))
     .await
     .unwrap();
@@ -270,7 +274,8 @@ async fn end_to_end() {
             task_id: task2.id.clone(),
             event: TaskEvent::Started,
         })
-        .unwrap(),
+        .unwrap()
+        .into(),
     ))
     .await
     .unwrap();
@@ -343,7 +348,8 @@ async fn end_to_end() {
             info: info.clone(),
             running: Vec::new(),
         })
-        .unwrap(),
+        .unwrap()
+        .into(),
     ))
     .await
     .unwrap();
@@ -355,7 +361,8 @@ async fn end_to_end() {
             info,
             running: Vec::new(),
         })
-        .unwrap(),
+        .unwrap()
+        .into(),
     ))
     .await
     .unwrap();
@@ -433,7 +440,8 @@ async fn end_to_end() {
             task_id: task_a.id.clone(),
             event: TaskEvent::Completed { result },
         })
-        .unwrap(),
+        .unwrap()
+        .into(),
     ))
     .await
     .unwrap();
@@ -462,7 +470,8 @@ async fn end_to_end() {
             info,
             running: Vec::new(),
         })
-        .unwrap(),
+        .unwrap()
+        .into(),
     ))
     .await
     .unwrap();

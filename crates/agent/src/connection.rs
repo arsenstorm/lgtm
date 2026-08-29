@@ -184,7 +184,7 @@ async fn session(
         info: info.clone(),
         running,
     };
-    sink.send(Message::Text(serde_json::to_string(&hello)?))
+    sink.send(Message::Text(serde_json::to_string(&hello)?.into()))
         .await?;
 
     match stream.next().await {
@@ -201,7 +201,7 @@ async fn session(
             outbound = rx.recv() => {
                 let Some(msg) = outbound else { return Ok(Ended::Disconnected) };
                 let goodbye = matches!(msg, WorkerMessage::Goodbye);
-                sink.send(Message::Text(serde_json::to_string(&msg)?)).await?;
+                sink.send(Message::Text(serde_json::to_string(&msg)?.into())).await?;
                 if goodbye {
                     let _ = sink.close().await;
                     tokio::time::sleep(FLUSH).await;
