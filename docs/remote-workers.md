@@ -10,40 +10,44 @@ orchestrator start workers for you when the queue needs them.
 
 ## TLS with a self-signed certificate
 
-`lgtm serve` can terminate TLS itself. Generate a certificate for the host
-the workers will connect to:
+`lgtm serve` can terminate TLS itself. rustls (used by every LGTM client)
+refuses a certificate that is both the trust anchor and the server's own
+certificate, so make a small CA and sign a server certificate with it:
 
 ```sh
-openssl req -x509 -newkey rsa:4096 -sha256 -days 365 -nodes \
-  -keyout key.pem -out cert.pem -subj "/CN=host" \
-  -addext "subjectAltName=DNS:host,IP:203.0.113.10"
+# 1. A CA the workers will trust.
+openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+  -keyout ca-key.pem -out ca.pem -subj "/CN=lgtm-ca" \
+  -addext "basicConstraints=critical,CA:TRUE"
+
+# 2. A server certificate for the host the workers connect to.
+openssl req -newkey rsa:2048 -nodes -keyout key.pem -out server.csr -subj "/CN=host"
+printf 'subjectAltName=DNS:host,IP:203.0.113.10\n' > san.cnf
+openssl x509 -req -in server.csr -CA ca.pem -CAkey ca-key.pem -CAcreateserial \
+  -days 825 -extfile san.cnf -out cert.pem
 ```
 
 Replace `host` and the SAN entries with the real hostname or IP the workers
-will use to reach the orchestrator.
+will use to reach the orchestrator. Keep `ca-key.pem` on the orchestrator
+host only; `ca.pem` is what you copy to workers.
 
-Start the orchestrator with the certificate:
+Start the orchestrator with the server certificate:
 
 ```sh
 lgtm serve --tls-cert cert.pem --tls-key key.pem
 ```
 
-A worker on another machine connects with `wss://` and trusts the
-certificate by pointing `--ca` at the same PEM file:
+A worker on another machine connects with `wss://` and trusts the CA:
 
 ```sh
-lgtm-agent --orchestrator wss://host:4750 --ca cert.pem
+lgtm-agent --orchestrator wss://host:4750 --ca ca.pem
 ```
 
 The `lgtm` CLI does the same over `https://`:
 
 ```sh
-LGTM_CA=cert.pem lgtm --orchestrator https://host:4750 tasks
+LGTM_CA=ca.pem lgtm --orchestrator https://host:4750 workers
 ```
-
-Without `--ca`/`LGTM_CA`, a self-signed certificate is rejected as untrusted.
-You only need this for a public or otherwise untrusted network — see
-[Tailscale](#tailscale) below for a simpler option.
 
 ## Ephemeral workers
 
