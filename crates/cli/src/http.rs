@@ -39,7 +39,8 @@ impl Client {
             .get(format!("{}{path}", self.base))
             .bearer_auth(&self.token)
             .send()
-            .await?;
+            .await
+            .map_err(|e| self.unreachable(e))?;
         Self::handle(resp).await
     }
 
@@ -55,8 +56,20 @@ impl Client {
         if let Some(b) = body {
             req = req.json(b);
         }
-        let resp = req.send().await?;
+        let resp = req.send().await.map_err(|e| self.unreachable(e))?;
         Self::handle(resp).await
+    }
+
+    /// A refused connection means the orchestrator isn't there, which is worth
+    /// saying plainly instead of passing reqwest's wording through.
+    fn unreachable(&self, e: reqwest::Error) -> anyhow::Error {
+        if e.is_connect() {
+            return anyhow::anyhow!(
+                "cannot reach {}: run `lgtm serve` first, or pass --orchestrator",
+                self.base
+            );
+        }
+        e.into()
     }
 
     async fn handle<T: DeserializeOwned>(resp: reqwest::Response) -> anyhow::Result<T> {
