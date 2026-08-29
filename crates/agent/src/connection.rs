@@ -121,6 +121,14 @@ fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
                 .insert(task.id.clone(), cancel_tx);
             tokio::spawn(runner::run_task(*task, ctx.clone(), cancel_rx));
         }
+        OrchestratorMessage::Message { task_id, text } => {
+            let (cancel_tx, cancel_rx) = oneshot::channel();
+            ctx.running
+                .lock()
+                .expect("running map poisoned")
+                .insert(task_id.clone(), cancel_tx);
+            tokio::spawn(runner::follow_up(task_id, text, ctx.clone(), cancel_rx));
+        }
         OrchestratorMessage::Cancel { task_id } => {
             let sender = ctx
                 .running

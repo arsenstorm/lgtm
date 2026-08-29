@@ -31,8 +31,20 @@ pub async fn run(
         Some(worker) => eprintln!("task {} → {worker}", task.id),
         None => eprintln!("task {} queued, waiting for a worker", task.id),
     }
+    stream(orchestrator, token, &task.id, 0).await
+}
 
-    let mut request = events_url(orchestrator, &task.id)?.into_client_request()?;
+/// Connect to the task's event stream from event index `from` and render
+/// events until a terminal one arrives. Shared by `run` (from 0) and `tell`
+/// (from the count of events already seen, so a follow-up doesn't replay
+/// the whole history).
+pub async fn stream(
+    orchestrator: &str,
+    token: &str,
+    task_id: &str,
+    from: usize,
+) -> anyhow::Result<i32> {
+    let mut request = events_url(orchestrator, task_id, from)?.into_client_request()?;
     request.headers_mut().insert(
         "Authorization",
         HeaderValue::from_str(&format!("Bearer {token}"))?,
@@ -51,7 +63,8 @@ pub async fn run(
             TaskEvent::Completed { result } => {
                 println!("\n{} files changed", result.changed_files.len());
                 println!("{}", result.diff);
-                return Ok(0);
+                render::print_validation(&result.validation, &mut stdout)?;
+                return Ok(if result.validation_failed() { 3 } else { 0 });
             }
             TaskEvent::Failed { error } => {
                 eprintln!("error: {error}");
@@ -68,8 +81,9 @@ pub async fn run(
     Ok(1)
 }
 
-/// `http(s)://host[:port]` -> `ws(s)://host[:port]/api/tasks/<id>/events`.
-fn events_url(orchestrator: &str, task_id: &str) -> anyhow::Result<String> {
+/// `http(s)://host[:port]` -> `ws(s)://host[:port]/api/tasks/<id>/events`,
+/// with `?from=<from>` appended unless `from` is 0 (the full history).
+fn events_url(orchestrator: &str, task_id: &str, from: usize) -> anyhow::Result<String> {
     let (scheme, rest) = if let Some(rest) = orchestrator.strip_prefix("https://") {
         ("wss://", rest)
     } else if let Some(rest) = orchestrator.strip_prefix("http://") {
@@ -78,5 +92,11 @@ fn events_url(orchestrator: &str, task_id: &str) -> anyhow::Result<String> {
         anyhow::bail!("orchestrator URL must start with http:// or https://");
     };
     let rest = rest.trim_end_matches('/');
-    Ok(format!("{scheme}{rest}/api/tasks/{task_id}/events"))
+    if from == 0 {
+        Ok(format!("{scheme}{rest}/api/tasks/{task_id}/events"))
+    } else {
+        Ok(format!(
+            "{scheme}{rest}/api/tasks/{task_id}/events?from={from}"
+        ))
+    }
 }

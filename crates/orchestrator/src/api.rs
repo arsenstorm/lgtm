@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use axum::extract::rejection::JsonRejection;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Request, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{header::AUTHORIZATION, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -13,6 +13,7 @@ use axum::{Json, Router};
 use lgtm_protocol::{
     OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskSpec, TaskStatus, WorkerStatus,
 };
+use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::persist::Stored;
@@ -45,6 +46,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/:id", get(get_task))
         .route("/tasks/:id/events", get(events))
+        .route("/tasks/:id/message", post(message))
         .route("/tasks/:id/cancel", post(cancel))
         .route("/tasks/:id/approve", post(approve))
         .route("/tasks/:id/reject", post(reject))
@@ -89,6 +91,23 @@ async fn create_task(
     let (task, changed) = state.create_task(spec).map_err(conflict)?;
     app.persist_ids(&state, &changed);
     Ok((StatusCode::CREATED, Json(task)))
+}
+
+#[derive(Deserialize)]
+struct MessageBody {
+    text: String,
+}
+
+async fn message(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<MessageBody>, JsonRejection>,
+) -> Result<Json<Task>, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let mut state = app.state.lock().unwrap();
+    let (task, changed) = state.message(&id, body.text)?;
+    app.persist_ids(&state, &changed);
+    Ok(Json(task))
 }
 
 async fn list_tasks(State(app): State<Arc<App>>) -> Json<Vec<Task>> {
@@ -160,9 +179,16 @@ fn command(
     Ok(Json(state.command(id, allowed, wrong_status, msg)?))
 }
 
+#[derive(Deserialize)]
+struct EventsQuery {
+    #[serde(default)]
+    from: usize,
+}
+
 async fn events(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
+    Query(query): Query<EventsQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
     let (stored, live, terminal) = {
@@ -177,6 +203,8 @@ async fn events(
             rec.task.status.is_terminal(),
         )
     };
+    let from = query.from.min(stored.len());
+    let stored = stored[from..].to_vec();
     Ok(ws.on_upgrade(move |socket| stream(socket, stored, live, terminal)))
 }
 
@@ -200,6 +228,8 @@ async fn stream(
     mut live: broadcast::Receiver<StoredEvent>,
     terminal: bool,
 ) {
+    // A task failed by a restart has no final event on record, so the status
+    // has to close the socket too.
     let mut done = terminal;
     for event in &stored {
         if !send(&mut socket, event).await {

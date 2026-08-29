@@ -346,7 +346,7 @@ impl State {
             }
             TaskEvent::Pushed { .. } => rec.task.status = TaskStatus::Approved,
             TaskEvent::Discarded => rec.task.status = TaskStatus::Rejected,
-            TaskEvent::Started | TaskEvent::Output { .. } => {}
+            TaskEvent::Started | TaskEvent::Output { .. } | TaskEvent::Message { .. } => {}
         }
         let status = rec.task.status;
         let worker = rec.task.worker.clone();
@@ -403,6 +403,41 @@ impl State {
             "task is not running",
             |task_id| OrchestratorMessage::Cancel { task_id },
         )
+    }
+
+    /// Records a follow-up and hands it to the worker; the slot is taken again
+    /// until the worker reports the run finished.
+    pub fn message(
+        &mut self,
+        task_id: &str,
+        text: String,
+    ) -> Result<(Task, Vec<TaskId>), CmdError> {
+        let rec = self.tasks.get(task_id).ok_or(CmdError::NotFound)?;
+        if rec.task.status != TaskStatus::AwaitingReview {
+            return Err(CmdError::Conflict("task is not awaiting review".into()));
+        }
+        let name = rec.task.worker.clone().unwrap_or_default();
+        let connected = self
+            .workers
+            .get(&name)
+            .is_some_and(|worker| worker.is_connected());
+        if !connected {
+            return Err(CmdError::Conflict(format!(
+                "worker {name} is not connected"
+            )));
+        }
+        let changed = self.apply_event(task_id, TaskEvent::Message { text: text.clone() });
+        if let Some(worker) = self.workers.get_mut(&name) {
+            worker.running.insert(task_id.to_string());
+            worker.send(OrchestratorMessage::Message {
+                task_id: task_id.to_string(),
+                text,
+            });
+        }
+        self.tasks
+            .get(task_id)
+            .map(|rec| (rec.task.clone(), changed))
+            .ok_or(CmdError::NotFound)
     }
 }
 

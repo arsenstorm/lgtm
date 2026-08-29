@@ -227,6 +227,7 @@ fn apply_event_transitions() {
         branch: format!("lgtm/{id}"),
         diff: "diff".into(),
         changed_files: vec!["a.rs".into()],
+        validation: Vec::new(),
     };
     state.apply_event(&id, TaskEvent::Completed { result });
     assert_eq!(status(&state, &id), TaskStatus::AwaitingReview);
@@ -241,6 +242,60 @@ fn apply_event_transitions() {
     );
     assert_eq!(status(&state, &id), TaskStatus::Approved);
     assert_eq!(state.tasks[&id].events.len(), 3);
+}
+
+#[test]
+fn message_requires_awaiting_review() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+    state.apply_event(&id, TaskEvent::Started);
+    assert_eq!(status(&state, &id), TaskStatus::Running);
+
+    assert!(matches!(
+        state.message(&id, "too soon".into()),
+        Err(CmdError::Conflict(_))
+    ));
+
+    let result = TaskResult {
+        branch: format!("lgtm/{id}"),
+        diff: "diff".into(),
+        changed_files: vec!["a.rs".into()],
+        validation: Vec::new(),
+    };
+    state.apply_event(
+        &id,
+        TaskEvent::Completed {
+            result: result.clone(),
+        },
+    );
+    assert_eq!(status(&state, &id), TaskStatus::AwaitingReview);
+    assert!(
+        state.workers["a"].running.is_empty(),
+        "slot freed on completion"
+    );
+
+    let (task, changed) = state.message(&id, "keep going".into()).unwrap();
+    assert_eq!(task.status, TaskStatus::AwaitingReview);
+    assert!(changed.contains(&id));
+    match &state.tasks[&id].events.last().unwrap().event {
+        TaskEvent::Message { text } => assert_eq!(text.as_str(), "keep going"),
+        other => panic!("expected a Message event, got {other:?}"),
+    }
+    assert!(
+        state.workers["a"].running.contains(&id),
+        "slot taken again for the follow-up"
+    );
+
+    state.apply_event(&id, TaskEvent::Started);
+    assert_eq!(status(&state, &id), TaskStatus::Running);
+
+    state.apply_event(&id, TaskEvent::Completed { result });
+    assert_eq!(status(&state, &id), TaskStatus::AwaitingReview);
+    assert!(
+        state.workers["a"].running.is_empty(),
+        "slot freed again after the follow-up run"
+    );
 }
 
 #[test]

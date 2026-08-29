@@ -6,7 +6,7 @@
 //! bookkeeping, rate-limit pings, successful results already implied by
 //! `Completed`).
 
-use lgtm_protocol::{OutputStream, TaskEvent};
+use lgtm_protocol::{OutputStream, TaskEvent, ValidationResult};
 use serde_json::Value;
 use std::io::Write;
 
@@ -15,6 +15,7 @@ const TOOL_DETAIL_MAX: usize = 100;
 pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
     match event {
         TaskEvent::Started => writeln!(out, "agent started"),
+        TaskEvent::Message { text } => writeln!(out, "> {text}"),
         TaskEvent::Output {
             stream: OutputStream::Stderr,
             line,
@@ -24,9 +25,18 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
             line,
         } => render_stdout(line, out),
         TaskEvent::Completed { result } => {
+            let total = result.validation.len();
+            if total == 0 {
+                return writeln!(
+                    out,
+                    "completed: {} files changed",
+                    result.changed_files.len()
+                );
+            }
+            let passed = result.validation.iter().filter(|v| v.ok).count();
             writeln!(
                 out,
-                "completed: {} files changed",
+                "completed: {} files changed, {passed}/{total} checks passed",
                 result.changed_files.len()
             )
         }
@@ -35,6 +45,27 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
         TaskEvent::Pushed { branch } => writeln!(out, "pushed {branch}"),
         TaskEvent::Discarded => writeln!(out, "discarded"),
     }
+}
+
+/// Renders each check's pass/fail line after a `Completed` event, with the
+/// output tail of a failing check indented underneath it. No-op when there
+/// are no checks (repo has no `.lgtm/config.toml` validation configured).
+pub fn print_validation(results: &[ValidationResult], out: &mut impl Write) -> std::io::Result<()> {
+    if results.is_empty() {
+        return Ok(());
+    }
+    writeln!(out)?;
+    for result in results {
+        if result.ok {
+            writeln!(out, "✓ {}", result.name)?;
+        } else {
+            writeln!(out, "✗ {}", result.name)?;
+            for line in result.output_tail.lines() {
+                writeln!(out, "    {line}")?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn render_stdout(line: &str, out: &mut impl Write) -> std::io::Result<()> {
@@ -151,5 +182,42 @@ mod tests {
     #[test]
     fn non_json_line_is_echoed() {
         assert_eq!(render_line("plain text output"), "plain text output\n");
+    }
+
+    #[test]
+    fn message_event_is_quoted() {
+        let event = TaskEvent::Message {
+            text: "use the existing helper".into(),
+        };
+        let mut out = Vec::new();
+        render(&event, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "> use the existing helper\n"
+        );
+    }
+
+    #[test]
+    fn print_validation_marks_failures_with_output_tail() {
+        let results = vec![
+            ValidationResult {
+                name: "test".into(),
+                command: "bun test".into(),
+                ok: true,
+                output_tail: String::new(),
+            },
+            ValidationResult {
+                name: "lint".into(),
+                command: "bun lint".into(),
+                ok: false,
+                output_tail: "line1\nline2".into(),
+            },
+        ];
+        let mut out = Vec::new();
+        print_validation(&results, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "\n✓ test\n✗ lint\n    line1\n    line2\n"
+        );
     }
 }

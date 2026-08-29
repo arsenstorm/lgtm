@@ -5,7 +5,7 @@ mod run;
 use clap::{Parser, Subcommand};
 use http::Client;
 use lgtm_protocol::{Executor, StoredEvent, Task, TaskStatus, WorkerStatus};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -65,6 +65,11 @@ enum Command {
     Cancel {
         id: String,
     },
+    /// Send a follow-up to a task awaiting review, then resume streaming.
+    Tell {
+        id: String,
+        message: String,
+    },
 }
 
 /// Body of `GET /api/tasks/:id`.
@@ -72,6 +77,12 @@ enum Command {
 struct TaskDetail {
     task: Task,
     events: Vec<StoredEvent>,
+}
+
+/// Body of `POST /api/tasks/:id/message`.
+#[derive(Serialize)]
+struct FollowUp<'a> {
+    text: &'a str,
 }
 
 fn parse_executor(s: &str) -> Result<Executor, String> {
@@ -221,13 +232,10 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             for t in tasks {
                 let worker = t.worker.as_deref().unwrap_or("-");
                 let prompt = first_line_truncated(&t.spec.prompt, 60);
-                println!(
-                    "{:<10}{:<16}{:<16}{}",
-                    t.id,
-                    status_str(t.status),
-                    worker,
-                    prompt
-                );
+                let failed = t.result.as_ref().is_some_and(|r| r.validation_failed());
+                let status = status_str(t.status);
+                let status = if failed { format!("{status}!") } else { status };
+                println!("{:<10}{:<16}{:<16}{}", t.id, status, worker, prompt);
             }
             Ok(0)
         }
@@ -236,6 +244,9 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             println!("{}", serde_json::to_string_pretty(&detail.task)?);
             for e in detail.events {
                 println!("{} {}", e.at, serde_json::to_string(&e.event)?);
+            }
+            if let Some(result) = &detail.task.result {
+                render::print_validation(&result.validation, &mut std::io::stdout())?;
             }
             Ok(0)
         }
@@ -280,6 +291,19 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                 .await?;
             println!("{}", serde_json::to_string_pretty(&task)?);
             Ok(0)
+        }
+        Command::Tell { id, message } => {
+            // Events already delivered by a prior `run`/`tell` shouldn't replay.
+            let detail: TaskDetail = client.get(&format!("/api/tasks/{id}")).await?;
+            let from = detail.events.len();
+            let _: Task = client
+                .post(
+                    &format!("/api/tasks/{id}/message"),
+                    Some(&FollowUp { text: &message }),
+                )
+                .await?;
+            eprintln!("task {id} → follow-up sent");
+            run::stream(&orchestrator, &token, &id, from).await
         }
     }
 }

@@ -76,6 +76,20 @@ pub fn worktree_path(data_dir: &Path, task_id: &str) -> PathBuf {
     data_dir.join("worktrees").join(task_id)
 }
 
+/// Agent session id of the last run, so a follow-up can resume it.
+pub fn session_path(data_dir: &Path, task_id: &str) -> PathBuf {
+    data_dir
+        .join("worktrees")
+        .join(format!("{task_id}.session"))
+}
+
+/// The task as sent by the orchestrator, so a follow-up survives a restart.
+pub fn task_path(data_dir: &Path, task_id: &str) -> PathBuf {
+    data_dir
+        .join("worktrees")
+        .join(format!("{task_id}.task.json"))
+}
+
 pub fn branch_name(task_id: &str) -> String {
     format!("lgtm/{task_id}")
 }
