@@ -35,16 +35,7 @@ impl LgtmApp {
                 self.lines.extend(render::render(&event.event));
                 self.content_scroll.scroll_to_bottom();
             }
-            Msg::Action(Ok(created)) => {
-                if let Some(task) = created {
-                    self.prompt
-                        .update(cx, |state, cx| state.set_value("", window, cx));
-                    self.tasks.insert(0, task.clone());
-                    self.select(task.id, cx);
-                }
-                net::refresh(self.client.clone(), self.tx.clone());
-            }
-            Msg::Action(Err(err)) => self.set_error(err, cx),
+            Msg::Action(Ok(created)) => self.created(created, window, cx),
             Msg::Batch(Ok(response)) => {
                 self.import.issues = response.issues;
                 if response.batch.is_some() {
@@ -52,9 +43,20 @@ impl LgtmApp {
                     net::refresh(self.client.clone(), self.tx.clone());
                 }
             }
-            Msg::Batch(Err(err)) => self.set_error(err, cx),
+            Msg::Action(Err(err)) | Msg::Batch(Err(err)) => self.set_error(err, cx),
         }
         cx.notify();
+    }
+
+    /// An action went through; a new task also clears the prompt and opens.
+    fn created(&mut self, created: Option<Task>, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(task) = created {
+            self.prompt
+                .update(cx, |state, cx| state.set_value("", window, cx));
+            self.tasks.insert(0, task.clone());
+            self.select(task.id, cx);
+        }
+        net::refresh(self.client.clone(), self.tx.clone());
     }
 
     /// What the strip says while the orchestrator is not answering.

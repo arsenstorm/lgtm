@@ -52,36 +52,8 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
         .min_w_0()
         .flex()
         .flex_col()
-        .child(
-            div()
-                .flex()
-                .flex_shrink_0()
-                .items_center()
-                .h(px(HEADER_H))
-                .px(px(SPACE[2]))
-                .border_b_1()
-                .border_color(t.border)
-                .child(
-                    div()
-                        .flex_1()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child("Batches"),
-                )
-                .child(import_button("import-top", cx)),
-        )
-        .when(empty, |this| {
-            this.child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .justify_center()
-                    .gap(px(SPACE[2]))
-                    .child(div().text_color(t.muted_fg).child("No batches yet"))
-                    .child(import_button("import-empty", cx)),
-            )
-        })
+        .child(page_header(&t, cx))
+        .when(empty, |this| this.child(empty_state(&t, cx)))
         .when(!empty, |this| {
             this.child(
                 div()
@@ -97,6 +69,36 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
             )
         })
         .into_any_element()
+}
+
+fn page_header(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    div()
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .h(px(HEADER_H))
+        .px(px(SPACE[2]))
+        .border_b_1()
+        .border_color(t.border)
+        .child(
+            div()
+                .flex_1()
+                .font_weight(FontWeight::MEDIUM)
+                .child("Batches"),
+        )
+        .child(import_button("import-top", cx))
+}
+
+fn empty_state(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    div()
+        .flex_1()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(px(SPACE[2]))
+        .child(div().text_color(t.muted_fg).child("No batches yet"))
+        .child(import_button("import-empty", cx))
 }
 
 fn import_button(id: &'static str, cx: &mut Context<LgtmApp>) -> Button {
@@ -173,19 +175,21 @@ fn card_header(
                 .into_iter()
                 .map(|(state, count)| pill(state, count, t)),
         )
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_size(px(TEXT_SECONDARY))
-                .text_color(t.muted_fg)
-                .child(format!("{} ago", relative_age(batch.created_at, now_ms()))),
-        )
+        .child(age(batch.created_at, t))
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             if !this.expanded.remove(&id) {
                 this.expanded.insert(id.clone());
             }
             cx.notify();
         }))
+}
+
+fn age(created_at: u64, t: &Tokens) -> Div {
+    div()
+        .flex_shrink_0()
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.muted_fg)
+        .child(format!("{} ago", relative_age(created_at, now_ms())))
 }
 
 fn task_row(

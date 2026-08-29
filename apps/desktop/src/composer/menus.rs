@@ -4,7 +4,9 @@ use super::{ABOVE_ROW, CARD_INSET, MENU_W, REAR_H, REAR_INSET, ROW_H, SMALL_MENU
 use crate::app::LgtmApp;
 use crate::home::{Chip, AUTO_WORKER};
 use crate::tasks::repo_slug;
-use crate::theme::{field, icon, lighten, Tokens, ICON, RADIUS, SPACE, TEXT_ROW, TEXT_SECONDARY};
+use crate::theme::{
+    field, icon, lighten, tokens, Tokens, ICON, RADIUS, SPACE, TEXT_ROW, TEXT_SECONDARY,
+};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, ClickEvent, Context, Div, Entity, InteractiveElement as _, IntoElement,
@@ -57,30 +59,14 @@ pub(super) fn project_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>)
     menu(MENU_W, t)
         .top(px(top))
         .left(px(REAR_INSET))
-        .children(app.known_repositories().into_iter().map(|url| {
-            let picked = chosen.as_deref() == Some(url.as_str());
-            let value = url.clone();
-            menu_row(SharedString::from(format!("repo-{url}")), picked, t)
-                .child(icon("folder", ICON, t.muted_fg))
-                .child(div().flex_shrink_0().child(repo_slug(&url)))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(TEXT_SECONDARY))
-                        .text_color(t.muted_fg)
-                        .child(url.clone()),
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.project = Some(value.clone());
-                    this.close_menus(cx);
-                    cx.notify();
-                }))
-        }))
+        .children(
+            app.known_repositories()
+                .into_iter()
+                .map(|url| repo_row(url, chosen.as_deref(), t, cx)),
+        )
         .child(separator(t))
         .child(if app.add_repo {
-            inline_field(&app.repo_url, "add-repo-ok", t, cx, |this, cx| {
+            inline_field(&app.repo_url, "add-repo-ok", cx, |this, cx| {
                 let url = this.repo_url.read(cx).value().trim().to_string();
                 if url.is_empty() {
                     return;
@@ -104,13 +90,40 @@ pub(super) fn project_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>)
         })
 }
 
+fn repo_row(
+    url: String,
+    chosen: Option<&str>,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> impl IntoElement {
+    let picked = chosen == Some(url.as_str());
+    let value = url.clone();
+    menu_row(SharedString::from(format!("repo-{url}")), picked, t)
+        .child(icon("folder", ICON, t.muted_fg))
+        .child(div().flex_shrink_0().child(repo_slug(&url)))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(px(TEXT_SECONDARY))
+                .text_color(t.muted_fg)
+                .child(url),
+        )
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.project = Some(value.clone());
+            this.close_menus(cx);
+            cx.notify();
+        }))
+}
+
 /// The `+` menu: what the composer can't fit in its bottom row.
 pub(super) fn plus_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     menu(SMALL_MENU_W, t)
         .bottom(px(ABOVE_ROW))
         .left(px(CARD_INSET))
         .child(if app.branch_edit {
-            inline_field(&app.base_branch, "branch-ok", t, cx, |this, cx| {
+            inline_field(&app.base_branch, "branch-ok", cx, |this, cx| {
                 let branch = this.base_branch.read(cx).value().trim().to_string();
                 this.set_chip(Chip::Branch(branch), cx);
                 this.close_menus(cx);
@@ -161,10 +174,10 @@ pub(super) fn worker_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) 
 fn inline_field(
     state: &Entity<InputState>,
     id: &'static str,
-    t: &Tokens,
     cx: &mut Context<LgtmApp>,
     commit: impl Fn(&mut LgtmApp, &mut Context<LgtmApp>) + 'static,
 ) -> Div {
+    let t = &tokens(cx);
     div()
         .flex()
         .items_center()

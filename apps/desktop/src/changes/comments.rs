@@ -24,7 +24,7 @@ pub(super) fn attach(ui: &mut Ui, block: Div, anchor: Option<Anchor>, key: &str)
         .iter()
         .enumerate()
         .filter(|(_, comment)| comment.anchor == anchor)
-        .map(|(index, comment)| card(index, comment, key, ui.t, ui.cx))
+        .map(|(index, comment)| card(ui, index, comment, key))
         .collect();
     let draft = ui
         .app
@@ -43,13 +43,9 @@ fn caption(anchor: &Anchor) -> String {
     format!("{name}:{}", anchor.line)
 }
 
-fn card(
-    index: usize,
-    comment: &Comment,
-    key: &str,
-    t: &Tokens,
-    cx: &mut Context<crate::app::LgtmApp>,
-) -> Div {
+fn card(ui: &mut Ui, index: usize, comment: &Comment, key: &str) -> Div {
+    let t = ui.t;
+    let cx = &mut *ui.cx;
     shell(t)
         .child(
             div()

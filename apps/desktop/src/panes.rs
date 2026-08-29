@@ -46,24 +46,7 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
         .flex()
         .flex_col()
         .child(header(app, &task, &t, cx))
-        .when(app.show_follow_up, |this| {
-            this.child(
-                div()
-                    .px(px(SPACE[1]))
-                    .pt(px(SPACE[1]))
-                    .child(field(&app.follow_up, &t)),
-            )
-        })
-        .when_some(app.error.clone(), |this, error| {
-            this.child(
-                div()
-                    .px(px(SPACE[2]))
-                    .pt(px(SPACE[1]))
-                    .text_size(px(TEXT_SECONDARY))
-                    .text_color(t.danger)
-                    .child(error),
-            )
-        })
+        .children(notices(app, &t))
         .child(div().p(px(SPACE[1])).child(tab_bar(pane, has_plan, cx)))
         .child(match pane {
             Pane::Changes => div()
@@ -76,6 +59,30 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
             Pane::Activity => scrolling(app, activity(app, &t)),
         })
         .into_any_element()
+}
+
+/// The follow-up field and the error line, when either is showing.
+fn notices(app: &LgtmApp, t: &Tokens) -> Vec<Div> {
+    let mut out = Vec::new();
+    if app.show_follow_up {
+        out.push(
+            div()
+                .px(px(SPACE[1]))
+                .pt(px(SPACE[1]))
+                .child(field(&app.follow_up, t)),
+        );
+    }
+    if let Some(error) = app.error.clone() {
+        out.push(
+            div()
+                .px(px(SPACE[2]))
+                .pt(px(SPACE[1]))
+                .text_size(px(TEXT_SECONDARY))
+                .text_color(t.danger)
+                .child(error),
+        );
+    }
+    out
 }
 
 fn tab_bar(pane: Pane, has_plan: bool, cx: &mut Context<LgtmApp>) -> TabBar {
@@ -127,17 +134,6 @@ fn scrolling(app: &LgtmApp, body: impl IntoElement) -> AnyElement {
 
 fn header(app: &mut LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let status = status_label(task, &app.tasks);
-    let worker = task.worker.clone().unwrap_or_else(|| "unassigned".into());
-    let cost = task.result.as_ref().map(|r| r.cost_usd).unwrap_or(0.0);
-    let mut meta = format!(
-        "{} · {} · {worker}",
-        repo_slug(&task.spec.repository),
-        task.spec.base_branch
-    );
-    if cost > 0.0 {
-        meta.push_str(&format!(" · ${cost:.2}"));
-    }
-
     div()
         .h(px(HEADER_H))
         .flex_shrink_0()
@@ -168,7 +164,7 @@ fn header(app: &mut LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>)
                         .flex_shrink_0()
                         .text_size(px(TEXT_SECONDARY))
                         .text_color(t.muted_fg)
-                        .child(meta),
+                        .child(meta_line(task)),
                 )
                 .when_some(task.pull_request.clone(), |this, pr| {
                     let (mark, tone) = ci_mark(task.ci.as_ref(), t);
@@ -182,6 +178,21 @@ fn header(app: &mut LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>)
                 }),
         )
         .child(actions(task, t, cx))
+}
+
+/// `repo · base · worker`, and the cost once there is one.
+fn meta_line(task: &Task) -> String {
+    let worker = task.worker.as_deref().unwrap_or("unassigned");
+    let cost = task.result.as_ref().map(|r| r.cost_usd).unwrap_or(0.0);
+    let mut meta = format!(
+        "{} · {} · {worker}",
+        repo_slug(&task.spec.repository),
+        task.spec.base_branch
+    );
+    if cost > 0.0 {
+        meta.push_str(&format!(" · ${cost:.2}"));
+    }
+    meta
 }
 
 /// A badge that opens `url` in the browser.

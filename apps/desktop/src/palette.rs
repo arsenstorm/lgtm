@@ -196,14 +196,7 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                 .key_context("Palette")
                 .w(px(WIDTH))
                 .on_click(|_, _, cx| cx.stop_propagation())
-                .child(
-                    div()
-                        .px(px(SPACE[1]))
-                        .py(px(SPACE[0]))
-                        .border_b_1()
-                        .border_color(t.border)
-                        .child(Input::new(&app.query).appearance(false).large()),
-                )
+                .child(search_box(app, &t))
                 .child(
                     div()
                         .id("palette-list")
@@ -214,20 +207,31 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                         .p(px(SPACE[0]))
                         .children(rows),
                 )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(ROW_H))
-                        .px(px(SPACE[2]))
-                        .border_t_1()
-                        .border_color(t.border)
-                        .text_size(px(TEXT_SECONDARY))
-                        .text_color(t.muted_fg)
-                        .child(FOOTER),
-                ),
+                .child(footer(&t)),
         )
         .into_any_element()
+}
+
+fn search_box(app: &LgtmApp, t: &Tokens) -> Div {
+    div()
+        .px(px(SPACE[1]))
+        .py(px(SPACE[0]))
+        .border_b_1()
+        .border_color(t.border)
+        .child(Input::new(&app.query).appearance(false).large())
+}
+
+fn footer(t: &Tokens) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .h(px(ROW_H))
+        .px(px(SPACE[2]))
+        .border_t_1()
+        .border_color(t.border)
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.muted_fg)
+        .child(FOOTER)
 }
 
 /// Every group's label and rows, or "No matches" when there are none.

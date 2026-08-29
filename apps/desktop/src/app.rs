@@ -277,6 +277,24 @@ fn bind_actions(root: Div, cx: &mut Context<LgtmApp>) -> Div {
 }
 
 impl LgtmApp {
+    /// The sidebar and whatever the selection or page puts beside it.
+    fn main_area(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        div()
+            .flex()
+            .flex_1()
+            .min_h_0()
+            .when(self.sidebar_open, |this| {
+                this.child(sidebar::render_sidebar(self, window, cx))
+            })
+            .child(if self.selected.is_some() {
+                panes::task_view(self, window, cx)
+            } else if self.page == Page::Batches {
+                batches::page(self, cx)
+            } else {
+                home::home(self, window, cx)
+            })
+    }
+
     /// `bg-destructive/10 text-destructive`, the reference's destructive
     /// fill — a loud strip would own the window.
     fn unreachable_strip(&self, t: &crate::theme::Tokens) -> Div {
@@ -321,22 +339,7 @@ impl Render for LgtmApp {
             .text_size(px(TEXT_BODY))
             .child(titlebar::bar(self, cx))
             .when(unreachable, |this| this.child(self.unreachable_strip(&t)))
-            .child(
-                div()
-                    .flex()
-                    .flex_1()
-                    .min_h_0()
-                    .when(self.sidebar_open, |this| {
-                        this.child(sidebar::render_sidebar(self, window, cx))
-                    })
-                    .child(if self.selected.is_some() {
-                        panes::task_view(self, window, cx)
-                    } else if self.page == Page::Batches {
-                        batches::page(self, cx)
-                    } else {
-                        home::home(self, window, cx)
-                    }),
-            )
+            .child(self.main_area(window, cx))
             .when(overlay == Overlay::Palette, |this| {
                 this.child(palette::view(self, cx))
             })
