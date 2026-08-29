@@ -1,14 +1,14 @@
 //! What the root view does in response to the network and the user.
 
-use crate::app::{LgtmApp, Overlay, Page, Pane, ERROR_TTL, STARTING};
+use crate::app::{LgtmApp, Overlay, Page, Pane, Stop, ERROR_TTL, STARTING};
 use crate::net::{self, Action, Msg};
 use crate::project::ProjectTab;
 use crate::{home, render, settings};
 use gpui::{Context, Window};
-use lgtm_protocol::{Task, TaskStatus};
+use lgtm_protocol::{StoredEvent, Task, TaskStatus};
 
 impl LgtmApp {
-    pub(crate) fn apply(&mut self, msg: Msg, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn apply(&mut self, msg: Msg, cx: &mut Context<Self>) {
         match msg {
             Msg::Lists(Ok(mut lists)) => {
                 lists
@@ -19,6 +19,7 @@ impl LgtmApp {
                 self.runners = lists.runners;
                 self.batches = lists.batches;
                 self.goals = lists.goals;
+                self.sessions = lists.sessions;
                 self.stats = lists.stats.or_else(|| self.stats.take());
                 self.link.reachable = true;
             }
@@ -27,6 +28,7 @@ impl LgtmApp {
                 if generation != self.generation {
                     return;
                 }
+                let detail = *detail;
                 self.lines = detail
                     .events
                     .iter()
@@ -44,7 +46,25 @@ impl LgtmApp {
                 self.events.push(event);
                 self.ui.content_scroll.scroll_to_bottom();
             }
-            Msg::Action(Ok(created)) => self.created(created, window, cx),
+            Msg::Session {
+                generation,
+                detail,
+                task,
+            } => {
+                if generation != self.generation {
+                    return;
+                }
+                self.session = Some(*detail);
+                if let Some((id, events)) = task {
+                    self.remember_events(id, events);
+                }
+            }
+            Msg::Action(Ok(())) => net::refresh(self.client.clone(), self.tx.clone()),
+            Msg::Opened(Ok(id)) => {
+                self.show_page(Page::Session(id), cx);
+                net::refresh(self.client.clone(), self.tx.clone());
+            }
+            Msg::Opened(Err(err)) => self.set_error(err, cx),
             Msg::Batch(Ok(response)) => {
                 self.import.issues = response.issues;
                 if response.batch.is_some() {
@@ -55,6 +75,15 @@ impl LgtmApp {
             Msg::Action(Err(err)) | Msg::Batch(Err(err)) => self.set_error(err, cx),
         }
         cx.notify();
+    }
+
+    /// Keeps one event list per task of the open session, replacing the entry
+    /// for the task this poll fetched.
+    fn remember_events(&mut self, id: String, events: Vec<StoredEvent>) {
+        match self.session_events.iter_mut().find(|(held, _)| *held == id) {
+            Some(entry) => entry.1 = events,
+            None => self.session_events.push((id, events)),
+        }
     }
 
     /// Notifies for every task this poll moved into a state a person cares
@@ -72,18 +101,6 @@ impl LgtmApp {
                 crate::notify::send("LGTM", &line);
             }
         }
-    }
-
-    /// An action went through; a new task also clears the prompt and opens.
-    fn created(&mut self, created: Option<Task>, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(task) = created {
-            self.inputs
-                .prompt
-                .update(cx, |state, cx| state.set_value("", window, cx));
-            self.tasks.insert(0, task.clone());
-            self.select(task.id, cx);
-        }
-        net::refresh(self.client.clone(), self.tx.clone());
     }
 
     /// What the strip says while the orchestrator is not answering.
@@ -110,17 +127,22 @@ impl LgtmApp {
 
     /// Selects a task and remembers it, dropping any forward history.
     pub fn select(&mut self, id: String, cx: &mut Context<Self>) {
-        if self.open(id.clone(), cx) {
+        self.go(Stop::Task(id), cx);
+    }
+
+    /// Goes somewhere and remembers it, dropping any forward history.
+    fn go(&mut self, stop: Stop, cx: &mut Context<Self>) {
+        if self.open(stop.clone(), cx) {
             self.ui.visited.truncate(self.ui.visited_at);
-            self.ui.visited.push(id);
+            self.ui.visited.push(stop);
             self.ui.visited_at = self.ui.visited.len();
         }
     }
 
-    /// The selection itself. Returns false when nothing changed, so back and
+    /// The move itself. Returns false when nothing changed, so back and
     /// forward don't rewrite the history they are walking.
-    fn open(&mut self, id: String, cx: &mut Context<Self>) -> bool {
-        if self.selected.as_deref() == Some(id.as_str()) {
+    fn open(&mut self, stop: Stop, cx: &mut Context<Self>) -> bool {
+        if self.already_at(&stop) {
             return false;
         }
         if let Some(stream) = self.stream.take() {
@@ -128,6 +150,23 @@ impl LgtmApp {
         }
         self.generation += 1;
         self.clear_detail();
+        self.ui.overlay = Overlay::None;
+        match stop {
+            Stop::Task(id) => self.enter_task(id),
+            Stop::Page(page) => self.enter_page(page),
+        }
+        cx.notify();
+        true
+    }
+
+    fn already_at(&self, stop: &Stop) -> bool {
+        match stop {
+            Stop::Task(id) => self.selected.as_deref() == Some(id.as_str()),
+            Stop::Page(page) => self.selected.is_none() && &self.page == page,
+        }
+    }
+
+    fn enter_task(&mut self, id: String) {
         self.ui.show_follow_up = false;
         self.pane = default_pane(
             self.tasks
@@ -142,8 +181,20 @@ impl LgtmApp {
             self.generation,
             self.tx.clone(),
         ));
-        cx.notify();
-        true
+    }
+
+    /// A session page polls itself; the other pages have nothing to watch.
+    fn enter_page(&mut self, page: Page) {
+        self.selected = None;
+        if let Page::Session(id) = &page {
+            self.stream = Some(net::watch_session(
+                self.client.clone(),
+                id.clone(),
+                self.generation,
+                self.tx.clone(),
+            ));
+        }
+        self.page = page;
     }
 
     pub fn can_go_back(&self) -> bool {
@@ -159,17 +210,17 @@ impl LgtmApp {
             return;
         }
         self.ui.visited_at -= 1;
-        let id = self.ui.visited[self.ui.visited_at - 1].clone();
-        self.open(id, cx);
+        let stop = self.ui.visited[self.ui.visited_at - 1].clone();
+        self.open(stop, cx);
     }
 
     pub fn go_forward(&mut self, cx: &mut Context<Self>) {
         if !self.can_go_forward() {
             return;
         }
-        let id = self.ui.visited[self.ui.visited_at].clone();
+        let stop = self.ui.visited[self.ui.visited_at].clone();
         self.ui.visited_at += 1;
-        self.open(id, cx);
+        self.open(stop, cx);
     }
 
     pub fn selected_task(&self) -> Option<&Task> {
@@ -193,15 +244,7 @@ impl LgtmApp {
     }
 
     pub fn show_page(&mut self, page: Page, cx: &mut Context<Self>) {
-        if let Some(stream) = self.stream.take() {
-            stream.abort();
-        }
-        self.generation += 1;
-        self.selected = None;
-        self.clear_detail();
-        self.page = page;
-        self.ui.overlay = Overlay::None;
-        cx.notify();
+        self.go(Stop::Page(page), cx);
     }
 
     /// Opens a project page. A goal id lands on the Goals tab, scrolled to it.
@@ -264,6 +307,7 @@ impl LgtmApp {
             .tasks
             .iter()
             .map(|task| task.spec.repository.clone())
+            .chain(self.sessions.iter().map(|open| open.repository.clone()))
             .chain(self.composer.project.clone())
         {
             if !out.contains(&url) {
@@ -294,22 +338,44 @@ impl LgtmApp {
         self.act(Action::Tell(text), cx);
     }
 
-    pub fn submit(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    /// Starts an empty thread in `repository` and opens it once it exists.
+    pub fn start_session(&mut self, repository: String, cx: &mut Context<Self>) {
+        net::new_session(
+            self.client.clone(),
+            repository,
+            "main".to_string(),
+            self.tx.clone(),
+        );
+        cx.notify();
+    }
+
+    /// The repository the composer works in: a thread's own, or the one
+    /// picked in the project panel.
+    pub fn composer_project(&self) -> Option<String> {
+        match (&self.page, &self.session) {
+            (Page::Session(_), Some(open)) => Some(open.session.repository.clone()),
+            _ => self.composer.project.clone(),
+        }
+    }
+
+    /// Sends the composer's text: one more message in the open thread, or a
+    /// new thread when there is none.
+    pub fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let prompt = self.inputs.prompt.read(cx).value().to_string();
-        let Some(spec) = home::compose(
-            &prompt,
-            self.composer.project.as_deref(),
-            &self.composer.chips,
-        ) else {
+        let project = self.composer_project();
+        let Some(spec) = home::compose(&prompt, project.as_deref(), &self.composer.chips) else {
             self.set_error("A prompt and a project are required.".into(), cx);
             return;
         };
-        net::act(
-            self.client.clone(),
-            String::new(),
-            Action::Create(Box::new(spec)),
-            self.tx.clone(),
-        );
+        let spec = Box::new(spec);
+        let (id, action) = match &self.page {
+            Page::Session(id) if self.selected.is_none() => (id.clone(), Action::SendMessage(spec)),
+            _ => (String::new(), Action::StartSession(spec)),
+        };
+        self.inputs
+            .prompt
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        net::act(self.client.clone(), id, action, self.tx.clone());
         cx.notify();
     }
 
@@ -341,11 +407,13 @@ impl LgtmApp {
         cx.notify();
     }
 
-    /// Drops everything that belonged to the task being left.
+    /// Drops everything that belonged to the task or session being left.
     fn clear_detail(&mut self) {
         self.lines.clear();
         self.events.clear();
         self.overlaps.clear();
+        self.session = None;
+        self.session_events.clear();
         self.ui.editing_notes = false;
     }
 

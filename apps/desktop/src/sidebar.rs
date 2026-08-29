@@ -1,10 +1,10 @@
-//! The left rail: quick actions, tasks grouped by repository, and one status
-//! row that opens Settings.
+//! The left rail: quick actions, sessions grouped by repository, and one
+//! status row that opens Settings.
 
 use crate::app::{LgtmApp, Overlay, Page};
 use crate::labels::prompt_preview;
 use crate::project::goals_of;
-use crate::tasks::{goal_color, group_by_repo};
+use crate::tasks::{goal_color, repo_slug};
 use crate::theme::{
     icon, icon_button, tokens, Tokens, FOOTER_H, ICON, ROW_H, SPACE, TEXT_BODY, TEXT_ROW,
     TEXT_SECONDARY,
@@ -15,7 +15,7 @@ use gpui::{
     IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
     Window,
 };
-use lgtm_protocol::{GoalSummary, Task, TaskStatus};
+use lgtm_protocol::{GoalSummary, Session};
 
 pub const WIDTH: f32 = 240.;
 const PROMPT_PREVIEW: usize = 34;
@@ -24,10 +24,10 @@ const PROMPT_PREVIEW: usize = 34;
 const ROW_RADIUS: f32 = 8.;
 /// The row carrying the product name.
 const BRAND_H: f32 = 36.;
-/// How far a task sits under its project.
+/// How far a session sits under its project.
 const NEST: f32 = 24.;
-/// Tasks shown per project before `Show more`.
-const PER_PROJECT: usize = 6;
+/// Sessions shown per project before `Show more`.
+const PER_PROJECT: usize = 5;
 /// The circle around the connection dot.
 const STATUS_DOT: f32 = 20.;
 
@@ -87,7 +87,7 @@ fn nav(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .px(px(SPACE[1]))
         .gap(px(2.))
         .child(
-            nav_row(&NEW_TASK, home, t)
+            nav_row(&NEW_SESSION, home, t)
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_home(window, cx))),
         )
         .child(
@@ -121,10 +121,10 @@ struct NavItem {
     label: &'static str,
 }
 
-const NEW_TASK: NavItem = NavItem {
-    id: "new-task",
+const NEW_SESSION: NavItem = NavItem {
+    id: "new-session",
     icon: "square-pen",
-    label: "New task",
+    label: "New session",
 };
 const BATCHES: NavItem = NavItem {
     id: "batches",
@@ -136,6 +136,43 @@ fn nav_row(item: &NavItem, active: bool, t: &Tokens) -> gpui::Stateful<Div> {
     row_shell(item.id, active, t)
         .child(icon(item.icon, ICON, t.muted_fg))
         .child(div().flex_1().min_w_0().truncate().child(item.label))
+}
+
+/// Every project the orchestrator knows, most recently touched first: the
+/// sessions name most of them, and a repository with only tasks still counts.
+fn project_slugs(app: &LgtmApp) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for slug in app
+        .sessions
+        .iter()
+        .map(|open| repo_slug(&open.repository))
+        .chain(
+            app.tasks
+                .iter()
+                .map(|task| repo_slug(&task.spec.repository)),
+        )
+    {
+        if !out.contains(&slug) {
+            out.push(slug);
+        }
+    }
+    out
+}
+
+fn sessions_of<'a>(app: &'a LgtmApp, slug: &str) -> Vec<&'a Session> {
+    app.sessions
+        .iter()
+        .filter(|open| repo_slug(&open.repository) == slug)
+        .collect()
+}
+
+/// A session's row label: its first message, or what an unused thread is
+/// called until one is sent.
+pub fn session_title(session: &Session) -> String {
+    match session.title.trim().is_empty() {
+        true => "New session".to_string(),
+        false => prompt_preview(&session.title, PROMPT_PREVIEW),
+    }
 }
 
 fn repository_groups(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
@@ -150,77 +187,128 @@ fn repository_groups(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Ve
         .child("Projects")
         .into_any_element()];
 
-    if app.tasks.is_empty() {
+    let slugs = project_slugs(app);
+    if slugs.is_empty() {
         out.push(
             div()
                 .px(px(SPACE[1]))
                 .py(px(SPACE[0]))
                 .text_size(px(TEXT_ROW))
                 .text_color(t.muted_fg)
-                .child("No tasks yet")
+                .child("No projects yet")
                 .into_any_element(),
         );
         return out;
     }
-
-    for (slug, rows) in group_by_repo(&app.tasks) {
-        out.extend(project_group(app, &slug, rows, t, cx));
+    for slug in slugs {
+        out.extend(project_group(app, &slug, t, cx));
     }
     out
 }
 
-/// A project: its header, then its goals, then the tasks no goal claims.
+/// A project: its header, then — unless it is folded away — its goals and its
+/// sessions, newest first.
 fn project_group(
     app: &LgtmApp,
     slug: &str,
-    rows: Vec<&Task>,
     t: &Tokens,
     cx: &mut Context<LgtmApp>,
 ) -> Vec<AnyElement> {
-    let loose: Vec<&Task> = rows
-        .into_iter()
-        .filter(|task| task.spec.goal.is_none())
-        .collect();
-    let key = format!("repo:{slug}");
-    let shown = match app.ui.expanded.contains(&key) {
-        true => loose.len(),
-        false => PER_PROJECT,
-    };
     let mut out = vec![repo_header(app, slug, t, cx).into_any_element()];
+    if app.ui.collapsed.contains(slug) {
+        return out;
+    }
     out.extend(
         goals_of(app, slug)
             .into_iter()
             .map(|summary| goal_row(slug, summary, t, cx).into_any_element()),
     );
+    let rows = sessions_of(app, slug);
+    let key = format!("repo:{slug}");
+    let shown = match app.ui.expanded.contains(&key) {
+        true => rows.len(),
+        false => PER_PROJECT,
+    };
     out.extend(
-        loose
-            .iter()
+        rows.iter()
             .take(shown)
-            .map(|task| task_row(app, task, t, cx).into_any_element()),
+            .map(|open| session_row(app, open, t, cx).into_any_element()),
     );
-    if loose.len() > shown {
+    if rows.len() > shown {
         out.push(show_more(key, t, cx));
     }
     out
 }
 
+/// The project's own row. Clicking it folds its sessions away; the two buttons
+/// that appear under the cursor open the project page and start a thread.
 fn repo_header(
     app: &LgtmApp,
     slug: &str,
     t: &Tokens,
     cx: &mut Context<LgtmApp>,
 ) -> gpui::Stateful<Div> {
-    let active = app.page == Page::Project(slug.to_string()) && app.selected.is_none();
-    let open = slug.to_string();
-    row_shell(SharedString::from(format!("repo-{slug}")), active, t)
+    let group = SharedString::from(format!("repo-{slug}"));
+    let key = slug.to_string();
+    row_shell(group.clone(), false, t)
+        .group(group.clone())
         .text_color(t.fg)
         .child(icon("folder", ICON, t.muted_fg))
-        .child(div().min_w_0().truncate().child(slug.to_string()))
-        .on_click(
-            cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.open_project(open.clone(), None, cx)
-            }),
-        )
+        .child(div().flex_1().min_w_0().truncate().child(slug.to_string()))
+        .child(open_project_button(slug, group.clone(), t, cx))
+        .child(new_session_button(app, slug, group, t, cx))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            if !this.ui.collapsed.remove(&key) {
+                this.ui.collapsed.insert(key.clone());
+            }
+            cx.notify();
+        }))
+}
+
+/// An icon button that is only there while the cursor is on `group`.
+fn hover_button(id: String, name: &str, group: SharedString, t: &Tokens) -> gpui::Stateful<Div> {
+    icon_button(SharedString::from(id), name, true, t)
+        .opacity(0.)
+        .group_hover(group, |this| this.opacity(1.))
+}
+
+/// The `…`: the project's own page, the one place its tasks and goals are.
+fn open_project_button(
+    slug: &str,
+    group: SharedString,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> gpui::Stateful<Div> {
+    let open = slug.to_string();
+    hover_button(format!("open-project-{slug}"), "ellipsis", group, t).on_click(cx.listener(
+        move |this, _: &ClickEvent, _, cx| {
+            // The row underneath would fold the project away otherwise.
+            cx.stop_propagation();
+            this.open_project(open.clone(), None, cx);
+        },
+    ))
+}
+
+/// The pencil: a new thread in this project, off the row's first clone URL.
+fn new_session_button(
+    app: &LgtmApp,
+    slug: &str,
+    group: SharedString,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> gpui::Stateful<Div> {
+    let repository = app
+        .known_repositories()
+        .into_iter()
+        .find(|url| repo_slug(url) == slug);
+    hover_button(format!("new-session-{slug}"), "square-pen", group, t).on_click(cx.listener(
+        move |this, _: &ClickEvent, _, cx| {
+            cx.stop_propagation();
+            if let Some(repository) = repository.clone() {
+                this.start_session(repository, cx);
+            }
+        },
+    ))
 }
 
 /// A goal under its project: the objective, dotted with how it is going.
@@ -258,27 +346,27 @@ fn show_more(key: String, t: &Tokens, cx: &mut Context<LgtmApp>) -> AnyElement {
         .into_any_element()
 }
 
-fn task_row(
+fn session_row(
     app: &LgtmApp,
-    task: &Task,
+    session: &Session,
     t: &Tokens,
     cx: &mut Context<LgtmApp>,
 ) -> gpui::Stateful<Div> {
-    let id = task.id.clone();
-    let active = app.selected.as_deref() == Some(id.as_str());
-    let running = task.status == TaskStatus::Running;
-
-    row_shell(SharedString::from(format!("task-{id}")), active, t)
+    let id = session.id.clone();
+    let open = id.clone();
+    let active = app.selected.is_none() && app.page == Page::Session(id.clone());
+    row_shell(SharedString::from(format!("session-{id}")), active, t)
         .pl(px(NEST))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .child(prompt_preview(&task.spec.prompt, PROMPT_PREVIEW)),
+                .child(session_title(session)),
         )
-        .when(running, |this| this.child(dot(6., t.info)))
-        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.show_page(Page::Session(open.clone()), cx)
+        }))
 }
 
 fn dot(size: f32, color: gpui::Hsla) -> Div {
@@ -337,4 +425,32 @@ fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> gpui::Statefu
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_runner_settings(cx))),
         )
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_runner_settings(cx)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(title: &str) -> Session {
+        Session {
+            id: "s1".into(),
+            repository: "https://x/one.git".into(),
+            base_branch: "main".into(),
+            title: title.into(),
+            created_at: 0,
+        }
+    }
+
+    #[test]
+    fn a_row_names_an_unsent_thread_and_cuts_a_long_one() {
+        assert_eq!(session_title(&session("")), "New session");
+        assert_eq!(session_title(&session("   ")), "New session");
+        assert_eq!(session_title(&session("fix the parser")), "fix the parser");
+        let long = "x".repeat(PROMPT_PREVIEW + 1);
+        // The cut adds an ellipsis in place of what it dropped.
+        assert_eq!(
+            session_title(&session(&long)).chars().count(),
+            PROMPT_PREVIEW + 1
+        );
+    }
 }

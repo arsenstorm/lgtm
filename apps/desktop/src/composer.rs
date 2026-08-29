@@ -7,7 +7,7 @@
 
 mod menus;
 
-use crate::app::LgtmApp;
+use crate::app::{LgtmApp, Page};
 use crate::home::Chip;
 use crate::home::AUTO_RUNNER;
 use crate::tasks::repo_slug;
@@ -120,7 +120,9 @@ fn dismiss(cx: &mut Context<LgtmApp>) -> impl IntoElement {
 /// The darker panel behind the card. Only its top 38 px are ever seen; the rest
 /// is there so the card's rounded corners have something to sit on.
 fn project_panel(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
-    let chosen = app.composer.project.as_deref().map(repo_slug);
+    let chosen = app.composer_project().map(|url| repo_slug(&url));
+    // A thread's project is fixed by the thread; only Home gets to pick one.
+    let fixed = matches!(app.page, Page::Session(_));
     div()
         .id("project-panel")
         .flex()
@@ -136,7 +138,6 @@ fn project_panel(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl I
         .bg(t.composer.rear)
         .text_size(px(TEXT_BODY))
         .text_color(t.composer.secondary)
-        .cursor_pointer()
         .child(icon("folder", FOLDER, t.composer.secondary))
         .child(
             div()
@@ -144,9 +145,12 @@ fn project_panel(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl I
                 .truncate()
                 .child(chosen.unwrap_or_else(|| "Choose project".to_string())),
         )
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.toggle_menu(|app| &mut app.composer.project_menu, cx)
-        }))
+        .when(!fixed, |this| {
+            this.cursor_pointer()
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.toggle_menu(|app| &mut app.composer.project_menu, cx)
+                }))
+        })
 }
 
 fn card(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
@@ -193,7 +197,7 @@ fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
 /// The card's bottom row: `+`, the divider, Plan, the runner, send.
 fn controls(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let ready =
-        !app.inputs.prompt.read(cx).value().trim().is_empty() && app.composer.project.is_some();
+        !app.inputs.prompt.read(cx).value().trim().is_empty() && app.composer_project().is_some();
     let planning = app.composer.chips.contains(&Chip::Plan);
     let branch = app.composer.chips.iter().find_map(|chip| match chip {
         Chip::Branch(name) if name.trim() != "main" && !name.trim().is_empty() => {
