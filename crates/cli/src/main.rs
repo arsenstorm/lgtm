@@ -36,6 +36,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Run the orchestrator (and a local worker) on this machine
     Serve {
         #[arg(long, default_value = "0.0.0.0:4750")]
         bind: String,
@@ -84,7 +85,9 @@ enum Command {
         #[arg(long, env = "LGTM_DATA_DIR")]
         data_dir: Option<PathBuf>,
     },
+    /// List connected workers
     Workers,
+    /// Run a prompt as a task and stream its output
     Run {
         #[arg(long)]
         on: Option<String>,
@@ -115,33 +118,24 @@ enum Command {
         agent: Executor,
         goal: String,
     },
+    /// List tasks
     Tasks,
-    Show {
-        id: String,
-    },
-    Logs {
-        id: String,
-    },
-    Diff {
-        id: String,
-    },
-    Approve {
-        id: String,
-    },
-    Reject {
-        id: String,
-    },
-    Cancel {
-        id: String,
-    },
-    Merge {
-        id: String,
-    },
+    /// Print a task, its events, checks, and review
+    Show { id: String },
+    /// Print a task's rendered output
+    Logs { id: String },
+    /// Print a task's diff
+    Diff { id: String },
+    /// Approve a task: push its branch, or create a plan's tasks
+    Approve { id: String },
+    /// Reject a task and discard its branch
+    Reject { id: String },
+    /// Cancel a queued or running task
+    Cancel { id: String },
+    /// Merge a task's pull request
+    Merge { id: String },
     /// Send a follow-up to a task awaiting review, then resume streaming.
-    Tell {
-        id: String,
-        message: String,
-    },
+    Tell { id: String, message: String },
     /// Import a backlog of issues as tasks, or inspect a past import.
     Backlog {
         #[command(subcommand)]
