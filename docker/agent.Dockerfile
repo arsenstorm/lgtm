@@ -16,7 +16,8 @@
 # a self-signed certificate (mount it, e.g. -v ./cert.pem:/ca.pem:ro -e
 # LGTM_CA=/ca.pem).
 
-FROM rust:1-bookworm AS builder
+# rust:1-bookworm
+FROM rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 AS builder
 WORKDIR /build
 
 # Only the workspace manifest and crate/app sources are needed to build
@@ -30,13 +31,14 @@ COPY apps ./apps
 
 RUN cargo build --release --locked -p lgtm-cli
 
-FROM node:22-bookworm-slim
+# node:22-bookworm-slim
+FROM node@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g @anthropic-ai/claude-code@2.1.251
 
 COPY --from=builder /build/target/release/lgtm /usr/local/bin/lgtm
 
