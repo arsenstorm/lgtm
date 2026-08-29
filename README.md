@@ -156,6 +156,32 @@ environment, timeouts, and output caps; nothing is sent over the network.
 See [docs/security.md](docs/security.md) for the full trust model and
 boundaries.
 
+## Orchestrator (Rust workspace)
+
+LGTM is being rebuilt as an orchestration system for coding agents. The
+Rust workspace under `crates/` is the new codebase; the desktop app above is
+parked until the review layer moves over.
+
+- `crates/protocol` — wire types shared by every binary
+- `crates/orchestrator` — task state, worker WebSocket, HTTP API
+- `crates/agent` — `lgtm-agent`, the worker daemon that runs Claude Code in a git worktree
+- `crates/cli` — `lgtm`, the developer command
+
+Run it locally:
+
+```sh
+export LGTM_TOKEN=change-me
+cargo run -p lgtm-cli -- serve                     # orchestrator on 0.0.0.0:4750
+cargo run -p lgtm-agent -- --name laptop           # a worker on the same machine
+cargo run -p lgtm-cli -- run "add a HEALTH.md file"
+cargo run -p lgtm-cli -- tasks
+cargo run -p lgtm-cli -- approve <id>              # pushes lgtm/<id> to origin
+```
+
+On a remote worker, point `lgtm-agent --orchestrator ws://<host>:4750` at the
+machine running `lgtm serve`. Checks: `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
+
 ## Docs
 
 - [docs/implementation-plan.md](docs/implementation-plan.md) — architecture
