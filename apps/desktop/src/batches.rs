@@ -1,6 +1,7 @@
 //! The Batches page: what was imported, and how far each import has got.
 
-use crate::app::{prompt_preview, status_label, LgtmApp, Overlay};
+use crate::app::{LgtmApp, Overlay};
+use crate::labels::{prompt_preview, status_label};
 use crate::sidebar::{batch_label, now_ms, relative_age, status_color};
 use crate::theme::{
     icon, tokens, Tokens, HEADER_H, ICON, RADIUS, RADIUS_PILL, ROW_H, SPACE, TEXT_SECONDARY,

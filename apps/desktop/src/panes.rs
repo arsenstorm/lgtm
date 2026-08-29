@@ -1,6 +1,7 @@
 //! The task view: header with status and actions, then the four tabs.
 
-use crate::app::{header_preview, status_label, LgtmApp, Pane};
+use crate::app::{LgtmApp, Pane};
+use crate::labels::{header_preview, status_label};
 use crate::net::Action;
 use crate::render::Kind;
 use crate::sidebar::repo_slug;
