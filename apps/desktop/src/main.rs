@@ -1,16 +1,19 @@
 mod app;
-mod diff;
+mod changes;
+mod home;
 mod net;
 mod panes;
 mod render;
+mod review;
 mod sidebar;
+mod theme;
 
 use app::LgtmApp;
 use gpui::{
     div, px, size, AnyView, App, AppContext as _, Application, Bounds, Context, IntoElement,
     ParentElement as _, Render, Styled as _, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
-use gpui_component::{Root, Theme, ThemeMode};
+use gpui_component::Root;
 use lgtm_client::Client;
 use serde::Deserialize;
 
@@ -28,6 +31,8 @@ struct FileConfig {
 struct Config {
     orchestrator: String,
     token: String,
+    /// Where the token came from, shown in the settings panel.
+    token_source: &'static str,
 }
 
 fn stored_token() -> Option<String> {
@@ -43,10 +48,13 @@ fn load_config() -> Option<Config> {
         .and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| toml::from_str(&text).ok())
         .unwrap_or_default();
-    let token = std::env::var("LGTM_TOKEN")
-        .ok()
-        .or(file.token)
-        .or_else(stored_token)?;
+    let (token, token_source) = match std::env::var("LGTM_TOKEN").ok() {
+        Some(token) => (token, "LGTM_TOKEN"),
+        None => match file.token {
+            Some(token) => (token, "desktop.toml"),
+            None => (stored_token()?, "~/.lgtm/token"),
+        },
+    };
     let orchestrator = std::env::var("LGTM_ORCHESTRATOR")
         .ok()
         .or(file.orchestrator)
@@ -54,6 +62,7 @@ fn load_config() -> Option<Config> {
     Some(Config {
         orchestrator,
         token,
+        token_source,
     })
 }
 
@@ -75,9 +84,8 @@ fn main() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let config = load_config();
     Application::new().run(move |cx: &mut App| {
-        gpui_component::init(cx);
+        theme::init(cx);
         app::init(cx);
-        Theme::change(ThemeMode::Light, None, cx);
 
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
@@ -89,6 +97,7 @@ fn main() {
                 size(px(1200.), px(800.)),
                 cx,
             ))),
+            window_min_size: Some(size(px(1000.), px(680.))),
             ..Default::default()
         };
 
@@ -96,7 +105,13 @@ fn main() {
             let view: AnyView = match config.clone() {
                 Some(config) => cx
                     .new(|cx| {
-                        LgtmApp::new(Client::new(config.orchestrator, config.token), window, cx)
+                        LgtmApp::new(
+                            Client::new(config.orchestrator.clone(), config.token),
+                            config.orchestrator,
+                            config.token_source,
+                            window,
+                            cx,
+                        )
                     })
                     .into(),
                 None => cx.new(|_| MissingConfig).into(),

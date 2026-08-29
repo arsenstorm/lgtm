@@ -3402,12 +3402,20 @@ dependencies = [
  "gpui",
  "gpui-component",
  "lgtm-client",
+ "lgtm-diff",
  "lgtm-protocol",
  "rustls",
  "serde",
  "serde_json",
  "tokio",
  "toml 0.8.23",
+]
+
+[[package]]
+name = "lgtm-diff"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
