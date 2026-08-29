@@ -62,6 +62,7 @@ pub fn compose(prompt: &str, project: Option<&str>, chips: &[Chip]) -> Option<Ta
         parent: None,
         depends_on: vec![],
         batch: None,
+        sandbox: None,
     })
 }
 

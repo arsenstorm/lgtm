@@ -126,6 +126,7 @@ mod tests {
                 parent: parent.map(String::from),
                 depends_on: vec![],
                 batch: None,
+                sandbox: None,
             },
             status: TaskStatus::Queued,
             worker: None,

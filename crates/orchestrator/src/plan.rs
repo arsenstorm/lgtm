@@ -164,6 +164,7 @@ fn child_spec(spec: &TaskSpec, step: &PlanStep, depends_on: Vec<TaskId>, parent:
         depends_on,
         // A batch counts its plans' children as its own work.
         batch: spec.batch.clone(),
+        sandbox: spec.sandbox,
     }
 }
 

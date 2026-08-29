@@ -48,6 +48,7 @@ fn candidate(number: u64) -> Candidate {
         worker: None,
         kind: TaskKind::Run,
         batch: Some("b0000001".into()),
+        sandbox: None,
     };
     github_candidate(&issue(number), &repo(), input)
 }
@@ -60,6 +61,7 @@ fn github_candidate_builds_the_from_issue_shape() {
         worker: Some("w".into()),
         kind: TaskKind::Plan,
         batch: Some("b0000001".into()),
+        sandbox: None,
     };
     let candidate = github_candidate(&issue(12), &repo(), input);
     assert_eq!(candidate.key, "#12");

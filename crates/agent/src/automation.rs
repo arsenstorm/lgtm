@@ -19,8 +19,8 @@ use crate::connection::Ctx;
 use crate::git::{branch_name, commit, session_path};
 use crate::plan::extract_plan;
 use crate::policy::{
-    failed_names, fix_prompt, load_policy, parse_review, review_prompt, review_warning,
-    PolicyConfig,
+    effective_sandbox, failed_names, fix_prompt, load_policy, parse_review, review_prompt,
+    review_warning, PolicyConfig,
 };
 use crate::proc::{
     cost_buffer, cost_total, final_text, tail_buffer, tail_lines, text_buffer, Cost, Pump, Sinks,
@@ -99,6 +99,10 @@ impl<'a> Run<'a> {
 pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> Result<()> {
     let policy = load_policy(run.worktree);
     run.timeout = Duration::from_secs(policy.timeout_secs);
+    tracing::info!(
+        profile = effective_sandbox(&run.task.spec, &policy).as_str(),
+        "sandbox profile (not enforced yet)"
+    );
     if run.task.spec.kind == TaskKind::Plan {
         return run.plan(prompt, policy).await;
     }

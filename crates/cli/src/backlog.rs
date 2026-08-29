@@ -52,6 +52,7 @@ pub async fn create(
         approve_plans: flags.approve_plans,
         max: flags.max,
         dry_run: flags.dry_run,
+        sandbox: flags.sandbox,
     };
     let resp = client.create_batch(&body).await?;
     match &resp.batch {

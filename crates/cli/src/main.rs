@@ -200,6 +200,7 @@ impl Target {
             parent: None,
             depends_on: vec![],
             batch: None,
+            sandbox: self.sandbox,
         })
     }
 }
@@ -220,7 +221,13 @@ async fn run(
     };
     let task = if let Some(issue) = issue {
         client
-            .create_task_from_issue(&issue, &target.base, target.agent, target.on.as_deref())
+            .create_task_from_issue(
+                &issue,
+                &target.base,
+                target.agent,
+                target.on.as_deref(),
+                target.sandbox,
+            )
             .await?
     } else if let Some(linear) = linear {
         let repo = target.repo.map_or_else(default_repo, Ok)?;
@@ -230,6 +237,7 @@ async fn run(
             base_branch: &target.base,
             executor: target.agent,
             worker: target.on.as_deref(),
+            sandbox: target.sandbox,
         };
         client.create_task_from_linear(&body).await?
     } else if let Some(prompt) = prompt {

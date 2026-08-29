@@ -70,6 +70,7 @@ mod tests {
                 parent: None,
                 depends_on: depends_on.into_iter().map(String::from).collect(),
                 batch: None,
+                sandbox: None,
             },
             status,
             worker: None,

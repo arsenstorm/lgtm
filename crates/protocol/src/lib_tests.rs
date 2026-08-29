@@ -23,6 +23,7 @@ fn sample_task() -> Task {
             parent: Some("00000000".into()),
             depends_on: vec!["11111111".into()],
             batch: Some("b1".into()),
+            sandbox: Some(SandboxProfile::Strict),
         },
         status: TaskStatus::Queued,
         worker: None,
@@ -220,6 +221,7 @@ fn phase_one_frames_still_parse() {
     assert!(task.spec.parent.is_none() && task.spec.depends_on.is_empty());
     assert!(task.spec.batch.is_none());
     assert!(task.executions.is_empty());
+    assert!(task.spec.sandbox.is_none());
     let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
     assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
 }
@@ -241,6 +243,19 @@ fn rejected_round_trips() {
     let json =
         serde_json::to_string(&OrchestratorMessage::Rejected { reason: "r".into() }).unwrap();
     assert_eq!(json, r#"{"type":"rejected","reason":"r"}"#);
+}
+
+#[test]
+fn sandbox_profile_round_trips_through_its_wire_name() {
+    for (profile, name) in [
+        (SandboxProfile::Off, "off"),
+        (SandboxProfile::Standard, "standard"),
+        (SandboxProfile::Strict, "strict"),
+    ] {
+        assert_eq!(SandboxProfile::parse(name), Some(profile));
+        assert_eq!(profile.as_str(), name);
+    }
+    assert_eq!(SandboxProfile::parse("x"), None);
 }
 
 #[test]

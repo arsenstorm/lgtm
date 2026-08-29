@@ -57,6 +57,7 @@ async fn end_to_end() {
         parent: None,
         depends_on: Vec::new(),
         batch: None,
+        sandbox: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))
