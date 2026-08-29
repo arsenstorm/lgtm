@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use lgtm_protocol::{Batch, Goal, Memory, StoredEvent, Task, Todo};
+use lgtm_protocol::{Batch, Goal, Memory, Overlap, StoredEvent, Task, Todo};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -16,6 +16,10 @@ use crate::state::TaskRecord;
 pub struct Stored {
     pub task: Task,
     pub events: Vec<StoredEvent>,
+    /// What other live tasks touched too. It is about the other tasks and
+    /// only true right now, so the handler fills it and nothing writes it.
+    #[serde(default)]
+    pub overlaps: Vec<Overlap>,
 }
 
 /// One thing to write. The writer owns every directory it writes into.
@@ -34,6 +38,7 @@ impl From<&TaskRecord> for Stored {
         Self {
             task: rec.task.clone(),
             events: rec.events.clone(),
+            overlaps: Vec::new(),
         }
     }
 }

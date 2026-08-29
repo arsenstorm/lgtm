@@ -496,6 +496,24 @@ fn attention_task(prompt: &str, status: TaskStatus, error: Option<&str>) -> Task
     task
 }
 
+fn changed(id: &str, status: TaskStatus, repository: &str, files: &[&str]) -> Task {
+    let mut task = sample_task();
+    task.id = id.into();
+    task.status = status;
+    task.spec.repository = repository.into();
+    task.result = Some(TaskResult {
+        branch: format!("lgtm/{id}"),
+        diff: String::new(),
+        changed_files: files.iter().map(|f| (*f).to_string()).collect(),
+        validation: Vec::new(),
+        plan: None,
+        review: None,
+        policy: None,
+        cost_usd: 0.0,
+    });
+    task
+}
+
 #[test]
 fn attention_names_the_task_and_why() {
     let task = attention_task("add a /health endpoint", TaskStatus::Running, None);
@@ -588,4 +606,43 @@ fn only_a_changed_status_wants_a_person() {
         attention_for_status(&failed, TaskStatus::Running).as_deref(),
         Some("p: failed: boom")
     );
+}
+
+#[test]
+fn overlaps_only_with_live_tasks_in_the_same_repository() {
+    let mine = changed(
+        "aaaaaaaa",
+        TaskStatus::AwaitingReview,
+        "r",
+        &["b.rs", "a.rs"],
+    );
+    let live = changed(
+        "bbbbbbbb",
+        TaskStatus::Running,
+        "r",
+        &["c.rs", "b.rs", "a.rs"],
+    );
+    let done = changed("cccccccc", TaskStatus::Merged, "r", &["a.rs"]);
+    let elsewhere = changed("dddddddd", TaskStatus::Running, "other", &["a.rs"]);
+    let apart = changed("eeeeeeee", TaskStatus::Running, "r", &["z.rs"]);
+    let mut unstarted = changed("ffffffff", TaskStatus::Queued, "r", &["a.rs"]);
+    unstarted.result = None;
+
+    let others = [&mine, &live, &done, &elsewhere, &apart, &unstarted];
+    assert_eq!(
+        overlaps(&mine, &others),
+        vec![Overlap {
+            task: "bbbbbbbb".into(),
+            files: vec!["a.rs".into(), "b.rs".into()],
+        }]
+    );
+    assert!(overlaps(&apart, &others).is_empty());
+}
+
+#[test]
+fn overlap_round_trips() {
+    round_trip(Overlap {
+        task: "0123abcd".into(),
+        files: vec!["a.rs".into()],
+    });
 }
