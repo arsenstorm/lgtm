@@ -366,33 +366,6 @@ fn ws_url(url: &str) -> String {
     }
 }
 
-/// Runs a worker inside `serve`'s process, so one machine is useful on its
-/// own. It always dials loopback (the bind host may be `0.0.0.0`, which is
-/// not an address you connect to) and trusts the orchestrator's own
-/// certificate under TLS.
-fn spawn_local_worker(port: u16, tls_cert: Option<PathBuf>, token: String, data_dir: PathBuf) {
-    let scheme = if tls_cert.is_some() { "wss" } else { "ws" };
-    let opts = lgtm_agent::WorkerOptions {
-        orchestrator: format!("{scheme}://127.0.0.1:{port}"),
-        token,
-        name: lgtm_agent::default_name(),
-        data_dir,
-        slots: lgtm_agent::default_slots(),
-        ephemeral: false,
-        max_tasks: 1,
-        ca: tls_cert,
-    };
-    tokio::spawn(async move {
-        // Long enough for the listener above to be accepting connections;
-        // the worker's own reconnect loop covers the rest.
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        match lgtm_agent::run(opts).await {
-            Ok(()) => tracing::warn!("local worker stopped"),
-            Err(e) => tracing::warn!("local worker stopped: {e:#}"),
-        }
-    });
-}
-
 fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -466,18 +439,13 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         let data_dir = config::data_dir(data_dir);
         // Unlike every other subcommand, `serve` mints a token rather than
         // demanding one: it is the machine everyone else joins.
-        let token = match config::resolve_token(token, &data_dir) {
-            Some(t) => t,
-            None => {
-                let t = config::generate_token();
-                config::store_token(&data_dir, &t)?;
-                tracing::info!(
-                    "generated token {t} (saved to {})",
-                    config::stored_token_path(&data_dir).display()
-                );
-                t
-            }
-        };
+        let (token, source) = lgtm_orchestrator::token::resolve_or_create(token, &data_dir)?;
+        if source == lgtm_orchestrator::token::TokenSource::Generated {
+            tracing::info!(
+                "generated token {token} (saved to {})",
+                config::stored_token_path(&data_dir).display()
+            );
+        }
         let tls = match (tls_cert, tls_key) {
             (Some(cert), Some(key)) => Some((cert, key)),
             (None, None) => None,
@@ -485,7 +453,7 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         };
         // A specific bind address is the only one workers can dial.
         let ip = if bind_addr.ip().is_unspecified() {
-            config::advertised_ip()
+            lgtm_orchestrator::local::advertised_ip()
         } else {
             bind_addr.ip().to_string()
         };
@@ -494,25 +462,19 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             max: provision_max,
             public_url: public_url.unwrap_or_else(|| default_public_url(&bind, tls.is_some(), &ip)),
         });
-        if !no_worker {
-            spawn_local_worker(
-                bind_addr.port(),
-                tls.as_ref().map(|(cert, _)| cert.clone()),
-                token.clone(),
-                data_dir.clone(),
-            );
-        }
-        let scheme = if tls.is_some() { "https" } else { "http" };
-        eprintln!(
-            "{}",
-            config::join_line(scheme, &ip, bind_addr.port(), &token)
-        );
-        lgtm_orchestrator::serve(lgtm_orchestrator::ServeOptions {
+        let serve_opts = lgtm_orchestrator::ServeOptions {
             bind: bind_addr,
             token,
             data_dir,
             tls,
             provision,
+        };
+        eprintln!("{}", lgtm_orchestrator::local::join_line_for(&serve_opts));
+        lgtm_orchestrator::local::serve_local(lgtm_orchestrator::local::LocalOptions {
+            serve: serve_opts,
+            worker: !no_worker,
+            worker_name: lgtm_agent::default_name(),
+            worker_slots: lgtm_agent::default_slots(),
         })
         .await?;
         return Ok(0);
