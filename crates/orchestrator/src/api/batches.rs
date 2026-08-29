@@ -143,15 +143,19 @@ pub(super) async fn create_batch(
         task_ids,
         approve_plans: body.approve_plans,
     };
-    tracing::info!(batch = %batch.id, tasks = batch.task_ids.len(), "batch imported");
-    state.batches.insert(batch.id.clone(), batch.clone());
-    app.persist_batch(&batch);
-    app.persist_ids(&state, &changed);
+    store(&app, &mut state, &batch, &changed);
     let response = BatchResponse {
         batch: Some(batch),
         issues,
     };
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+fn store(app: &App, state: &mut TaskState, batch: &Batch, changed: &[TaskId]) {
+    tracing::info!(batch = %batch.id, tasks = batch.task_ids.len(), "batch imported");
+    state.batches.insert(batch.id.clone(), batch.clone());
+    app.persist_batch(batch);
+    app.persist_ids(state, changed);
 }
 
 /// Drops the candidates whose issue already has a live task.
