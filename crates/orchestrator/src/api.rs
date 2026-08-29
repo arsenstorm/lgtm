@@ -1,5 +1,6 @@
 //! Authenticated HTTP + WebSocket surface under `/api`.
 
+use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use axum::extract::rejection::JsonRejection;
@@ -348,28 +349,11 @@ async fn create_batch(
         ));
     }
 
-    // Every candidate shares executor and worker, so one refusal would hold
-    // for all of them; check once before anything is created.
-    if let Some(first) = selected.first() {
-        state.check_eligible(&first.spec).map_err(conflict)?;
-    }
-    let mut task_ids: Vec<TaskId> = Vec::new();
-    let mut changed: Vec<TaskId> = Vec::new();
-    let mut refused = None;
-    for candidate in selected {
-        match state.create_task(candidate.spec) {
-            Ok((task, ids)) => {
-                task_ids.push(task.id);
-                changed.extend(ids);
-            }
-            // Whatever made this one ineligible holds for the rest, so stop
-            // here. The tasks already created keep their place in the queue.
-            Err(err) => {
-                refused = Some(err);
-                break;
-            }
-        }
-    }
+    let Created {
+        task_ids,
+        changed,
+        refused,
+    } = create_tasks(&mut state, selected);
     if let Some(err) = refused {
         app.persist_ids(&state, &changed);
         return Err(conflict(err));
@@ -393,6 +377,42 @@ async fn create_batch(
             issues,
         }),
     ))
+}
+
+/// What queueing a batch's candidates left behind: the tasks made, the ids to
+/// persist either way, and the refusal that stopped it, if one did.
+#[derive(Default)]
+struct Created {
+    task_ids: Vec<TaskId>,
+    changed: Vec<TaskId>,
+    refused: Option<String>,
+}
+
+fn create_tasks(state: &mut crate::state::State, selected: Vec<Candidate>) -> Created {
+    let mut created = Created::default();
+    // Every candidate shares executor and worker, so one refusal would hold
+    // for all of them; check once before anything is created.
+    if let Some(first) = selected.first() {
+        if let Err(err) = state.check_eligible(&first.spec) {
+            created.refused = Some(err);
+            return created;
+        }
+    }
+    for candidate in selected {
+        match state.create_task(candidate.spec) {
+            Ok((task, ids)) => {
+                created.task_ids.push(task.id);
+                created.changed.extend(ids);
+            }
+            // Whatever made this one ineligible holds for the rest, so stop
+            // here. The tasks already created keep their place in the queue.
+            Err(err) => {
+                created.refused = Some(err);
+                break;
+            }
+        }
+    }
+    created
 }
 
 async fn list_batches(State(app): State<Arc<App>>) -> Json<Vec<Batch>> {
@@ -489,50 +509,38 @@ async fn approve(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
 ) -> Result<Json<Task>, ApiError> {
-    {
-        // Approving a plan creates its steps here; there is nothing to push.
-        let mut state = app.state.lock().unwrap();
-        let is_plan = state
-            .tasks
-            .get(&id)
-            .is_some_and(|rec| rec.task.spec.kind == TaskKind::Plan);
-        if is_plan {
-            let (task, changed) = state.approve_plan(&id)?;
-            app.persist_ids(&state, &changed);
-            return Ok(Json(task));
-        }
+    let mut state = app.state.lock().unwrap();
+    let is_plan = state
+        .tasks
+        .get(&id)
+        .is_some_and(|rec| rec.task.spec.kind == TaskKind::Plan);
+    // Approving a plan creates its steps here; there is nothing to push.
+    if is_plan {
+        let (task, changed) = state.approve_plan(&id)?;
+        app.persist_ids(&state, &changed);
+        return Ok(Json(task));
     }
-    command(
-        &app,
+    let task = state.command(
         &id,
         &[TaskStatus::AwaitingReview],
         "task is not awaiting review",
         |task_id| OrchestratorMessage::Push { task_id },
-    )
+    )?;
+    Ok(Json(task))
 }
 
 async fn reject(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
 ) -> Result<Json<Task>, ApiError> {
-    command(
-        &app,
+    let mut state = app.state.lock().unwrap();
+    let task = state.command(
         &id,
         &[TaskStatus::AwaitingReview],
         "task is not awaiting review",
         |task_id| OrchestratorMessage::Discard { task_id },
-    )
-}
-
-fn command(
-    app: &App,
-    id: &str,
-    allowed: &[TaskStatus],
-    wrong_status: &str,
-    msg: impl FnOnce(String) -> OrchestratorMessage,
-) -> Result<Json<Task>, ApiError> {
-    let mut state = app.state.lock().unwrap();
-    Ok(Json(state.command(id, allowed, wrong_status, msg)?))
+    )?;
+    Ok(Json(task))
 }
 
 #[derive(Deserialize)]
@@ -597,23 +605,37 @@ async fn stream(
         let _ = socket.close().await;
         return;
     }
-    loop {
+    let close = loop {
         tokio::select! {
-            received = live.recv() => {
-                let Ok(event) = received else { break };
-                if !send(&mut socket, &event).await {
-                    return;
-                }
-                if is_final(&event.event) {
-                    break;
-                }
-            }
+            received = live.recv() => match forward(&mut socket, received).await {
+                ControlFlow::Continue(()) => {}
+                ControlFlow::Break(close) => break close,
+            },
             // The client sends nothing; this arm only notices it going away.
-            frame = socket.recv() => match frame {
-                Some(Ok(_)) => {}
-                _ => return,
+            frame = socket.recv() => if !matches!(frame, Some(Ok(_))) {
+                break false;
             },
         }
+    };
+    if close {
+        let _ = socket.close().await;
     }
-    let _ = socket.close().await;
+}
+
+/// Sends one live event; `Break(true)` closes the socket, `Break(false)`
+/// drops it because the client already went away.
+async fn forward(
+    socket: &mut WebSocket,
+    received: Result<StoredEvent, broadcast::error::RecvError>,
+) -> ControlFlow<bool> {
+    let Ok(event) = received else {
+        return ControlFlow::Break(true);
+    };
+    if !send(socket, &event).await {
+        return ControlFlow::Break(false);
+    }
+    if is_final(&event.event) {
+        return ControlFlow::Break(true);
+    }
+    ControlFlow::Continue(())
 }
