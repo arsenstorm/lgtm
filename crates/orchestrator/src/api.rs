@@ -11,7 +11,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
-    OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskSpec, TaskStatus, WorkerStatus,
+    CiState, Executor, IssueRef, OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskSpec,
+    TaskStatus, WorkerStatus,
 };
 use serde::Deserialize;
 use tokio::sync::broadcast;
@@ -44,7 +45,9 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
     Router::new()
         .route("/workers", get(workers))
         .route("/tasks", get(list_tasks).post(create_task))
+        .route("/tasks/from-issue", post(create_task_from_issue))
         .route("/tasks/:id", get(get_task))
+        .route("/tasks/:id/merge", post(merge))
         .route("/tasks/:id/events", get(events))
         .route("/tasks/:id/message", post(message))
         .route("/tasks/:id/cancel", post(cancel))
@@ -87,10 +90,114 @@ async fn create_task(
     body: Result<Json<TaskSpec>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Task>), ApiError> {
     let Json(spec) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    queue(&app, spec)
+}
+
+fn queue(app: &App, spec: TaskSpec) -> Result<(StatusCode, Json<Task>), ApiError> {
     let mut state = app.state.lock().unwrap();
     let (task, changed) = state.create_task(spec).map_err(conflict)?;
     app.persist_ids(&state, &changed);
     Ok((StatusCode::CREATED, Json(task)))
+}
+
+fn github(app: &App) -> Result<lgtm_github::GitHub, ApiError> {
+    app.github
+        .clone()
+        .ok_or_else(|| conflict("GITHUB_TOKEN is not configured".into()))
+}
+
+fn bad_gateway(err: anyhow::Error) -> ApiError {
+    ApiError(StatusCode::BAD_GATEWAY, format!("github: {err:#}"))
+}
+
+#[derive(Deserialize)]
+struct FromIssueBody {
+    issue: String,
+    base_branch: String,
+    executor: Executor,
+    #[serde(default)]
+    worker: Option<String>,
+}
+
+async fn create_task_from_issue(
+    State(app): State<Arc<App>>,
+    body: Result<Json<FromIssueBody>, JsonRejection>,
+) -> Result<(StatusCode, Json<Task>), ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let github = github(&app)?;
+    let (repo, number) = lgtm_github::parse_issue(&body.issue).ok_or_else(|| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            format!("unrecognised issue: {}", body.issue),
+        )
+    })?;
+    let issue = github.issue(&repo, number).await.map_err(bad_gateway)?;
+    queue(
+        &app,
+        TaskSpec {
+            repository: format!("https://github.com/{}/{}.git", repo.owner, repo.repo),
+            base_branch: body.base_branch,
+            prompt: format!(
+                "Resolve GitHub issue #{number}: {}\n\n{}",
+                issue.title, issue.body
+            ),
+            executor: body.executor,
+            worker: body.worker,
+            issue: Some(IssueRef {
+                owner: repo.owner,
+                repo: repo.repo,
+                number,
+            }),
+        },
+    )
+}
+
+async fn merge(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+) -> Result<Json<Task>, ApiError> {
+    let (github, repo, number) = {
+        let state = app.state.lock().unwrap();
+        let task = state
+            .tasks
+            .get(&id)
+            .map(|rec| &rec.task)
+            .ok_or(ApiError(StatusCode::NOT_FOUND, "task not found".into()))?;
+        if task.status != TaskStatus::Approved {
+            return Err(conflict("task is not approved".into()));
+        }
+        let pull = task
+            .pull_request
+            .as_ref()
+            .ok_or_else(|| conflict("task has no pull request".into()))?;
+        match task.ci.as_ref().map(|ci| ci.state) {
+            Some(CiState::Success) => {}
+            Some(CiState::Failure) => return Err(conflict("ci is failing".into())),
+            Some(CiState::Pending) | None => return Err(conflict("ci is pending".into())),
+        }
+        let repo = lgtm_github::parse_repo(&task.spec.repository).ok_or_else(|| {
+            conflict(format!("unrecognised repository: {}", task.spec.repository))
+        })?;
+        (github(&app)?, repo, pull.number)
+    };
+    match github.pull_mergeable(&repo, number).await {
+        Ok(Some(true)) => {}
+        Ok(Some(false)) => return Err(conflict("pull request is not mergeable".into())),
+        Ok(None) => {
+            return Err(conflict(
+                "pull request mergeability is unknown, retry".into(),
+            ))
+        }
+        Err(err) => return Err(bad_gateway(err)),
+    }
+    github
+        .merge_pull(&repo, number)
+        .await
+        .map_err(bad_gateway)?;
+    let mut state = app.state.lock().unwrap();
+    let task = state.mark_merged(&id)?;
+    app.persist_ids(&state, std::slice::from_ref(&id));
+    Ok(Json(task))
 }
 
 #[derive(Deserialize)]

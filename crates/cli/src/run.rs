@@ -4,9 +4,19 @@ use crate::http::Client;
 use crate::render;
 use futures_util::StreamExt;
 use lgtm_protocol::{Executor, StoredEvent, Task, TaskEvent, TaskSpec};
+use serde::Serialize;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
+
+/// Body of `POST /api/tasks/from-issue`.
+#[derive(Serialize)]
+struct FromIssueSpec {
+    issue: String,
+    base_branch: String,
+    executor: Executor,
+    worker: Option<String>,
+}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
@@ -25,8 +35,32 @@ pub async fn run(
         prompt,
         executor,
         worker,
+        issue: None,
     };
     let task: Task = client.post("/api/tasks", Some(&spec)).await?;
+    announce_and_stream(orchestrator, token, task).await
+}
+
+pub async fn run_from_issue(
+    client: &Client,
+    orchestrator: &str,
+    token: &str,
+    issue: String,
+    base_branch: String,
+    executor: Executor,
+    worker: Option<String>,
+) -> anyhow::Result<i32> {
+    let spec = FromIssueSpec {
+        issue,
+        base_branch,
+        executor,
+        worker,
+    };
+    let task: Task = client.post("/api/tasks/from-issue", Some(&spec)).await?;
+    announce_and_stream(orchestrator, token, task).await
+}
+
+async fn announce_and_stream(orchestrator: &str, token: &str, task: Task) -> anyhow::Result<i32> {
     match task.worker.as_deref() {
         Some(worker) => eprintln!("task {} → {worker}", task.id),
         None => eprintln!("task {} queued, waiting for a worker", task.id),

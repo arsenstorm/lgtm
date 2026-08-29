@@ -100,10 +100,19 @@ async fn hello(
     Some((info, running))
 }
 
-fn apply(app: &App, task_id: &str, event: TaskEvent) {
-    let mut state = app.state.lock().unwrap();
-    let changed = state.apply_event(task_id, event);
-    app.persist_ids(&state, &changed);
+fn apply(app: &Arc<App>, task_id: &str, event: TaskEvent) {
+    let pushed = matches!(event, TaskEvent::Pushed { .. });
+    let plan = {
+        let mut state = app.state.lock().unwrap();
+        let changed = state.apply_event(task_id, event);
+        app.persist_ids(&state, &changed);
+        pushed
+            .then(|| state.pull_request_plan(task_id, app.github.is_some()))
+            .flatten()
+    };
+    if let Some(plan) = plan {
+        crate::github::open_pull_request(app.clone(), task_id.to_string(), plan);
+    }
 }
 
 fn disconnect(app: &Arc<App>, name: &str, conn_id: u64) {

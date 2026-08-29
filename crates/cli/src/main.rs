@@ -4,7 +4,7 @@ mod run;
 
 use clap::{Parser, Subcommand};
 use http::Client;
-use lgtm_protocol::{Executor, StoredEvent, Task, TaskStatus, WorkerStatus};
+use lgtm_protocol::{CiState, Executor, StoredEvent, Task, TaskStatus, WorkerStatus};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -44,7 +44,10 @@ enum Command {
         base: String,
         #[arg(long, default_value = "claude", value_parser = parse_executor)]
         agent: Executor,
-        prompt: String,
+        /// GitHub issue to work from, e.g. an issue URL or `owner/repo#123`.
+        #[arg(long)]
+        issue: Option<String>,
+        prompt: Option<String>,
     },
     Tasks,
     Show {
@@ -63,6 +66,9 @@ enum Command {
         id: String,
     },
     Cancel {
+        id: String,
+    },
+    Merge {
         id: String,
     },
     /// Send a follow-up to a task awaiting review, then resume streaming.
@@ -102,6 +108,30 @@ fn status_str(status: TaskStatus) -> String {
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_default()
+}
+
+/// The wire form ("success") rather than Rust's Debug form, matching
+/// `status_str` above.
+fn ci_str(state: CiState) -> String {
+    serde_json::to_value(state)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// `#<pr-number> <mark>` for the `tasks` table's PR column, empty when the
+/// task has no pull request. Mark is ✓/✗ for CI success/failure, … for
+/// pending or missing CI info.
+fn pr_cell(task: &Task) -> String {
+    let Some(pr) = &task.pull_request else {
+        return String::new();
+    };
+    let mark = match task.ci.as_ref().map(|ci| ci.state) {
+        Some(CiState::Success) => "✓",
+        Some(CiState::Failure) => "✗",
+        Some(CiState::Pending) | None => "…",
+    };
+    format!("#{} {mark}", pr.number)
 }
 
 fn first_line_truncated(s: &str, max: usize) -> String {
@@ -208,40 +238,70 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             repo,
             base,
             agent,
+            issue,
             prompt,
         } => {
-            let repo = match repo {
-                Some(r) => r,
-                None => default_repo()?,
+            let (issue, prompt) = match (issue, prompt) {
+                (Some(issue), prompt) => (Some(issue), prompt),
+                (None, Some(prompt)) => match prompt.strip_prefix("github:") {
+                    Some(rest) => (Some(rest.to_string()), None),
+                    None => (None, Some(prompt)),
+                },
+                (None, None) => anyhow::bail!("pass a prompt or --issue"),
             };
-            run::run(
-                &client,
-                &orchestrator,
-                &token,
-                repo,
-                base,
-                prompt,
-                agent,
-                on,
-            )
-            .await
+            match issue {
+                Some(issue) => {
+                    run::run_from_issue(&client, &orchestrator, &token, issue, base, agent, on)
+                        .await
+                }
+                None => {
+                    let repo = match repo {
+                        Some(r) => r,
+                        None => default_repo()?,
+                    };
+                    run::run(
+                        &client,
+                        &orchestrator,
+                        &token,
+                        repo,
+                        base,
+                        prompt.expect("checked above: issue or prompt is present"),
+                        agent,
+                        on,
+                    )
+                    .await
+                }
+            }
         }
         Command::Tasks => {
             let tasks: Vec<Task> = client.get("/api/tasks").await?;
-            println!("{:<10}{:<16}{:<16}PROMPT", "ID", "STATUS", "WORKER");
+            println!(
+                "{:<10}{:<16}{:<16}{:<10}PROMPT",
+                "ID", "STATUS", "WORKER", "PR"
+            );
             for t in tasks {
                 let worker = t.worker.as_deref().unwrap_or("-");
                 let prompt = first_line_truncated(&t.spec.prompt, 60);
                 let failed = t.result.as_ref().is_some_and(|r| r.validation_failed());
                 let status = status_str(t.status);
                 let status = if failed { format!("{status}!") } else { status };
-                println!("{:<10}{:<16}{:<16}{}", t.id, status, worker, prompt);
+                let pr = pr_cell(&t);
+                println!(
+                    "{:<10}{:<16}{:<16}{:<10}{}",
+                    t.id, status, worker, pr, prompt
+                );
             }
             Ok(0)
         }
         Command::Show { id } => {
             let detail: TaskDetail = client.get(&format!("/api/tasks/{id}")).await?;
             println!("{}", serde_json::to_string_pretty(&detail.task)?);
+            if let Some(pr) = &detail.task.pull_request {
+                println!("pr: {}", pr.url);
+            }
+            if let Some(ci) = &detail.task.ci {
+                println!("ci: {} {}", ci_str(ci.state), ci.url);
+            }
             for e in detail.events {
                 println!("{} {}", e.at, serde_json::to_string(&e.event)?);
             }
@@ -292,6 +352,13 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             println!("{}", serde_json::to_string_pretty(&task)?);
             Ok(0)
         }
+        Command::Merge { id } => {
+            let task: Task = client
+                .post(&format!("/api/tasks/{id}/merge"), None::<&()>)
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&task)?);
+            Ok(0)
+        }
         Command::Tell { id, message } => {
             // Events already delivered by a prior `run`/`tell` shouldn't replay.
             let detail: TaskDetail = client.get(&format!("/api/tasks/{id}")).await?;
@@ -305,5 +372,72 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             eprintln!("task {id} → follow-up sent");
             run::stream(&orchestrator, &token, &id, from).await
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lgtm_protocol::{CiStatus, PullRequest, TaskSpec};
+
+    fn sample_task(pull_request: Option<PullRequest>, ci: Option<CiStatus>) -> Task {
+        Task {
+            id: "0123abcd".into(),
+            spec: TaskSpec {
+                repository: "https://github.com/arsenstorm/lgtm.git".into(),
+                base_branch: "main".into(),
+                prompt: "add a /health endpoint".into(),
+                executor: Executor::Claude,
+                worker: None,
+                issue: None,
+            },
+            status: TaskStatus::Approved,
+            worker: None,
+            created_at: 1,
+            result: None,
+            error: None,
+            pull_request,
+            ci,
+        }
+    }
+
+    #[test]
+    fn pr_cell_empty_without_pull_request() {
+        assert_eq!(pr_cell(&sample_task(None, None)), "");
+    }
+
+    #[test]
+    fn pr_cell_pending_without_ci() {
+        let pr = PullRequest {
+            number: 12,
+            url: "https://github.com/arsenstorm/lgtm/pull/12".into(),
+        };
+        assert_eq!(pr_cell(&sample_task(Some(pr), None)), "#12 …");
+    }
+
+    #[test]
+    fn pr_cell_marks_ci_success() {
+        let pr = PullRequest {
+            number: 12,
+            url: "https://github.com/arsenstorm/lgtm/pull/12".into(),
+        };
+        let ci = CiStatus {
+            state: CiState::Success,
+            url: "https://github.com/arsenstorm/lgtm/pull/12/checks".into(),
+        };
+        assert_eq!(pr_cell(&sample_task(Some(pr), Some(ci))), "#12 ✓");
+    }
+
+    #[test]
+    fn pr_cell_marks_ci_failure() {
+        let pr = PullRequest {
+            number: 12,
+            url: "https://github.com/arsenstorm/lgtm/pull/12".into(),
+        };
+        let ci = CiStatus {
+            state: CiState::Failure,
+            url: "https://github.com/arsenstorm/lgtm/pull/12/checks".into(),
+        };
+        assert_eq!(pr_cell(&sample_task(Some(pr), Some(ci))), "#12 ✗");
     }
 }

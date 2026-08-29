@@ -13,7 +13,7 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::Input;
 use gpui_component::tab::{Tab, TabBar};
 use gpui_component::{ActiveTheme as _, Sizable as _};
-use lgtm_protocol::{Task, TaskStatus};
+use lgtm_protocol::{CiState, CiStatus, Task, TaskStatus};
 
 const ADD: u32 = 0x1a7f37;
 const DEL: u32 = 0xcf222e;
@@ -86,7 +86,37 @@ fn header(app: &mut LgtmApp, task: &Task, cx: &mut Context<LgtmApp>) -> Div {
         .p_2()
         .border_b_1()
         .border_color(cx.theme().border)
-        .child(div().font_weight(FontWeight::BOLD).child(title))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .child(div().font_weight(FontWeight::BOLD).child(title))
+                .when_some(task.pull_request.clone(), |this, pr| {
+                    this.child(
+                        div()
+                            .id("pr-link")
+                            .cursor_pointer()
+                            .font_weight(FontWeight::BOLD)
+                            .child(format!(" · PR #{}", pr.number))
+                            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                                cx.open_url(&pr.url);
+                            })),
+                    )
+                })
+                .when_some(task.ci.clone(), |this, ci| {
+                    let (mark, color) = match ci.state {
+                        CiState::Success => ("✓", cx.theme().success),
+                        CiState::Failure => ("✗", cx.theme().danger),
+                        CiState::Pending => ("…", cx.theme().muted_foreground),
+                    };
+                    this.child(
+                        div()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(color)
+                            .child(format!(" ci {mark}")),
+                    )
+                }),
+        )
         .child(
             div()
                 .text_sm()
@@ -148,6 +178,25 @@ fn actions(app: &mut LgtmApp, task: &Task, cx: &mut Context<LgtmApp>) -> Div {
                 .small()
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Cancel, cx))),
         ),
+        TaskStatus::Approved
+            if matches!(
+                task.ci,
+                Some(CiStatus {
+                    state: CiState::Success,
+                    ..
+                })
+            ) =>
+        {
+            row.child(
+                Button::new("merge")
+                    .label("Merge")
+                    .primary()
+                    .small()
+                    .on_click(
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Merge, cx)),
+                    ),
+            )
+        }
         _ => row,
     }
 }

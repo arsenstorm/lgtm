@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 lgtm-protocol.workspace = true
+lgtm-github.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 futures-util.workspace = true

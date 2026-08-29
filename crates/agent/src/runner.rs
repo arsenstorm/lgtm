@@ -285,7 +285,16 @@ pub async fn push_task(task_id: TaskId, ctx: Arc<Ctx>) {
     let worktree = worktree_path(&ctx.data_dir, &task_id).display().to_string();
     let branch = branch_name(&task_id);
     match git(&["-C", &worktree, "push", "-u", "origin", &branch], None).await {
-        Ok(_) => ctx.emit(&task_id, TaskEvent::Pushed { branch }),
+        Ok(_) => {
+            let sha = match git(&["-C", &worktree, "rev-parse", "HEAD"], None).await {
+                Ok(sha) => sha.trim().to_string(),
+                Err(err) => {
+                    tracing::warn!("failed to resolve pushed HEAD sha: {err:#}");
+                    String::new()
+                }
+            };
+            ctx.emit(&task_id, TaskEvent::Pushed { branch, sha });
+        }
         Err(err) => ctx.emit(
             &task_id,
             TaskEvent::Failed {

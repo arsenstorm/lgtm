@@ -36,6 +36,8 @@ pub enum TaskStatus {
     Running,
     AwaitingReview,
     Approved,
+    /// The pull request was merged from LGTM.
+    Merged,
     Rejected,
     Failed,
     Cancelled,
@@ -46,11 +48,20 @@ impl TaskStatus {
         matches!(
             self,
             TaskStatus::Approved
+                | TaskStatus::Merged
                 | TaskStatus::Rejected
                 | TaskStatus::Failed
                 | TaskStatus::Cancelled
         )
     }
+}
+
+/// A GitHub issue a task was created from.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct IssueRef {
+    pub owner: String,
+    pub repo: String,
+    pub number: u64,
 }
 
 /// What the developer asked for. Also the body of `POST /api/tasks`.
@@ -63,6 +74,28 @@ pub struct TaskSpec {
     pub executor: Executor,
     /// Explicit worker name. `None` lets the orchestrator pick.
     pub worker: Option<String>,
+    #[serde(default)]
+    pub issue: Option<IssueRef>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CiState {
+    Pending,
+    Success,
+    Failure,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct CiStatus {
+    pub state: CiState,
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PullRequest {
+    pub number: u64,
+    pub url: String,
 }
 
 /// One check from the repository's `.lgtm/config.toml`, run by the worker
@@ -104,6 +137,10 @@ pub struct Task {
     pub created_at: u64,
     pub result: Option<TaskResult>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub pull_request: Option<PullRequest>,
+    #[serde(default)]
+    pub ci: Option<CiStatus>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -163,9 +200,11 @@ pub enum TaskEvent {
         error: String,
     },
     Cancelled,
-    /// Task branch pushed to origin after approval.
+    /// Task branch pushed to origin after approval. `sha` is the branch head.
     Pushed {
         branch: String,
+        #[serde(default)]
+        sha: String,
     },
     /// Worktree and branch removed after rejection.
     Discarded,
@@ -235,12 +274,25 @@ mod tests {
                 prompt: "add a /health endpoint".into(),
                 executor: Executor::Claude,
                 worker: Some("compute".into()),
+                issue: Some(IssueRef {
+                    owner: "arsenstorm".into(),
+                    repo: "lgtm".into(),
+                    number: 7,
+                }),
             },
             status: TaskStatus::Queued,
             worker: None,
             created_at: 1,
             result: None,
             error: None,
+            pull_request: Some(PullRequest {
+                number: 12,
+                url: "https://github.com/arsenstorm/lgtm/pull/12".into(),
+            }),
+            ci: Some(CiStatus {
+                state: CiState::Pending,
+                url: "https://github.com/arsenstorm/lgtm/pull/12/checks".into(),
+            }),
         }
     }
 
@@ -289,6 +341,7 @@ mod tests {
             TaskEvent::Cancelled,
             TaskEvent::Pushed {
                 branch: "lgtm/0123abcd".into(),
+                sha: "abc123".into(),
             },
             TaskEvent::Discarded,
         ] {
@@ -349,6 +402,13 @@ mod tests {
             serde_json::from_str(r#"{"branch":"lgtm/0123abcd","diff":"","changed_files":[]}"#)
                 .unwrap();
         assert!(result.validation.is_empty());
+        let task: Task = serde_json::from_str(
+            r#"{"id":"0123abcd","spec":{"repository":"r","base_branch":"main","prompt":"p","executor":"claude","worker":null},"status":"approved","worker":"w","created_at":1,"result":null,"error":null}"#,
+        )
+        .unwrap();
+        assert!(task.pull_request.is_none() && task.ci.is_none() && task.spec.issue.is_none());
+        let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
+        assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
     }
 
     #[test]

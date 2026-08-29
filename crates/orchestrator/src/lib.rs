@@ -1,6 +1,7 @@
 //! Orchestrator: one HTTP API for developers, one WebSocket per worker agent.
 
 mod api;
+mod github;
 mod persist;
 mod state;
 mod worker_ws;
@@ -46,11 +47,15 @@ pub async fn serve(bind: SocketAddr, token: String, data_dir: PathBuf) -> anyhow
     let (persist_tx, persist_rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(persist::writer(tasks_dir, persist_rx));
 
+    let github = lgtm_github::GitHub::from_env();
+    tracing::info!(enabled = github.is_some(), "github integration");
     let app = Arc::new(App {
         token,
         state: Mutex::new(state),
         persist: persist_tx,
+        github,
     });
+    github::resume_ci_polls(&app);
     let router = Router::new()
         .nest("/api", api::router(app.clone()))
         .route(WORKER_WS_PATH, get(worker_ws::handler))
