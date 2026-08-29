@@ -280,6 +280,34 @@ impl TaskResult {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionStatus {
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// One attempt at a task: from the runner spawning the agent to that run's
+/// end. Fix-the-checks and review runs belong to the attempt that started them.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Execution {
+    /// 1-based, per task.
+    pub attempt: u32,
+    pub worker: String,
+    pub executor: Executor,
+    /// Unix milliseconds.
+    pub started_at: u64,
+    pub finished_at: Option<u64>,
+    pub status: ExecutionStatus,
+    pub error: Option<String>,
+    /// The task's running total at the time this attempt ended; the runner
+    /// reports one sum across attempts.
+    pub cost_usd: f64,
+    pub validation: Vec<ValidationResult>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Task {
     pub id: TaskId,
@@ -295,6 +323,8 @@ pub struct Task {
     pub pull_request: Option<PullRequest>,
     #[serde(default)]
     pub ci: Option<CiStatus>,
+    #[serde(default)]
+    pub executions: Vec<Execution>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

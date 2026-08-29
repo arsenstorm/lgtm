@@ -143,6 +143,7 @@ mod tests {
             error: None,
             pull_request,
             ci,
+            executions: Vec::new(),
         }
     }
 

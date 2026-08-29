@@ -257,8 +257,9 @@ async fn show(client: &Client, id: &str) -> anyhow::Result<i32> {
     for e in detail.events {
         println!("{} {}", e.at, serde_json::to_string(&e.event)?);
     }
+    let mut stdout = std::io::stdout();
+    render::print_executions(&detail.task.executions, &mut stdout)?;
     if let Some(result) = &detail.task.result {
-        let mut stdout = std::io::stdout();
         render::print_validation(&result.validation, &mut stdout)?;
         if let Some(review) = &result.review {
             render::print_review(review, &mut stdout)?;

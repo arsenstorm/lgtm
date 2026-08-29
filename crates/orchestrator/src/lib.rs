@@ -3,6 +3,7 @@
 mod api;
 mod backlog;
 mod commands;
+mod execution;
 mod github;
 mod linear;
 pub mod local;
@@ -120,8 +121,13 @@ fn load_state(data_dir: &std::path::Path, queue_without_workers: bool) -> anyhow
 /// the scheduler only looks at unassigned ones. Returns whether it changed.
 fn restore(mut task: lgtm_protocol::Task) -> (lgtm_protocol::Task, bool) {
     if task.status == TaskStatus::Running {
+        let error = "orchestrator restarted".to_string();
+        let event = lgtm_protocol::TaskEvent::Failed {
+            error: error.clone(),
+        };
+        execution::record(&mut task, &event, state::now_ms());
         task.status = TaskStatus::Failed;
-        task.error = Some("orchestrator restarted".into());
+        task.error = Some(error);
         return (task, true);
     }
     if task.status == TaskStatus::Queued && task.worker.is_some() {
