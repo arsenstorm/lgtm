@@ -1,192 +1,92 @@
 # LGTM
 
-LGTM is a local-first desktop code-review tool for Git repositories. It opens
-a repository on disk, diffs the working tree or a branch against a base, and
-lets you leave inline comments in a persisted review session — all without a
-server, an account, or a network connection. Its distinctive feature is
-deterministic reviewer memory: when you save a substantive inline comment,
-LGTM stores a normalised fingerprint of the commented code, and when
-materially similar code shows up in a later diff it proposes your previous
-comment as a ghost suggestion you can accept, edit, dismiss, or permanently
-disable. There is no LLM, no embeddings, no network call, and nothing is ever
-published automatically.
+LGTM is an orchestrator for AI coding agents. You give it a prompt and a
+repository; it runs an agent on a worker in a git worktree, streams the
+output back, runs the repository's checks, reviews the diff, and then lets
+you approve it, open a pull request, and merge. Workers can be this machine,
+another machine, or a container that exits when it is done. There is a CLI
+and a native desktop app.
 
-## Features
-
-- Open a local Git repository (path validated and canonicalised in Rust)
-- Working-tree vs `HEAD` and branch vs merge-base diffs
-- Split/unified diff rendering with syntax highlighting (`@pierre/diffs`)
-- Light/dark theme
-- Per-file viewed tracking
-- Persisted review sessions with inline draft comments — single-line and
-  multi-line, on either side of the diff
-- Conservative re-anchoring of comments when the underlying diff changes,
-  with outdated comments marked rather than silently moved or dropped
-- Markdown export of a review
-- Deterministic reviewer-memory suggestions (accept / edit / dismiss /
-  disable), with feedback that adjusts future confidence
-- Keyboard shortcuts and a command palette
-- GitHub pull-request review: browse a repository's open PRs (or open by
-  URL), comment inline, and submit one grouped review (Comment / Approve /
-  Request changes) — sign in via OAuth device flow (or a PAT), token stored
-  in the OS keychain, all requests made from Rust
-- Review-native PR surface: CI/check status, mergeability, existing reviews
-  (with dismiss), existing inline comments rendered in the diff,
-  conversation comments, close/reopen, and guarded one-click merge
-  (merge/squash/rebase, optional branch deletion)
-- Import of your past GitHub review comments into reviewer memory
-  (explicit, scoped to one repository, cancellable, deduplicated)
-
-## Requirements
-
-- [Bun](https://bun.sh)
-- A Rust toolchain (stable, via `rustup`)
-- `git` on `PATH`
-- macOS, Linux, or Windows, per [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
-
-## Setup & run
-
-```sh
-bun install
-bun run tauri dev
-```
-
-Build a release bundle:
-
-```sh
-bun run tauri build
-```
-
-## Development
-
-```sh
-bun run test           # vitest
-cd src-tauri && cargo test
-bun run check           # Ultracite/Biome lint check
-bun run fix              # Ultracite/Biome autofix
-bunx tsc --noEmit
-```
-
-## Architecture
-
-```
-src/
-  app/            app shell, header/status bars, top-level state
-  features/
-    repositories/ repo picker, recent repos
-    changes/      diff loading, review session, file-review (viewed) state
-    diff/         diff viewer component
-    reviews/      comments, composer, summary, Markdown export, shortcuts,
-                  command palette
-    memory/       suggestion cards, suggestion/memory hooks
-  lib/
-    tauri/        typed invoke wrappers around the two Tauri commands
-    db/           SQLite access — repositories, sessions, comments, memory
-                  examples, suggestions, file state, settings
-    diff/         patch-line mapping, DiffAnchor construction, re-anchoring
-    memory/       lexical normalisation, fingerprinting, similarity scoring,
-                  candidate extraction/filtering
-    errors/       structured app error type
-  types/          shared Git/review types
-src-tauri/src/
-  commands/       thin #[tauri::command] wrappers (repository.rs, git.rs)
-  git/            exec.rs (safe process runner), repository.rs, diff.rs
-  error.rs        structured AppError serialized as {code, message, details}
-```
-
-Rust owns path validation and safe, read-only git execution (no shell,
-per-process timeouts, output caps) and returns diff/metadata to the frontend.
-React owns everything else — diff rendering, selection, review/comment state,
-the memory engine, and all persistence, which goes through the `lib/db`
-layer. SQLite (via `tauri-plugin-sql`) stores repository metadata, review
-sessions, comments, memory examples, and suggestion feedback; the repository
-on disk remains the source of truth for code.
-
-## How reviewer memory works
-
-When a comment is saved, it only becomes a memory example if it passes
-quality gates: the code selection has enough tokens to fingerprint, the
-comment body is long enough and not generic boilerplate ("nit", "lgtm",
-"+1", ...), and the file isn't a lockfile, build output, or otherwise
-excluded path. Surviving examples are lexically normalised (rename- and
-literal-insensitive) and fingerprinted as trigrams, structural "shape",
-identifiers, and surrounding context.
-
-Candidates in later diffs are scored against stored fingerprints with a
-weighted combination — trigram similarity (0.45), shape (0.2), context
-(0.15), identifiers (0.1), and repository scope (0.1) — and only surfaced as
-suggestions above a conservative threshold of 0.72. Suggestions are capped
-at 3 per file and 10 per review. Accepting or dismissing a suggestion
-records feedback that nudges that example's future confidence up or down;
-memories marked "never suggest again" are permanently excluded.
-
-## Keyboard shortcuts
-
-| Key | Action |
-| --- | --- |
-| `j` / `k` | Next / previous file |
-| `n` / `p` | Next / previous comment |
-| `c` | Comment on selection |
-| `v` | Toggle file viewed |
-| `r` | Refresh diff |
-| `s` | Open review summary |
-| `Cmd/Ctrl+K` | Command palette |
-| `Cmd/Ctrl+Enter` | Save comment (in composer) |
-| `Esc` | Cancel comment (in composer) |
-
-Shortcuts are ignored while typing in an editable field.
-
-## Limitations
-
-- Untracked files are listed in the file list but not diffed (avoids
-  touching the index)
-- Single repository open at a time, one window
-- GitHub review submission re-checks the PR head SHA but does not rebase
-  your drafts onto a changed head automatically (refresh re-anchors them)
-- No Markdown preview — comment bodies render as plain text
-- The lexical normaliser is language-agnostic; there's no Tree-sitter-based
-  parsing yet
-- No hunk-level keyboard navigation (only file- and comment-level)
-
-## Security
-
-LGTM never runs git through a shell, validates and re-validates repository
-paths in Rust, and only ever calls read-only git subcommands with hardened
-environment, timeouts, and output caps; nothing is sent over the network.
-See [docs/security.md](docs/security.md) for the full trust model and
-boundaries.
-
-## Orchestrator (Rust workspace)
-
-LGTM is being rebuilt as an orchestration system for coding agents. The
-Rust workspace under `crates/` is the new codebase; the desktop app above is
-parked until the review layer moves over.
-
-- `crates/protocol` — wire types shared by every binary
-- `crates/orchestrator` — task state, worker WebSocket, HTTP API
-- `crates/agent` — the worker, library used by `lgtm worker`, runs Claude Code in a git worktree
-- `crates/cli` — `lgtm`, the developer command
-
-Quick start:
+## Install
 
 ```sh
 curl -fsSL https://lgtm.arsenstorm.com/install | bash        # macOS, Linux, Raspberry Pi
-powershell -c "irm lgtm.arsenstorm.com/install.ps1 | iex"    # Windows
-
-lgtm serve                          # runs a local worker too; prints a join line for other machines
-lgtm run "add a HEALTH.md file"     # from any repo with an origin
 ```
 
-To add another machine, paste the printed `lgtm worker …` line on it.
+```powershell
+powershell -c "irm lgtm.arsenstorm.com/install.ps1 | iex"
+```
 
-From source: `cargo install --path crates/cli`. To update an installed
-`lgtm`, run the install line again or `lgtm upgrade`.
-[docs/release.md](docs/release.md)).
+Both put `lgtm` in `~/.lgtm/bin`. Run `lgtm upgrade` to update it. From
+source: `cargo install --path crates/cli`.
+
+## Quick start
+
+```sh
+lgtm serve                          # orchestrator plus a local worker
+lgtm run "add a HEALTH.md file"     # from any repo with an origin remote
+```
+
+`lgtm serve` generates a token, stores it at `~/.lgtm/token`, and prints a
+join line. Paste that `lgtm worker ws://… --token …` line on another machine
+to add it to the fleet.
+
+## What you can do
+
+- `lgtm run` a prompt, a GitHub issue (`--issue`), or a Linear issue
+  (`--linear`); `lgtm plan` proposes dependent steps instead of a diff.
+- `lgtm backlog github` and `lgtm backlog linear` import a whole labelled
+  backlog as one batch of tasks.
+- `lgtm tell <id> "…"` sends a follow-up to a task that is awaiting review.
+- Repository checks run after the agent finishes; a second agent pass
+  reviews the diff and reports findings.
+- `lgtm approve`, `reject`, `cancel`, and `merge` drive a task to a pull
+  request and into `main`.
+- `lgtm tasks`, `show`, `logs`, `diff`, and `workers` show what is going on.
+- Policy in the repository can retry, fix failing checks, and auto-approve
+  or auto-merge.
+- The desktop app (`apps/desktop`) lists tasks and shows activity, a
+  coloured diff, checks, and plans in a review pane.
+
+## Repository config
+
+A repository can declare its checks and its policy in `.lgtm/config.toml`.
+Workers read it from the worktree they just built.
+
+```toml
+[validation]
+fmt = "cargo fmt --all --check"
+clippy = "cargo clippy --workspace --all-targets -- -D warnings"
+test = "cargo test --workspace"
+
+[policy]
+retry = 1          # extra agent runs after a crash
+fix_checks = 2     # follow-up runs that try to fix failing checks
+review = true      # review the finished diff with a second agent run
+auto_approve = false
+auto_merge = false
+```
+
+A malformed file changes nothing: unknown or ill-typed keys are logged and
+the defaults stay.
+
+## Workspace
+
+- `crates/protocol` — wire types shared by every binary
+- `crates/orchestrator` — task state, worker WebSocket, HTTP API, policy
+- `crates/agent` — the worker: git worktrees, agent runs, checks, review
+- `crates/client` — HTTP/WebSocket client for the orchestrator API
+- `crates/diff` — patch parsing, unified/split layouts, and the file tree for the review pane
+- `crates/github` — pull requests, issues, CI status
+- `crates/linear` — Linear issues
+- `crates/cli` — `lgtm`, the developer command
+- `apps/desktop` — the GPUI desktop app
 
 Checks: `cargo fmt --all --check`,
-`cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace`.
 
-### Remote and ephemeral workers
+## Remote and ephemeral workers
 
 Workers connect out, so they can run anywhere: another machine, a
 container, a spot instance. `docker/agent.Dockerfile` builds a worker image
@@ -196,8 +96,18 @@ certificate, `--ephemeral`/`--max-tasks` workers that clean themselves up,
 having the orchestrator provision workers on demand, and running over
 Tailscale with no TLS at all.
 
+## Security
+
+Every orchestrator API call and worker connection carries a shared token.
+`lgtm serve --tls-cert/--tls-key` serves over TLS; see
+[docs/remote-workers.md](docs/remote-workers.md).
+
 ## Docs
 
-- [docs/implementation-plan.md](docs/implementation-plan.md) — architecture
-  decisions, milestone breakdown, and progress log
-- [docs/security.md](docs/security.md) — trust model and security boundaries
+- [docs/remote-workers.md](docs/remote-workers.md) — TLS, ephemeral
+  workers, provisioning, Tailscale
+- [docs/release.md](docs/release.md) — cutting a release, installing,
+  upgrading
+
+LGTM used to be a Tauri desktop review app. That code is preserved at the
+git tag `v0.1.0-tauri`.

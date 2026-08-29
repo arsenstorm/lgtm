@@ -4,43 +4,34 @@ Thanks for your interest in improving LGTM.
 
 ## Getting started
 
-```sh
-bun install
-bun run tauri dev    # runs the desktop app (requires the Rust toolchain)
-```
+LGTM is a Rust workspace. You need a stable Rust toolchain (via `rustup`)
+and `git` on `PATH`.
 
-See the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for
-platform system dependencies.
+```sh
+cargo run -p lgtm-cli --bin lgtm -- serve    # orchestrator plus a local worker
+cargo run -p lgtm-desktop                    # the desktop app
+```
 
 ## Before opening a pull request
 
 Run the same checks CI runs:
 
 ```sh
-bun run check        # lint + format (Ultracite / Biome)
-bun run compile      # typecheck
-bun run test         # unit tests (Vitest)
-bun run build        # production frontend build
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
-And for Rust changes, in `src-tauri/`:
-
-```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-```
-
-`bun run fix` auto-fixes most lint/format issues. A pre-commit hook runs the
-formatter on staged files automatically.
+`cargo fmt --all` fixes formatting. The desktop app is built and tested on
+macOS in CI, so build it locally if you changed `apps/desktop`.
 
 ## Coding standards
 
-Code style and conventions are enforced by [Ultracite](https://ultracite.ai)
-(a Biome preset). See [`AGENTS.md`](./AGENTS.md) for the full guide. Formatting
-is not a matter of opinion here — let the tooling handle it.
+See [`AGENTS.md`](./AGENTS.md). In short: one change per commit, a
+`type(scope): message` subject, no new dependency without a real need, and
+comments that explain a why.
 
 ## Reporting issues
 
-Use the issue templates for bugs and feature requests. For security issues, see
-[`SECURITY.md`](./SECURITY.md).
+Use the issue templates for bugs and feature requests. For security issues,
+see [`SECURITY.md`](./SECURITY.md).
