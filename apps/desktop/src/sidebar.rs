@@ -1,7 +1,8 @@
 //! The left rail: quick actions, tasks grouped by repository, and one status
 //! row that opens Settings.
 
-use crate::app::{prompt_preview, status_label, LgtmApp, Overlay, Page};
+use crate::app::{LgtmApp, Overlay, Page};
+use crate::labels::{prompt_preview, status_label};
 use crate::theme::{
     icon, icon_button, tokens, Tokens, FOOTER_H, ICON, ROW_H, SPACE, TEXT_BODY, TEXT_ROW,
     TEXT_SECONDARY,
@@ -356,9 +357,9 @@ fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> gpui::Statefu
         .child(div().flex_1().min_w_0().truncate().child(status))
         .child(
             icon_button("open-settings", "settings", true, t)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(true, cx))),
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_worker_settings(cx))),
         )
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(true, cx)))
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_worker_settings(cx)))
 }
 
 #[cfg(test)]

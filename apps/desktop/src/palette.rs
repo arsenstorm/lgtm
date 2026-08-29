@@ -1,6 +1,7 @@
 //! ⌘K: one input over everything, with tasks, repositories and actions under it.
 
-use crate::app::{prompt_preview, status_label, LgtmApp, Page};
+use crate::app::{LgtmApp, Page};
+use crate::labels::{prompt_preview, status_label};
 use crate::sidebar::repo_slug;
 use crate::theme::{
     panel, scrim, section_label, tokens, Pref, Tokens, ROW_H, SPACE, TEXT_SECONDARY,
@@ -182,7 +183,7 @@ fn activate(app: &mut LgtmApp, kind: Kind, window: &mut Window, cx: &mut Context
         }
         Kind::Action(Act::NewTask) => app.go_home(window, cx),
         Kind::Action(Act::Batches) => app.show_page(Page::Batches, cx),
-        Kind::Action(Act::Settings) => app.open_settings(false, cx),
+        Kind::Action(Act::Settings) => app.open_settings(cx),
         Kind::Action(Act::ToggleSidebar) => app.toggle_sidebar(cx),
         Kind::Action(Act::ToggleTheme) => {
             let next = if gpui_component::ActiveTheme::theme(&**cx).mode.is_dark() {

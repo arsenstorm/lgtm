@@ -14,29 +14,10 @@ use gpui_component::InteractiveElementExt as _;
 pub fn bar(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
     let t = tokens(cx);
     let open = app.sidebar_open;
-    div()
-        .id("window-bar")
+    draggable(div().id("window-bar"), cx)
         .flex()
         .flex_shrink_0()
         .h(px(BAR_H))
-        .window_control_area(WindowControlArea::Drag)
-        .on_double_click(|_, window, _| window.titlebar_double_click())
-        // macOS has no drag region for a transparent titlebar, so a press that
-        // turns into a move hands the window to the compositor.
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|this, _, _, _| this.dragging = true),
-        )
-        .on_mouse_up(
-            MouseButton::Left,
-            cx.listener(|this, _, _, _| this.dragging = false),
-        )
-        .on_mouse_move(cx.listener(|this, _, window, _| {
-            if this.dragging {
-                this.dragging = false;
-                window.start_window_move();
-            }
-        }))
         .when(open, |this| {
             this.child(
                 div()
@@ -62,10 +43,33 @@ pub fn bar(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
                 .border_color(t.border)
                 .when(!open, |this| this.child(cluster(app, &t, cx)))
                 .child(div().flex_1())
-                .child(icon_button("settings-menu", "ellipsis", true, &t).on_click(
-                    cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(false, cx)),
-                )),
+                .child(
+                    icon_button("settings-menu", "ellipsis", true, &t).on_click(
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx)),
+                    ),
+                ),
         )
+}
+
+/// macOS has no drag region for a transparent titlebar, so a press that
+/// turns into a move hands the window to the compositor.
+fn draggable(bar: Stateful<Div>, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
+    bar.window_control_area(WindowControlArea::Drag)
+        .on_double_click(|_, window, _| window.titlebar_double_click())
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _, _, _| this.dragging = true),
+        )
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(|this, _, _, _| this.dragging = false),
+        )
+        .on_mouse_move(cx.listener(|this, _, window, _| {
+            if this.dragging {
+                this.dragging = false;
+                window.start_window_move();
+            }
+        }))
 }
 
 /// Sidebar toggle and task history, inset past the traffic lights.
