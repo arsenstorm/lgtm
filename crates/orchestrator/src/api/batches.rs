@@ -116,19 +116,14 @@ pub(super) async fn create_batch(
     let mut state = app.state.lock().unwrap();
     let id = state.new_batch_id();
     let candidates = candidates(&fetched, &repository, &body, &id);
-    // ponytail: copies every task to compare against; an index by issue
-    // reference is the upgrade if this ever shows up in a profile.
-    let existing: Vec<Task> = state.tasks.values().map(|rec| rec.task.clone()).collect();
-    let selected = backlog::select(&existing, candidates, body.max);
+    let selected = select_new(&state, candidates, body.max);
     let issues = previews(&selected);
     if body.dry_run {
-        return Ok((
-            StatusCode::OK,
-            Json(BatchResponse {
-                batch: None,
-                issues,
-            }),
-        ));
+        let response = BatchResponse {
+            batch: None,
+            issues,
+        };
+        return Ok((StatusCode::OK, Json(response)));
     }
 
     let Created {
@@ -141,24 +136,30 @@ pub(super) async fn create_batch(
         return Err(conflict(err));
     }
     let batch = Batch {
-        id: id.clone(),
+        id,
         created_at: now_ms(),
         source: body.source,
         repository,
         task_ids,
         approve_plans: body.approve_plans,
     };
-    tracing::info!(batch = %id, tasks = batch.task_ids.len(), "batch imported");
-    state.batches.insert(id, batch.clone());
+    tracing::info!(batch = %batch.id, tasks = batch.task_ids.len(), "batch imported");
+    state.batches.insert(batch.id.clone(), batch.clone());
     app.persist_batch(&batch);
     app.persist_ids(&state, &changed);
-    Ok((
-        StatusCode::CREATED,
-        Json(BatchResponse {
-            batch: Some(batch),
-            issues,
-        }),
-    ))
+    let response = BatchResponse {
+        batch: Some(batch),
+        issues,
+    };
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// Drops the candidates whose issue already has a live task.
+// ponytail: copies every task to compare against; an index by issue
+// reference is the upgrade if this ever shows up in a profile.
+fn select_new(state: &TaskState, candidates: Vec<Candidate>, max: u32) -> Vec<Candidate> {
+    let existing: Vec<Task> = state.tasks.values().map(|rec| rec.task.clone()).collect();
+    backlog::select(&existing, candidates, max)
 }
 
 fn candidates(
