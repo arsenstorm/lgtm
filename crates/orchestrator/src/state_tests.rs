@@ -1198,3 +1198,20 @@ fn pinned_worker_lacking_a_requirement_is_refused() {
         "worker a lacks docker"
     );
 }
+
+#[test]
+fn scrollback_caps_and_keeps_the_newest_output() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let (task, _) = state.create_task(spec(Executor::Claude, None)).unwrap();
+    let rec = state.tasks.get_mut(&task.id).unwrap();
+    let chunk = 1024;
+    for i in 0..100 {
+        rec.push_terminal(format!("[{i}]{}", "x".repeat(chunk)));
+    }
+
+    let seen = rec.scrollback();
+    assert!(seen.len() <= SCROLLBACK_MAX, "{} bytes kept", seen.len());
+    assert!(seen.contains("[99]"), "the newest output is gone");
+    assert!(!seen.contains("[0]"), "the oldest output was not dropped");
+}

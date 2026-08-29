@@ -131,8 +131,15 @@ pub struct FromLinear<'a> {
 }
 
 pub struct EventStream {
-    pub(crate) stream: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
+    pub(crate) stream: Socket,
 }
+
+/// Both directions of a task's terminal: keystrokes out, output back.
+pub struct TerminalStream {
+    pub(crate) stream: Socket,
+}
+
+pub(crate) type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// Body of `POST /api/todos`.
 #[derive(Serialize)]

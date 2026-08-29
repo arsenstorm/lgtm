@@ -914,3 +914,67 @@ async fn a_goals_plan_is_listed_once_the_agent_completes_it() {
     );
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test]
+async fn a_terminal_reaches_the_worker_and_its_output_comes_back() {
+    let dir = std::env::temp_dir().join(format!("lgtm-terminal-{}", std::process::id()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    tokio::spawn(lgtm_orchestrator::serve_plain(
+        addr,
+        "tok".into(),
+        dir.clone(),
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let http = reqwest::Client::new();
+
+    let mut w = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
+    let hello = serde_json::json!({
+        "type": "hello",
+        "token": "tok",
+        "info": { "name": "w1", "os": "linux", "arch": "x86_64", "executors": ["claude"] },
+        "version": PROTOCOL_VERSION,
+    });
+    w.send(TMsg::Text(hello.to_string().into())).await.unwrap();
+    w.next().await.unwrap().unwrap();
+
+    let task: Task = http
+        .post(format!("http://{addr}/api/tasks"))
+        .bearer_auth("tok")
+        .json(&serde_json::json!({
+            "repository": "r",
+            "base_branch": "main",
+            "prompt": "p",
+            "executor": "claude",
+            "worker": null,
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    w.next().await.unwrap().unwrap();
+
+    let mut attached = ws(&format!("ws://{addr}/api/tasks/{}/terminal", task.id), true).await;
+    let open = w.next().await.unwrap().unwrap();
+    assert!(matches!(
+        serde_json::from_str(open.to_text().unwrap()).unwrap(),
+        OrchestratorMessage::TerminalOpen { task_id } if task_id == task.id
+    ));
+
+    w.send(TMsg::Text(
+        serde_json::to_string(&WorkerMessage::Terminal {
+            task_id: task.id.clone(),
+            data: "$ ".into(),
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
+    let output = attached.next().await.unwrap().unwrap();
+    assert_eq!(output.to_text().unwrap(), "$ ");
+    std::fs::remove_dir_all(&dir).ok();
+}

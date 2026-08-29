@@ -4,6 +4,7 @@ mod batches;
 mod events;
 mod goals;
 mod memories;
+mod terminal;
 mod todos;
 
 use std::sync::Arc;
@@ -67,6 +68,10 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/tasks/{id}", get(get_task))
         .route("/tasks/{id}/merge", post(merge))
         .route("/tasks/{id}/events", get(events::events))
+        .route(
+            "/tasks/{id}/terminal",
+            get(terminal::attach).delete(terminal::close),
+        )
         .route("/tasks/{id}/plans", get(get_task_plans))
         .route("/tasks/{id}/message", post(message))
         .route("/tasks/{id}/retry", post(retry))

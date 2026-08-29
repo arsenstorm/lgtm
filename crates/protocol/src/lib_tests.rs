@@ -251,9 +251,30 @@ fn every_message_round_trips() {
         OrchestratorMessage::Rejected {
             reason: "protocol version 0, this orchestrator speaks 1".into(),
         },
+        OrchestratorMessage::TerminalOpen {
+            task_id: "0123abcd".into(),
+        },
+        OrchestratorMessage::TerminalInput {
+            task_id: "0123abcd".into(),
+            data: "ls\r".into(),
+        },
+        OrchestratorMessage::TerminalClose {
+            task_id: "0123abcd".into(),
+        },
     ] {
         round_trip(msg);
     }
+}
+
+#[test]
+fn terminal_frames_round_trip() {
+    round_trip(WorkerMessage::Terminal {
+        task_id: "0123abcd".into(),
+        data: "$ ".into(),
+    });
+    round_trip(WorkerMessage::TerminalClosed {
+        task_id: "0123abcd".into(),
+    });
 }
 
 #[test]

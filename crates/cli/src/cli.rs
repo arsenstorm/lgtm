@@ -102,6 +102,14 @@ pub enum Command {
         #[arg(long, value_parser = parse_executor)]
         agent: Option<Executor>,
     },
+    /// Attach a shell to the task's worktree on its runner. Ctrl-] detaches
+    /// and leaves the shell running.
+    Terminal {
+        id: String,
+        /// Kill the task's shell instead of attaching to it.
+        #[arg(long)]
+        close: bool,
+    },
     /// Send a follow-up to a task awaiting review, then resume streaming.
     Tell { id: String, message: String },
     /// Show the working notes an agent kept for a task

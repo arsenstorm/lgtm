@@ -11,6 +11,7 @@ mod runner;
 /// Public so the seatbelt and bubblewrap builders stay compiled, and tested,
 /// on every platform.
 pub mod sandbox;
+pub mod terminal;
 mod validate;
 
 /// Both renderers print a Codex failure the way they print Claude's, so the
