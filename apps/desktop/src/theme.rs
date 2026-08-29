@@ -8,7 +8,7 @@ mod prefs;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, Div, Entity, FontWeight, Hsla, InteractiveElement as _, IntoElement,
-    ParentElement as _, Stateful, Styled as _,
+    ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_component::input::{Input, InputState};
 use gpui_component::ActiveTheme as _;
@@ -152,6 +152,26 @@ pub fn panel(t: &Tokens) -> Div {
         .bg(t.popover)
         .border_1()
         .border_color(t.border)
+}
+
+/// A modal's title row with its close cross.
+pub fn modal_header(
+    title: &'static str,
+    close_id: &'static str,
+    t: &Tokens,
+    cx: &mut gpui::Context<crate::app::LgtmApp>,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .h(px(HEADER_H))
+        .px(px(SPACE[2]))
+        .border_b_1()
+        .border_color(t.border)
+        .child(div().flex_1().font_weight(FontWeight::MEDIUM).child(title))
+        .child(icon_button(close_id, "x", true, t).on_click(
+            cx.listener(|this, _: &gpui::ClickEvent, window, cx| this.close_overlay(window, cx)),
+        ))
 }
 
 /// One Lucide icon, tinted with `color`. gpui paints an SVG as an alpha mask,

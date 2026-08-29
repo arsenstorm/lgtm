@@ -3,13 +3,13 @@
 use crate::app::LgtmApp;
 use crate::net;
 use crate::theme::{
-    field, icon_button, panel, scrim, section_label, tokens, Tokens, HEADER_H, MONO_FONT, RADIUS,
-    SPACE, TEXT_MONO, TEXT_SECONDARY,
+    field, modal_header, panel, scrim, section_label, tokens, Tokens, MONO_FONT, RADIUS, SPACE,
+    TEXT_MONO, TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, relative, AnyElement, App, AppContext as _, ClickEvent, Context, Div, Entity,
-    FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
+    InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
     StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -114,7 +114,7 @@ pub fn modal(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                 .id("import")
                 .w(px(WIDTH))
                 .on_click(|_, _, cx| cx.stop_propagation())
-                .child(header(&t, cx))
+                .child(modal_header("Import a batch", "import-close", &t, cx))
                 .child(
                     div()
                         .id("import-body")
@@ -134,25 +134,6 @@ pub fn modal(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                 .child(footer(&t, cx)),
         )
         .into_any_element()
-}
-
-fn header(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .h(px(HEADER_H))
-        .px(px(SPACE[2]))
-        .border_b_1()
-        .border_color(t.border)
-        .child(
-            div()
-                .flex_1()
-                .font_weight(FontWeight::MEDIUM)
-                .child("Import a batch"),
-        )
-        .child(icon_button("import-close", "x", true, t).on_click(
-            cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)),
-        ))
 }
 
 fn source_buttons(form: &ImportForm, cx: &mut Context<LgtmApp>) -> Div {
