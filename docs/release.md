@@ -38,10 +38,6 @@ Both drop the binary in `~/.lgtm/bin` and add that directory to `PATH`.
 `LGTM_VERSION=v0.2.0` installs a specific tag; `LGTM_RELEASE_BASE` points the
 script at a different releases host (used by the local test in this repo).
 
-## Upgrading
-
-Re-run the install line. It overwrites `~/.lgtm/bin/lgtm` and is a no-op on
-
 ## Updating
 
 Re-run the install line, or run `lgtm upgrade` (`--version vX.Y.Z` for a specific release). It downloads the asset for the running platform, verifies it against `SHA256SUMS`, and replaces the binary in place.

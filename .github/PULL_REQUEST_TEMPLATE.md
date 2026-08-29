@@ -10,12 +10,10 @@
 
 <!-- How did you verify this? -->
 
-- [ ] `bun run check`
-- [ ] `bun run compile`
-- [ ] `bun run test`
-- [ ] `bun run build`
-- [ ] `cargo fmt --check && cargo clippy --all-targets && cargo test` (in `src-tauri/`, if Rust changed)
-- [ ] Ran the app and manually verified
+- [ ] `cargo fmt --all --check`
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings`
+- [ ] `cargo test --workspace`
+- [ ] Ran the change and manually verified
 
 ## Notes
 

@@ -1,8 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["crates/*", "apps/*"]
-# The Tauri review app keeps its own lockfile until it is retired.
-exclude = ["src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

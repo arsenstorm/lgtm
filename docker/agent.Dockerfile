@@ -20,11 +20,11 @@
 FROM rust@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 AS builder
 WORKDIR /build
 
-# Only the workspace manifest and crate/app sources are needed to build
-# lgtm; the frontend and the Tauri review app are left out. The apps/desktop
-# manifest still has to be present for workspace resolution, but building
-# -p lgtm-cli never compiles it (or GPUI). This also builds the orchestrator,
-# which is fine — only the lgtm binary is copied into the runtime image.
+# Only the workspace manifest and the sources are needed to build lgtm. The
+# apps/desktop manifest has to be present for workspace resolution, but
+# building -p lgtm-cli never compiles it (or GPUI). This also builds the
+# orchestrator, which is fine — only the lgtm binary is copied into the
+# runtime image.
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY apps ./apps
