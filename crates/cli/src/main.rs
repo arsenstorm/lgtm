@@ -3,6 +3,7 @@ mod config;
 mod http;
 mod render;
 mod run;
+mod upgrade;
 
 use clap::{Parser, Subcommand};
 use http::Client;
@@ -13,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "lgtm")]
+#[command(name = "lgtm", version)]
 struct Cli {
     #[arg(
         long,
@@ -140,6 +141,12 @@ enum Command {
     Backlog {
         #[command(subcommand)]
         command: BacklogCommand,
+    },
+    /// Replace this binary with the latest release
+    Upgrade {
+        /// Install a specific release tag instead of the latest.
+        #[arg(long)]
+        version: Option<String>,
     },
 }
 
@@ -421,6 +428,9 @@ async fn main() {
     // Both ring (tungstenite) and aws-lc-rs (axum-server) are linked; rustls
     // refuses to guess between them, so pick one for every TLS client here.
     let _ = rustls::crypto::ring::default_provider().install_default();
+    // A Windows upgrade can't delete the binary it's replacing while it's
+    // running; the next run cleans up the leftover sibling.
+    upgrade::cleanup_old_binary();
     let cli = Cli::parse();
     let code = match dispatch(cli).await {
         Ok(code) => code,
@@ -534,11 +544,17 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         return Ok(0);
     }
 
+    if let Command::Upgrade { version } = command {
+        return upgrade::run(version).await;
+    }
+
     let token = require_token(token, &config::data_dir(None));
     let client = Client::new(orchestrator.clone(), token.clone(), ca.as_deref())?;
 
     match command {
-        Command::Serve { .. } | Command::Worker { .. } => unreachable!("handled above"),
+        Command::Serve { .. } | Command::Worker { .. } | Command::Upgrade { .. } => {
+            unreachable!("handled above")
+        }
         Command::Workers => {
             let workers: Vec<WorkerStatus> = client.get("/api/workers").await?;
             println!(

@@ -28,3 +28,5 @@ tracing-subscriber.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-pemfile = "2"
 webpki-roots = "0.26"
+# New dep: `lgtm upgrade` verifies a downloaded release against SHA256SUMS.
+sha2 = "0.10"
