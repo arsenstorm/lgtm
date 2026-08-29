@@ -1,15 +1,17 @@
+//! The root view: state, key bindings, and the sidebar/content split.
+
 use crate::net::{self, Action, Msg};
-use crate::panes;
 use crate::render::{self, Line};
-use crate::sidebar;
+use crate::theme::{tokens, SPACE, TEXT_BODY, TEXT_SECONDARY, UI_FONT};
+use crate::{home, panes, sidebar};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    actions, div, App, AppContext as _, Context, Entity, FocusHandle, Focusable,
+    actions, div, px, App, AppContext as _, Context, Entity, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _, Render, ScrollHandle,
     Styled as _, Subscription, Task as GpuiTask, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
-use gpui_component::ActiveTheme as _;
+use gpui_component::select::SelectState;
 use lgtm_client::Client;
 use lgtm_protocol::{Batch, Executor, Task, TaskKind, TaskSpec, TaskStatus, WorkerStatus};
 use std::time::Duration;
@@ -17,29 +19,52 @@ use tokio::task::JoinHandle;
 
 actions!(
     lgtm,
-    [SelectNext, SelectPrev, ShowActivity, ShowDiff, ShowChecks]
+    [
+        NewTask,
+        ToggleSearch,
+        SelectNext,
+        SelectPrev,
+        ShowActivity,
+        ShowChanges,
+        ShowChecks,
+        ShowPlan,
+        Submit,
+    ]
 );
 
 pub const CONTEXT: &str = "Lgtm";
+/// Repository picker entry that reveals the clone-URL field.
+pub const OTHER_REPOSITORY: &str = "Other…";
+const AUTO_WORKER: &str = "Auto";
 const ERROR_TTL: Duration = Duration::from_secs(5);
-const PROMPT_PREVIEW: usize = 44;
+const HEADER_PREVIEW: usize = 80;
 
-/// `!Input` keeps j/k/1/2/3 out of the way while a text field has focus.
+/// `!Input` keeps the single-letter keys out of the way while a text field has
+/// focus; the ⌘ bindings stay live everywhere.
 pub fn init(cx: &mut App) {
-    let context = Some("Lgtm && !Input");
+    let anywhere = Some(CONTEXT);
+    let outside_inputs = Some("Lgtm && !Input");
     cx.bind_keys([
-        KeyBinding::new("j", SelectNext, context),
-        KeyBinding::new("k", SelectPrev, context),
-        KeyBinding::new("1", ShowActivity, context),
-        KeyBinding::new("2", ShowDiff, context),
-        KeyBinding::new("3", ShowChecks, context),
+        KeyBinding::new("cmd-n", NewTask, anywhere),
+        KeyBinding::new("cmd-k", ToggleSearch, anywhere),
+        KeyBinding::new("cmd-enter", Submit, anywhere),
+        KeyBinding::new("j", SelectNext, outside_inputs),
+        KeyBinding::new("k", SelectPrev, outside_inputs),
+        KeyBinding::new("1", ShowActivity, outside_inputs),
+        KeyBinding::new("2", ShowChanges, outside_inputs),
+        KeyBinding::new("3", ShowChecks, outside_inputs),
+        KeyBinding::new("4", ShowPlan, outside_inputs),
+        KeyBinding::new("v", crate::review::MarkViewed, outside_inputs),
+        KeyBinding::new("n", crate::review::NextFile, outside_inputs),
+        KeyBinding::new("p", crate::review::PrevFile, outside_inputs),
+        KeyBinding::new("s", crate::review::ToggleDiffStyle, outside_inputs),
     ]);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
     Activity,
-    Diff,
+    Changes,
     Checks,
     Plan,
 }
@@ -47,23 +72,37 @@ pub enum Pane {
 pub struct LgtmApp {
     pub client: Client,
     pub tx: net::Sender,
-    pub focus: FocusHandle,
     pub tasks: Vec<Task>,
     pub workers: Vec<WorkerStatus>,
     pub batches: Vec<Batch>,
-    pub banner: Option<String>,
-    pub error: Option<String>,
     pub selected: Option<String>,
+    pub pane: Pane,
+    pub review: crate::review::ReviewState,
+
+    pub orchestrator: String,
+    pub token_source: &'static str,
+    pub reachable: bool,
+    pub error: Option<String>,
+    pub focus: FocusHandle,
     /// Bumped on every selection so events from the previous stream are dropped.
     pub generation: u64,
     stream: Option<JoinHandle<()>>,
     pub lines: Vec<Line>,
-    pub pane: Pane,
+
     pub prompt: Entity<InputState>,
-    pub repository: Entity<InputState>,
+    pub repo_url: Entity<InputState>,
     pub base_branch: Entity<InputState>,
-    pub worker: Entity<InputState>,
     pub follow_up: Entity<InputState>,
+    pub search: Entity<InputState>,
+    pub repo_select: Entity<SelectState<Vec<String>>>,
+    pub worker_select: Entity<SelectState<Vec<String>>>,
+    repo_options: Vec<String>,
+    worker_options: Vec<String>,
+    pub plan_first: bool,
+    pub show_search: bool,
+    pub show_settings: bool,
+    pub show_follow_up: bool,
+    pub batches_only: bool,
     pub task_scroll: ScrollHandle,
     pub content_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
@@ -71,30 +110,62 @@ pub struct LgtmApp {
 }
 
 impl LgtmApp {
-    pub fn new(client: Client, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        client: Client,
+        orchestrator: String,
+        token_source: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         net::poll(client.clone(), tx.clone());
 
         let prompt = cx.new(|cx| {
             InputState::new(window, cx)
                 .multi_line(true)
-                .rows(3)
-                .placeholder("what should the agent do?")
+                .auto_grow(3, 8)
+                .placeholder("Describe the change…")
         });
-        let repository = field("https://github.com/you/repo.git", window, cx);
+        let repo_url = field("https://github.com/you/repo.git", window, cx);
         let base_branch = cx.new(|cx| InputState::new(window, cx).default_value("main"));
-        let worker = field("worker (optional)", window, cx);
-        let follow_up = field("follow-up", window, cx);
+        let follow_up = field("Ask for a change…", window, cx);
+        let search = field("Filter tasks", window, cx);
+        // Both pickers start with only their fallback entry selected, so an
+        // orchestrator that never answers still leaves a usable composer.
+        let repo_options = vec![OTHER_REPOSITORY.to_string()];
+        let repo_select = cx.new(|cx| {
+            SelectState::new(
+                repo_options.clone(),
+                Some(gpui_component::IndexPath::default()),
+                window,
+                cx,
+            )
+        });
+        let worker_options = vec![AUTO_WORKER.to_string()];
+        let worker_select = cx.new(|cx| {
+            SelectState::new(
+                worker_options.clone(),
+                Some(gpui_component::IndexPath::default()),
+                window,
+                cx,
+            )
+        });
 
-        let subscriptions = vec![cx.subscribe_in(
-            &follow_up,
-            window,
-            |this, _, event: &InputEvent, window, cx| {
-                if matches!(event, InputEvent::PressEnter { .. }) {
-                    this.send_follow_up(window, cx);
-                }
-            },
-        )];
+        let subscriptions = vec![
+            cx.subscribe_in(
+                &follow_up,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.send_follow_up(window, cx);
+                    }
+                },
+            ),
+            cx.observe_window_appearance(window, |_, window, cx| {
+                crate::theme::apply(Some(window), cx);
+                cx.notify();
+            }),
+        ];
 
         let pump = cx.spawn_in(window, async move |this, cx| {
             while let Some(msg) = rx.recv().await {
@@ -112,22 +183,34 @@ impl LgtmApp {
         Self {
             client,
             tx,
-            focus,
             tasks: Vec::new(),
             workers: Vec::new(),
             batches: Vec::new(),
-            banner: None,
-            error: None,
             selected: None,
+            pane: Pane::Activity,
+            review: crate::review::ReviewState::new(),
+            orchestrator,
+            token_source,
+            reachable: false,
+            error: None,
+            focus,
             generation: 0,
             stream: None,
             lines: Vec::new(),
-            pane: Pane::Activity,
             prompt,
-            repository,
+            repo_url,
             base_branch,
-            worker,
             follow_up,
+            search,
+            repo_select,
+            worker_select,
+            repo_options,
+            worker_options,
+            plan_first: false,
+            show_search: false,
+            show_settings: false,
+            show_follow_up: false,
+            batches_only: false,
             task_scroll: ScrollHandle::new(),
             content_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
@@ -142,14 +225,10 @@ impl LgtmApp {
                 self.tasks = tasks;
                 self.workers = workers;
                 self.batches = batches;
-                self.banner = None;
-                if self.selected.is_none() {
-                    if let Some(first) = self.tasks.first().map(|t| t.id.clone()) {
-                        self.select(first, cx);
-                    }
-                }
+                self.reachable = true;
+                self.refresh_pickers(window, cx);
             }
-            Msg::Lists(Err(err)) => self.banner = Some(format!("orchestrator unreachable: {err}")),
+            Msg::Lists(Err(_)) => self.reachable = false,
             Msg::Detail { generation, detail } => {
                 if generation != self.generation {
                     return;
@@ -182,6 +261,47 @@ impl LgtmApp {
         cx.notify();
     }
 
+    /// Keeps the repository and worker dropdowns in step with what exists,
+    /// without disturbing a choice the user already made.
+    fn refresh_pickers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut repos: Vec<String> = Vec::new();
+        for task in &self.tasks {
+            let slug = sidebar::repo_slug(&task.spec.repository);
+            if !repos.contains(&slug) {
+                repos.push(slug);
+            }
+        }
+        repos.push(OTHER_REPOSITORY.to_string());
+        if repos != self.repo_options {
+            let first = repos.first().cloned();
+            self.repo_options = repos.clone();
+            self.repo_select.update(cx, |state, cx| {
+                let keep = state.selected_value().cloned();
+                state.set_items(repos, window, cx);
+                let value = keep.filter(|v| self.repo_options.contains(v)).or(first);
+                match value {
+                    Some(value) => state.set_selected_value(&value, window, cx),
+                    None => state.set_selected_index(None, window, cx),
+                }
+            });
+        }
+
+        let mut names = vec![AUTO_WORKER.to_string()];
+        names.extend(self.workers.iter().map(|w| w.info.name.clone()));
+        if names != self.worker_options {
+            self.worker_options = names.clone();
+            self.worker_select.update(cx, |state, cx| {
+                let keep = state
+                    .selected_value()
+                    .cloned()
+                    .filter(|v| names.contains(v))
+                    .unwrap_or_else(|| AUTO_WORKER.to_string());
+                state.set_items(names, window, cx);
+                state.set_selected_value(&keep, window, cx);
+            });
+        }
+    }
+
     fn set_error(&mut self, err: String, cx: &mut Context<Self>) {
         self.error = Some(err);
         cx.spawn(async move |this, cx| {
@@ -204,6 +324,7 @@ impl LgtmApp {
         }
         self.generation += 1;
         self.lines.clear();
+        self.show_follow_up = false;
         self.selected = Some(id.clone());
         self.stream = Some(net::watch(
             self.client.clone(),
@@ -227,26 +348,76 @@ impl LgtmApp {
         cx.notify();
     }
 
-    fn send_follow_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn go_home(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(stream) = self.stream.take() {
+            stream.abort();
+        }
+        self.generation += 1;
+        self.selected = None;
+        self.lines.clear();
+        self.prompt.update(cx, |state, cx| state.focus(window, cx));
+        cx.notify();
+    }
+
+    pub fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_search = !self.show_search;
+        if self.show_search {
+            self.search.update(cx, |state, cx| state.focus(window, cx));
+        } else {
+            self.search
+                .update(cx, |state, cx| state.set_value("", window, cx));
+        }
+        cx.notify();
+    }
+
+    pub fn search_query(&self, cx: &Context<Self>) -> String {
+        if self.show_search {
+            self.search.read(cx).value().to_string()
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn repository_is_other(&self, cx: &Context<Self>) -> bool {
+        match self.repo_select.read(cx).selected_value() {
+            Some(value) => value == OTHER_REPOSITORY,
+            None => true,
+        }
+    }
+
+    /// Opens the follow-up field under the task header and focuses it.
+    pub fn open_follow_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_follow_up = true;
+        self.follow_up
+            .update(cx, |state, cx| state.focus(window, cx));
+        cx.notify();
+    }
+
+    pub fn send_follow_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.follow_up.read(cx).value().to_string();
         if text.trim().is_empty() {
             return;
         }
         self.follow_up
             .update(cx, |state, cx| state.set_value("", window, cx));
+        self.show_follow_up = false;
         self.act(Action::Tell(text), cx);
     }
 
-    pub fn submit(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn submit(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let prompt = self.prompt.read(cx).value().to_string();
-        let repository = self.repository.read(cx).value().to_string();
+        let repository = home::chosen_repository(self, cx);
         if prompt.trim().is_empty() || repository.trim().is_empty() {
-            self.set_error("prompt and repository are required".into(), cx);
-            cx.notify();
+            self.set_error("A prompt and a repository are required.".into(), cx);
             return;
         }
         let base_branch = self.base_branch.read(cx).value().to_string();
-        let worker = self.worker.read(cx).value().to_string();
+        let worker = self
+            .worker_select
+            .read(cx)
+            .selected_value()
+            .cloned()
+            .filter(|name| name != AUTO_WORKER);
         let spec = TaskSpec {
             repository,
             base_branch: if base_branch.trim().is_empty() {
@@ -256,10 +427,14 @@ impl LgtmApp {
             },
             prompt,
             executor: Executor::Claude,
-            worker: Some(worker).filter(|w| !w.trim().is_empty()),
+            worker,
             issue: None,
             linear: None,
-            kind: TaskKind::Run,
+            kind: if self.plan_first {
+                TaskKind::Plan
+            } else {
+                TaskKind::Run
+            },
             parent: None,
             depends_on: vec![],
             batch: None,
@@ -270,6 +445,16 @@ impl LgtmApp {
             Action::Create(Box::new(spec)),
             self.tx.clone(),
         );
+        cx.notify();
+    }
+
+    /// ⌘↩ sends the follow-up when one is open, otherwise starts a task.
+    fn submit_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected.is_some() && self.show_follow_up {
+            self.send_follow_up(window, cx);
+        } else if self.selected.is_none() {
+            self.submit(window, cx);
+        }
     }
 
     fn move_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -285,6 +470,11 @@ impl LgtmApp {
         let id = self.tasks[next].id.clone();
         self.select(id, cx);
     }
+
+    fn show(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        self.pane = pane;
+        cx.notify();
+    }
 }
 
 fn field(
@@ -295,13 +485,18 @@ fn field(
     cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
 }
 
-pub fn prompt_preview(prompt: &str) -> String {
+/// First line of the prompt, truncated to `limit` characters.
+pub fn prompt_preview(prompt: &str, limit: usize) -> String {
     let line = prompt.lines().next().unwrap_or("").trim();
-    if line.chars().count() > PROMPT_PREVIEW {
-        format!("{}…", line.chars().take(PROMPT_PREVIEW).collect::<String>())
+    if line.chars().count() > limit {
+        format!("{}…", line.chars().take(limit).collect::<String>())
     } else {
         line.to_string()
     }
+}
+
+pub fn header_preview(prompt: &str) -> String {
+    prompt_preview(prompt, HEADER_PREVIEW)
 }
 
 /// Display status for a task. Queued tasks waiting on unmet dependencies show
@@ -342,37 +537,57 @@ impl Focusable for LgtmApp {
 
 impl Render for LgtmApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let banner = self.banner.clone();
+        let t = tokens(cx);
+        let unreachable = !self.reachable;
         div()
             .key_context(CONTEXT)
             .track_focus(&self.focus)
+            .on_action(cx.listener(|this, _: &NewTask, window, cx| this.go_home(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &ToggleSearch, window, cx| this.toggle_search(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &Submit, window, cx| this.submit_action(window, cx)))
             .on_action(cx.listener(|this, _: &SelectNext, _, cx| this.move_selection(1, cx)))
             .on_action(cx.listener(|this, _: &SelectPrev, _, cx| this.move_selection(-1, cx)))
-            .on_action(cx.listener(|this, _: &ShowActivity, _, cx| {
-                this.pane = Pane::Activity;
+            .on_action(cx.listener(|this, _: &ShowActivity, _, cx| this.show(Pane::Activity, cx)))
+            .on_action(cx.listener(|this, _: &ShowChanges, _, cx| this.show(Pane::Changes, cx)))
+            .on_action(cx.listener(|this, _: &ShowChecks, _, cx| this.show(Pane::Checks, cx)))
+            .on_action(cx.listener(|this, _: &ShowPlan, _, cx| this.show(Pane::Plan, cx)))
+            .on_action(cx.listener(|this, _: &crate::review::MarkViewed, _, cx| {
+                this.review.mark_current_viewed();
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &ShowDiff, _, cx| {
-                this.pane = Pane::Diff;
+            .on_action(cx.listener(|this, _: &crate::review::NextFile, _, cx| {
+                this.review.step_file(1);
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &ShowChecks, _, cx| {
-                this.pane = Pane::Checks;
+            .on_action(cx.listener(|this, _: &crate::review::PrevFile, _, cx| {
+                this.review.step_file(-1);
                 cx.notify();
             }))
+            .on_action(
+                cx.listener(|this, _: &crate::review::ToggleDiffStyle, _, cx| {
+                    this.review.flip_style();
+                    cx.notify();
+                }),
+            )
             .size_full()
             .flex()
             .flex_col()
-            .when_some(banner, |this, text| {
+            .bg(t.bg)
+            .text_color(t.text)
+            .font_family(UI_FONT)
+            .text_size(px(TEXT_BODY))
+            .when(unreachable, |this| {
                 this.child(
                     div()
                         .w_full()
-                        .px_2()
-                        .py_1()
-                        .bg(cx.theme().danger)
-                        .text_color(cx.theme().danger_foreground)
-                        .text_sm()
-                        .child(text),
+                        .px(px(SPACE[2]))
+                        .py(px(SPACE[0]))
+                        .bg(t.danger)
+                        .text_color(t.accent_fg)
+                        .text_size(px(TEXT_SECONDARY))
+                        .child(format!("Orchestrator unreachable at {}", self.orchestrator)),
                 )
             })
             .child(
@@ -380,8 +595,12 @@ impl Render for LgtmApp {
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .child(sidebar::render_sidebar(self, cx))
-                    .child(panes::render_main(self, window, cx)),
+                    .child(sidebar::render_sidebar(self, window, cx))
+                    .child(if self.selected.is_some() {
+                        panes::task_view(self, window, cx)
+                    } else {
+                        home::home(self, window, cx)
+                    }),
             )
     }
 }
@@ -432,19 +651,16 @@ mod tests {
     }
 
     #[test]
-    fn queued_task_with_no_dependencies_is_queued() {
-        let queued = task("q", TaskStatus::Queued, vec![]);
-        assert_eq!(
-            status_label(&queued, std::slice::from_ref(&queued)),
-            "queued"
-        );
-    }
-
-    #[test]
     fn assigned_worker_is_not_blocked_even_with_unmet_dependency() {
         let dep = task("dep", TaskStatus::Running, vec![]);
         let mut queued = task("q", TaskStatus::Queued, vec!["dep"]);
         queued.worker = Some("compute".into());
         assert_eq!(status_label(&queued, &[dep, queued.clone()]), "queued");
+    }
+
+    #[test]
+    fn prompt_preview_truncates_to_the_first_line() {
+        assert_eq!(prompt_preview("one\ntwo", 32), "one");
+        assert_eq!(prompt_preview("abcdef", 3), "abc…");
     }
 }

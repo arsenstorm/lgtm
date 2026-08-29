@@ -1,0 +1,417 @@
+//! The diff column: one block per file, one row per diff line.
+
+use crate::app::LgtmApp;
+use crate::review::Comment;
+use crate::theme::{self, Tokens};
+use gpui::prelude::FluentBuilder as _;
+use gpui::{
+    div, px, AnyElement, AppContext as _, ClickEvent, Context, Div, Entity, Hsla,
+    InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
+    StatefulInteractiveElement as _, Styled as _,
+};
+use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::checkbox::Checkbox;
+use gpui_component::input::{Input, InputState};
+use gpui_component::Sizable as _;
+use lgtm_diff::{Anchor, FileDiff, FileStatus, Line, LineKind, Row};
+
+pub(super) const ROW_HEIGHT: f32 = 20.;
+/// 4ch each for the old/new line numbers, plus a 1ch sign column.
+const GUTTER: f32 = 32.;
+const SIGN: f32 = 10.;
+const PLUS: f32 = 14.;
+
+pub(super) fn file_column(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> AnyElement {
+    div()
+        .id("review-diff")
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .bg(t.bg)
+        .overflow_scroll()
+        .track_scroll(&app.review.scroll)
+        .font_family(theme::MONO_FONT)
+        .text_size(px(theme::TEXT_MONO))
+        .line_height(px(ROW_HEIGHT))
+        .text_color(t.text)
+        .children(
+            app.review
+                .files
+                .iter()
+                .enumerate()
+                .map(|(index, file)| file_block(app, index, file, t, cx)),
+        )
+        .into_any_element()
+}
+
+fn file_block(
+    app: &LgtmApp,
+    index: usize,
+    file: &FileDiff,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Div {
+    let viewed = app.review.viewed.contains(&file.name);
+    let binary = matches!(file.status, FileStatus::Binary);
+    div()
+        .flex()
+        .flex_col()
+        .min_w_full()
+        .child(file_header(index, file, viewed, t, cx))
+        .when(!viewed && binary, |this| {
+            this.child(
+                div()
+                    .px(px(theme::SPACE[2]))
+                    .text_color(t.text_muted)
+                    .child("binary file"),
+            )
+        })
+        .when(!viewed && !binary, |this| {
+            this.children(
+                lgtm_diff::layout(file, app.review.style)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(row, layout_row)| {
+                        diff_row(app, file, layout_row, &format!("{index}:{row}"), t, cx)
+                    }),
+            )
+        })
+}
+
+fn file_header(
+    index: usize,
+    file: &FileDiff,
+    viewed: bool,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Div {
+    let (mark, color) = super::status_glyph(file.status, t);
+    let path = match file.prev_name.as_ref() {
+        Some(prev) => format!("{prev} → {}", file.name),
+        None => file.name.clone(),
+    };
+    let name = file.name.clone();
+    div()
+        .flex()
+        .items_center()
+        .gap(px(theme::SPACE[2]))
+        .min_w_full()
+        .px(px(theme::SPACE[2]))
+        .py(px(theme::SPACE[1]))
+        .bg(t.surface_raised)
+        .border_b_1()
+        .border_color(t.border)
+        .text_size(px(theme::TEXT_BODY))
+        .child(div().text_color(color).child(mark))
+        .child(div().child(path))
+        .child(
+            div()
+                .flex_1()
+                .text_color(t.text_muted)
+                .child(format!("+{} −{}", file.additions, file.deletions)),
+        )
+        .child(
+            Checkbox::new(SharedString::from(format!("viewed-head:{index}")))
+                .label("Viewed")
+                .checked(viewed)
+                .on_click(cx.listener(move |this, _: &bool, _, cx| {
+                    this.review.toggle_viewed(&name);
+                    cx.notify();
+                })),
+        )
+}
+
+fn diff_row(
+    app: &LgtmApp,
+    file: &FileDiff,
+    row: Row<'_>,
+    key: &str,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Div {
+    match row {
+        Row::Hunk(hunk) => div()
+            .min_w_full()
+            .h(px(ROW_HEIGHT))
+            .px(px(theme::SPACE[1]))
+            .bg(t.hunk_bg)
+            .text_color(t.text_muted)
+            .whitespace_nowrap()
+            .child(hunk.header.clone()),
+        Row::Unified(line) => {
+            let anchor = line.anchor(&file.name);
+            let block = div().flex().flex_col().min_w_full().child(code_line(
+                line,
+                key,
+                anchor.clone(),
+                t,
+                cx,
+            ));
+            attach(app, block, anchor, key, t, cx)
+        }
+        Row::Split { left, right } => split_row(app, file, left, right, key, t, cx),
+    }
+}
+
+fn split_row(
+    app: &LgtmApp,
+    file: &FileDiff,
+    left: Option<&Line>,
+    right: Option<&Line>,
+    key: &str,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Div {
+    let (left_key, right_key) = (format!("{key}L"), format!("{key}R"));
+    let left_anchor = left.and_then(|line| line.anchor(&file.name));
+    let right_anchor = right.and_then(|line| line.anchor(&file.name));
+    div()
+        .flex()
+        .flex_col()
+        .min_w_full()
+        .child(
+            div()
+                .flex()
+                .min_w_full()
+                .child(half(left, &left_key, left_anchor.clone(), t, cx))
+                .child(half(right, &right_key, right_anchor.clone(), t, cx)),
+        )
+        .child(
+            div()
+                .flex()
+                .items_start()
+                .min_w_full()
+                .child(attach(
+                    app,
+                    div().flex_1().min_w_0().flex().flex_col(),
+                    left_anchor,
+                    &left_key,
+                    t,
+                    cx,
+                ))
+                .child(attach(
+                    app,
+                    div().flex_1().min_w_0().flex().flex_col(),
+                    right_anchor,
+                    &right_key,
+                    t,
+                    cx,
+                )),
+        )
+}
+
+/// One side of a split row; a missing side is an empty tinted cell.
+fn half(
+    line: Option<&Line>,
+    key: &str,
+    anchor: Option<Anchor>,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Div {
+    let cell = div().flex_1().min_w_0();
+    match line {
+        Some(line) => cell.child(code_line(line, key, anchor, t, cx)),
+        None => cell.h(px(ROW_HEIGHT)),
+    }
+}
+
+fn code_line(
+    line: &Line,
+    key: &str,
+    anchor: Option<Anchor>,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Div {
+    let (tint, emph) = colours(line.kind, t);
+    let group = SharedString::from(format!("row:{key}"));
+    let sign = match line.kind {
+        LineKind::Addition => "+",
+        LineKind::Deletion => "−",
+        LineKind::Context => " ",
+    };
+    div()
+        .group(group.clone())
+        .flex()
+        .items_center()
+        .min_w_full()
+        .h(px(ROW_HEIGHT))
+        .when_some(tint, |this, colour| this.bg(colour))
+        .child(plus_button(&group, key, anchor, t, cx))
+        .child(number(line.old_no, t))
+        .child(number(line.new_no, t))
+        .child(
+            div()
+                .w(px(SIGN))
+                .flex_none()
+                .text_color(t.text_muted)
+                .child(sign),
+        )
+        .child(text_cell(line, emph))
+}
+
+fn number(no: Option<u32>, t: &Tokens) -> Div {
+    div()
+        .w(px(GUTTER))
+        .flex_none()
+        .pr(px(4.))
+        .text_right()
+        .text_color(t.text_muted)
+        .child(no.map(|n| n.to_string()).unwrap_or_default())
+}
+
+fn text_cell(line: &Line, emph: Option<Hsla>) -> Div {
+    let cell = div().flex().flex_none().pl(px(4.)).whitespace_nowrap();
+    if line.segments.is_empty() {
+        return cell.child(line.text.clone());
+    }
+    cell.children(line.segments.iter().map(|segment| {
+        div()
+            .whitespace_nowrap()
+            .when_some(emph.filter(|_| segment.changed), |this, colour| {
+                this.bg(colour)
+            })
+            .child(segment.text.clone())
+    }))
+}
+
+/// The hover-only "add a comment" affordance at the gutter's left edge.
+fn plus_button(
+    group: &SharedString,
+    key: &str,
+    anchor: Option<Anchor>,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> AnyElement {
+    let cell = div().w(px(PLUS)).flex_none();
+    let Some(anchor) = anchor else {
+        return cell.into_any_element();
+    };
+    cell.id(SharedString::from(format!("add:{key}")))
+        .flex()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .opacity(0.)
+        .group_hover(group.clone(), |style| style.opacity(1.))
+        .bg(t.accent)
+        .text_color(t.accent_fg)
+        .child("+")
+        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            let anchor = anchor.clone();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .multi_line(true)
+                    .rows(3)
+                    .placeholder("leave a comment")
+            });
+            this.review.draft = Some((anchor, input));
+            cx.notify();
+        }))
+        .into_any_element()
+}
+
+/// Hangs the comments (and any open draft) for `anchor` under `block`.
+fn attach(
+    app: &LgtmApp,
+    block: Div,
+    anchor: Option<Anchor>,
+    key: &str,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Div {
+    let Some(anchor) = anchor else {
+        return block;
+    };
+    let cards = app
+        .review
+        .comments
+        .iter()
+        .enumerate()
+        .filter(|(_, comment)| comment.anchor == anchor)
+        .map(|(index, comment)| card(index, comment, key, t, cx))
+        .collect::<Vec<_>>();
+    let draft = app
+        .review
+        .draft
+        .as_ref()
+        .filter(|(open, _)| *open == anchor)
+        .map(|(_, input)| draft_card(input, t, cx));
+    block.children(cards).children(draft)
+}
+
+fn card(index: usize, comment: &Comment, key: &str, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    shell(t)
+        .child(div().flex_1().min_w_0().child(comment.text.clone()))
+        .child(
+            div()
+                .id(SharedString::from(format!("drop:{key}:{index}")))
+                .cursor_pointer()
+                .text_color(t.text_muted)
+                .child("✕")
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    if index < this.review.comments.len() {
+                        this.review.comments.remove(index);
+                    }
+                    cx.notify();
+                })),
+        )
+}
+
+fn draft_card(input: &Entity<InputState>, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    shell(t).flex_col().child(Input::new(input).small()).child(
+        div()
+            .flex()
+            .gap(px(theme::SPACE[1]))
+            .child(
+                Button::new("comment-save")
+                    .label("Comment")
+                    .primary()
+                    .small()
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        let Some((anchor, input)) = this.review.draft.take() else {
+                            return;
+                        };
+                        let text = input.read(cx).value().to_string();
+                        if !text.trim().is_empty() {
+                            this.review.comments.push(Comment { anchor, text });
+                        }
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Button::new("comment-cancel")
+                    .label("Cancel")
+                    .small()
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.review.draft = None;
+                        cx.notify();
+                    })),
+            ),
+    )
+}
+
+fn shell(t: &Tokens) -> Div {
+    div()
+        .flex()
+        .items_start()
+        .gap(px(theme::SPACE[1]))
+        .my(px(theme::SPACE[1]))
+        .ml(px(PLUS + GUTTER * 2.))
+        .mr(px(theme::SPACE[2]))
+        .p(px(theme::SPACE[2]))
+        .bg(t.surface)
+        .border_1()
+        .border_color(t.border)
+        .rounded(px(4.))
+        .text_size(px(theme::TEXT_BODY))
+        .text_color(t.text)
+}
+
+fn colours(kind: LineKind, t: &Tokens) -> (Option<Hsla>, Option<Hsla>) {
+    match kind {
+        LineKind::Addition => (Some(t.diff_add_bg), Some(t.diff_add_emph)),
+        LineKind::Deletion => (Some(t.diff_del_bg), Some(t.diff_del_emph)),
+        LineKind::Context => (None, None),
+    }
+}
