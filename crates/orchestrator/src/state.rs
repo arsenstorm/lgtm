@@ -41,6 +41,9 @@ impl App {
 pub struct State {
     pub workers: HashMap<String, WorkerConn>,
     pub tasks: HashMap<TaskId, TaskRecord>,
+    /// Accept tasks no connected worker can run, because provisioning is on
+    /// and a worker for them is a queue away.
+    pub queue_without_workers: bool,
 }
 
 /// A live worker socket.
@@ -193,10 +196,10 @@ impl State {
             }
             return Ok(());
         }
-        let any = self
-            .workers
-            .values()
-            .any(|worker| worker.is_connected() && worker.info.executors.contains(&spec.executor));
+        let any = self.queue_without_workers
+            || self.workers.values().any(|worker| {
+                worker.is_connected() && worker.info.executors.contains(&spec.executor)
+            });
         any.then_some(()).ok_or_else(|| "no eligible worker".into())
     }
 

@@ -58,7 +58,10 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
     let tasks_dir = opts.data_dir.join("tasks");
     std::fs::create_dir_all(&tasks_dir)?;
 
-    let mut state = State::default();
+    let mut state = State {
+        queue_without_workers: opts.provision.is_some(),
+        ..State::default()
+    };
     for stored in persist::load_all(&tasks_dir) {
         let mut task = stored.task;
         // No worker process survived the restart, so anything running is lost.

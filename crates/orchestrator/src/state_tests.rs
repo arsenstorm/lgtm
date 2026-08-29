@@ -210,6 +210,29 @@ fn grace_expiry_fails_tasks() {
 }
 
 #[test]
+fn provisioning_queues_tasks_with_no_worker() {
+    let mut state = State::default();
+    assert_eq!(
+        state.create_task(spec(Executor::Claude, None)).unwrap_err(),
+        "no eligible worker"
+    );
+
+    state.queue_without_workers = true;
+    let (task, _) = state.create_task(spec(Executor::Claude, None)).unwrap();
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.worker.is_none());
+    assert!(crate::provision::needs_provision(&state, 1, false));
+
+    // An explicit worker is still refused; provisioning cannot conjure a name.
+    assert_eq!(
+        state
+            .create_task(spec(Executor::Claude, Some("ghost")))
+            .unwrap_err(),
+        "worker ghost is not connected"
+    );
+}
+
+#[test]
 fn goodbye_removes_worker_at_once() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
