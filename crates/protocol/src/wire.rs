@@ -62,6 +62,13 @@ pub enum TaskEvent {
         worker: Option<String>,
         executor: Executor,
     },
+    /// What policy decided on its own and why, so an automatic approval is
+    /// never a mystery afterwards.
+    PolicyDecision {
+        action: String,
+        allowed: bool,
+        reasons: Vec<String>,
+    },
     /// Approved by policy rather than by hand; a `Pushed` event follows.
     AutoApproved,
     /// Merged by policy once CI passed.

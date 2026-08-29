@@ -78,6 +78,14 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
                 executor.binary()
             ),
         )],
+        TaskEvent::PolicyDecision {
+            action,
+            allowed,
+            reasons,
+        } => vec![Line::new(
+            Kind::Status,
+            policy_decision(action, *allowed, reasons),
+        )],
         TaskEvent::AutoApproved => vec![Line::new(Kind::Status, "approved by policy")],
         TaskEvent::AutoMerged => vec![Line::new(Kind::Status, "merged by policy")],
         TaskEvent::Failed { error } => vec![Line::new(Kind::Status, format!("failed: {error}"))],
@@ -90,6 +98,14 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
             vec![Line::new(Kind::Status, format!("pushed {branch}"))]
         }
         TaskEvent::Discarded => vec![Line::new(Kind::Status, "discarded")],
+    }
+}
+
+fn policy_decision(action: &str, allowed: bool, reasons: &[String]) -> String {
+    if allowed {
+        format!("policy: auto-{action} ({})", reasons.join(", "))
+    } else {
+        format!("policy: no auto-{action}: {}", reasons.join("; "))
     }
 }
 
@@ -165,6 +181,29 @@ mod tests {
                 names: vec!["test".into(), "lint".into()]
             }),
             vec![Line::new(Kind::Status, "running checks: test, lint")]
+        );
+    }
+
+    #[test]
+    fn policy_decisions_read_as_a_sentence() {
+        assert_eq!(
+            render(&TaskEvent::PolicyDecision {
+                action: "approve".into(),
+                allowed: true,
+                reasons: vec!["checks passed".into(), "12 lines".into()],
+            }),
+            vec![Line::new(
+                Kind::Status,
+                "policy: auto-approve (checks passed, 12 lines)"
+            )]
+        );
+        assert_eq!(
+            render(&TaskEvent::PolicyDecision {
+                action: "merge".into(),
+                allowed: false,
+                reasons: vec!["ci failure".into()],
+            }),
+            vec![Line::new(Kind::Status, "policy: no auto-merge: ci failure")]
         );
     }
 

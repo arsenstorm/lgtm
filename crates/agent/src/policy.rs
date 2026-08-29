@@ -13,7 +13,7 @@ const DIFF_CHARS: usize = 60_000;
 const DEFAULT_TIMEOUT_SECS: u64 = 3600;
 
 /// What the repository asked the worker to do beyond running the agent once.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PolicyConfig {
     /// Extra agent runs after a crash.
     pub retry: u32,
@@ -23,6 +23,12 @@ pub struct PolicyConfig {
     pub review: bool,
     pub auto_approve: bool,
     pub auto_merge: bool,
+    /// Refuse auto-approve when the diff has more added+removed lines than this.
+    pub max_diff_lines: Option<u32>,
+    /// Paths (with `*` wildcards) an automatic approval must not touch.
+    pub protected_files: Vec<String>,
+    /// Refuse auto-approve when the run cost more than this.
+    pub budget_per_task_usd: Option<f64>,
     /// Kill an agent run that has been going this long.
     pub timeout_secs: u64,
     pub sandbox: SandboxProfile,
@@ -36,6 +42,9 @@ impl Default for PolicyConfig {
             review: false,
             auto_approve: false,
             auto_merge: false,
+            max_diff_lines: None,
+            protected_files: Vec::new(),
+            budget_per_task_usd: None,
             timeout_secs: DEFAULT_TIMEOUT_SECS,
             sandbox: SandboxProfile::Standard,
         }
@@ -77,6 +86,9 @@ pub fn parse_policy(text: &str) -> PolicyConfig {
             "review" => flag(&mut policy.review, key, value),
             "auto_approve" => flag(&mut policy.auto_approve, key, value),
             "auto_merge" => flag(&mut policy.auto_merge, key, value),
+            "max_diff_lines" => optional_count(&mut policy.max_diff_lines, key, value),
+            "protected_files" => strings(&mut policy.protected_files, key, value),
+            "budget_per_task_usd" => optional_money(&mut policy.budget_per_task_usd, key, value),
             "timeout_secs" => seconds(&mut policy.timeout_secs, key, value),
             _ => tracing::warn!("[policy] unknown key {key}, ignoring"),
         }
@@ -105,6 +117,37 @@ fn count(slot: &mut u32, key: &str, value: &toml::Value) {
     match value.as_integer().and_then(|n| u32::try_from(n).ok()) {
         Some(n) => *slot = n,
         None => tracing::warn!("[policy] {key} must be a non-negative integer, ignoring"),
+    }
+}
+
+fn optional_count(slot: &mut Option<u32>, key: &str, value: &toml::Value) {
+    match value.as_integer().and_then(|n| u32::try_from(n).ok()) {
+        Some(n) => *slot = Some(n),
+        None => tracing::warn!("[policy] {key} must be a non-negative integer, ignoring"),
+    }
+}
+
+fn strings(slot: &mut Vec<String>, key: &str, value: &toml::Value) {
+    let parsed: Option<Vec<String>> = value.as_array().map(|items| {
+        items
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect()
+    });
+    match parsed {
+        Some(list) => *slot = list,
+        None => tracing::warn!("[policy] {key} must be an array of strings, ignoring"),
+    }
+}
+
+/// An amount of money, so an integer `2` is as valid as `2.0`.
+fn optional_money(slot: &mut Option<f64>, key: &str, value: &toml::Value) {
+    match value
+        .as_float()
+        .or_else(|| value.as_integer().map(|n| n as f64))
+    {
+        Some(n) => *slot = Some(n),
+        None => tracing::warn!("[policy] {key} must be a number, ignoring"),
     }
 }
 
@@ -214,6 +257,9 @@ mod tests {
                 review: true,
                 auto_approve: false,
                 auto_merge: true,
+                max_diff_lines: None,
+                protected_files: Vec::new(),
+                budget_per_task_usd: None,
                 timeout_secs: 120,
                 sandbox: SandboxProfile::Standard,
             }
@@ -221,9 +267,23 @@ mod tests {
     }
 
     #[test]
+    fn reads_the_auto_approve_gates() {
+        let policy = parse_policy(
+            "[policy]\nmax_diff_lines = 300\nprotected_files = [\"migrations/*\", \"Cargo.lock\"]\nbudget_per_task_usd = 2.0\n",
+        );
+        assert_eq!(policy.max_diff_lines, Some(300));
+        assert_eq!(policy.protected_files, ["migrations/*", "Cargo.lock"]);
+        assert_eq!(policy.budget_per_task_usd, Some(2.0));
+        assert_eq!(
+            parse_policy("[policy]\nbudget_per_task_usd = 2\n").budget_per_task_usd,
+            Some(2.0)
+        );
+    }
+
+    #[test]
     fn wrong_types_keep_the_default() {
         let policy = parse_policy(
-            "[policy]\nretry = \"x\"\nfix_checks = -1\nreview = \"yes\"\ntimeout_secs = -1\n",
+            "[policy]\nretry = \"x\"\nfix_checks = -1\nreview = \"yes\"\ntimeout_secs = -1\nmax_diff_lines = \"lots\"\nprotected_files = \"Cargo.lock\"\nbudget_per_task_usd = \"free\"\n",
         );
         assert_eq!(policy, PolicyConfig::default());
         assert_eq!(policy.timeout_secs, DEFAULT_TIMEOUT_SECS);

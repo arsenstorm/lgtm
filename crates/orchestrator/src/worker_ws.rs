@@ -14,8 +14,6 @@ use lgtm_protocol::{
 };
 use tokio::sync::mpsc;
 
-use crate::policy::AutoAction;
-
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a worker's tasks survive its socket, so a restarting agent or a
 /// flaky network does not throw away work that is still running.
@@ -177,7 +175,13 @@ fn auto_approve(app: &App, state: &mut crate::state::State, task_id: &str) {
     let Some(task) = state.tasks.get(task_id).map(|rec| rec.task.clone()) else {
         return;
     };
-    if crate::policy::auto_action(&task) != Some(AutoAction::Approve) {
+    let Some(decision) = crate::policy::decide(&task) else {
+        return;
+    };
+    let changed = state.apply_event(task_id, decision.event());
+    app.persist_ids(state, &changed);
+    if !decision.allowed {
+        tracing::info!(task = %task_id, reasons = ?decision.reasons, "policy refused auto-approve");
         return;
     }
     // Asking the worker first, so a task is not marked auto-approved by an

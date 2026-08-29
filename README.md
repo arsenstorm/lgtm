@@ -70,6 +70,9 @@ review = true      # review the finished diff with a second agent run
 timeout_secs = 3600  # kill an agent run after this long
 auto_approve = false
 auto_merge = false
+max_diff_lines = 300   # no auto-approve for a diff bigger than this
+protected_files = ["migrations/*", "Cargo.lock"]  # never auto-approved
+budget_per_task_usd = 2.0  # no auto-approve for a run that cost more
 
 [sandbox]
 profile = "standard"   # standard: stripped env, writes only to the worktree, secrets unreadable

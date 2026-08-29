@@ -105,6 +105,14 @@ impl TaskRecord {
                 _ => None,
             })
     }
+
+    /// The last decision policy recorded for `action`, so a caller polling in
+    /// a loop can log a change rather than one line per poll.
+    pub fn last_policy_decision(&self, action: &str) -> Option<&TaskEvent> {
+        self.events.iter().rev().map(|stored| &stored.event).find(
+            |event| matches!(event, TaskEvent::PolicyDecision { action: a, .. } if a == action),
+        )
+    }
 }
 
 /// Everything needed to open one pull request, resolved under the lock so the
@@ -497,14 +505,15 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
         // `retry` sets the status itself: this is the one move out of a
         // terminal status, which the rule below would otherwise refuse.
         TaskEvent::Requeued { .. } => (None, false),
-        // Retry and the two policy notes are for the reader, not the
-        // status; a run in progress stays exactly where it was.
+        // Retry and the policy notes are for the reader, not the status; a
+        // run in progress stays exactly where it was.
         TaskEvent::Output { .. }
         | TaskEvent::Command { .. }
         | TaskEvent::FileChanged { .. }
         | TaskEvent::Progress { .. }
         | TaskEvent::Validating { .. }
         | TaskEvent::Retry { .. }
+        | TaskEvent::PolicyDecision { .. }
         | TaskEvent::AutoApproved
         | TaskEvent::AutoMerged => (None, false),
     };
