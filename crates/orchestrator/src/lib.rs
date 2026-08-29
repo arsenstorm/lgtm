@@ -12,6 +12,7 @@ mod plan;
 mod policy;
 mod provision;
 mod state;
+mod todo;
 pub mod token;
 mod worker;
 mod worker_ws;
@@ -99,6 +100,8 @@ fn load_state(data_dir: &std::path::Path, queue_without_workers: bool) -> anyhow
     std::fs::create_dir_all(&memories_dir)?;
     let goals_dir = data_dir.join("goals");
     std::fs::create_dir_all(&goals_dir)?;
+    let todos_dir = data_dir.join("todos");
+    std::fs::create_dir_all(&todos_dir)?;
     let mut state = State {
         queue_without_workers,
         ..State::default()
@@ -120,11 +123,15 @@ fn load_state(data_dir: &std::path::Path, queue_without_workers: bool) -> anyhow
     for goal in persist::load_all_goals(&goals_dir) {
         state.goals.insert(goal.id.clone(), goal);
     }
+    for todo in persist::load_all_todos(&todos_dir) {
+        state.todos.insert(todo.id.clone(), todo);
+    }
     tracing::info!(
         tasks = state.tasks.len(),
         batches = state.batches.len(),
         memories = state.memories.len(),
         goals = state.goals.len(),
+        todos = state.todos.len(),
         "loaded tasks",
     );
     Ok(state)

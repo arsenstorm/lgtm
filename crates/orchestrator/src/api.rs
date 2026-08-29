@@ -4,6 +4,7 @@ mod batches;
 mod events;
 mod goals;
 mod memories;
+mod todos;
 
 use std::sync::Arc;
 
@@ -79,6 +80,10 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/memories/{id}", delete(memories::delete_memory))
         .route("/goals", get(goals::list_goals).post(goals::create_goal))
         .route("/goals/{id}", get(goals::get_goal))
+        .route("/todos", get(todos::list_todos).post(todos::create_todo))
+        .route("/todos/{id}", delete(todos::delete_todo))
+        .route("/todos/{id}/done", post(todos::finish_todo))
+        .route("/todos/{id}/promote", post(todos::promote_todo))
         .layer(middleware::from_fn_with_state(app, auth))
 }
 

@@ -40,6 +40,8 @@ to add it to the fleet.
 - `lgtm tell <id> "…"` sends a follow-up to a task that is awaiting review.
 - `lgtm memory add "…"` records a fact every agent run in the repository is
   told.
+- `lgtm todo add "…"` keeps a note; `lgtm todo promote <id>` turns it into a
+  task.
 - Repository checks run after the agent finishes; a second agent pass
   reviews the diff and reports findings.
 - `lgtm approve`, `reject`, `cancel`, and `merge` drive a task to a pull

@@ -9,12 +9,14 @@ mod upgrade;
 use std::path::Path;
 
 use clap::Parser;
-use lgtm_client::{Client, FromLinear, NewGoal};
+use lgtm_client::{Client, FromLinear, NewGoal, PromoteTodo};
 use lgtm_orchestrator::token::{data_dir, resolve_token};
 use lgtm_protocol::{BatchSource, TaskKind, TaskSpec};
 
-use crate::cli::{BacklogCommand, Cli, Command, MemoryCommand, Target};
-use crate::table::{ci_str, print_goal_table, print_memory_table, print_task_table, status_str};
+use crate::cli::{BacklogCommand, Cli, Command, MemoryCommand, Target, TodoCommand};
+use crate::table::{
+    ci_str, print_goal_table, print_memory_table, print_task_table, print_todo_table, status_str,
+};
 
 fn default_repo() -> anyhow::Result<String> {
     let result = std::process::Command::new("git")
@@ -125,6 +127,7 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
         }
         Command::Backlog { command } => backlog_command(client, command).await,
         Command::Memory { command } => memory_command(client, command).await,
+        Command::Todo { command } => todo_command(client, command).await,
         other => task_command(client, other).await,
     }
 }
@@ -326,6 +329,47 @@ async fn memory_command(client: &Client, command: MemoryCommand) -> anyhow::Resu
         MemoryCommand::Rm { id } => {
             client.delete_memory(&id).await?;
             println!("memory {id} removed");
+        }
+    }
+    Ok(0)
+}
+
+async fn todo_command(client: &Client, command: TodoCommand) -> anyhow::Result<i32> {
+    match command {
+        TodoCommand::Add {
+            repo,
+            title,
+            description,
+        } => {
+            let todo = client
+                .create_todo(
+                    repo.as_deref(),
+                    &title,
+                    description.as_deref().unwrap_or(""),
+                )
+                .await?;
+            println!("todo {} added", todo.id);
+        }
+        TodoCommand::List { repo } => {
+            print_todo_table(&client.todos(repo.as_deref()).await?);
+        }
+        TodoCommand::Done { id } => {
+            client.finish_todo(&id).await?;
+            println!("todo {id} done");
+        }
+        TodoCommand::Promote { id, target } => {
+            let body = PromoteTodo {
+                base_branch: target.base,
+                executor: target.agent,
+                worker: target.on,
+            };
+            let task = client.promote_todo(&id, &body).await?;
+            eprintln!("task {} created from todo {id}", task.id);
+            return run::announce_and_stream(client, task).await;
+        }
+        TodoCommand::Rm { id } => {
+            client.delete_todo(&id).await?;
+            println!("todo {id} removed");
         }
     }
     Ok(0)

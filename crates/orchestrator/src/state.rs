@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
     goal_status, Batch, Goal, GoalSummary, Memory, OrchestratorMessage, StoredEvent, Task,
-    TaskEvent, TaskId, TaskSpec, TaskStatus,
+    TaskEvent, TaskId, TaskSpec, TaskStatus, Todo, TodoStatus,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -55,6 +55,14 @@ impl App {
     pub fn persist_goal(&self, goal: &Goal) {
         let _ = self.persist.send(Persist::Goal(goal.clone()));
     }
+
+    pub fn persist_todo(&self, todo: &Todo) {
+        let _ = self.persist.send(Persist::Todo(todo.clone()));
+    }
+
+    pub fn forget_todo(&self, id: &str) {
+        let _ = self.persist.send(Persist::RemoveTodo(id.to_string()));
+    }
 }
 
 #[derive(Default)]
@@ -67,6 +75,8 @@ pub struct State {
     pub memories: HashMap<String, Memory>,
     /// Goals, by id. A task points back with `spec.goal`.
     pub goals: HashMap<String, Goal>,
+    /// Lightweight notes about work to do, by id.
+    pub todos: HashMap<String, Todo>,
     /// Accept tasks no connected worker can run, because provisioning is on
     /// and a worker for them is a queue away.
     pub queue_without_workers: bool,
@@ -232,6 +242,43 @@ impl State {
             .collect();
         tasks.sort_by_key(|task| task.created_at);
         tasks
+    }
+
+    fn new_todo_id(&self) -> String {
+        std::iter::repeat_with(random_id)
+            .find(|id| !self.todos.contains_key(id))
+            .unwrap_or_default()
+    }
+
+    pub fn create_todo(
+        &mut self,
+        repository: Option<String>,
+        title: String,
+        description: String,
+    ) -> Todo {
+        let todo = Todo {
+            id: self.new_todo_id(),
+            repository,
+            title,
+            description,
+            status: TodoStatus::Open,
+            created_at: now_ms(),
+            task: None,
+        };
+        tracing::info!(todo = %todo.id, "todo added");
+        self.todos.insert(todo.id.clone(), todo.clone());
+        todo
+    }
+
+    pub fn remove_todo(&mut self, id: &str) -> bool {
+        self.todos.remove(id).is_some()
+    }
+
+    /// Marks a todo done, whatever its current status.
+    pub fn finish_todo(&mut self, id: &str) -> Option<Todo> {
+        let todo = self.todos.get_mut(id)?;
+        todo.status = TodoStatus::Done;
+        Some(todo.clone())
     }
 
     pub fn goal_summary(&self, id: &str) -> Option<GoalSummary> {

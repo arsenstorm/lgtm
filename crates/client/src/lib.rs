@@ -18,9 +18,9 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
 pub use types::{
     BatchDetail, BatchRequest, BatchResponse, EventStream, FromLinear, GoalDetail, IssuePreview,
-    NewGoal, TaskDetail,
+    NewGoal, PromoteTodo, TaskDetail,
 };
-use types::{ErrorBody, FollowUp, FromIssue, NewMemory};
+use types::{ErrorBody, FollowUp, FromIssue, NewMemory, NewTodo};
 
 #[derive(Clone)]
 pub struct Client {
@@ -269,6 +269,66 @@ impl Client {
 
     pub async fn goal(&self, id: &str) -> anyhow::Result<GoalDetail> {
         self.get(&format!("/api/goals/{id}")).await
+    }
+
+    /// Todos that apply to `repository`, or every one when it is `None`.
+    pub async fn todos(
+        &self,
+        repository: Option<&str>,
+    ) -> anyhow::Result<Vec<lgtm_protocol::Todo>> {
+        let mut req = self
+            .http
+            .get(format!("{}/api/todos", self.base))
+            .bearer_auth(&self.token);
+        if let Some(repository) = repository {
+            req = req.query(&[("repository", repository)]);
+        }
+        Self::handle(req.send().await?).await
+    }
+
+    pub async fn create_todo(
+        &self,
+        repository: Option<&str>,
+        title: &str,
+        description: &str,
+    ) -> anyhow::Result<lgtm_protocol::Todo> {
+        self.post(
+            "/api/todos",
+            Some(&NewTodo {
+                repository,
+                title,
+                description,
+            }),
+        )
+        .await
+    }
+
+    pub async fn finish_todo(&self, id: &str) -> anyhow::Result<lgtm_protocol::Todo> {
+        self.post(&format!("/api/todos/{id}/done"), None::<&()>)
+            .await
+    }
+
+    pub async fn promote_todo(
+        &self,
+        id: &str,
+        body: &PromoteTodo,
+    ) -> anyhow::Result<lgtm_protocol::Task> {
+        self.post(&format!("/api/todos/{id}/promote"), Some(body))
+            .await
+    }
+
+    /// The 204 carries no body, so nothing is deserialized here.
+    pub async fn delete_todo(&self, id: &str) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .delete(format!("{}/api/todos/{id}", self.base))
+            .bearer_auth(&self.token)
+            .send()
+            .await?;
+        if resp.status().is_success() {
+            return Ok(());
+        }
+        Err(Self::failure(resp).await)
     }
 
     /// Opens the events socket from event index `from` and returns a stream

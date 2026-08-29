@@ -1,6 +1,6 @@
 //! The `tasks` table and the cells in it.
 
-use lgtm_protocol::{CiState, GoalSummary, Memory, Review, Task, TaskStatus};
+use lgtm_protocol::{CiState, GoalSummary, Memory, Review, Task, TaskStatus, Todo};
 
 /// The wire form ("awaiting_review") rather than Rust's Debug form, so a
 /// cell matches the JSON everywhere else in the CLI's output.
@@ -141,6 +141,24 @@ pub fn print_goal_table(goals: Vec<GoalSummary>) {
     }
 }
 
+/// One row of the `todo list` table. A todo with no repository shows `*`.
+pub fn todo_row(todo: &Todo) -> String {
+    format!(
+        "{:<10}{:<14}{:<48}{}",
+        todo.id,
+        wire_str(todo.status),
+        todo.repository.as_deref().unwrap_or("*"),
+        first_line_truncated(&todo.title, 60)
+    )
+}
+
+pub fn print_todo_table(todos: &[Todo]) {
+    println!("{:<10}{:<14}{:<48}TITLE", "ID", "STATUS", "REPOSITORY");
+    for todo in todos {
+        println!("{}", todo_row(todo));
+    }
+}
+
 pub fn first_line_truncated(s: &str, max: usize) -> String {
     let first = s.lines().next().unwrap_or("");
     if first.chars().count() > max {
@@ -224,6 +242,22 @@ mod tests {
         let row = memory_row(&memory(Some("https://example.com/r.git"), "no yarn"));
         assert!(row.contains("https://example.com/r.git"));
         assert!(row.ends_with("no yarn"));
+    }
+
+    #[test]
+    fn todo_row_stars_no_repository_and_truncates() {
+        let todo = Todo {
+            id: "0123abcd".into(),
+            repository: None,
+            title: "x".repeat(100),
+            description: String::new(),
+            status: lgtm_protocol::TodoStatus::Open,
+            created_at: 1,
+            task: None,
+        };
+        let row = todo_row(&todo);
+        assert!(row.starts_with("0123abcd  open          *"));
+        assert!(row.ends_with(&"x".repeat(60)));
     }
 
     #[test]
