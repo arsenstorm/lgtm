@@ -30,6 +30,7 @@ fn sample_task() -> Task {
             review_executor: None,
             model: Some("opus".into()),
             allowed_hosts: Vec::new(),
+            session: Some("s1".into()),
         },
         status: TaskStatus::Queued,
         runner: None,
@@ -380,6 +381,31 @@ fn todo_round_trips() {
         status: TodoStatus::InProgress,
         created_at: 1,
         task: Some("11111111".into()),
+    });
+}
+
+#[test]
+fn session_round_trips() {
+    round_trip(Session {
+        id: "0123abcd".into(),
+        repository: "https://github.com/arsenstorm/lgtm.git".into(),
+        base_branch: "main".into(),
+        title: "add a /health endpoint".into(),
+        created_at: 1,
+    });
+}
+
+#[test]
+fn session_detail_round_trips() {
+    round_trip(SessionDetail {
+        session: Session {
+            id: "0123abcd".into(),
+            repository: "https://github.com/arsenstorm/lgtm.git".into(),
+            base_branch: "main".into(),
+            title: "add a /health endpoint".into(),
+            created_at: 1,
+        },
+        tasks: vec![sample_task()],
     });
 }
 

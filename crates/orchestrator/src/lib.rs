@@ -117,6 +117,8 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     std::fs::create_dir_all(&goals_dir)?;
     let todos_dir = data_dir.join("todos");
     std::fs::create_dir_all(&todos_dir)?;
+    let sessions_dir = data_dir.join("sessions");
+    std::fs::create_dir_all(&sessions_dir)?;
     let mut state = State {
         queue_without_runners,
         ..State::default()
@@ -141,12 +143,16 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     for todo in persist::load_all_todos(&todos_dir) {
         state.todos.insert(todo.id.clone(), todo);
     }
+    for session in persist::load_all_sessions(&sessions_dir) {
+        state.sessions.insert(session.id.clone(), session);
+    }
     tracing::info!(
         tasks = state.tasks.len(),
         batches = state.batches.len(),
         memories = state.memories.len(),
         goals = state.goals.len(),
         todos = state.todos.len(),
+        sessions = state.sessions.len(),
         "loaded tasks",
     );
     Ok(state)

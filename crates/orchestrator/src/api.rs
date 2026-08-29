@@ -4,6 +4,7 @@ mod batches;
 mod events;
 mod goals;
 mod memories;
+mod sessions;
 mod terminal;
 mod todos;
 
@@ -100,6 +101,12 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/todos/{id}/done", post(todos::finish_todo))
         .route("/todos/{id}/promote", post(todos::promote_todo))
         .route("/goals/{id}/plans", get(goals::get_goal_plans))
+        .route(
+            "/sessions",
+            get(sessions::list_sessions).post(sessions::create_session),
+        )
+        .route("/sessions/{id}", get(sessions::get_session))
+        .route("/sessions/{id}/messages", post(sessions::send_message))
         .layer(middleware::from_fn_with_state(app, auth))
 }
 

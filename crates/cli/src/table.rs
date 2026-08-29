@@ -195,6 +195,7 @@ mod tests {
                 review_executor: None,
                 model: None,
                 allowed_hosts: Vec::new(),
+                session: None,
             },
             status: TaskStatus::Approved,
             runner: None,

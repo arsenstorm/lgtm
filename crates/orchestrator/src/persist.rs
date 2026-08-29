@@ -1,6 +1,7 @@
 //! One JSON file per task under `<data_dir>/tasks`, one per batch under
 //! `<data_dir>/batches`, one per memory under `<data_dir>/memories`, one per
-//! goal under `<data_dir>/goals`, and one per todo under `<data_dir>/todos`.
+//! goal under `<data_dir>/goals`, one per todo under `<data_dir>/todos`, and
+//! one per session under `<data_dir>/sessions`.
 //!
 //! A task's events are append-only: rewriting `<id>.json` on every event
 //! meant copying the whole history back to disk each time, so events live in
@@ -10,7 +11,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use lgtm_protocol::{Batch, Goal, Memory, Overlap, StoredEvent, Task, TaskId, Todo};
+use lgtm_protocol::{Batch, Goal, Memory, Overlap, Session, StoredEvent, Task, TaskId, Todo};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -39,6 +40,7 @@ pub enum Persist {
     Goal(Goal),
     Todo(Todo),
     RemoveTodo(String),
+    Session(Session),
 }
 
 impl From<&TaskRecord> for Stored {
@@ -61,6 +63,7 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
     let memories = dir.join("memories");
     let goals = dir.join("goals");
     let todos = dir.join("todos");
+    let sessions = dir.join("sessions");
     while let Some(item) = rx.recv().await {
         match item {
             Persist::Task(task) => save(&tasks, &task),
@@ -71,6 +74,7 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
             Persist::Goal(goal) => save_goal(&goals, &goal),
             Persist::Todo(todo) => save_todo(&todos, &todo),
             Persist::RemoveTodo(id) => remove_by_id(&todos, "todo", &id),
+            Persist::Session(session) => save_session(&sessions, &session),
         }
     }
 }
@@ -152,6 +156,10 @@ pub fn save_memory(dir: &Path, memory: &Memory) {
 
 pub fn save_todo(dir: &Path, todo: &Todo) {
     save_by_id(dir, "todo", &todo.id, todo);
+}
+
+pub fn save_session(dir: &Path, session: &Session) {
+    save_by_id(dir, "session", &session.id, session);
 }
 
 /// `kind` names the record in the log; everything else is the same however
@@ -301,6 +309,10 @@ pub fn load_all_todos(dir: &Path) -> Vec<Todo> {
     load_dir(dir, |todo: &Todo| todo.id.as_str())
 }
 
+pub fn load_all_sessions(dir: &Path) -> Vec<Session> {
+    load_dir(dir, |session: &Session| session.id.as_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,6 +363,7 @@ mod tests {
                 model: None,
                 goal: None,
                 allowed_hosts: Vec::new(),
+                session: None,
             },
             status: TaskStatus::Queued,
             runner: None,

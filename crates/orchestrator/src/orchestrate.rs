@@ -304,6 +304,7 @@ fn create_task(
         model: None,
         goal: Some(goal),
         allowed_hosts: Vec::new(),
+        session: None,
     };
     state.create_task(spec).map(|(_, changed)| changed)
 }

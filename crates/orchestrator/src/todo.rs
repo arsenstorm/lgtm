@@ -62,6 +62,7 @@ impl State {
             requirements: Vec::new(),
             model: None,
             allowed_hosts: Vec::new(),
+            session: None,
         };
         let (task, changed) = self.create_task(spec)?;
         let todo = self
