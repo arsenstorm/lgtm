@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 pub use wire::*;
 
 pub const DEFAULT_PORT: u16 = 4750;
+/// Bumped on any incompatible change to the messages in `wire.rs`.
+pub const PROTOCOL_VERSION: u32 = 1;
 /// Orchestrator route the worker agent connects to.
 pub const WORKER_WS_PATH: &str = "/ws/worker";
 

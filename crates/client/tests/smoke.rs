@@ -60,6 +60,7 @@ async fn end_to_end() {
             token: "tok".into(),
             info,
             running: Vec::new(),
+            version: PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),

@@ -131,6 +131,7 @@ fn every_message_round_trips() {
         token: "t".into(),
         info: info.clone(),
         running: vec!["0123abcd".into()],
+        version: PROTOCOL_VERSION,
     });
     round_trip(WorkerMessage::Goodbye);
     round_trip(WorkerStatus {
@@ -172,6 +173,9 @@ fn every_message_round_trips() {
         OrchestratorMessage::Discard {
             task_id: "0123abcd".into(),
         },
+        OrchestratorMessage::Rejected {
+            reason: "protocol version 0, this orchestrator speaks 1".into(),
+        },
     ] {
         round_trip(msg);
     }
@@ -204,6 +208,25 @@ fn phase_one_frames_still_parse() {
     assert!(task.spec.batch.is_none());
     let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
     assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
+}
+
+#[test]
+fn hello_without_version_defaults_to_zero() {
+    let hello: WorkerMessage = serde_json::from_str(
+        r#"{"type":"hello","token":"t","info":{"name":"w","os":"linux","arch":"x86_64","executors":[]}}"#,
+    )
+    .unwrap();
+    assert!(matches!(hello, WorkerMessage::Hello { version: 0, .. }));
+}
+
+#[test]
+fn rejected_round_trips() {
+    round_trip(OrchestratorMessage::Rejected {
+        reason: "protocol version 0, this orchestrator speaks 1".into(),
+    });
+    let json =
+        serde_json::to_string(&OrchestratorMessage::Rejected { reason: "r".into() }).unwrap();
+    assert_eq!(json, r#"{"type":"rejected","reason":"r"}"#);
 }
 
 #[test]

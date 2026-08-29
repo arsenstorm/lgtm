@@ -92,6 +92,7 @@ async fn end_to_end() {
             token: "tok".into(),
             info,
             running: Vec::new(),
+            version: PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),
@@ -335,6 +336,7 @@ async fn end_to_end() {
             token: "tok".into(),
             info: info.clone(),
             running: Vec::new(),
+            version: PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),
@@ -348,6 +350,7 @@ async fn end_to_end() {
             token: "tok".into(),
             info,
             running: Vec::new(),
+            version: PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),
@@ -454,6 +457,7 @@ async fn end_to_end() {
             token: "nope".into(),
             info,
             running: Vec::new(),
+            version: PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),
@@ -461,6 +465,38 @@ async fn end_to_end() {
     .await
     .unwrap();
     assert!(matches!(bad.next().await, Some(Ok(TMsg::Close(_))) | None));
+
+    let mut stale = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
+    let info = WorkerInfo {
+        name: "stale".into(),
+        os: "linux".into(),
+        arch: "x86_64".into(),
+        executors: vec![Executor::Claude],
+        slots: 1,
+        ephemeral: false,
+    };
+    stale
+        .send(TMsg::Text(
+            serde_json::to_string(&WorkerMessage::Hello {
+                token: "tok".into(),
+                info,
+                running: Vec::new(),
+                version: 0,
+            })
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let rejected = stale.next().await.unwrap().unwrap();
+    assert!(matches!(
+        serde_json::from_str::<OrchestratorMessage>(rejected.to_text().unwrap()).unwrap(),
+        OrchestratorMessage::Rejected { .. }
+    ));
+    assert!(matches!(
+        stale.next().await,
+        Some(Ok(TMsg::Close(_))) | None
+    ));
 
     let r = http
         .post(format!("{base}/api/tasks/from-issue"))
