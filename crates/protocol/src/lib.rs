@@ -150,6 +150,37 @@ pub struct Plan {
     pub steps: Vec<PlanStep>,
 }
 
+/// What a dependency must have reached for a task waiting on it to start.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DependsOn {
+    /// The dependency was approved or merged (its branch exists on origin).
+    #[default]
+    Approved,
+    /// The dependency finished a run: awaiting review or later.
+    Completed,
+    /// The dependency's pull request was merged.
+    Merged,
+}
+
+impl DependsOn {
+    /// Whether a dependency in `status` satisfies this condition.
+    pub fn met(self, status: TaskStatus) -> bool {
+        match self {
+            DependsOn::Approved => matches!(status, TaskStatus::Approved | TaskStatus::Merged),
+            DependsOn::Completed => matches!(
+                status,
+                TaskStatus::AwaitingReview
+                    | TaskStatus::ChangesRequested
+                    | TaskStatus::Conflicted
+                    | TaskStatus::Approved
+                    | TaskStatus::Merged
+            ),
+            DependsOn::Merged => status == TaskStatus::Merged,
+        }
+    }
+}
+
 /// What the developer asked for. Also the body of `POST /api/tasks`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct TaskSpec {
@@ -172,6 +203,9 @@ pub struct TaskSpec {
     /// Tasks that must be approved before this one may start.
     #[serde(default)]
     pub depends_on: Vec<TaskId>,
+    /// What every id in `depends_on` must have reached before this task starts.
+    #[serde(default)]
+    pub depends_on_condition: DependsOn,
     /// The backlog batch this task was imported by.
     #[serde(default)]
     pub batch: Option<String>,

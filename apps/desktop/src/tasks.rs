@@ -140,6 +140,7 @@ mod tests {
                 kind: TaskKind::Run,
                 parent: parent.map(String::from),
                 depends_on: vec![],
+                depends_on_condition: Default::default(),
                 batch: None,
                 sandbox: None,
                 requirements: vec![],

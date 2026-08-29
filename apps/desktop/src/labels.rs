@@ -83,6 +83,7 @@ mod tests {
                 kind: TaskKind::Run,
                 parent: None,
                 depends_on: depends_on.into_iter().map(String::from).collect(),
+                depends_on_condition: Default::default(),
                 batch: None,
                 sandbox: None,
                 requirements: vec![],

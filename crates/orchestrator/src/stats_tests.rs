@@ -15,6 +15,7 @@ fn spec() -> TaskSpec {
         kind: TaskKind::Run,
         parent: None,
         depends_on: Vec::new(),
+        depends_on_condition: Default::default(),
         batch: None,
         sandbox: None,
         requirements: Vec::new(),
