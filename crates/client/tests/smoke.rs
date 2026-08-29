@@ -29,6 +29,9 @@ async fn end_to_end() {
     // no workers yet
     assert!(client.workers().await.unwrap().is_empty());
 
+    // no batches yet
+    assert!(client.batches().await.unwrap().is_empty());
+
     // no eligible worker -> error
     let spec = TaskSpec {
         repository: "r".into(),
@@ -41,6 +44,7 @@ async fn end_to_end() {
         kind: TaskKind::Run,
         parent: None,
         depends_on: vec![],
+        batch: None,
     };
     let err = client.create_task(&spec).await.unwrap_err();
     assert!(err.to_string().contains("no eligible worker"), "{err}");
