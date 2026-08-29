@@ -1,5 +1,6 @@
 //! The Changes tab: a file tree on the left, the diff on the right.
 
+mod comments;
 mod rows;
 
 use crate::app::LgtmApp;
