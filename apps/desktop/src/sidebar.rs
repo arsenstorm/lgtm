@@ -3,13 +3,15 @@
 use crate::app::{prompt_preview, status_label, LgtmApp};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
-    ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _, Styled as _,
+    div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _,
+    Styled as _,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::Input;
 use gpui_component::{ActiveTheme as _, Sizable as _};
-use lgtm_protocol::Task;
+use lgtm_protocol::{Batch, BatchSource, Task};
+use std::collections::HashSet;
 
 pub fn render_sidebar(app: &mut LgtmApp, cx: &mut Context<LgtmApp>) -> Div {
     let selected = app.selected.clone();
@@ -48,13 +50,7 @@ pub fn render_sidebar(app: &mut LgtmApp, cx: &mut Context<LgtmApp>) -> Div {
                 .min_h_0()
                 .overflow_y_scroll()
                 .track_scroll(&app.task_scroll)
-                .children(app.tasks.iter().map(|task| {
-                    let id = task.id.clone();
-                    let active = selected.as_deref() == Some(id.as_str());
-                    task_row(task, &app.tasks, active, cx).on_click(
-                        cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)),
-                    )
-                })),
+                .children(task_rows(app, selected.as_deref(), cx)),
         )
         .child(
             div()
@@ -75,6 +71,57 @@ pub fn render_sidebar(app: &mut LgtmApp, cx: &mut Context<LgtmApp>) -> Div {
                     )
                 })),
         )
+}
+
+/// Task rows in existing (newest-first) order, with one header row inserted
+/// before the first task of each batch. Tasks without a batch get no header.
+fn task_rows(app: &LgtmApp, selected: Option<&str>, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
+    let mut seen = HashSet::new();
+    let mut rows = Vec::with_capacity(app.tasks.len());
+    for task in &app.tasks {
+        if let Some(batch_id) = &task.spec.batch {
+            if seen.insert(batch_id.clone()) {
+                if let Some(batch) = app.batches.iter().find(|b| &b.id == batch_id) {
+                    let count = app
+                        .tasks
+                        .iter()
+                        .filter(|t| t.spec.batch.as_deref() == Some(batch_id.as_str()))
+                        .count();
+                    rows.push(batch_header(batch, count, cx).into_any_element());
+                }
+            }
+        }
+        let id = task.id.clone();
+        let active = selected == Some(id.as_str());
+        rows.push(
+            task_row(task, &app.tasks, active, cx)
+                .on_click(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)),
+                )
+                .into_any_element(),
+        );
+    }
+    rows
+}
+
+fn batch_header(batch: &Batch, count: usize, cx: &App) -> Div {
+    div()
+        .px_2()
+        .py_1()
+        .text_sm()
+        .font_weight(FontWeight::BOLD)
+        .text_color(cx.theme().muted_foreground)
+        .child(format!("▣ {} · {count} tasks", batch_label(&batch.source)))
+}
+
+/// `o/r label:L` for a GitHub label batch, `TEAM/STATE` for a Linear batch.
+pub fn batch_label(source: &BatchSource) -> String {
+    match source {
+        BatchSource::GithubLabel { owner, repo, label } => {
+            format!("{owner}/{repo} label:{label}")
+        }
+        BatchSource::Linear { team, state } => format!("{team}/{state}"),
+    }
 }
 
 fn task_row(task: &Task, tasks: &[Task], active: bool, cx: &App) -> Stateful<Div> {
@@ -119,4 +166,28 @@ fn task_row(task: &Task, tasks: &[Task], active: bool, cx: &App) -> Stateful<Div
                 .when(is_child, |this| this.pl_2())
                 .child(prompt),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn batch_label_formats_github_label() {
+        let source = BatchSource::GithubLabel {
+            owner: "o".into(),
+            repo: "r".into(),
+            label: "L".into(),
+        };
+        assert_eq!(batch_label(&source), "o/r label:L");
+    }
+
+    #[test]
+    fn batch_label_formats_linear() {
+        let source = BatchSource::Linear {
+            team: "TEAM".into(),
+            state: "STATE".into(),
+        };
+        assert_eq!(batch_label(&source), "TEAM/STATE");
+    }
 }

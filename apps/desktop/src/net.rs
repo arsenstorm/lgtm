@@ -5,7 +5,7 @@
 //! back over an unbounded channel that the GPUI side drains (see `App::pump`).
 
 use lgtm_client::{Client, TaskDetail};
-use lgtm_protocol::{StoredEvent, Task, TaskSpec, WorkerStatus};
+use lgtm_protocol::{Batch, StoredEvent, Task, TaskSpec, WorkerStatus};
 use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -16,8 +16,10 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 pub type Sender = UnboundedSender<Msg>;
 
+type Lists = (Vec<Task>, Vec<WorkerStatus>, Vec<Batch>);
+
 pub enum Msg {
-    Lists(Result<(Vec<Task>, Vec<WorkerStatus>), String>),
+    Lists(Result<Lists, String>),
     Detail {
         generation: u64,
         detail: TaskDetail,
@@ -63,10 +65,12 @@ pub fn refresh(client: Client, tx: Sender) {
     });
 }
 
-async fn fetch_lists(client: &Client) -> Result<(Vec<Task>, Vec<WorkerStatus>), String> {
+async fn fetch_lists(client: &Client) -> Result<Lists, String> {
     let tasks = client.tasks().await.map_err(|e| e.to_string())?;
     let workers = client.workers().await.map_err(|e| e.to_string())?;
-    Ok((tasks, workers))
+    // A failing batches call must not take down the whole refresh.
+    let batches = client.batches().await.unwrap_or_default();
+    Ok((tasks, workers, batches))
 }
 
 /// Loads the task's stored events, then streams live ones until the task ends.
