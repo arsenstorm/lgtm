@@ -162,6 +162,9 @@ pub struct ServeArgs {
     /// machines that joined with `lgtm worker`.
     #[arg(long)]
     pub no_worker: bool,
+    /// POST every event a person would want to see to this URL.
+    #[arg(long, env = "LGTM_WEBHOOK")]
+    pub webhook: Option<String>,
 }
 
 #[derive(Args)]

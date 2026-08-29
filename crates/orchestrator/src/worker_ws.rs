@@ -200,9 +200,24 @@ fn auto_approve(app: &App, state: &mut crate::state::State, task_id: &str) {
     app.persist_ids(state, &changed);
 }
 
+/// The webhook describes the task as the event left it, so it reads the task
+/// back rather than reusing a copy from before `apply_event`.
+fn deliver(app: &Arc<App>, task_id: &str, event: &TaskEvent) {
+    let task = {
+        let state = app.state.lock().unwrap();
+        state.tasks.get(task_id).map(|rec| rec.task.clone())
+    };
+    if let Some(task) = task {
+        crate::notify::deliver(app, &task, event);
+    }
+}
+
 fn apply(app: &Arc<App>, task_id: &str, event: TaskEvent) {
     let pushed = matches!(event, TaskEvent::Pushed { .. });
     let completed = matches!(event, TaskEvent::Completed { .. });
+    // Only cloned when there is somewhere to send it: an event carries the
+    // whole diff.
+    let for_webhook = app.webhook.is_some().then(|| event.clone());
     let (previous, plan) = {
         let mut state = app.state.lock().unwrap();
         let previous = state.tasks.get(task_id).map(|rec| rec.task.status);
@@ -218,6 +233,9 @@ fn apply(app: &Arc<App>, task_id: &str, event: TaskEvent) {
             .flatten();
         (previous, plan)
     };
+    if let Some(event) = for_webhook {
+        deliver(app, task_id, &event);
+    }
     if let Some(previous) = previous {
         crate::linear::after_transition(app, task_id, previous, false);
     }

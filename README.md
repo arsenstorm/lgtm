@@ -127,6 +127,20 @@ You should not have to watch LGTM. The desktop app raises an OS notification
 when a task needs a person — ready for review, failed, timed out, runner
 lost, merged. Settings → Notifications turns it off; it is on by default.
 
+`lgtm serve --webhook URL` (or `LGTM_WEBHOOK`) POSTs the same events, so
+Slack, email, or anything else can hang off one URL:
+
+```json
+{
+  "task_id": "0123abcd",
+  "status": "awaiting_review",
+  "repository": "https://github.com/you/repo.git",
+  "line": "add a /health endpoint: ready for review"
+}
+```
+
+Delivery is best effort: a webhook nobody answers is logged and dropped.
+
 ## Security
 
 Every orchestrator API call and worker connection carries a shared token.
