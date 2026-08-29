@@ -22,6 +22,7 @@ async fn end_to_end() {
     // `gh auth token`, so the empty PATH is what keeps a developer's login out
     // of the test; nothing else here shells out.
     std::env::remove_var("GITHUB_TOKEN");
+    std::env::remove_var("LINEAR_API_KEY");
     std::env::set_var("PATH", "");
     let dir = std::env::temp_dir().join(format!("lgtm-smoke-{}", std::process::id()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -49,6 +50,7 @@ async fn end_to_end() {
         executor: Executor::Claude,
         worker: None,
         issue: None,
+        linear: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -464,6 +466,26 @@ async fn end_to_end() {
     assert_eq!(
         r.text().await.unwrap(),
         r#"{"error":"GITHUB_TOKEN is not configured"}"#
+    );
+
+    // from-linear without a Linear key
+    let r = http
+        .post(format!("{base}/api/tasks/from-linear"))
+        .bearer_auth("tok")
+        .json(&serde_json::json!({
+            "issue": "ENG-7",
+            "repository": "https://github.com/arsenstorm/lgtm.git",
+            "base_branch": "main",
+            "executor": "claude",
+            "worker": null,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409);
+    assert_eq!(
+        r.text().await.unwrap(),
+        r#"{"error":"LINEAR_API_KEY is not configured"}"#
     );
 
     // merge on a queued task stops at the status guard

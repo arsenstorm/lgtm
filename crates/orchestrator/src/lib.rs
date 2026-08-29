@@ -2,6 +2,7 @@
 
 mod api;
 mod github;
+mod linear;
 mod persist;
 mod state;
 mod worker_ws;
@@ -49,11 +50,14 @@ pub async fn serve(bind: SocketAddr, token: String, data_dir: PathBuf) -> anyhow
 
     let github = lgtm_github::GitHub::from_env();
     tracing::info!(enabled = github.is_some(), "github integration");
+    let linear = lgtm_linear::Linear::from_env();
+    tracing::info!(enabled = linear.is_some(), "linear integration");
     let app = Arc::new(App {
         token,
         state: Mutex::new(state),
         persist: persist_tx,
         github,
+        linear,
     });
     github::resume_ci_polls(&app);
     let router = Router::new()

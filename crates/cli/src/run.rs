@@ -18,6 +18,16 @@ struct FromIssueSpec {
     worker: Option<String>,
 }
 
+/// Body of `POST /api/tasks/from-linear`.
+#[derive(Serialize)]
+struct FromLinearSpec {
+    issue: String,
+    repository: String,
+    base_branch: String,
+    executor: Executor,
+    worker: Option<String>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     client: &Client,
@@ -36,6 +46,7 @@ pub async fn run(
         executor,
         worker,
         issue: None,
+        linear: None,
     };
     let task: Task = client.post("/api/tasks", Some(&spec)).await?;
     announce_and_stream(orchestrator, token, task).await
@@ -57,6 +68,28 @@ pub async fn run_from_issue(
         worker,
     };
     let task: Task = client.post("/api/tasks/from-issue", Some(&spec)).await?;
+    announce_and_stream(orchestrator, token, task).await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn run_from_linear(
+    client: &Client,
+    orchestrator: &str,
+    token: &str,
+    issue: String,
+    repository: String,
+    base_branch: String,
+    executor: Executor,
+    worker: Option<String>,
+) -> anyhow::Result<i32> {
+    let spec = FromLinearSpec {
+        issue,
+        repository,
+        base_branch,
+        executor,
+        worker,
+    };
+    let task: Task = client.post("/api/tasks/from-linear", Some(&spec)).await?;
     announce_and_stream(orchestrator, token, task).await
 }
 

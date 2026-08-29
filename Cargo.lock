@@ -3381,6 +3381,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lgtm-linear"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "lgtm-orchestrator"
 version = "0.1.0"
 dependencies = [
@@ -3388,6 +3399,7 @@ dependencies = [
  "axum",
  "futures-util",
  "lgtm-github",
+ "lgtm-linear",
  "lgtm-protocol",
  "reqwest",
  "serde",

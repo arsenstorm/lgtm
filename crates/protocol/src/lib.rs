@@ -64,6 +64,16 @@ pub struct IssueRef {
     pub number: u64,
 }
 
+/// A Linear issue a task was created from.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct LinearRef {
+    /// Linear's internal issue id (uuid), used by the API.
+    pub id: String,
+    /// Human identifier such as `ENG-123`.
+    pub identifier: String,
+    pub url: String,
+}
+
 /// What the developer asked for. Also the body of `POST /api/tasks`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct TaskSpec {
@@ -76,6 +86,8 @@ pub struct TaskSpec {
     pub worker: Option<String>,
     #[serde(default)]
     pub issue: Option<IssueRef>,
+    #[serde(default)]
+    pub linear: Option<LinearRef>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -279,6 +291,11 @@ mod tests {
                     repo: "lgtm".into(),
                     number: 7,
                 }),
+                linear: Some(LinearRef {
+                    id: "uuid".into(),
+                    identifier: "ENG-123".into(),
+                    url: "https://linear.app/w/issue/ENG-123".into(),
+                }),
             },
             status: TaskStatus::Queued,
             worker: None,
@@ -407,6 +424,7 @@ mod tests {
         )
         .unwrap();
         assert!(task.pull_request.is_none() && task.ci.is_none() && task.spec.issue.is_none());
+        assert!(task.spec.linear.is_none());
         let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
         assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
     }

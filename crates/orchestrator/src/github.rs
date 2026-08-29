@@ -33,6 +33,7 @@ pub fn open_pull_request(app: Arc<App>, task_id: TaskId, plan: PrPlan) {
                     }
                     app.persist_ids(&state, std::slice::from_ref(&task_id));
                 }
+                crate::linear::after_transition(&app, &task_id, TaskStatus::Approved, true);
                 if !plan.sha.is_empty() {
                     poll_ci(app, task_id, plan.repo, plan.sha);
                 }

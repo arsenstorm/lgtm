@@ -78,7 +78,7 @@ pub fn render_main(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<Lgt
 
 fn header(app: &mut LgtmApp, task: &Task, cx: &mut Context<LgtmApp>) -> Div {
     let worker = task.worker.clone().unwrap_or_else(|| "unassigned".into());
-    let title = format!("{} · {} · {worker}", task.id, status_label(task.status));
+    let rest = format!(" · {} · {worker}", status_label(task.status));
     div()
         .flex()
         .flex_col()
@@ -90,7 +90,20 @@ fn header(app: &mut LgtmApp, task: &Task, cx: &mut Context<LgtmApp>) -> Div {
             div()
                 .flex()
                 .items_center()
-                .child(div().font_weight(FontWeight::BOLD).child(title))
+                .child(div().font_weight(FontWeight::BOLD).child(task.id.clone()))
+                .when_some(task.spec.linear.clone(), |this, linear| {
+                    this.child(
+                        div()
+                            .id("linear-link")
+                            .cursor_pointer()
+                            .font_weight(FontWeight::BOLD)
+                            .child(format!(" · {}", linear.identifier))
+                            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                                cx.open_url(&linear.url);
+                            })),
+                    )
+                })
+                .child(div().font_weight(FontWeight::BOLD).child(rest))
                 .when_some(task.pull_request.clone(), |this, pr| {
                     this.child(
                         div()
