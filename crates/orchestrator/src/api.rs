@@ -12,13 +12,13 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::SinkExt;
 use lgtm_protocol::{
-    Batch, BatchSource, BatchSummary, Executor, IssueRef, LinearRef, OrchestratorMessage,
-    StoredEvent, Task, TaskEvent, TaskId, TaskKind, TaskSpec, TaskStatus, WorkerStatus,
+    Batch, BatchSource, BatchSummary, Executor, OrchestratorMessage, StoredEvent, Task, TaskEvent,
+    TaskId, TaskKind, TaskSpec, TaskStatus, WorkerStatus,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
-use crate::backlog::{self, Candidate};
+use crate::backlog::{self, Candidate, SpecInput};
 use crate::persist::Stored;
 use crate::state::{now_ms, App, CmdError};
 
@@ -146,29 +146,14 @@ async fn create_task_from_issue(
         )
     })?;
     let issue = github.issue(&repo, number).await.map_err(bad_gateway)?;
-    queue(
-        &app,
-        TaskSpec {
-            repository: format!("https://github.com/{}/{}.git", repo.owner, repo.repo),
-            base_branch: body.base_branch,
-            prompt: format!(
-                "Resolve GitHub issue #{number}: {}\n\n{}",
-                issue.title, issue.body
-            ),
-            executor: body.executor,
-            worker: body.worker,
-            issue: Some(IssueRef {
-                owner: repo.owner,
-                repo: repo.repo,
-                number,
-            }),
-            linear: None,
-            kind: TaskKind::Run,
-            parent: None,
-            depends_on: Vec::new(),
-            batch: None,
-        },
-    )
+    let input = SpecInput {
+        base_branch: body.base_branch,
+        executor: body.executor,
+        worker: body.worker,
+        kind: TaskKind::Run,
+        batch: None,
+    };
+    queue(&app, backlog::github_candidate(&issue, &repo, input).spec)
 }
 
 fn linear(app: &App) -> Result<lgtm_linear::Linear, ApiError> {
@@ -205,28 +190,16 @@ async fn create_task_from_linear(
         )
     })?;
     let issue = linear.issue(&identifier).await.map_err(bad_linear)?;
+    let input = SpecInput {
+        base_branch: body.base_branch,
+        executor: body.executor,
+        worker: body.worker,
+        kind: TaskKind::Run,
+        batch: None,
+    };
     queue(
         &app,
-        TaskSpec {
-            repository: body.repository,
-            base_branch: body.base_branch,
-            prompt: format!(
-                "Resolve Linear issue {}: {}\n\n{}",
-                issue.identifier, issue.title, issue.description
-            ),
-            executor: body.executor,
-            worker: body.worker,
-            issue: None,
-            linear: Some(LinearRef {
-                id: issue.id,
-                identifier: issue.identifier,
-                url: issue.url,
-            }),
-            kind: TaskKind::Run,
-            parent: None,
-            depends_on: Vec::new(),
-            batch: None,
-        },
+        backlog::linear_candidate(&issue, &body.repository, input).spec,
     )
 }
 
@@ -332,34 +305,25 @@ async fn create_batch(
 
     let mut state = app.state.lock().unwrap();
     let id = state.new_batch_id();
+    let input = SpecInput {
+        base_branch: body.base_branch.clone(),
+        executor: body.executor,
+        worker: body.worker.clone(),
+        kind: if body.plan {
+            TaskKind::Plan
+        } else {
+            TaskKind::Run
+        },
+        batch: Some(id.clone()),
+    };
     let candidates: Vec<Candidate> = match &fetched {
         Fetched::Github(repo, issues) => issues
             .iter()
-            .map(|issue| {
-                backlog::github_candidate(
-                    issue,
-                    repo,
-                    &body.base_branch,
-                    body.executor,
-                    body.worker.clone(),
-                    body.plan,
-                    &id,
-                )
-            })
+            .map(|issue| backlog::github_candidate(issue, repo, input.clone()))
             .collect(),
         Fetched::Linear(issues) => issues
             .iter()
-            .map(|issue| {
-                backlog::linear_candidate(
-                    issue,
-                    &repository,
-                    &body.base_branch,
-                    body.executor,
-                    body.worker.clone(),
-                    body.plan,
-                    &id,
-                )
-            })
+            .map(|issue| backlog::linear_candidate(issue, &repository, input.clone()))
             .collect(),
     };
     // ponytail: copies every task to compare against; an index by issue
