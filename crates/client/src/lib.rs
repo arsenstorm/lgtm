@@ -17,10 +17,10 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
 pub use types::{
-    BatchDetail, BatchRequest, BatchResponse, EventStream, FromLinear, GoalDetail, IssuePreview,
-    NewGoal, PromoteTodo, Retry, TaskDetail,
+    BatchDetail, BatchRequest, BatchResponse, EventStream, FromIssue, FromLinear, GoalDetail,
+    IssuePreview, NewGoal, PromoteTodo, Retry, TaskDetail,
 };
-use types::{ErrorBody, FollowUp, FromIssue, NewMemory, NewTodo, Notes};
+use types::{ErrorBody, FollowUp, NewMemory, NewTodo, Notes};
 
 #[derive(Clone)]
 pub struct Client {
@@ -202,25 +202,9 @@ impl Client {
 
     pub async fn create_task_from_issue(
         &self,
-        issue: &str,
-        base_branch: &str,
-        executor: lgtm_protocol::Executor,
-        worker: Option<&str>,
-        sandbox: Option<lgtm_protocol::SandboxProfile>,
-        requirements: Vec<String>,
+        body: &FromIssue<'_>,
     ) -> anyhow::Result<lgtm_protocol::Task> {
-        self.post(
-            "/api/tasks/from-issue",
-            Some(&FromIssue {
-                issue,
-                base_branch,
-                executor,
-                worker,
-                sandbox,
-                requirements,
-            }),
-        )
-        .await
+        self.post("/api/tasks/from-issue", Some(body)).await
     }
 
     pub async fn create_task_from_linear(

@@ -51,6 +51,7 @@ fn spec(executor: Executor, worker: Option<&str>) -> TaskSpec {
         sandbox: None,
         requirements: Vec::new(),
         goal: None,
+        review_executor: None,
     }
 }
 

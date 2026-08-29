@@ -44,14 +44,16 @@ pub(crate) struct NewMemory<'a> {
     pub(crate) content: &'a str,
 }
 
+/// Body of `POST /api/tasks/from-issue`.
 #[derive(Serialize)]
-pub(crate) struct FromIssue<'a> {
-    pub(crate) issue: &'a str,
-    pub(crate) base_branch: &'a str,
-    pub(crate) executor: lgtm_protocol::Executor,
-    pub(crate) worker: Option<&'a str>,
-    pub(crate) sandbox: Option<lgtm_protocol::SandboxProfile>,
-    pub(crate) requirements: Vec<String>,
+pub struct FromIssue<'a> {
+    pub issue: &'a str,
+    pub base_branch: &'a str,
+    pub executor: lgtm_protocol::Executor,
+    pub worker: Option<&'a str>,
+    pub sandbox: Option<lgtm_protocol::SandboxProfile>,
+    pub requirements: Vec<String>,
+    pub review_executor: Option<lgtm_protocol::Executor>,
 }
 
 /// Body of `POST /api/batches`.
@@ -68,6 +70,7 @@ pub struct BatchRequest {
     pub dry_run: bool,
     pub sandbox: Option<lgtm_protocol::SandboxProfile>,
     pub requirements: Vec<String>,
+    pub review_executor: Option<lgtm_protocol::Executor>,
 }
 
 /// One issue found for a batch, previewed before (or instead of) import.
@@ -121,6 +124,7 @@ pub struct FromLinear<'a> {
     pub worker: Option<&'a str>,
     pub sandbox: Option<lgtm_protocol::SandboxProfile>,
     pub requirements: Vec<String>,
+    pub review_executor: Option<lgtm_protocol::Executor>,
 }
 
 pub struct EventStream {

@@ -265,6 +265,7 @@ mod tests {
                 sandbox: None,
                 requirements: vec![],
                 goal: None,
+                review_executor: None,
             },
             status,
             worker: None,

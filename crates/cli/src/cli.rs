@@ -212,6 +212,10 @@ pub struct Target {
     /// A capability the worker must have, e.g. docker or os:windows. Repeatable.
     #[arg(long = "require")]
     pub requirements: Vec<String>,
+    /// Harness for the review pass; defaults to the repository's `[policy]
+    /// review_executor`, then auto.
+    #[arg(long, value_parser = parse_executor)]
+    pub review_with: Option<Executor>,
 }
 
 #[derive(Subcommand)]
@@ -317,6 +321,10 @@ pub struct BatchFlags {
     /// A capability the worker must have, e.g. docker or os:windows. Repeatable.
     #[arg(long = "require")]
     pub requirements: Vec<String>,
+    /// Harness for the review pass; defaults to the repository's `[policy]
+    /// review_executor`, then auto.
+    #[arg(long, value_parser = parse_executor)]
+    pub review_with: Option<Executor>,
 }
 
 fn parse_executor(s: &str) -> Result<Executor, String> {

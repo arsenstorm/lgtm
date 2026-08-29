@@ -19,6 +19,7 @@ fn spec() -> TaskSpec {
         sandbox: None,
         requirements: Vec::new(),
         goal: None,
+        review_executor: None,
     }
 }
 

@@ -46,6 +46,8 @@ pub(super) struct BatchRequest {
     sandbox: Option<SandboxProfile>,
     #[serde(default)]
     requirements: Vec<String>,
+    #[serde(default)]
+    review_executor: Option<Executor>,
 }
 
 #[derive(Serialize)]
@@ -190,6 +192,7 @@ fn candidates(
         batch: Some(id.to_string()),
         sandbox: body.sandbox,
         requirements: body.requirements.clone(),
+        review_executor: body.review_executor,
     };
     match fetched {
         Fetched::Github(repo, issues) => issues

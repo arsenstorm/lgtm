@@ -184,6 +184,9 @@ pub struct TaskSpec {
     /// The goal this task works toward.
     #[serde(default)]
     pub goal: Option<String>,
+    /// Harness for the review pass; `None` defers to `[policy] review_executor`, then auto.
+    #[serde(default)]
+    pub review_executor: Option<Executor>,
 }
 
 impl TaskSpec {
@@ -480,6 +483,9 @@ pub struct Finding {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
 pub struct Review {
     pub findings: Vec<Finding>,
+    /// Which harness reviewed; `None` on reviews recorded before this existed.
+    #[serde(default)]
+    pub executor: Option<Executor>,
 }
 
 impl Review {

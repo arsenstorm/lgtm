@@ -45,6 +45,7 @@ async fn end_to_end() {
         sandbox: None,
         requirements: vec![],
         goal: None,
+        review_executor: None,
     };
     let err = client.create_task(&spec).await.unwrap_err();
     assert!(err.to_string().contains("no eligible worker"), "{err}");

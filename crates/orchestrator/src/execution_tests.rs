@@ -21,6 +21,7 @@ fn running() -> Task {
             sandbox: None,
             requirements: Vec::new(),
             goal: None,
+            review_executor: None,
         },
         status: TaskStatus::Running,
         worker: Some("w1".into()),

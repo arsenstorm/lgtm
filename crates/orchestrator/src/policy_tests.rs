@@ -21,6 +21,7 @@ fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
             sandbox: None,
             requirements: Vec::new(),
             goal: None,
+            review_executor: None,
         },
         status,
         worker: Some("w".into()),
@@ -87,6 +88,7 @@ fn approves_a_clean_run() {
     let mut warned = task;
     result(&mut warned).review = Some(Review {
         findings: vec![finding(Severity::Warning)],
+        executor: None,
     });
     assert!(allowed(&warned), "a warning is not a reason to stop");
 }
@@ -128,6 +130,7 @@ fn every_reason_to_refuse_is_recorded() {
     }];
     res.review = Some(Review {
         findings: vec![finding(Severity::Warning), finding(Severity::Blocking)],
+        executor: None,
     });
     assert_eq!(
         reasons(&task),

@@ -65,6 +65,7 @@ pub fn compose(prompt: &str, project: Option<&str>, chips: &[Chip]) -> Option<Ta
         sandbox: None,
         requirements: vec![],
         goal: None,
+        review_executor: None,
     })
 }
 

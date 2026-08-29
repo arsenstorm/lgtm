@@ -26,6 +26,7 @@ fn sample_task() -> Task {
             sandbox: Some(SandboxProfile::Strict),
             requirements: vec!["docker".into()],
             goal: Some("g1".into()),
+            review_executor: None,
         },
         status: TaskStatus::Queued,
         worker: None,
@@ -97,6 +98,7 @@ fn every_message_round_trips() {
                 line: Some(3),
                 message: "unwrap on user input".into(),
             }],
+            executor: Some(Executor::Codex),
         }),
         policy: Some(Policy {
             auto_approve: true,

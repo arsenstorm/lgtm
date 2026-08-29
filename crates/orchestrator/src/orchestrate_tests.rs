@@ -40,6 +40,7 @@ fn spec(goal: Option<String>) -> TaskSpec {
         batch: None,
         sandbox: None,
         requirements: Vec::new(),
+        review_executor: None,
         goal,
     }
 }

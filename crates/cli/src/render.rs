@@ -202,6 +202,9 @@ pub fn print_review(review: &Review, out: &mut impl Write) -> std::io::Result<()
         return Ok(());
     }
     writeln!(out)?;
+    if let Some(executor) = review.executor {
+        writeln!(out, "reviewed by {}", executor.binary())?;
+    }
     for finding in &review.findings {
         let mark = match finding.severity {
             Severity::Blocking => '✖',
@@ -468,12 +471,14 @@ mod tests {
                     message: "no location at all".into(),
                 },
             ],
+            executor: Some(lgtm_protocol::Executor::Codex),
         };
         let mut out = Vec::new();
         print_review(&review, &mut out).unwrap();
         assert_eq!(
             String::from_utf8(out).unwrap(),
             "\n\
+             reviewed by codex\n\
              ✖ src/a.rs:3 unwrap on user input\n\
              ⚠ src/b.rs unused import\n\
              ⚠ 9 line without a file\n\

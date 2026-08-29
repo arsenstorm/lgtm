@@ -60,6 +60,7 @@ async fn end_to_end() {
         sandbox: None,
         requirements: vec![],
         goal: None,
+        review_executor: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -760,6 +761,7 @@ async fn a_memory_reaches_the_worker() {
         sandbox: None,
         requirements: vec![],
         goal: None,
+        review_executor: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))
