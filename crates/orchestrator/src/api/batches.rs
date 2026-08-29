@@ -115,39 +115,12 @@ pub(super) async fn create_batch(
 
     let mut state = app.state.lock().unwrap();
     let id = state.new_batch_id();
-    let input = SpecInput {
-        base_branch: body.base_branch.clone(),
-        executor: body.executor,
-        worker: body.worker.clone(),
-        kind: if body.plan {
-            TaskKind::Plan
-        } else {
-            TaskKind::Run
-        },
-        batch: Some(id.clone()),
-    };
-    let candidates: Vec<Candidate> = match &fetched {
-        Fetched::Github(repo, issues) => issues
-            .iter()
-            .map(|issue| backlog::github_candidate(issue, repo, input.clone()))
-            .collect(),
-        Fetched::Linear(issues) => issues
-            .iter()
-            .map(|issue| backlog::linear_candidate(issue, &repository, input.clone()))
-            .collect(),
-    };
+    let candidates = candidates(&fetched, &repository, &body, &id);
     // ponytail: copies every task to compare against; an index by issue
     // reference is the upgrade if this ever shows up in a profile.
     let existing: Vec<Task> = state.tasks.values().map(|rec| rec.task.clone()).collect();
     let selected = backlog::select(&existing, candidates, body.max);
-    let issues: Vec<IssuePreview> = selected
-        .iter()
-        .map(|candidate| IssuePreview {
-            key: candidate.key.clone(),
-            title: candidate.title.clone(),
-            url: candidate.url.clone(),
-        })
-        .collect();
+    let issues = previews(&selected);
     if body.dry_run {
         return Ok((
             StatusCode::OK,
@@ -186,6 +159,46 @@ pub(super) async fn create_batch(
             issues,
         }),
     ))
+}
+
+fn candidates(
+    fetched: &Fetched,
+    repository: &str,
+    body: &BatchRequest,
+    id: &str,
+) -> Vec<Candidate> {
+    let input = SpecInput {
+        base_branch: body.base_branch.clone(),
+        executor: body.executor,
+        worker: body.worker.clone(),
+        kind: if body.plan {
+            TaskKind::Plan
+        } else {
+            TaskKind::Run
+        },
+        batch: Some(id.to_string()),
+    };
+    match fetched {
+        Fetched::Github(repo, issues) => issues
+            .iter()
+            .map(|issue| backlog::github_candidate(issue, repo, input.clone()))
+            .collect(),
+        Fetched::Linear(issues) => issues
+            .iter()
+            .map(|issue| backlog::linear_candidate(issue, repository, input.clone()))
+            .collect(),
+    }
+}
+
+fn previews(selected: &[Candidate]) -> Vec<IssuePreview> {
+    selected
+        .iter()
+        .map(|candidate| IssuePreview {
+            key: candidate.key.clone(),
+            title: candidate.title.clone(),
+            url: candidate.url.clone(),
+        })
+        .collect()
 }
 
 /// What queueing a batch's candidates left behind: the tasks made, the ids to
