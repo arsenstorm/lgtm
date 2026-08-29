@@ -3411,6 +3411,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lgtm-diff"
+version = "0.1.0"
+
+[[package]]
 name = "lgtm-github"
 version = "0.1.0"
 dependencies = [

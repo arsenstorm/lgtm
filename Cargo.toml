@@ -16,6 +16,7 @@ lgtm-client = { path = "crates/client" }
 lgtm-github = { path = "crates/github" }
 lgtm-linear = { path = "crates/linear" }
 lgtm-agent = { path = "crates/agent" }
+lgtm-diff = { path = "crates/diff" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
