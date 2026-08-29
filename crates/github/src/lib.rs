@@ -21,49 +21,38 @@ pub fn parse_repo(url: &str) -> Option<Repo> {
     let rest = url
         .strip_prefix("https://github.com/")
         .or_else(|| url.strip_prefix("git@github.com:"))?;
-    let rest = rest.strip_suffix(".git").unwrap_or(rest);
-    let (owner, repo) = rest.split_once('/')?;
-    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
-        return None;
+    Repo::parse(rest.strip_suffix(".git").unwrap_or(rest))
+}
+
+impl Repo {
+    fn parse(s: &str) -> Option<Self> {
+        let (owner, repo) = s.split_once('/')?;
+        if owner.is_empty() || repo.is_empty() || repo.contains('/') {
+            return None;
+        }
+        Some(Repo {
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+        })
     }
-    Some(Repo {
-        owner: owner.to_string(),
-        repo: repo.to_string(),
-    })
 }
 
 /// Parses `https://github.com/o/r/issues/N`, `o/r#N`, and `github:o/r#N`.
 pub fn parse_issue(s: &str) -> Option<(Repo, u64)> {
-    if let Some(rest) = s.strip_prefix("https://github.com/") {
-        let mut parts = rest.splitn(4, '/');
-        let owner = parts.next()?;
-        let repo = parts.next()?;
-        let issues = parts.next()?;
-        let number = parts.next()?;
-        if issues != "issues" || owner.is_empty() || repo.is_empty() {
-            return None;
-        }
-        return Some((
-            Repo {
-                owner: owner.to_string(),
-                repo: repo.to_string(),
-            },
-            number.parse().ok()?,
-        ));
-    }
-    let rest = s.strip_prefix("github:").unwrap_or(s);
-    let (repo_part, number_part) = rest.split_once('#')?;
-    let (owner, repo) = repo_part.split_once('/')?;
-    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
-        return None;
-    }
-    Some((
-        Repo {
-            owner: owner.to_string(),
-            repo: repo.to_string(),
-        },
-        number_part.parse().ok()?,
-    ))
+    let (repo, number) = match s.strip_prefix("https://github.com/") {
+        Some(rest) => rest.split_once("/issues/")?,
+        None => s.strip_prefix("github:").unwrap_or(s).split_once('#')?,
+    };
+    Some((Repo::parse(repo)?, number.parse().ok()?))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewPull {
+    pub repo: Repo,
+    pub head: String,
+    pub base: String,
+    pub title: String,
+    pub body: String,
 }
 
 #[derive(Clone, Debug)]
@@ -178,22 +167,15 @@ impl GitHub {
         Ok(parse_issue_list(&items))
     }
 
-    pub async fn create_pull(
-        &self,
-        repo: &Repo,
-        head: &str,
-        base: &str,
-        title: &str,
-        body: &str,
-    ) -> anyhow::Result<PullRequest> {
-        let path = format!("/repos/{}/{}/pulls", repo.owner, repo.repo);
+    pub async fn create_pull(&self, pull: &NewPull) -> anyhow::Result<PullRequest> {
+        let path = format!("/repos/{}/{}/pulls", pull.repo.owner, pull.repo.repo);
         let req = self
             .request(reqwest::Method::POST, &path)
             .json(&serde_json::json!({
-                "title": title,
-                "body": body,
-                "head": head,
-                "base": base,
+                "title": pull.title,
+                "body": pull.body,
+                "head": pull.head,
+                "base": pull.base,
             }));
         let resp: PullResponse = Self::send_json(req).await?;
         Ok(PullRequest {
@@ -262,25 +244,20 @@ pub fn parse_issue_list(items: &[serde_json::Value]) -> Vec<Issue> {
         .collect()
 }
 
+fn run_str<'a>(run: &'a serde_json::Value, key: &str) -> &'a str {
+    run.get(key).and_then(|v| v.as_str()).unwrap_or("")
+}
+
+fn html_url(run: &serde_json::Value) -> String {
+    run_str(run, "html_url").to_string()
+}
+
 const FAILING_CONCLUSIONS: [&str; 4] = ["failure", "timed_out", "cancelled", "action_required"];
 
 /// Pure aggregation used by [`GitHub::checks`]: no runs, or any run not yet
 /// `completed`, is `Pending`; any completed run with a failing conclusion is
 /// `Failure`; otherwise `Success`.
 pub fn aggregate_checks(runs: &[serde_json::Value], fallback_url: &str) -> CiStatus {
-    let html_url = |run: &serde_json::Value| -> String {
-        run.get("html_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string()
-    };
-    fn status(run: &serde_json::Value) -> &str {
-        run.get("status").and_then(|v| v.as_str()).unwrap_or("")
-    }
-    fn conclusion(run: &serde_json::Value) -> &str {
-        run.get("conclusion").and_then(|v| v.as_str()).unwrap_or("")
-    }
-
     if runs.is_empty() {
         return CiStatus {
             state: CiState::Pending,
@@ -290,7 +267,7 @@ pub fn aggregate_checks(runs: &[serde_json::Value], fallback_url: &str) -> CiSta
 
     let first_url = html_url(&runs[0]);
 
-    if runs.iter().any(|run| status(run) != "completed") {
+    if runs.iter().any(|run| run_str(run, "status") != "completed") {
         return CiStatus {
             state: CiState::Pending,
             url: first_url,
@@ -299,7 +276,7 @@ pub fn aggregate_checks(runs: &[serde_json::Value], fallback_url: &str) -> CiSta
 
     if let Some(failing) = runs
         .iter()
-        .find(|run| FAILING_CONCLUSIONS.contains(&conclusion(run)))
+        .find(|run| FAILING_CONCLUSIONS.contains(&run_str(run, "conclusion")))
     {
         return CiStatus {
             state: CiState::Failure,

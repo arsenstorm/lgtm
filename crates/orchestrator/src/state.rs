@@ -120,11 +120,7 @@ impl TaskRecord {
 /// GitHub call itself can run without it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrPlan {
-    pub repo: lgtm_github::Repo,
-    pub head: String,
-    pub base: String,
-    pub title: String,
-    pub body: String,
+    pub pull: lgtm_github::NewPull,
     /// Head sha to poll checks for, empty when the worker did not report one.
     pub sha: String,
 }
@@ -540,7 +536,7 @@ impl State {
             body.push_str(&format!("Closes #{}\n\n", issue.number));
         }
         body.push_str(&format!("Created by LGTM task {task_id}"));
-        Some(PrPlan {
+        let pull = lgtm_github::NewPull {
             repo,
             head: format!("lgtm/{task_id}"),
             base: spec.base_branch.clone(),
@@ -553,6 +549,9 @@ impl State {
                 .take(TITLE_MAX)
                 .collect(),
             body,
+        };
+        Some(PrPlan {
+            pull,
             sha: rec.pushed_sha().unwrap_or_default(),
         })
     }

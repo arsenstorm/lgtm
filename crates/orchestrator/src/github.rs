@@ -22,10 +22,7 @@ pub fn open_pull_request(app: Arc<App>, task_id: TaskId, plan: PrPlan) {
         return;
     };
     tokio::spawn(async move {
-        let opened = github
-            .create_pull(&plan.repo, &plan.head, &plan.base, &plan.title, &plan.body)
-            .await;
-        match opened {
+        match github.create_pull(&plan.pull).await {
             Ok(pr) => {
                 tracing::info!(task = %task_id, pull = pr.number, "pull request opened");
                 {
@@ -37,7 +34,7 @@ pub fn open_pull_request(app: Arc<App>, task_id: TaskId, plan: PrPlan) {
                 }
                 crate::linear::after_transition(&app, &task_id, TaskStatus::Approved, true);
                 if !plan.sha.is_empty() {
-                    poll_ci(app, task_id, plan.repo, plan.sha);
+                    poll_ci(app, task_id, plan.pull.repo, plan.sha);
                 }
             }
             Err(err) => {
