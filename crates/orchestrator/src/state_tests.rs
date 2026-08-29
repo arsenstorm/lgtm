@@ -466,6 +466,62 @@ fn message_requires_awaiting_review() {
     );
 }
 
+/// The last follow-up the worker was sent, ignoring everything else on the
+/// socket.
+fn last_message(rx: &mut mpsc::UnboundedReceiver<OrchestratorMessage>) -> Option<String> {
+    let mut last = None;
+    while let Ok(msg) = rx.try_recv() {
+        if let OrchestratorMessage::Message { text, .. } = msg {
+            last = Some(text);
+        }
+    }
+    last
+}
+
+#[test]
+fn a_conflict_becomes_work_for_the_agent() {
+    let mut state = State::default();
+    let mut a = connect(&mut state, "a", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(
+        &id,
+        TaskEvent::Completed {
+            result: TaskResult {
+                branch: format!("lgtm/{id}"),
+                diff: "diff".into(),
+                changed_files: vec!["a.rs".into()],
+                validation: Vec::new(),
+                plan: None,
+                review: None,
+                policy: None,
+                cost_usd: 0.0,
+            },
+        },
+    );
+    state.apply_event(
+        &id,
+        TaskEvent::Conflicted {
+            base: "main".into(),
+            files: vec!["a.rs".into(), "b.rs".into()],
+        },
+    );
+    assert_eq!(status(&state, &id), TaskStatus::Conflicted);
+    assert!(
+        state.workers["a"].running.is_empty(),
+        "a push takes no slot to free"
+    );
+
+    let (task, changed) = state.message(&id, "keep going".into()).unwrap();
+    assert_eq!(task.status, TaskStatus::ChangesRequested);
+    assert!(changed.contains(&id));
+    assert_eq!(
+        last_message(&mut a).unwrap(),
+        "The branch conflicts with main on: a.rs, b.rs. Rebase onto origin/main, \
+         resolve the conflicts, finish the rebase, then continue with: keep going"
+    );
+}
+
 /// A retry that changes nothing about where the task runs.
 fn same_place() -> RetryInto {
     RetryInto {

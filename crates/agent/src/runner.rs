@@ -1,6 +1,6 @@
 //! Task lifecycle: worktree, executor process, commit, validation, push, discard.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, Result};
@@ -10,8 +10,8 @@ use tokio::sync::oneshot;
 use crate::automation::{execute, recorded_session, restore_notes, with_notes, Run};
 use crate::connection::Ctx;
 use crate::git::{
-    add_worktree, branch_name, fetch, git, mirror_path, remove_worktree, session_path, task_path,
-    worktree_path,
+    add_worktree, branch_name, fetch, git, mirror_path, rebase_onto, remove_worktree, session_path,
+    task_path, worktree_path,
 };
 use crate::plan::{planning_prompt, revision_prompt};
 
@@ -81,6 +81,15 @@ async fn run(
     execute(Run::new(task, &worktree, ctx, cancel), &prompt, None).await
 }
 
+/// The task as the orchestrator sent it, or `None` when this worker has no
+/// file for it any more.
+async fn stored_task(ctx: &Arc<Ctx>, task_id: &str) -> Option<Task> {
+    let bytes = tokio::fs::read(task_path(&ctx.data_dir, task_id))
+        .await
+        .ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 async fn resume(
     task_id: &TaskId,
     text: &str,
@@ -88,11 +97,7 @@ async fn resume(
     ctx: &Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) -> Result<()> {
-    let stored = tokio::fs::read(task_path(&ctx.data_dir, task_id))
-        .await
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Task>(&bytes).ok());
-    let Some(task) = stored else {
+    let Some(task) = stored_task(ctx, task_id).await else {
         bail!("task unknown to this worker (restarted?)");
     };
     let worktree = worktree_path(&ctx.data_dir, task_id);
@@ -134,7 +139,36 @@ async fn prepare_repo(task: &Task, ctx: &Arc<Ctx>) -> Result<PathBuf> {
 }
 
 pub async fn push_task(task_id: TaskId, ctx: Arc<Ctx>) {
-    let worktree = worktree_path(&ctx.data_dir, &task_id).display().to_string();
+    let worktree = worktree_path(&ctx.data_dir, &task_id);
+    // ponytail: a clean rebase is not re-validated, so the branch is only
+    // proven to apply, not to still pass; running the repository's checks
+    // again here is the upgrade once a rebase starts breaking tasks.
+    match rebase_for_push(&task_id, &worktree, &ctx).await {
+        Ok(true) => push(task_id, &worktree, &ctx).await,
+        Ok(false) => {}
+        Err(err) => ctx.fail(&task_id, err),
+    }
+}
+
+/// Rebases the task's branch onto its base before the push. `false` means the
+/// branch conflicts, which is work for the agent instead of a push.
+async fn rebase_for_push(task_id: &str, worktree: &Path, ctx: &Arc<Ctx>) -> Result<bool> {
+    let Some(task) = stored_task(ctx, task_id).await else {
+        tracing::warn!("no task file for {task_id} (restarted?), pushing without a rebase");
+        return Ok(true);
+    };
+    let base = task.spec.base_branch;
+    match rebase_onto(worktree, &base).await? {
+        Ok(()) => Ok(true),
+        Err(files) => {
+            ctx.emit(task_id, TaskEvent::Conflicted { base, files });
+            Ok(false)
+        }
+    }
+}
+
+async fn push(task_id: TaskId, worktree: &Path, ctx: &Arc<Ctx>) {
+    let worktree = worktree.display().to_string();
     let branch = branch_name(&task_id);
     match git(&["-C", &worktree, "push", "-u", "origin", &branch], None).await {
         Ok(_) => {

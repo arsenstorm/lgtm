@@ -28,6 +28,8 @@ pub async fn stream(client: &Client, task_id: &str, from: usize) -> anyhow::Resu
                 eprintln!("error: {error}");
                 return Ok(1);
             }
+            // `render` already printed the base and the conflicting files.
+            TaskEvent::Conflicted { .. } => return Ok(1),
             TaskEvent::TimedOut { secs } => {
                 eprintln!("error: timed out after {secs}s");
                 return Ok(1);

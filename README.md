@@ -50,6 +50,9 @@ to add it to the fleet.
   reviews the diff and reports findings.
 - `lgtm approve`, `reject`, `cancel`, `retry`, and `merge` drive a task to a
   pull request and into `main`.
+- Approving rebases the branch onto its base before pushing; a conflict shows
+  as `conflicted` and `lgtm tell <id> "…"` has the agent resolve it. The
+  repository's checks are not run again after a clean rebase.
 - `lgtm tasks`, `show`, `logs`, `diff`, and `workers` show what is going on.
 - Policy in the repository can retry, fix failing checks, and auto-approve
   or auto-merge.

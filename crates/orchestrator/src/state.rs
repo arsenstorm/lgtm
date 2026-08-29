@@ -511,6 +511,8 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
         TaskEvent::RunnerLost => (Some(TaskStatus::RunnerLost), true),
         TaskEvent::Cancelled => (Some(TaskStatus::Cancelled), true),
         TaskEvent::Pushed { .. } => (Some(TaskStatus::Approved), false),
+        // A push runs outside an agent run, so no slot was taken to free.
+        TaskEvent::Conflicted { .. } => (Some(TaskStatus::Conflicted), false),
         TaskEvent::Discarded => (Some(TaskStatus::Rejected), false),
         TaskEvent::Message { .. } => (Some(TaskStatus::ChangesRequested), false),
         // `retry` sets the status itself: this is the one move out of a

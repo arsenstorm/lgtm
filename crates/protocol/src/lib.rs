@@ -77,6 +77,9 @@ pub enum TaskStatus {
     AwaitingReview,
     /// A follow-up was sent; the run for it has not started yet.
     ChangesRequested,
+    /// The branch no longer rebases onto its base; a follow-up asks the agent
+    /// to resolve it.
+    Conflicted,
     Approved,
     /// The pull request was merged from LGTM.
     Merged,
@@ -326,7 +329,12 @@ pub fn goal_status(tasks: &[&Task]) -> GoalStatus {
         )
     }) {
         GoalStatus::Running
-    } else if any(|t| t.status == TaskStatus::AwaitingReview) {
+    } else if any(|t| {
+        matches!(
+            t.status,
+            TaskStatus::AwaitingReview | TaskStatus::Conflicted
+        )
+    }) {
         GoalStatus::Review
     } else if all(|t| matches!(t.status, TaskStatus::Approved | TaskStatus::Merged)) {
         GoalStatus::Completed

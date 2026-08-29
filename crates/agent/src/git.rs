@@ -116,6 +116,39 @@ pub async fn fetch(mirror: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Brings the worktree's branch up to date with `base`. The outer `Err` is
+/// git itself failing; `Ok(Err(files))` is a conflict, already aborted, with
+/// the paths that stopped the rebase.
+pub async fn rebase_onto(worktree: &Path, base: &str) -> Result<Result<(), Vec<String>>> {
+    let worktree_s = worktree.display().to_string();
+    // The mirror is a bare clone with no fetch refspec of its own, so
+    // `origin/<base>` only moves when the refspec is spelled out.
+    let refspec = format!("+refs/heads/{base}:refs/remotes/origin/{base}");
+    git(&["-C", &worktree_s, "fetch", "origin", &refspec], None).await?;
+    let onto = format!("origin/{base}");
+    let mut args = IDENTITY.to_vec();
+    args.extend_from_slice(&["-C", &worktree_s, "rebase", &onto]);
+    if git(&args, None).await.is_ok() {
+        return Ok(Ok(()));
+    }
+    let unmerged = git(
+        &["-C", &worktree_s, "diff", "--name-only", "--diff-filter=U"],
+        None,
+    )
+    .await?;
+    let files = conflicted_files(&unmerged);
+    git(&["-C", &worktree_s, "rebase", "--abort"], None).await?;
+    Ok(Err(files))
+}
+
+fn conflicted_files(out: &str) -> Vec<String> {
+    out.lines()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// Creates the task's worktree on a fresh branch, replacing any leftover from
 /// an earlier run of the same task.
 pub async fn add_worktree(
@@ -269,6 +302,16 @@ mod tests {
             "*.log\n.lgtm/scratchpad.md\n"
         );
         assert_eq!(with_line("*.log\n.lgtm/scratchpad.md\n", SCRATCHPAD), None);
+    }
+
+    #[test]
+    fn conflicted_files_are_one_per_line() {
+        assert_eq!(
+            conflicted_files("src/a.rs\nsrc/b.rs\n"),
+            vec!["src/a.rs".to_string(), "src/b.rs".to_string()]
+        );
+        assert!(conflicted_files("").is_empty());
+        assert!(conflicted_files("\n \n").is_empty());
     }
 
     #[test]

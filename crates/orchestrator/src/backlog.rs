@@ -134,7 +134,8 @@ pub fn summary(tasks: &[&Task], state: &State) -> BatchSummary {
             TaskStatus::Queued => &mut out.queued,
             // A follow-up is work in flight, not something waiting on a person.
             TaskStatus::Running | TaskStatus::ChangesRequested => &mut out.running,
-            TaskStatus::AwaitingReview => &mut out.awaiting_review,
+            // A conflict waits on a person or on the follow-up they send.
+            TaskStatus::AwaitingReview | TaskStatus::Conflicted => &mut out.awaiting_review,
             TaskStatus::Approved => &mut out.approved,
             TaskStatus::Merged => &mut out.merged,
             // Both are failures a person has to look at; a separate column

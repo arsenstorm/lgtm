@@ -166,6 +166,10 @@ fn every_message_round_trips() {
         },
         TaskEvent::AutoApproved,
         TaskEvent::AutoMerged,
+        TaskEvent::Conflicted {
+            base: "main".into(),
+            files: vec!["src/lib.rs".into()],
+        },
         TaskEvent::Pushed {
             branch: "lgtm/0123abcd".into(),
             sha: "abc123".into(),
@@ -637,6 +641,17 @@ fn overlaps_only_with_live_tasks_in_the_same_repository() {
         }]
     );
     assert!(overlaps(&apart, &others).is_empty());
+}
+
+#[test]
+fn conflicted_is_live_work_and_keeps_its_wire_name() {
+    assert!(!TaskStatus::Conflicted.is_terminal());
+    let json = serde_json::to_string(&TaskStatus::Conflicted).unwrap();
+    assert_eq!(json, "\"conflicted\"");
+    assert_eq!(
+        serde_json::from_str::<TaskStatus>(&json).unwrap(),
+        TaskStatus::Conflicted
+    );
 }
 
 #[test]
