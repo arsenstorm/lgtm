@@ -2,7 +2,7 @@
 //! palette from the tokens it picks.
 
 use gpui::{px, App, Global, Hsla, Window};
-use gpui_component::{Theme, ThemeMode};
+use gpui_component::{Theme, ThemeColor, ThemeMode};
 
 use super::{dark, light, Tokens, MONO_FONT, RADIUS_PILL, TEXT_BODY, TEXT_MONO, UI_FONT};
 
@@ -113,6 +113,12 @@ pub fn apply(window: Option<&mut Window>, cx: &mut App) {
 
 fn paint(t: &Tokens, dark_mode: bool, cx: &mut App) {
     let theme = Theme::global_mut(cx);
+    paint_type(theme);
+    paint_colors(&mut theme.colors, t);
+    paint_widgets(&mut theme.colors, t, dark_mode);
+}
+
+fn paint_type(theme: &mut Theme) {
     theme.font_family = UI_FONT.into();
     theme.font_size = px(TEXT_BODY);
     theme.mono_font_family = MONO_FONT.into();
@@ -122,8 +128,10 @@ fn paint(t: &Tokens, dark_mode: bool, cx: &mut App) {
     theme.radius = px(RADIUS_PILL);
     theme.radius_lg = px(RADIUS_PILL);
     theme.shadow = false;
+}
 
-    let c = &mut theme.colors;
+/// The palette proper: what shadcn calls the semantic colours.
+fn paint_colors(c: &mut ThemeColor, t: &Tokens) {
     c.background = t.bg;
     c.foreground = t.fg;
     c.border = t.border;
@@ -154,6 +162,10 @@ fn paint(t: &Tokens, dark_mode: bool, cx: &mut App) {
     c.selection = t.selection;
     c.popover = t.popover;
     c.popover_foreground = t.fg;
+}
+
+/// Per-widget colours gpui-component reads on top of the palette.
+fn paint_widgets(c: &mut ThemeColor, t: &Tokens, dark_mode: bool) {
     c.list = t.bg;
     c.list_active = t.muted;
     c.list_active_border = t.border;
