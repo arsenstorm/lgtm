@@ -21,4 +21,4 @@ futures-util.workspace = true
 dirs.workspace = true
 gpui = "0.2.2"
 gpui-component = "0.5.1"
-toml = "0.8"
+toml = "1.1"

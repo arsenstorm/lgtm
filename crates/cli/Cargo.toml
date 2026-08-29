@@ -27,6 +27,6 @@ tracing-subscriber.workspace = true
 # -p lgtm-cli`), so `--ca` support adds no new crates to the build.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-pemfile = "2"
-webpki-roots = "0.26"
+webpki-roots = "1.0"
 # New dep: `lgtm upgrade` verifies a downloaded release against SHA256SUMS.
-sha2 = "0.10"
+sha2 = "0.11"
