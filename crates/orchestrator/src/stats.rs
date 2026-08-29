@@ -26,7 +26,7 @@ fn count_status(stats: &mut Stats, status: TaskStatus) {
 fn first_started_at(events: &[StoredEvent]) -> Option<u64> {
     events
         .iter()
-        .find(|e| matches!(e.event, TaskEvent::Started))
+        .find(|e| matches!(e.event, TaskEvent::Started { .. }))
         .map(|e| e.at)
 }
 

@@ -27,6 +27,7 @@ fn sample_task() -> Task {
             requirements: vec!["docker".into()],
             goal: Some("g1".into()),
             review_executor: None,
+            model: Some("opus".into()),
         },
         status: TaskStatus::Queued,
         worker: None,
@@ -45,6 +46,7 @@ fn sample_task() -> Task {
             attempt: 1,
             worker: "compute".into(),
             executor: Executor::Claude,
+            model: Some("claude-opus-4".into()),
             started_at: 2,
             finished_at: Some(3),
             status: ExecutionStatus::Completed,
@@ -112,7 +114,9 @@ fn every_message_round_trips() {
     assert!(result.review.as_ref().unwrap().has_blocking());
     assert!(result.validation_failed());
     for event in [
-        TaskEvent::Started,
+        TaskEvent::Started {
+            model: Some("opus".into()),
+        },
         TaskEvent::Message {
             text: "use the existing helper".into(),
         },
@@ -273,8 +277,11 @@ fn phase_one_frames_still_parse() {
     assert!(task.scratchpad.is_empty());
     assert!(task.spec.sandbox.is_none());
     assert!(task.spec.requirements.is_empty());
+    assert!(task.spec.model.is_none());
     let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
     assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
+    let started: TaskEvent = serde_json::from_str(r#"{"type":"started"}"#).unwrap();
+    assert!(matches!(started, TaskEvent::Started { model: None }));
 }
 
 fn memory(repository: Option<&str>, content: &str) -> Memory {
@@ -563,7 +570,7 @@ fn attention_names_the_task_and_why() {
 fn routine_events_want_nobody() {
     let task = attention_task("p", TaskStatus::Running, None);
     for event in [
-        TaskEvent::Started,
+        TaskEvent::Started { model: None },
         TaskEvent::AutoApproved,
         TaskEvent::Cancelled,
         TaskEvent::Discarded,

@@ -31,6 +31,7 @@ fn seed(dir: &std::path::Path) {
             sandbox: None,
             requirements: Vec::new(),
             review_executor: None,
+            model: None,
             goal: None,
         },
         status: TaskStatus::AwaitingReview,

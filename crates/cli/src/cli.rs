@@ -216,6 +216,10 @@ pub struct Target {
     /// review_executor`, then auto.
     #[arg(long, value_parser = parse_executor)]
     pub review_with: Option<Executor>,
+    /// Model for the harness to run, e.g. opus or gpt-5-codex. Defaults to
+    /// the harness's own default.
+    #[arg(long)]
+    pub model: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -325,6 +329,10 @@ pub struct BatchFlags {
     /// review_executor`, then auto.
     #[arg(long, value_parser = parse_executor)]
     pub review_with: Option<Executor>,
+    /// Model for the harness to run, e.g. opus or gpt-5-codex. Defaults to
+    /// the harness's own default.
+    #[arg(long)]
+    pub model: Option<String>,
 }
 
 fn parse_executor(s: &str) -> Result<Executor, String> {

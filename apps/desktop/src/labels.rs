@@ -88,6 +88,7 @@ mod tests {
                 requirements: vec![],
                 goal: None,
                 review_executor: None,
+                model: None,
             },
             status,
             worker: None,

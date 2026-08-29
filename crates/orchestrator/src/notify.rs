@@ -71,6 +71,7 @@ mod tests {
                 requirements: Vec::new(),
                 goal: None,
                 review_executor: None,
+                model: None,
             },
             status: TaskStatus::AwaitingReview,
             worker: None,

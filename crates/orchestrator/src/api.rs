@@ -184,6 +184,7 @@ struct FromIssueBody {
     requirements: Vec<String>,
     #[serde(default)]
     review_executor: Option<Executor>,
+    model: Option<String>,
 }
 
 async fn create_task_from_issue(
@@ -208,6 +209,7 @@ async fn create_task_from_issue(
         sandbox: body.sandbox,
         requirements: body.requirements,
         review_executor: body.review_executor,
+        model: body.model,
     };
     queue(&app, backlog::github_candidate(&issue, &repo, input).spec)
 }
@@ -237,6 +239,7 @@ struct FromLinearBody {
     requirements: Vec<String>,
     #[serde(default)]
     review_executor: Option<Executor>,
+    model: Option<String>,
 }
 
 async fn create_task_from_linear(
@@ -261,6 +264,7 @@ async fn create_task_from_linear(
         sandbox: body.sandbox,
         requirements: body.requirements,
         review_executor: body.review_executor,
+        model: body.model,
     };
     queue(
         &app,

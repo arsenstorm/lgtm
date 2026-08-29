@@ -52,6 +52,7 @@ fn candidate(number: u64) -> Candidate {
         sandbox: None,
         requirements: Vec::new(),
         review_executor: None,
+        model: None,
     };
     github_candidate(&issue(number), &repo(), input)
 }
@@ -67,6 +68,7 @@ fn github_candidate_builds_the_from_issue_shape() {
         sandbox: None,
         requirements: Vec::new(),
         review_executor: None,
+        model: None,
     };
     let candidate = github_candidate(&issue(12), &repo(), input);
     assert_eq!(candidate.key, "#12");
@@ -183,7 +185,7 @@ fn batch_with_plan(state: &mut State, approve_plans: bool) -> TaskId {
             approve_plans,
         },
     );
-    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(&id, TaskEvent::Started { model: None });
     state.apply_event(
         &id,
         TaskEvent::Completed {

@@ -5,8 +5,8 @@ use lgtm_protocol::{Execution, ExecutionStatus, Task, TaskEvent};
 
 /// Folds one event into `task.executions`.
 pub fn record(task: &mut Task, event: &TaskEvent, now: u64) {
-    if let TaskEvent::Started = event {
-        return start(task, now);
+    if let TaskEvent::Started { model } = event {
+        return start(task, model.clone(), now);
     }
     let Some(exec) = task
         .executions
@@ -44,7 +44,7 @@ pub fn record(task: &mut Task, event: &TaskEvent, now: u64) {
 
 /// A fix-the-checks or review run reports `Started` again inside the attempt
 /// that is already open, so only a closed history opens a new one.
-fn start(task: &mut Task, now: u64) {
+fn start(task: &mut Task, model: Option<String>, now: u64) {
     let open = task
         .executions
         .last()
@@ -56,6 +56,7 @@ fn start(task: &mut Task, now: u64) {
         attempt: task.executions.len() as u32 + 1,
         worker: task.worker.clone().unwrap_or_default(),
         executor: task.spec.executor,
+        model,
         started_at: now,
         finished_at: None,
         status: ExecutionStatus::Running,

@@ -17,7 +17,8 @@ use crate::table::wire_str;
 
 pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
     match event {
-        TaskEvent::Started => writeln!(out, "agent started"),
+        TaskEvent::Started { model: Some(m) } => writeln!(out, "agent started ({m})"),
+        TaskEvent::Started { .. } => writeln!(out, "agent started"),
         TaskEvent::Message { text } => writeln!(out, "> {text}"),
         TaskEvent::Output {
             stream: OutputStream::Stderr,
@@ -124,9 +125,13 @@ pub fn print_executions(execs: &[Execution], out: &mut impl Write) -> std::io::R
             .finished_at
             .unwrap_or(exec.started_at)
             .saturating_sub(exec.started_at);
+        let model = exec
+            .model
+            .as_deref()
+            .map_or(String::new(), |m| format!(" [{m}]"));
         writeln!(
             out,
-            "attempt {}: {status} on {} ({}) {}",
+            "attempt {}: {status} on {} ({}){model} {}",
             exec.attempt,
             exec.worker,
             exec.executor.binary(),
@@ -300,6 +305,20 @@ mod tests {
         let mut out = Vec::new();
         render(event, &mut out).unwrap();
         String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn started_names_the_requested_model_when_one_was_asked_for() {
+        assert_eq!(
+            rendered(&TaskEvent::Started {
+                model: Some("opus".into())
+            }),
+            "agent started (opus)\n"
+        );
+        assert_eq!(
+            rendered(&TaskEvent::Started { model: None }),
+            "agent started\n"
+        );
     }
 
     #[test]
@@ -491,6 +510,7 @@ mod tests {
             attempt,
             worker: "w1".into(),
             executor: lgtm_protocol::Executor::Claude,
+            model: None,
             started_at: 1_000,
             finished_at,
             status,
@@ -523,6 +543,24 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "\n\
              attempt 1: failed on w1 (claude) 1m30s\n\
+             attempt 2: running on w1 (claude) 0m0s\n"
+        );
+    }
+
+    #[test]
+    fn print_executions_names_the_model_when_one_ran() {
+        let mut exec = execution(1, ExecutionStatus::Completed, Some(2_000));
+        exec.model = Some("opus".into());
+        let mut out = Vec::new();
+        print_executions(
+            &[exec, execution(2, ExecutionStatus::Running, None)],
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "\n\
+             attempt 1: completed on w1 (claude) [opus] 0m1s\n\
              attempt 2: running on w1 (claude) 0m0s\n"
         );
     }

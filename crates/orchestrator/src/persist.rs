@@ -347,6 +347,7 @@ mod tests {
                 sandbox: None,
                 requirements: Vec::new(),
                 review_executor: None,
+                model: None,
                 goal: None,
             },
             status: TaskStatus::Queued,
@@ -364,7 +365,7 @@ mod tests {
     fn event(at: u64) -> StoredEvent {
         StoredEvent {
             at,
-            event: TaskEvent::Started,
+            event: TaskEvent::Started { model: None },
         }
     }
 

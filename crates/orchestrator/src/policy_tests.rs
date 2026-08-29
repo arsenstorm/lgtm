@@ -22,6 +22,7 @@ fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
             requirements: Vec::new(),
             goal: None,
             review_executor: None,
+            model: None,
         },
         status,
         worker: Some("w".into()),
