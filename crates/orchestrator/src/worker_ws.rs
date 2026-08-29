@@ -65,6 +65,14 @@ async fn run(app: Arc<App>, socket: WebSocket) {
         match frame {
             Message::Text(text) => match serde_json::from_str::<WorkerMessage>(&text) {
                 Ok(WorkerMessage::Event { task_id, event }) => apply(&app, &task_id, event),
+                // Deliberate exit: forget the worker now. `disconnect` below
+                // finds nothing left and so starts no grace timer.
+                Ok(WorkerMessage::Goodbye) => {
+                    let mut state = app.state.lock().unwrap();
+                    let changed = state.worker_goodbye(&info.name, conn_id);
+                    app.persist_ids(&state, &changed);
+                    break;
+                }
                 Ok(WorkerMessage::Hello { .. }) => {}
                 Err(err) => tracing::warn!(worker = %info.name, %err, "bad worker frame"),
             },

@@ -28,7 +28,11 @@ async fn end_to_end() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);
-    tokio::spawn(lgtm_orchestrator::serve(addr, "tok".into(), dir.clone()));
+    tokio::spawn(lgtm_orchestrator::serve_plain(
+        addr,
+        "tok".into(),
+        dir.clone(),
+    ));
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let base = format!("http://{addr}");
     let http = reqwest::Client::new();
@@ -84,6 +88,7 @@ async fn end_to_end() {
         arch: "x86_64".into(),
         executors: vec![Executor::Claude],
         slots: 1,
+        ephemeral: false,
     };
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Hello {
@@ -329,6 +334,7 @@ async fn end_to_end() {
         arch: "x86_64".into(),
         executors: vec![Executor::Claude],
         slots: 1,
+        ephemeral: false,
     };
     w1.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Hello {
@@ -447,6 +453,7 @@ async fn end_to_end() {
         arch: "x86_64".into(),
         executors: vec![Executor::Claude],
         slots: 1,
+        ephemeral: false,
     };
     bad.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Hello {
@@ -535,7 +542,11 @@ async fn end_to_end() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr2 = listener.local_addr().unwrap();
     drop(listener);
-    tokio::spawn(lgtm_orchestrator::serve(addr2, "tok".into(), dir.clone()));
+    tokio::spawn(lgtm_orchestrator::serve_plain(
+        addr2,
+        "tok".into(),
+        dir.clone(),
+    ));
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let tasks: Vec<Task> = http
         .get(format!("http://{addr2}/api/tasks"))

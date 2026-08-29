@@ -60,6 +60,8 @@ impl Render for MissingConfig {
 }
 
 fn main() {
+    // ring and aws-lc-rs can both be linked; rustls will not guess.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let config = load_config();
     Application::new().run(move |cx: &mut App| {
         gpui_component::init(cx);

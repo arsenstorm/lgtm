@@ -41,6 +41,9 @@ impl App {
 pub struct State {
     pub workers: HashMap<String, WorkerConn>,
     pub tasks: HashMap<TaskId, TaskRecord>,
+    /// Accept tasks no connected worker can run, because provisioning is on
+    /// and a worker for them is a queue away.
+    pub queue_without_workers: bool,
 }
 
 /// A live worker socket.
@@ -67,7 +70,7 @@ impl WorkerConn {
         self.conn.is_some()
     }
 
-    fn free_slots(&self) -> u32 {
+    pub(crate) fn free_slots(&self) -> u32 {
         let running = u32::try_from(self.running.len()).unwrap_or(u32::MAX);
         self.info.slots.saturating_sub(running)
     }
@@ -193,10 +196,10 @@ impl State {
             }
             return Ok(());
         }
-        let any = self
-            .workers
-            .values()
-            .any(|worker| worker.is_connected() && worker.info.executors.contains(&spec.executor));
+        let any = self.queue_without_workers
+            || self.workers.values().any(|worker| {
+                worker.is_connected() && worker.info.executors.contains(&spec.executor)
+            });
         any.then_some(()).ok_or_else(|| "no eligible worker".into())
     }
 
@@ -359,12 +362,34 @@ impl State {
         if worker.is_connected() || worker.generation != generation {
             return Vec::new();
         }
-        let running: Vec<TaskId> = worker.running.iter().cloned().collect();
-        self.workers.remove(name);
-        tracing::info!(worker = %name, tasks = running.len(), "worker grace period expired");
+        tracing::info!(worker = %name, "worker grace period expired");
+        self.remove_worker(name, "worker disconnected")
+    }
+
+    /// The worker said it is exiting on purpose, so there is nothing to wait
+    /// for: it goes away now. A no-op if a newer socket owns the name.
+    pub fn worker_goodbye(&mut self, name: &str, conn_id: u64) -> Vec<TaskId> {
+        let worker = self.workers.get(name).filter(|worker| {
+            worker
+                .conn
+                .as_ref()
+                .is_some_and(|conn| conn.conn_id == conn_id)
+        });
+        if worker.is_none() {
+            return Vec::new();
+        }
+        tracing::info!(worker = %name, "worker said goodbye");
+        self.remove_worker(name, "worker exited")
+    }
+
+    /// Forgets the worker and fails whatever it still had running.
+    fn remove_worker(&mut self, name: &str, error: &str) -> Vec<TaskId> {
+        let Some(worker) = self.workers.remove(name) else {
+            return Vec::new();
+        };
         let mut changed = Vec::new();
-        for id in running {
-            changed.extend(self.fail_unfinished(&id, "worker disconnected"));
+        for id in worker.running {
+            changed.extend(self.fail_unfinished(&id, error));
         }
         changed
     }

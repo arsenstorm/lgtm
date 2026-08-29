@@ -17,7 +17,11 @@ async fn end_to_end() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);
-    tokio::spawn(lgtm_orchestrator::serve(addr, "tok".into(), dir.clone()));
+    tokio::spawn(lgtm_orchestrator::serve_plain(
+        addr,
+        "tok".into(),
+        dir.clone(),
+    ));
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
     let client = Client::new(format!("http://{addr}"), "tok");
@@ -49,6 +53,7 @@ async fn end_to_end() {
         arch: "x86_64".into(),
         executors: vec![Executor::Claude],
         slots: 1,
+        ephemeral: false,
     };
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Hello {

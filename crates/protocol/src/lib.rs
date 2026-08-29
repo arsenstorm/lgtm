@@ -250,6 +250,9 @@ pub struct WorkerInfo {
     /// Maximum tasks the worker runs at once.
     #[serde(default = "one")]
     pub slots: u32,
+    /// Exits after its tasks; the orchestrator forgets it at once on `Goodbye`.
+    #[serde(default)]
+    pub ephemeral: bool,
 }
 
 fn one() -> u32 {
@@ -338,6 +341,8 @@ pub enum WorkerMessage {
         task_id: TaskId,
         event: TaskEvent,
     },
+    /// The worker is exiting on purpose and runs nothing.
+    Goodbye,
 }
 
 /// Orchestrator → worker, over the worker WebSocket.
@@ -423,6 +428,7 @@ mod tests {
             arch: "x86_64".into(),
             executors: vec![Executor::Claude],
             slots: 2,
+            ephemeral: true,
         };
         let result = TaskResult {
             branch: "lgtm/0123abcd".into(),
@@ -500,6 +506,7 @@ mod tests {
             info: info.clone(),
             running: vec!["0123abcd".into()],
         });
+        round_trip(WorkerMessage::Goodbye);
         round_trip(WorkerStatus {
             info,
             running: vec!["0123abcd".into()],
@@ -534,6 +541,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(info.slots, 1);
+        assert!(!info.ephemeral);
         let hello: WorkerMessage = serde_json::from_str(
             r#"{"type":"hello","token":"t","info":{"name":"w","os":"linux","arch":"x86_64","executors":[]}}"#,
         )

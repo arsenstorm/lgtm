@@ -182,6 +182,16 @@ On a remote worker, point `lgtm-agent --orchestrator ws://<host>:4750` at the
 machine running `lgtm serve`. Checks: `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
 
+### Remote and ephemeral workers
+
+Workers connect out, so they can run anywhere: another machine, a
+container, a spot instance. `docker/agent.Dockerfile` builds a worker image
+(`lgtm-agent` plus the Claude Code CLI). See
+[docs/remote-workers.md](docs/remote-workers.md) for TLS with a self-signed
+certificate, `--ephemeral`/`--max-tasks` workers that clean themselves up,
+having the orchestrator provision workers on demand, and running over
+Tailscale with no TLS at all.
+
 ## Docs
 
 - [docs/implementation-plan.md](docs/implementation-plan.md) — architecture

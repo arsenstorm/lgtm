@@ -2,19 +2,24 @@
 //! the task events WebSocket. This is the library form of `crates/cli`'s
 //! `http.rs` + `run.rs`, for other Rust frontends (e.g. the desktop app).
 
+use std::sync::Arc;
+
 use futures_util::StreamExt;
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::CertificateDer;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{Connector, MaybeTlsStream, WebSocketStream};
 
 #[derive(Clone)]
 pub struct Client {
     base: String,
     token: String,
     http: reqwest::Client,
+    connector: Option<Connector>,
 }
 
 #[derive(Deserialize)]
@@ -58,7 +63,52 @@ impl Client {
             base: orchestrator.into().trim_end_matches('/').to_string(),
             token: token.into(),
             http: reqwest::Client::new(),
+            connector: None,
         }
+    }
+
+    /// Like [`Client::new`], but trusts `ca_pem` (a PEM-encoded CA certificate)
+    /// in addition to the platform's webpki roots, for both the HTTP client
+    /// and the events WebSocket.
+    pub fn with_ca(
+        orchestrator: impl Into<String>,
+        token: impl Into<String>,
+        ca_pem: &[u8],
+    ) -> anyhow::Result<Self> {
+        // `reqwest::Certificate::from_pem` and rustls's own PEM iterator both
+        // parse leniently and quietly accept zero certificates, so garbage
+        // input has to be rejected here instead.
+        let certs: Vec<CertificateDer<'static>> =
+            CertificateDer::pem_slice_iter(ca_pem).collect::<Result<_, _>>()?;
+        anyhow::ensure!(!certs.is_empty(), "no certificate found in CA PEM");
+
+        let http = reqwest::Client::builder()
+            .add_root_certificate(reqwest::Certificate::from_pem(ca_pem)?)
+            .build()?;
+
+        let mut roots = rustls::RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        for cert in certs {
+            roots.add(cert)?;
+        }
+
+        // Mirrors reqwest's own fallback (it can't rely on a process-wide
+        // default having been installed either): reuse one if present,
+        // otherwise construct ring's provider directly.
+        let provider = rustls::crypto::CryptoProvider::get_default()
+            .cloned()
+            .unwrap_or_else(|| Arc::new(rustls::crypto::ring::default_provider()));
+        let tls_config = rustls::ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()?
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+
+        Ok(Client {
+            base: orchestrator.into().trim_end_matches('/').to_string(),
+            token: token.into(),
+            http,
+            connector: Some(Connector::Rustls(Arc::new(tls_config))),
+        })
     }
 
     async fn get<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
@@ -194,7 +244,13 @@ impl Client {
             "Authorization",
             HeaderValue::from_str(&format!("Bearer {}", self.token))?,
         );
-        let (stream, _) = tokio_tungstenite::connect_async(request).await?;
+        let (stream, _) = tokio_tungstenite::connect_async_tls_with_config(
+            request,
+            None,
+            false,
+            self.connector.clone(),
+        )
+        .await?;
         Ok(EventStream { stream })
     }
 
@@ -271,5 +327,36 @@ mod tests {
     fn events_url_rejects_non_http_scheme() {
         let client = Client::new("ftp://example.com", "tok");
         assert!(client.events_url("abc", 0).is_err());
+    }
+
+    #[test]
+    fn with_ca_rejects_garbage_pem() {
+        assert!(Client::with_ca("http://127.0.0.1:4750", "tok", b"not a cert").is_err());
+    }
+
+    #[test]
+    fn with_ca_accepts_valid_pem() {
+        const CA_PEM: &str = "-----BEGIN CERTIFICATE-----
+MIIDBTCCAe2gAwIBAgIUUjUIP0qEa6ELPvnHZFrTQRFtRL4wDQYJKoZIhvcNAQEL
+BQAwEjEQMA4GA1UEAwwHdGVzdC1jYTAeFw0yNjA4MjgxNTM3MjZaFw0zNjA4MjUx
+NTM3MjZaMBIxEDAOBgNVBAMMB3Rlc3QtY2EwggEiMA0GCSqGSIb3DQEBAQUAA4IB
+DwAwggEKAoIBAQDqzDjLDMeIstJ2P6X0YZjIaE0TFGOQzOu/cC6JaJAl34mYpnhx
+4iDDdVnRRpGJA4Gw1k0un3CS7pVXzP5zQ09YX4a7OU45DgmUop4qsQ+wEFiraSbh
+Kr8IbOOUYPAAPWoBYVfD5UU7AadjHDpMSZJGYRs9xjVHSq1OkgSPuOtt7+Q8LmTG
+16e9+AiRcGP2fGn3nDs9QnBjo0hVmFIGyqk2VNs85gHcRyJUvMe+fRmSgKoe1wHJ
+LiLo6JxnC10ouPu1LfWaOqlI1kxaO0hrdb1MVIlFX9uJ0tGe1HvLLyxPKw6UMlQH
+Q8l5U68nMHakBxS+phAGq94EepdVbVkKGKrdAgMBAAGjUzBRMB0GA1UdDgQWBBSI
+e4KzmpkVNuoL3YMqPC6Kkrx0hDAfBgNVHSMEGDAWgBSIe4KzmpkVNuoL3YMqPC6K
+krx0hDAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQAQNHoO3sAd
+fhjKMarwb62f31EyVQjwQ4mOxwTdkGYht/BDl20QRG6I8Tr7w85IPiVbEBOVLD8j
+kjGbx3fExY0mU3AOaNnlkHdJHxRb9Z1mw2C5ft1TJ6xzK7WtfDz5FGtXzBixXnGh
+DVR02ANTzuuwrtjR4jAtN3wy/MxYrFKFNSPXg73CwY8lXQJOSa79E93GMaq4bzIN
+nnBzN0YNELYH6eqRHIfgnaDK25gpDEjsTTwXLPUhC7gyPzNtssmfrvK560WaZVkz
+3j3ezdbBUxQcZZigtPfO48ZAbeFhEXtscfRA59144WP6hHUIhD/x6ghw8GBvOi41
+etSSXseWw5Zl
+-----END CERTIFICATE-----
+";
+        let client = Client::with_ca("https://127.0.0.1:4750", "tok", CA_PEM.as_bytes()).unwrap();
+        assert!(matches!(client.connector, Some(Connector::Rustls(_))));
     }
 }

@@ -10,6 +10,7 @@ lgtm-github.workspace = true
 lgtm-linear.workspace = true
 anyhow.workspace = true
 axum.workspace = true
+axum-server.workspace = true
 futures-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true

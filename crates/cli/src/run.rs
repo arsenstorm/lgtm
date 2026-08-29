@@ -5,9 +5,12 @@ use crate::render;
 use futures_util::StreamExt;
 use lgtm_protocol::{Executor, Review, StoredEvent, Task, TaskEvent, TaskKind, TaskSpec};
 use serde::Serialize;
+use std::path::Path;
+use std::sync::Arc;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::Connector;
 
 /// Body of `POST /api/tasks/from-issue`.
 #[derive(Serialize)]
@@ -33,6 +36,7 @@ pub async fn run(
     client: &Client,
     orchestrator: &str,
     token: &str,
+    ca: Option<&Path>,
     repository: String,
     base_branch: String,
     prompt: String,
@@ -53,13 +57,15 @@ pub async fn run(
         depends_on: vec![],
     };
     let task: Task = client.post("/api/tasks", Some(&spec)).await?;
-    announce_and_stream(orchestrator, token, task).await
+    announce_and_stream(orchestrator, token, ca, task).await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_from_issue(
     client: &Client,
     orchestrator: &str,
     token: &str,
+    ca: Option<&Path>,
     issue: String,
     base_branch: String,
     executor: Executor,
@@ -72,7 +78,7 @@ pub async fn run_from_issue(
         worker,
     };
     let task: Task = client.post("/api/tasks/from-issue", Some(&spec)).await?;
-    announce_and_stream(orchestrator, token, task).await
+    announce_and_stream(orchestrator, token, ca, task).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -80,6 +86,7 @@ pub async fn run_from_linear(
     client: &Client,
     orchestrator: &str,
     token: &str,
+    ca: Option<&Path>,
     issue: String,
     repository: String,
     base_branch: String,
@@ -94,15 +101,20 @@ pub async fn run_from_linear(
         worker,
     };
     let task: Task = client.post("/api/tasks/from-linear", Some(&spec)).await?;
-    announce_and_stream(orchestrator, token, task).await
+    announce_and_stream(orchestrator, token, ca, task).await
 }
 
-async fn announce_and_stream(orchestrator: &str, token: &str, task: Task) -> anyhow::Result<i32> {
+async fn announce_and_stream(
+    orchestrator: &str,
+    token: &str,
+    ca: Option<&Path>,
+    task: Task,
+) -> anyhow::Result<i32> {
     match task.worker.as_deref() {
         Some(worker) => eprintln!("task {} → {worker}", task.id),
         None => eprintln!("task {} queued, waiting for a worker", task.id),
     }
-    stream(orchestrator, token, &task.id, 0).await
+    stream(orchestrator, token, ca, &task.id, 0).await
 }
 
 /// Connect to the task's event stream from event index `from` and render
@@ -112,6 +124,7 @@ async fn announce_and_stream(orchestrator: &str, token: &str, task: Task) -> any
 pub async fn stream(
     orchestrator: &str,
     token: &str,
+    ca: Option<&Path>,
     task_id: &str,
     from: usize,
 ) -> anyhow::Result<i32> {
@@ -120,7 +133,14 @@ pub async fn stream(
         "Authorization",
         HeaderValue::from_str(&format!("Bearer {token}"))?,
     );
-    let (ws_stream, _) = tokio_tungstenite::connect_async(request).await?;
+    let (ws_stream, _) = match ca {
+        Some(ca_path) => {
+            let connector = ca_connector(ca_path)?;
+            tokio_tungstenite::connect_async_tls_with_config(request, None, false, Some(connector))
+                .await?
+        }
+        None => tokio_tungstenite::connect_async(request).await?,
+    };
     let (_write, mut read) = ws_stream.split();
 
     let mut stdout = std::io::stdout();
@@ -166,6 +186,38 @@ pub async fn stream(
     }
     eprintln!("connection closed");
     Ok(1)
+}
+
+/// Rustls connector that trusts the usual webpki roots plus `ca_path`, for
+/// orchestrators serving a self-signed cert (`--ca` / `LGTM_CA`).
+///
+/// Picks the `ring` crypto provider explicitly rather than going through
+/// `rustls::ClientConfig::builder()`'s process-default lookup: this binary
+/// links both `ring` and `aws-lc-rs` (via reqwest), which makes that lookup
+/// ambiguous and panics unless something already installed a default.
+fn ca_connector(ca_path: &Path) -> anyhow::Result<Connector> {
+    let pem = std::fs::read(ca_path)
+        .map_err(|e| anyhow::anyhow!("reading {}: {e}", ca_path.display()))?;
+    let ca_certs = rustls_pemfile::certs(&mut pem.as_slice())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| anyhow::anyhow!("parsing {}: {e}", ca_path.display()))?;
+    if ca_certs.is_empty() {
+        anyhow::bail!("no certificates found in {}", ca_path.display());
+    }
+
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    for cert in ca_certs {
+        roots.add(cert)?;
+    }
+
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|e| anyhow::anyhow!("building TLS config: {e}"))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    Ok(Connector::Rustls(Arc::new(config)))
 }
 
 /// `http(s)://host[:port]` -> `ws(s)://host[:port]/api/tasks/<id>/events`,

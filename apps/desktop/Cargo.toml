@@ -9,6 +9,7 @@ name = "lgtm-desktop"
 path = "src/main.rs"
 
 [dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 lgtm-protocol.workspace = true
 lgtm-client.workspace = true
 anyhow.workspace = true

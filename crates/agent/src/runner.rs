@@ -50,6 +50,7 @@ fn finished(task_id: &str, ctx: &Arc<Ctx>) {
         .lock()
         .expect("running map poisoned")
         .remove(task_id);
+    ctx.task_finished();
 }
 
 async fn run(task: &Task, ctx: &Arc<Ctx>, cancel: oneshot::Receiver<()>) -> Result<()> {
