@@ -18,7 +18,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
 pub use types::{
     BatchDetail, BatchRequest, BatchResponse, EventStream, FromLinear, GoalDetail, IssuePreview,
-    NewGoal, PromoteTodo, TaskDetail,
+    NewGoal, PromoteTodo, Retry, TaskDetail,
 };
 use types::{ErrorBody, FollowUp, FromIssue, NewMemory, NewTodo};
 
@@ -167,6 +167,11 @@ impl Client {
             Some(&FollowUp { text }),
         )
         .await
+    }
+
+    pub async fn retry(&self, id: &str, into: &Retry) -> anyhow::Result<lgtm_protocol::Task> {
+        self.post(&format!("/api/tasks/{id}/retry"), Some(into))
+            .await
     }
 
     pub async fn merge(&self, id: &str) -> anyhow::Result<lgtm_protocol::Task> {

@@ -81,6 +81,16 @@ pub enum Command {
     Cancel { id: String },
     /// Merge a task's pull request
     Merge { id: String },
+    /// Queue a task that ended badly as a fresh attempt, then stream it
+    Retry {
+        id: String,
+        /// Worker to run it on this time.
+        #[arg(long)]
+        on: Option<String>,
+        /// Executor to use this time.
+        #[arg(long, value_parser = parse_executor)]
+        agent: Option<Executor>,
+    },
     /// Send a follow-up to a task awaiting review, then resume streaming.
     Tell { id: String, message: String },
     /// Import a backlog of issues as tasks, or inspect a past import.

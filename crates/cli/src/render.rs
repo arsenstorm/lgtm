@@ -49,6 +49,12 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
             )
         }
         TaskEvent::Retry { attempt, reason } => writeln!(out, "retry {attempt}: {reason}"),
+        TaskEvent::Requeued { worker, executor } => writeln!(
+            out,
+            "requeued on {} ({})",
+            worker.as_deref().unwrap_or("any worker"),
+            executor.binary()
+        ),
         TaskEvent::AutoApproved => writeln!(out, "approved by policy"),
         TaskEvent::AutoMerged => writeln!(out, "merged by policy"),
         TaskEvent::Failed { error } => writeln!(out, "failed: {error}"),
