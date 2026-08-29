@@ -513,6 +513,10 @@ pub struct Task {
     pub ci: Option<CiStatus>,
     #[serde(default)]
     pub executions: Vec<Execution>,
+    /// The agent's own notes from `.lgtm/scratchpad.md`, kept so a retry or a
+    /// person can pick up where it stopped.
+    #[serde(default)]
+    pub scratchpad: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

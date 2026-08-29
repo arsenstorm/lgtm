@@ -42,6 +42,8 @@ to add it to the fleet.
   told.
 - `lgtm todo add "…"` keeps a note; `lgtm todo promote <id>` turns it into a
   task.
+- `lgtm pad <id>` shows the notes an agent kept in `.lgtm/scratchpad.md`; they
+  follow the task to a retry.
 - Repository checks run after the agent finishes; a second agent pass
   reviews the diff and reports findings.
 - `lgtm approve`, `reject`, `cancel`, `retry`, and `merge` drive a task to a

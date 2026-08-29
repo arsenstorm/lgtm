@@ -200,6 +200,7 @@ mod tests {
             pull_request,
             ci,
             executions: Vec::new(),
+            scratchpad: String::new(),
         }
     }
 

@@ -114,6 +114,7 @@ impl State {
                 pull_request: None,
                 ci: None,
                 executions: Vec::new(),
+                scratchpad: String::new(),
             };
             let child_id = child.id.clone();
             ids.insert(step.key.as_str(), child_id.clone());

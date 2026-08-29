@@ -20,7 +20,7 @@ pub use types::{
     BatchDetail, BatchRequest, BatchResponse, EventStream, FromLinear, GoalDetail, IssuePreview,
     NewGoal, PromoteTodo, Retry, TaskDetail,
 };
-use types::{ErrorBody, FollowUp, FromIssue, NewMemory, NewTodo};
+use types::{ErrorBody, FollowUp, FromIssue, NewMemory, NewTodo, Notes};
 
 #[derive(Clone)]
 pub struct Client {
@@ -172,6 +172,18 @@ impl Client {
     pub async fn retry(&self, id: &str, into: &Retry) -> anyhow::Result<lgtm_protocol::Task> {
         self.post(&format!("/api/tasks/{id}/retry"), Some(into))
             .await
+    }
+
+    pub async fn set_scratchpad(
+        &self,
+        id: &str,
+        content: &str,
+    ) -> anyhow::Result<lgtm_protocol::Task> {
+        self.post(
+            &format!("/api/tasks/{id}/scratchpad"),
+            Some(&Notes { content }),
+        )
+        .await
     }
 
     pub async fn merge(&self, id: &str) -> anyhow::Result<lgtm_protocol::Task> {

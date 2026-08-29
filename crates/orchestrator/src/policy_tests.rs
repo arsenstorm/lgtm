@@ -39,6 +39,7 @@ fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
         pull_request: None,
         ci: None,
         executions: Vec::new(),
+        scratchpad: String::new(),
     }
 }
 

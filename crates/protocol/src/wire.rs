@@ -41,6 +41,10 @@ pub enum TaskEvent {
     Progress {
         text: String,
     },
+    /// The scratchpad after a run, when it changed.
+    Scratchpad {
+        content: String,
+    },
     /// The repository's checks are about to run; results arrive in
     /// `Completed`.
     Validating {

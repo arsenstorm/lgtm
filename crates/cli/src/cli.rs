@@ -98,6 +98,13 @@ pub enum Command {
     },
     /// Send a follow-up to a task awaiting review, then resume streaming.
     Tell { id: String, message: String },
+    /// Show the working notes an agent kept for a task
+    Pad {
+        id: String,
+        /// Replace the notes with this text (use - to read stdin).
+        #[arg(long)]
+        set: Option<String>,
+    },
     /// Import a backlog of issues as tasks, or inspect a past import.
     Backlog {
         #[command(subcommand)]
