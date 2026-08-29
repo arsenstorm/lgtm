@@ -5,7 +5,7 @@ use crate::net::Action;
 use crate::render::Kind;
 use crate::sidebar::repo_slug;
 use crate::theme::{
-    field, tokens, Tokens, HEADER_H, LINE_MONO, MONO_FONT, RADIUS_PILL, SPACE, TEXT_MONO,
+    field, icon, tokens, Tokens, HEADER_H, LINE_MONO, MONO_FONT, RADIUS_PILL, SPACE, TEXT_MONO,
     TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
@@ -167,7 +167,8 @@ fn header(app: &mut LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>)
                 .when_some(task.pull_request.clone(), |this, pr| {
                     let (mark, tone) = ci_mark(task.ci.as_ref(), t);
                     this.child(
-                        badge(format!("#{} {mark}", pr.number), tone, t)
+                        badge(format!("#{}", pr.number), tone, t)
+                            .when_some(mark, |this, name| this.child(icon(name, MARK, tone)))
                             .id("pr-chip")
                             .cursor_pointer()
                             .on_click(
@@ -285,6 +286,7 @@ fn badge(label: impl Into<SharedString>, tone: Hsla, t: &Tokens) -> Div {
         .flex_shrink_0()
         .flex()
         .items_center()
+        .gap(px(SPACE[0]))
         .h(px(BADGE_H))
         .px(px(SPACE[1]))
         .rounded(px(RADIUS_PILL))
@@ -295,12 +297,15 @@ fn badge(label: impl Into<SharedString>, tone: Hsla, t: &Tokens) -> Div {
         .child(label.into())
 }
 
-fn ci_mark(ci: Option<&CiStatus>, t: &Tokens) -> (&'static str, Hsla) {
+/// The icon a badge or a check row carries.
+const MARK: f32 = 13.;
+
+fn ci_mark(ci: Option<&CiStatus>, t: &Tokens) -> (Option<&'static str>, Hsla) {
     match ci.map(|ci| ci.state) {
-        Some(CiState::Success) => ("✓", t.success),
-        Some(CiState::Failure) => ("✗", t.danger),
-        Some(CiState::Pending) => ("…", t.muted_fg),
-        None => ("", t.muted_fg),
+        Some(CiState::Success) => (Some("check"), t.success),
+        Some(CiState::Failure) => (Some("x"), t.danger),
+        Some(CiState::Pending) => (Some("ellipsis"), t.muted_fg),
+        None => (None, t.muted_fg),
     }
 }
 
@@ -342,14 +347,18 @@ fn checks(task: &Task, t: &Tokens) -> AnyElement {
         .gap(px(SPACE[1]))
         .children(checks.into_iter().map(|check| {
             let tone = if check.ok { t.success } else { t.danger };
-            let mark = if check.ok { "✓" } else { "✗" };
+            let mark = if check.ok { "check" } else { "x" };
             div()
                 .flex()
                 .flex_col()
                 .child(
                     div()
+                        .flex()
+                        .items_center()
+                        .gap(px(SPACE[0]))
                         .text_color(tone)
-                        .child(format!("{mark} {}", check.name)),
+                        .child(icon(mark, MARK, tone))
+                        .child(check.name.clone()),
                 )
                 .when(!check.ok, |this| {
                     this.children(
@@ -376,8 +385,8 @@ fn checks(task: &Task, t: &Tokens) -> AnyElement {
             )
             .children(findings.iter().map(|finding| {
                 let (mark, tone) = match finding.severity {
-                    Severity::Blocking => ("✖", t.danger),
-                    Severity::Warning => ("⚠", t.warning),
+                    Severity::Blocking => ("x", t.danger),
+                    Severity::Warning => ("circle-dot", t.warning),
                 };
                 let location = match finding.line {
                     Some(line) => format!("{}:{line}", finding.file),
@@ -385,8 +394,9 @@ fn checks(task: &Task, t: &Tokens) -> AnyElement {
                 };
                 div()
                     .flex()
+                    .items_center()
                     .gap(px(SPACE[1]))
-                    .child(div().text_color(tone).child(mark))
+                    .child(icon(mark, MARK, tone))
                     .child(div().text_color(t.muted_fg).child(location))
                     .child(div().child(finding.message.clone()))
             }))

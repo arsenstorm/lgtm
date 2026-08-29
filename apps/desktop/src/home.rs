@@ -1,273 +1,186 @@
-//! The welcome screen: the composer, and the tasks you touched last.
+//! The welcome screen: an empty stage, with the composer pinned to the bottom.
 
-use crate::app::{prompt_preview, LgtmApp, OTHER_REPOSITORY};
-use crate::sidebar::{now_ms, relative_age, repo_slug, status_color};
-use crate::theme::{
-    field, section_label, tokens, Tokens, RADIUS, RADIUS_PILL, SPACE, TEXT_SECONDARY, TEXT_TITLE,
-};
-use gpui::prelude::FluentBuilder as _;
+use crate::app::LgtmApp;
+use crate::theme::{icon, tokens, Tokens, ICON, RADIUS, SPACE};
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
+    div, px, AnyElement, Context, FontWeight, Hsla, IntoElement, ParentElement as _, Styled as _,
     Window,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::select::Select;
-use gpui_component::switch::Switch;
-use lgtm_protocol::Task;
+use lgtm_protocol::{Executor, TaskKind, TaskSpec};
 
-const RECENT: usize = 6;
-/// `max-w-xl`, the width of the reference welcome column.
-const COLUMN: f32 = 576.;
-const TILE: f32 = 48.;
-const SUBTITLE: &str = "Describe a change and let an agent do it, or open a task to review.";
-const EMPTY_HINT: &str =
-    "Paste the join line `lgtm serve` printed on another machine to add a worker.";
+/// The outlined mark over the greeting.
+const MARK: f32 = 44.;
+/// `text-[22px]`: the greeting.
+const GREETING: f32 = 22.;
+pub const AUTO_WORKER: &str = "Auto";
 
-pub fn home(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<LgtmApp>) -> AnyElement {
+/// One choice made in the composer's controls.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Chip {
+    Plan,
+    Worker(String),
+    Branch(String),
+}
+
+impl Chip {
+    /// Two chips of the same kind replace each other; Plan toggles.
+    fn same_kind(&self, other: &Chip) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+/// The task the composer would start, or None while it is incomplete.
+pub fn compose(prompt: &str, project: Option<&str>, chips: &[Chip]) -> Option<TaskSpec> {
+    let prompt = prompt.trim();
+    let repository = project.map(str::trim).filter(|url| !url.is_empty())?;
+    if prompt.is_empty() {
+        return None;
+    }
+    let mut base_branch = "main".to_string();
+    let mut worker = None;
+    let mut kind = TaskKind::Run;
+    for chip in chips {
+        match chip {
+            Chip::Plan => kind = TaskKind::Plan,
+            Chip::Worker(name) if name != AUTO_WORKER => worker = Some(name.clone()),
+            Chip::Worker(_) => worker = None,
+            Chip::Branch(branch) if !branch.trim().is_empty() => {
+                base_branch = branch.trim().to_string()
+            }
+            Chip::Branch(_) => {}
+        }
+    }
+    Some(TaskSpec {
+        repository: repository.to_string(),
+        base_branch,
+        prompt: prompt.to_string(),
+        executor: Executor::Claude,
+        worker,
+        issue: None,
+        linear: None,
+        kind,
+        parent: None,
+        depends_on: vec![],
+        batch: None,
+    })
+}
+
+impl LgtmApp {
+    /// Adds a chip, replacing one of the same kind. Plan toggles off.
+    pub fn set_chip(&mut self, chip: Chip, cx: &mut Context<Self>) {
+        if let Some(at) = self.chips.iter().position(|held| held.same_kind(&chip)) {
+            let held = self.chips.remove(at);
+            if held == chip {
+                cx.notify();
+                return;
+            }
+        }
+        self.chips.push(chip);
+        cx.notify();
+    }
+
+    /// Closes every composer menu. Esc and a click outside land here.
+    pub fn close_menus(&mut self, cx: &mut Context<Self>) {
+        self.project_menu = false;
+        self.add_repo = false;
+        self.plus_menu = false;
+        self.branch_edit = false;
+        self.worker_menu = false;
+        cx.notify();
+    }
+}
+
+pub fn home(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmApp>) -> AnyElement {
     let t = tokens(cx);
-    let empty = app.tasks.is_empty();
     div()
-        .id("home")
         .flex_1()
         .min_w_0()
-        .overflow_y_scroll()
+        .flex()
+        .flex_col()
+        .child(stage(&t))
+        .child(crate::composer::composer(app, &t, window, cx))
+        .into_any_element()
+}
+
+/// The empty middle: a mark and the one question the app asks, sitting a
+/// little above the centre.
+fn stage(t: &Tokens) -> impl IntoElement {
+    let muted = Hsla {
+        a: 0.6,
+        ..t.muted_fg
+    };
+    div()
+        .flex_1()
+        .min_h_0()
         .flex()
         .flex_col()
         .items_center()
         .justify_center()
-        .p(px(SPACE[4]))
+        .gap(px(SPACE[3]))
+        .pb(px(64.))
         .child(
             div()
-                .w_full()
-                .max_w(px(COLUMN))
-                .flex()
-                .flex_col()
-                .gap(px(SPACE[4]))
-                .child(masthead(&t))
-                .child(composer(app, &t, cx))
-                .when(empty, |this| {
-                    this.child(
-                        div()
-                            .text_size(px(TEXT_SECONDARY))
-                            .text_color(t.muted_fg)
-                            .child(EMPTY_HINT),
-                    )
-                })
-                .when(!empty, |this| this.child(recent(app, &t, cx))),
-        )
-        .into_any_element()
-}
-
-fn masthead(t: &Tokens) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .items_center()
-        .gap(px(SPACE[2]))
-        .child(
-            div()
-                .w(px(TILE))
-                .h(px(TILE))
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(RADIUS_PILL))
-                .bg(t.muted)
-                .text_size(px(20.))
-                .text_color(t.fg)
-                .child("▤"),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap(px(SPACE[0]))
-                .child(
-                    div()
-                        .text_size(px(TEXT_TITLE))
-                        .font_weight(FontWeight::BOLD)
-                        .child("LGTM"),
-                )
-                .child(div().text_color(t.muted_fg).child(SUBTITLE)),
-        )
-}
-
-fn composer(app: &mut LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let other = app.repository_is_other(cx);
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(SPACE[2]))
-        .p(px(SPACE[3]))
-        .rounded(px(RADIUS))
-        .bg(t.card)
-        .border_1()
-        .border_color(t.border)
-        .child(field(&app.prompt, t))
-        .when(other, |this| this.child(field(&app.repo_url, t)))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .child(
-                    div().w(px(180.)).child(picker(
-                        Select::new(&app.repo_select)
-                            .placeholder("Repository")
-                            .cleanable(false),
-                        t,
-                    )),
-                )
-                .child(div().w(px(120.)).child(field(&app.base_branch, t)))
-                .child(
-                    div().w(px(150.)).child(picker(
-                        Select::new(&app.worker_select)
-                            .placeholder("Worker")
-                            .cleanable(false),
-                        t,
-                    )),
-                )
-                .child(
-                    Switch::new("plan-first")
-                        .label("Plan first")
-                        .checked(app.plan_first)
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.plan_first = *checked;
-                            cx.notify();
-                        })),
-                )
-                .child(div().flex_1())
-                .child(
-                    Button::new("start")
-                        .label("Start")
-                        .primary()
-                        .tooltip("⌘↩")
-                        .on_click(
-                            cx.listener(|this, _: &ClickEvent, window, cx| this.submit(window, cx)),
-                        ),
-                ),
-        )
-        .when_some(app.error.clone(), |this, error| {
-            this.child(
-                div()
-                    .text_size(px(TEXT_SECONDARY))
-                    .text_color(t.danger)
-                    .child(error),
-            )
-        })
-}
-
-/// Selects default to the page background and a visible border; the reference
-/// pickers are `bg-input/50` pills with no border, like every other field.
-fn picker<D>(select: Select<D>, t: &Tokens) -> Select<D>
-where
-    D: gpui_component::select::SelectDelegate,
-{
-    select
-        .bg(t.input_fill)
-        .border_color(gpui::transparent_black())
-}
-
-fn recent(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let now = now_ms();
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(SPACE[1]))
-        .child(section_label("Recent tasks", t).px(px(SPACE[0])))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .overflow_hidden()
+                .w(px(MARK))
+                .h(px(MARK))
                 .rounded(px(RADIUS))
-                .bg(t.card)
                 .border_1()
                 .border_color(t.border)
-                .children(
-                    app.tasks
-                        .iter()
-                        .take(RECENT)
-                        .enumerate()
-                        .map(|(index, task)| row(app, task, index, now, t, cx)),
-                ),
+                .child(icon("git-branch", ICON + 4., muted)),
+        )
+        .child(
+            div()
+                .text_size(px(GREETING))
+                .font_weight(FontWeight::MEDIUM)
+                .child("What should the agents do?"),
         )
 }
 
-fn row(
-    app: &LgtmApp,
-    task: &Task,
-    index: usize,
-    now: u64,
-    t: &Tokens,
-    cx: &mut Context<LgtmApp>,
-) -> gpui::Stateful<Div> {
-    let id = task.id.clone();
-    let worker = task.worker.clone().unwrap_or_else(|| "unassigned".into());
-    div()
-        .id(SharedString::from(format!("recent-{id}")))
-        .flex()
-        .items_center()
-        .gap(px(SPACE[2]))
-        .px(px(SPACE[2]))
-        .py(px(10.))
-        .cursor_pointer()
-        .when(index > 0, |this| this.border_t_1().border_color(t.border))
-        .hover(|this| this.bg(t.muted))
-        .child(
-            div()
-                .flex_shrink_0()
-                .w(px(6.))
-                .h(px(6.))
-                .rounded_full()
-                .bg(status_color(task, &app.tasks, t)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .truncate()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(prompt_preview(&task.spec.prompt, 64)),
-                )
-                .child(
-                    div()
-                        .truncate()
-                        .text_size(px(TEXT_SECONDARY))
-                        .text_color(t.muted_fg)
-                        .child(format!("{} · {worker}", repo_slug(&task.spec.repository))),
-                ),
-        )
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_size(px(TEXT_SECONDARY))
-                .text_color(t.muted_fg)
-                .child(format!("{} ago", relative_age(task.created_at, now))),
-        )
-        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)))
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// The repository picker's value, resolved back to a clone URL.
-pub fn chosen_repository(app: &LgtmApp, cx: &Context<LgtmApp>) -> String {
-    let picked = app
-        .repo_select
-        .read(cx)
-        .selected_value()
-        .cloned()
-        .unwrap_or_default();
-    if picked.is_empty() || picked == OTHER_REPOSITORY {
-        return app.repo_url.read(cx).value().to_string();
+    const URL: &str = "https://github.com/you/repo.git";
+
+    #[test]
+    fn nothing_composes_without_a_prompt_or_a_project() {
+        assert!(compose("", Some(URL), &[]).is_none());
+        assert!(compose("   ", Some(URL), &[]).is_none());
+        assert!(compose("do it", None, &[]).is_none());
+        assert!(compose("do it", Some("  "), &[]).is_none());
     }
-    app.tasks
-        .iter()
-        .find(|task| repo_slug(&task.spec.repository) == picked)
-        .map(|task| task.spec.repository.clone())
-        .unwrap_or(picked)
+
+    #[test]
+    fn defaults_are_main_no_worker_and_a_run() {
+        let spec = compose("do it", Some(URL), &[]).unwrap();
+        assert_eq!(spec.repository, URL);
+        assert_eq!(spec.base_branch, "main");
+        assert_eq!(spec.prompt, "do it");
+        assert!(spec.worker.is_none());
+        assert_eq!(spec.kind, TaskKind::Run);
+    }
+
+    #[test]
+    fn chips_choose_the_kind_the_worker_and_the_branch() {
+        let chips = vec![
+            Chip::Plan,
+            Chip::Worker("MacBook".into()),
+            Chip::Branch("develop".into()),
+        ];
+        let spec = compose("do it", Some(URL), &chips).unwrap();
+        assert_eq!(spec.kind, TaskKind::Plan);
+        assert_eq!(spec.worker.as_deref(), Some("MacBook"));
+        assert_eq!(spec.base_branch, "develop");
+    }
+
+    #[test]
+    fn the_auto_worker_leaves_the_choice_to_the_orchestrator() {
+        let chips = vec![Chip::Worker(AUTO_WORKER.into())];
+        assert!(compose("do it", Some(URL), &chips)
+            .unwrap()
+            .worker
+            .is_none());
+    }
 }

@@ -1,70 +1,33 @@
-//! The root view: state, key bindings, and the sidebar/content split.
+//! The root view: state, key bindings, and the window bar / sidebar / main split.
 
+use crate::home::Chip;
+use crate::import::ImportForm;
+use crate::keys::{
+    CloseOverlay, NewTask, OpenPalette, PaletteNext, PalettePrev, PaletteRun, SelectNext,
+    SelectPrev, ShowActivity, ShowChanges, ShowChecks, ShowPlan, Submit, ToggleSidebar, CONTEXT,
+};
 use crate::net::{self, Action, Msg};
 use crate::render::{self, Line};
 use crate::theme::{tokens, SPACE, STATUS_H, TEXT_BODY, TEXT_SECONDARY, UI_FONT};
-use crate::{home, panes, sidebar};
+use crate::{batches, home, import, palette, panes, settings, sidebar, titlebar};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    actions, div, px, App, AppContext as _, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _, Render, ScrollHandle,
-    Styled as _, Subscription, Task as GpuiTask, Window,
+    div, px, App, AppContext as _, Context, Entity, FocusHandle, Focusable,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle, Styled as _,
+    Subscription, Task as GpuiTask, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
-use gpui_component::select::SelectState;
 use lgtm_client::Client;
-use lgtm_protocol::{Batch, Executor, Task, TaskKind, TaskSpec, TaskStatus, WorkerStatus};
-use std::time::Duration;
+use lgtm_protocol::{Batch, Task, TaskStatus, WorkerStatus};
+use std::collections::HashSet;
+use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
-actions!(
-    lgtm,
-    [
-        NewTask,
-        ToggleSearch,
-        SelectNext,
-        SelectPrev,
-        ShowActivity,
-        ShowChanges,
-        ShowChecks,
-        ShowPlan,
-        Submit,
-    ]
-);
-
-pub const CONTEXT: &str = "Lgtm";
-/// Repository picker entry that reveals the clone-URL field.
-pub const OTHER_REPOSITORY: &str = "Other…";
-const AUTO_WORKER: &str = "Auto";
 const ERROR_TTL: Duration = Duration::from_secs(5);
+/// How long a hosted orchestrator is given to come up before the banner stops
+/// saying it is starting and starts complaining.
+const STARTING: Duration = Duration::from_secs(5);
 const HEADER_PREVIEW: usize = 80;
-
-/// The keymap, built as data so a test can assert the bindings survive a
-/// refactor. `!Input` keeps the single-letter keys out of the way while a text
-/// field has focus; the ⌘ bindings stay live everywhere.
-fn bindings() -> Vec<KeyBinding> {
-    let anywhere = Some(CONTEXT);
-    let outside_inputs = Some("Lgtm && !Input");
-    vec![
-        KeyBinding::new("cmd-n", NewTask, anywhere),
-        KeyBinding::new("cmd-k", ToggleSearch, anywhere),
-        KeyBinding::new("cmd-enter", Submit, anywhere),
-        KeyBinding::new("j", SelectNext, outside_inputs),
-        KeyBinding::new("k", SelectPrev, outside_inputs),
-        KeyBinding::new("1", ShowActivity, outside_inputs),
-        KeyBinding::new("2", ShowChanges, outside_inputs),
-        KeyBinding::new("3", ShowChecks, outside_inputs),
-        KeyBinding::new("4", ShowPlan, outside_inputs),
-        KeyBinding::new("v", crate::review::MarkViewed, outside_inputs),
-        KeyBinding::new("n", crate::review::NextFile, outside_inputs),
-        KeyBinding::new("p", crate::review::PrevFile, outside_inputs),
-        KeyBinding::new("s", crate::review::ToggleDiffStyle, outside_inputs),
-    ]
-}
-
-pub fn init(cx: &mut App) {
-    cx.bind_keys(bindings());
-}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -74,6 +37,22 @@ pub enum Pane {
     Plan,
 }
 
+/// What the main area shows when no task is selected.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Page {
+    Home,
+    Batches,
+}
+
+/// The one modal that can be up at a time.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Overlay {
+    None,
+    Palette,
+    Settings,
+    Import,
+}
+
 pub struct LgtmApp {
     pub client: Client,
     pub tx: net::Sender,
@@ -81,11 +60,21 @@ pub struct LgtmApp {
     pub workers: Vec<WorkerStatus>,
     pub batches: Vec<Batch>,
     pub selected: Option<String>,
+    pub page: Page,
     pub pane: Pane,
     pub review: crate::review::ReviewState,
 
     pub orchestrator: String,
+    pub token: String,
     pub token_source: &'static str,
+    /// The `embedded_orchestrator` preference; the toggle in Settings writes it.
+    pub embedded: bool,
+    /// This process is running the orchestrator.
+    pub hosted: bool,
+    /// Join line for other machines when hosted.
+    pub join: Option<String>,
+    /// When the window opened, for the "starting" grace period on the banner.
+    started: Instant,
     pub reachable: bool,
     pub error: Option<String>,
     pub focus: FocusHandle,
@@ -98,16 +87,30 @@ pub struct LgtmApp {
     pub repo_url: Entity<InputState>,
     pub base_branch: Entity<InputState>,
     pub follow_up: Entity<InputState>,
-    pub search: Entity<InputState>,
-    pub repo_select: Entity<SelectState<Vec<String>>>,
-    pub worker_select: Entity<SelectState<Vec<String>>>,
-    repo_options: Vec<String>,
-    worker_options: Vec<String>,
-    pub plan_first: bool,
-    pub show_search: bool,
-    pub show_settings: bool,
+    pub query: Entity<InputState>,
+    pub import: ImportForm,
+
+    /// The repository the composer will use, as a clone URL.
+    pub project: Option<String>,
+    pub chips: Vec<Chip>,
+    pub project_menu: bool,
+    pub add_repo: bool,
+    pub plus_menu: bool,
+    /// The `+` menu is showing its base-branch field.
+    pub branch_edit: bool,
+    pub worker_menu: bool,
+
+    pub overlay: Overlay,
+    pub palette_at: usize,
+    /// Batches whose task rows are unfolded.
+    pub expanded: HashSet<String>,
+    pub settings_scroll: ScrollHandle,
+    pub sidebar_open: bool,
+    /// Tasks selected so far, and where in that list we are.
+    pub visited: Vec<String>,
+    pub visited_at: usize,
     pub show_follow_up: bool,
-    pub batches_only: bool,
+    pub dragging: bool,
     pub task_scroll: ScrollHandle,
     pub content_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
@@ -115,46 +118,17 @@ pub struct LgtmApp {
 }
 
 impl LgtmApp {
-    pub fn new(
-        client: Client,
-        orchestrator: String,
-        token_source: &'static str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(config: crate::Config, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let client = Client::new(config.orchestrator.clone(), config.token.clone());
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         net::poll(client.clone(), tx.clone());
 
-        let prompt = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
-                .auto_grow(1, 8)
-                .placeholder("Describe the change…")
-        });
+        let prompt = cx.new(|cx| InputState::new(window, cx).multi_line(true).auto_grow(2, 8));
         let repo_url = field("https://github.com/you/repo.git", window, cx);
         let base_branch = cx.new(|cx| InputState::new(window, cx).default_value("main"));
         let follow_up = field("Ask for a change…", window, cx);
-        let search = field("Filter tasks", window, cx);
-        // Both pickers start with only their fallback entry selected, so an
-        // orchestrator that never answers still leaves a usable composer.
-        let repo_options = vec![OTHER_REPOSITORY.to_string()];
-        let repo_select = cx.new(|cx| {
-            SelectState::new(
-                repo_options.clone(),
-                Some(gpui_component::IndexPath::default()),
-                window,
-                cx,
-            )
-        });
-        let worker_options = vec![AUTO_WORKER.to_string()];
-        let worker_select = cx.new(|cx| {
-            SelectState::new(
-                worker_options.clone(),
-                Some(gpui_component::IndexPath::default()),
-                window,
-                cx,
-            )
-        });
+        let query = field("Search tasks, repositories, actions…", window, cx);
+        let import = ImportForm::new(window, cx);
 
         let subscriptions = vec![
             cx.subscribe_in(
@@ -166,6 +140,23 @@ impl LgtmApp {
                     }
                 },
             ),
+            // ⌘↩ inside the prompt is the input's own binding, so the composer
+            // hears about it as an event rather than as the Submit action.
+            cx.subscribe_in(
+                &prompt,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { secondary: true }) {
+                        this.submit(window, cx);
+                    }
+                },
+            ),
+            cx.subscribe_in(&query, window, |this, _, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.palette_at = 0;
+                    cx.notify();
+                }
+            }),
             cx.observe_window_appearance(window, |_, window, cx| {
                 crate::theme::apply(Some(window), cx);
                 cx.notify();
@@ -192,10 +183,16 @@ impl LgtmApp {
             workers: Vec::new(),
             batches: Vec::new(),
             selected: None,
+            page: Page::Home,
             pane: Pane::Activity,
             review: crate::review::ReviewState::new(),
-            orchestrator,
-            token_source,
+            orchestrator: config.orchestrator,
+            token: config.token,
+            token_source: config.token_source,
+            embedded: config.embedded,
+            hosted: config.hosted,
+            join: config.join,
+            started: Instant::now(),
             reachable: false,
             error: None,
             focus,
@@ -206,16 +203,24 @@ impl LgtmApp {
             repo_url,
             base_branch,
             follow_up,
-            search,
-            repo_select,
-            worker_select,
-            repo_options,
-            worker_options,
-            plan_first: false,
-            show_search: false,
-            show_settings: false,
+            query,
+            import,
+            project: None,
+            chips: Vec::new(),
+            project_menu: false,
+            add_repo: false,
+            plus_menu: false,
+            branch_edit: false,
+            worker_menu: false,
+            overlay: Overlay::None,
+            palette_at: 0,
+            expanded: HashSet::new(),
+            settings_scroll: ScrollHandle::new(),
+            sidebar_open: true,
+            visited: Vec::new(),
+            visited_at: 0,
             show_follow_up: false,
-            batches_only: false,
+            dragging: false,
             task_scroll: ScrollHandle::new(),
             content_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
@@ -231,7 +236,6 @@ impl LgtmApp {
                 self.workers = workers;
                 self.batches = batches;
                 self.reachable = true;
-                self.refresh_pickers(window, cx);
             }
             Msg::Lists(Err(_)) => self.reachable = false,
             Msg::Detail { generation, detail } => {
@@ -262,52 +266,28 @@ impl LgtmApp {
                 net::refresh(self.client.clone(), self.tx.clone());
             }
             Msg::Action(Err(err)) => self.set_error(err, cx),
+            Msg::Batch(Ok(response)) => {
+                self.import.issues = response.issues;
+                if response.batch.is_some() {
+                    self.overlay = Overlay::None;
+                    net::refresh(self.client.clone(), self.tx.clone());
+                }
+            }
+            Msg::Batch(Err(err)) => self.set_error(err, cx),
         }
         cx.notify();
     }
 
-    /// Keeps the repository and worker dropdowns in step with what exists,
-    /// without disturbing a choice the user already made.
-    fn refresh_pickers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let mut repos: Vec<String> = Vec::new();
-        for task in &self.tasks {
-            let slug = sidebar::repo_slug(&task.spec.repository);
-            if !repos.contains(&slug) {
-                repos.push(slug);
-            }
-        }
-        repos.push(OTHER_REPOSITORY.to_string());
-        if repos != self.repo_options {
-            let first = repos.first().cloned();
-            self.repo_options = repos.clone();
-            self.repo_select.update(cx, |state, cx| {
-                let keep = state.selected_value().cloned();
-                state.set_items(repos, window, cx);
-                let value = keep.filter(|v| self.repo_options.contains(v)).or(first);
-                match value {
-                    Some(value) => state.set_selected_value(&value, window, cx),
-                    None => state.set_selected_index(None, window, cx),
-                }
-            });
-        }
-
-        let mut names = vec![AUTO_WORKER.to_string()];
-        names.extend(self.workers.iter().map(|w| w.info.name.clone()));
-        if names != self.worker_options {
-            self.worker_options = names.clone();
-            self.worker_select.update(cx, |state, cx| {
-                let keep = state
-                    .selected_value()
-                    .cloned()
-                    .filter(|v| names.contains(v))
-                    .unwrap_or_else(|| AUTO_WORKER.to_string());
-                state.set_items(names, window, cx);
-                state.set_selected_value(&keep, window, cx);
-            });
+    /// What the strip says while the orchestrator is not answering.
+    fn banner(&self) -> String {
+        if self.hosted && self.started.elapsed() < STARTING {
+            "Starting the orchestrator…".to_string()
+        } else {
+            format!("Orchestrator unreachable at {}", self.orchestrator)
         }
     }
 
-    fn set_error(&mut self, err: String, cx: &mut Context<Self>) {
+    pub fn set_error(&mut self, err: String, cx: &mut Context<Self>) {
         self.error = Some(err);
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(ERROR_TTL).await;
@@ -320,9 +300,20 @@ impl LgtmApp {
         .detach();
     }
 
+    /// Selects a task and remembers it, dropping any forward history.
     pub fn select(&mut self, id: String, cx: &mut Context<Self>) {
+        if self.open(id.clone(), cx) {
+            self.visited.truncate(self.visited_at);
+            self.visited.push(id);
+            self.visited_at = self.visited.len();
+        }
+    }
+
+    /// The selection itself. Returns false when nothing changed, so back and
+    /// forward don't rewrite the history they are walking.
+    fn open(&mut self, id: String, cx: &mut Context<Self>) -> bool {
         if self.selected.as_deref() == Some(id.as_str()) {
-            return;
+            return false;
         }
         if let Some(stream) = self.stream.take() {
             stream.abort();
@@ -338,6 +329,33 @@ impl LgtmApp {
             self.tx.clone(),
         ));
         cx.notify();
+        true
+    }
+
+    pub fn can_go_back(&self) -> bool {
+        self.visited_at > 1
+    }
+
+    pub fn can_go_forward(&self) -> bool {
+        self.visited_at < self.visited.len()
+    }
+
+    pub fn go_back(&mut self, cx: &mut Context<Self>) {
+        if !self.can_go_back() {
+            return;
+        }
+        self.visited_at -= 1;
+        let id = self.visited[self.visited_at - 1].clone();
+        self.open(id, cx);
+    }
+
+    pub fn go_forward(&mut self, cx: &mut Context<Self>) {
+        if !self.can_go_forward() {
+            return;
+        }
+        let id = self.visited[self.visited_at].clone();
+        self.visited_at += 1;
+        self.open(id, cx);
     }
 
     pub fn selected_task(&self) -> Option<&Task> {
@@ -354,40 +372,67 @@ impl LgtmApp {
     }
 
     pub fn go_home(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_page(Page::Home, cx);
+        self.prompt.update(cx, |state, cx| state.focus(window, cx));
+    }
+
+    pub fn show_page(&mut self, page: Page, cx: &mut Context<Self>) {
         if let Some(stream) = self.stream.take() {
             stream.abort();
         }
         self.generation += 1;
         self.selected = None;
         self.lines.clear();
-        self.prompt.update(cx, |state, cx| state.focus(window, cx));
+        self.page = page;
+        self.overlay = Overlay::None;
         cx.notify();
     }
 
-    pub fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.show_search = !self.show_search;
-        if self.show_search {
-            self.search.update(cx, |state, cx| state.focus(window, cx));
-        } else {
-            self.search
-                .update(cx, |state, cx| state.set_value("", window, cx));
+    pub fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.overlay = Overlay::Palette;
+        self.palette_at = 0;
+        self.query
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.query.update(cx, |state, cx| state.focus(window, cx));
+        cx.notify();
+    }
+
+    /// Opens Settings, scrolled to the Workers section when asked.
+    pub fn open_settings(&mut self, workers: bool, cx: &mut Context<Self>) {
+        self.overlay = Overlay::Settings;
+        if workers {
+            self.settings_scroll
+                .scroll_to_top_of_item(settings::WORKERS_SECTION);
         }
         cx.notify();
     }
 
-    pub fn search_query(&self, cx: &Context<Self>) -> String {
-        if self.show_search {
-            self.search.read(cx).value().to_string()
-        } else {
-            String::new()
-        }
+    pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.overlay = Overlay::None;
+        self.close_menus(cx);
+        window.focus(&self.focus);
+        cx.notify();
     }
 
-    pub fn repository_is_other(&self, cx: &Context<Self>) -> bool {
-        match self.repo_select.read(cx).selected_value() {
-            Some(value) => value == OTHER_REPOSITORY,
-            None => true,
+    pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        self.sidebar_open = !self.sidebar_open;
+        cx.notify();
+    }
+
+    /// Repositories seen on existing tasks, plus the one the composer holds.
+    pub fn known_repositories(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for url in self
+            .tasks
+            .iter()
+            .map(|task| task.spec.repository.clone())
+            .chain(self.project.clone())
+        {
+            if !out.contains(&url) {
+                out.push(url);
+            }
         }
+        out
     }
 
     /// Opens the follow-up field under the task header and focuses it.
@@ -411,38 +456,9 @@ impl LgtmApp {
 
     pub fn submit(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let prompt = self.prompt.read(cx).value().to_string();
-        let repository = home::chosen_repository(self, cx);
-        if prompt.trim().is_empty() || repository.trim().is_empty() {
-            self.set_error("A prompt and a repository are required.".into(), cx);
+        let Some(spec) = home::compose(&prompt, self.project.as_deref(), &self.chips) else {
+            self.set_error("A prompt and a project are required.".into(), cx);
             return;
-        }
-        let base_branch = self.base_branch.read(cx).value().to_string();
-        let worker = self
-            .worker_select
-            .read(cx)
-            .selected_value()
-            .cloned()
-            .filter(|name| name != AUTO_WORKER);
-        let spec = TaskSpec {
-            repository,
-            base_branch: if base_branch.trim().is_empty() {
-                "main".into()
-            } else {
-                base_branch
-            },
-            prompt,
-            executor: Executor::Claude,
-            worker,
-            issue: None,
-            linear: None,
-            kind: if self.plan_first {
-                TaskKind::Plan
-            } else {
-                TaskKind::Run
-            },
-            parent: None,
-            depends_on: vec![],
-            batch: None,
         };
         net::act(
             self.client.clone(),
@@ -544,14 +560,24 @@ impl Render for LgtmApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = tokens(cx);
         let unreachable = !self.reachable;
+        let overlay = self.overlay;
         div()
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &NewTask, window, cx| this.go_home(window, cx)))
             .on_action(
-                cx.listener(|this, _: &ToggleSearch, window, cx| this.toggle_search(window, cx)),
+                cx.listener(|this, _: &OpenPalette, window, cx| this.open_palette(window, cx)),
             )
+            .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
             .on_action(cx.listener(|this, _: &Submit, window, cx| this.submit_action(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &CloseOverlay, window, cx| this.close_overlay(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &PaletteNext, _, cx| palette::step(this, 1, cx)))
+            .on_action(cx.listener(|this, _: &PalettePrev, _, cx| palette::step(this, -1, cx)))
+            .on_action(
+                cx.listener(|this, _: &PaletteRun, window, cx| palette::run(this, window, cx)),
+            )
             .on_action(cx.listener(|this, _: &SelectNext, _, cx| this.move_selection(1, cx)))
             .on_action(cx.listener(|this, _: &SelectPrev, _, cx| this.move_selection(-1, cx)))
             .on_action(cx.listener(|this, _: &ShowActivity, _, cx| this.show(Pane::Activity, cx)))
@@ -576,6 +602,7 @@ impl Render for LgtmApp {
                     cx.notify();
                 }),
             )
+            .relative()
             .size_full()
             .flex()
             .flex_col()
@@ -583,6 +610,7 @@ impl Render for LgtmApp {
             .text_color(t.fg)
             .font_family(UI_FONT)
             .text_size(px(TEXT_BODY))
+            .child(titlebar::bar(self, cx))
             .when(unreachable, |this| {
                 this.child(
                     div()
@@ -600,7 +628,7 @@ impl Render for LgtmApp {
                         })
                         .text_color(t.danger)
                         .text_size(px(TEXT_SECONDARY))
-                        .child(format!("Orchestrator unreachable at {}", self.orchestrator)),
+                        .child(self.banner()),
                 )
             })
             .child(
@@ -608,63 +636,33 @@ impl Render for LgtmApp {
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .child(sidebar::render_sidebar(self, window, cx))
+                    .when(self.sidebar_open, |this| {
+                        this.child(sidebar::render_sidebar(self, window, cx))
+                    })
                     .child(if self.selected.is_some() {
                         panes::task_view(self, window, cx)
+                    } else if self.page == Page::Batches {
+                        batches::page(self, cx)
                     } else {
                         home::home(self, window, cx)
                     }),
             )
+            .when(overlay == Overlay::Palette, |this| {
+                this.child(palette::view(self, cx))
+            })
+            .when(overlay == Overlay::Settings, |this| {
+                this.child(settings::view(self, cx))
+            })
+            .when(overlay == Overlay::Import, |this| {
+                this.child(import::modal(self, cx))
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lgtm_protocol::TaskSpec;
-
-    /// The pane and review keys are the ones a restyle is most likely to drop,
-    /// because the widgets they drive get swapped out. Assert the keymap still
-    /// resolves them, in the context that excludes focused text fields.
-    fn bound(key: &str) -> KeyBinding {
-        bindings()
-            .into_iter()
-            .find(|binding| match binding.keystrokes() {
-                [only] => only.inner().key == key && !only.inner().modifiers.modified(),
-                _ => false,
-            })
-            .unwrap_or_else(|| panic!("nothing bound to {key}"))
-    }
-
-    #[test]
-    fn digits_one_to_four_switch_panes_outside_inputs() {
-        for (key, action) in [
-            ("1", "ShowActivity"),
-            ("2", "ShowChanges"),
-            ("3", "ShowChecks"),
-            ("4", "ShowPlan"),
-        ] {
-            let binding = bound(key);
-            assert!(
-                binding.action().name().ends_with(action),
-                "{key} runs {} not {action}",
-                binding.action().name()
-            );
-            assert!(format!("{:?}", binding.predicate()).contains("Lgtm"));
-        }
-    }
-
-    #[test]
-    fn review_keys_reach_the_review_actions() {
-        for (key, action) in [
-            ("v", "MarkViewed"),
-            ("n", "NextFile"),
-            ("p", "PrevFile"),
-            ("s", "ToggleDiffStyle"),
-        ] {
-            assert!(bound(key).action().name().ends_with(action));
-        }
-    }
+    use lgtm_protocol::{Executor, TaskKind, TaskSpec};
 
     fn task(id: &str, status: TaskStatus, depends_on: Vec<&str>) -> Task {
         Task {

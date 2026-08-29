@@ -4,7 +4,7 @@
 //! so network work lives on one process-wide tokio runtime and results come
 //! back over an unbounded channel that the GPUI side drains (see `App::pump`).
 
-use lgtm_client::{Client, TaskDetail};
+use lgtm_client::{BatchRequest, BatchResponse, Client, TaskDetail};
 use lgtm_protocol::{Batch, StoredEvent, Task, TaskSpec, WorkerStatus};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -13,6 +13,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
+const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 
 pub type Sender = UnboundedSender<Msg>;
 
@@ -30,6 +31,8 @@ pub enum Msg {
     },
     /// `Ok(Some(task))` is a freshly created task the UI should select.
     Action(Result<Option<Task>, String>),
+    /// A dry run's issue list, or the batch an import created.
+    Batch(Result<BatchResponse, String>),
 }
 
 pub enum Action {
@@ -41,9 +44,21 @@ pub enum Action {
     Tell(String),
 }
 
-fn runtime() -> &'static Runtime {
+pub fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| Runtime::new().expect("tokio runtime"))
+}
+
+/// Startup probe, before the window: is an orchestrator already answering
+/// here? Blocks for at most [`PROBE_TIMEOUT`].
+pub fn reachable(orchestrator: &str, token: &str) -> bool {
+    let client = Client::new(orchestrator, token);
+    runtime().block_on(async move {
+        matches!(
+            tokio::time::timeout(PROBE_TIMEOUT, client.workers()).await,
+            Ok(Ok(_))
+        )
+    })
 }
 
 /// Refreshes the task and worker lists every two seconds, forever.
@@ -94,6 +109,14 @@ pub fn watch(client: Client, id: String, generation: u64, tx: Sender) -> JoinHan
             }
         }
     })
+}
+
+/// Previews (`dry_run`) or creates a batch.
+pub fn create_batch(client: Client, request: BatchRequest, tx: Sender) {
+    runtime().spawn(async move {
+        let result = client.create_batch(&request).await;
+        let _ = tx.send(Msg::Batch(result.map_err(|e| e.to_string())));
+    });
 }
 
 pub fn act(client: Client, id: String, action: Action, tx: Sender) {

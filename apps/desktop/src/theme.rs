@@ -2,9 +2,10 @@
 //! into gpui-component's `Theme` so its own widgets (buttons, inputs,
 //! dropdowns) match the hand-rolled parts of the shell.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, rgb, rgba, App, Div, Entity, FontWeight, Global, Hsla, ParentElement as _,
-    Styled as _, Window,
+    div, px, rgb, rgba, App, Div, Entity, FontWeight, Global, Hsla, InteractiveElement as _,
+    IntoElement, ParentElement as _, Stateful, Styled as _, Window,
 };
 use gpui_component::input::{Input, InputState};
 use gpui_component::{ActiveTheme as _, Theme, ThemeMode};
@@ -15,12 +16,12 @@ pub const SPACE: [f32; 7] = [4., 8., 12., 16., 24., 32., 48.];
 pub const TEXT_BODY: f32 = 14.;
 /// `text-xs`: secondary copy, section labels, status bars.
 pub const TEXT_SECONDARY: f32 = 12.;
+/// One list row: sidebar entries, menu items, composer controls.
+pub const TEXT_ROW: f32 = 13.;
 /// File paths and code.
 pub const TEXT_MONO: f32 = 12.;
 /// `text-[11px]`: the +/- counts next to a file.
 pub const TEXT_COUNT: f32 = 11.;
-/// `text-xl`: the welcome title.
-pub const TEXT_TITLE: f32 = 20.;
 /// One diff/log row.
 pub const LINE_MONO: f32 = 20.;
 pub const MONO_FONT: &str = "Menlo";
@@ -38,6 +39,12 @@ pub const HEADER_H: f32 = 44.;
 pub const STATUS_H: f32 = 24.;
 /// One sidebar row.
 pub const ROW_H: f32 = 28.;
+/// The window bar drawn over the sidebar and the main pane.
+pub const BAR_H: f32 = 38.;
+/// The traffic lights plus their breathing room.
+pub const LIGHTS_W: f32 = 78.;
+/// The sidebar's status row.
+pub const FOOTER_H: f32 = 40.;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
@@ -71,6 +78,22 @@ pub struct Tokens {
     pub gutter: Hsla,
     pub hunk_bg: Hsla,
     pub selection: Hsla,
+    /// The scrim a modal lays over the window.
+    pub overlay: Hsla,
+    /// The composer, layer by layer. Codex builds its prompt out of luminance
+    /// alone: a darker panel behind, a lighter card over it, one hairline edge.
+    pub composer_rear: Hsla,
+    pub composer: Hsla,
+    pub composer_edge: Hsla,
+    pub composer_placeholder: Hsla,
+    /// The dimmer of the two label greys: icons, the second half of a control.
+    pub composer_secondary: Hsla,
+    pub composer_primary: Hsla,
+    pub composer_divider: Hsla,
+    pub send_bg: Hsla,
+    pub send_fg: Hsla,
+    pub send_disabled_bg: Hsla,
+    pub send_disabled_fg: Hsla,
 }
 
 /// `amount` of `base` mixed over `bg`, both packed `0xRRGGBB`. This is how
@@ -116,6 +139,18 @@ pub fn dark() -> Tokens {
         gutter: mix(BG, FG, 0.075),
         hunk_bg: mix(BG, FG, 0.075),
         selection: rgba(0xebebeb40).into(),
+        overlay: rgba(0x00000099).into(),
+        composer_rear: rgb(0x1f1f1f).into(),
+        composer: rgb(0x2a2a2a).into(),
+        composer_edge: rgb(0x2f2f2f).into(),
+        composer_placeholder: rgb(0x5f5f5f).into(),
+        composer_secondary: rgb(0x959595).into(),
+        composer_primary: rgb(0xf4f4f4).into(),
+        composer_divider: rgb(0x363636).into(),
+        send_bg: rgb(0xffffff).into(),
+        send_fg: rgb(0x000000).into(),
+        send_disabled_bg: rgb(0x3a3a3a).into(),
+        send_disabled_fg: rgb(0x8f8f8f).into(),
     }
 }
 
@@ -152,6 +187,20 @@ pub fn light() -> Tokens {
         gutter: mix(BG, FG, 0.015),
         hunk_bg: mix(BG, FG, 0.015),
         selection: rgba(0x1b1b1b26).into(),
+        overlay: rgba(0x0b0b0b4d).into(),
+        // The dark levels inverted around the page: the rear panel sits below
+        // the page, the card on it.
+        composer_rear: rgb(0xf3f3f3).into(),
+        composer: rgb(0xffffff).into(),
+        composer_edge: rgb(0xe6e6e6).into(),
+        composer_placeholder: rgb(0x9a9a9a).into(),
+        composer_secondary: rgb(0x6e6e6e).into(),
+        composer_primary: rgb(0x111111).into(),
+        composer_divider: rgb(0xdcdcdc).into(),
+        send_bg: rgb(0x111111).into(),
+        send_fg: rgb(0xffffff).into(),
+        send_disabled_bg: rgb(0xe6e6e6).into(),
+        send_disabled_fg: rgb(0x9a9a9a).into(),
     }
 }
 
@@ -182,6 +231,83 @@ pub fn section_label(text: &str, t: &Tokens) -> Div {
         .child(text.to_uppercase())
 }
 
+/// The scrim a modal lays over the window. Children stack from the top, so a
+/// panel can sit a fixed distance down the window.
+pub fn scrim(id: &'static str, t: &Tokens) -> Stateful<Div> {
+    div()
+        .id(id)
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .occlude()
+        .bg(t.overlay)
+        .flex()
+        .flex_col()
+        .items_center()
+}
+
+/// A modal panel: the popover surface with the card radius.
+pub fn panel(t: &Tokens) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .rounded(px(RADIUS))
+        .bg(t.popover)
+        .border_1()
+        .border_color(t.border)
+}
+
+/// One Lucide icon, tinted with `color`. gpui paints an SVG as an alpha mask,
+/// so the colour has to be set on the element itself — it isn't inherited.
+pub fn icon(name: &str, size: f32, color: Hsla) -> impl IntoElement {
+    gpui::svg()
+        .path(format!("icons/{name}.svg"))
+        .flex_none()
+        .size(px(size))
+        .text_color(color)
+}
+
+/// A square icon button: the window bar's controls, the composer's `+`, the
+/// close crosses. Muted until hovered, when the icon goes full strength.
+pub fn icon_button(
+    id: impl Into<gpui::SharedString>,
+    name: &str,
+    enabled: bool,
+    t: &Tokens,
+) -> Stateful<Div> {
+    let group: gpui::SharedString = id.into();
+    div()
+        .id(group.clone())
+        .group(group.clone())
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .w(px(GLYPH))
+        .h(px(GLYPH))
+        .rounded(px(GLYPH / 2.))
+        .when(enabled, |this| {
+            this.cursor_pointer().hover(|this| this.bg(t.muted))
+        })
+        .child(
+            gpui::svg()
+                .path(format!("icons/{name}.svg"))
+                .flex_none()
+                .size(px(ICON))
+                .text_color(if enabled { t.muted_fg } else { t.border })
+                .when(enabled, |this| {
+                    this.group_hover(group, |this| this.text_color(t.fg))
+                }),
+        )
+}
+
+/// The icon button's box.
+pub const GLYPH: f32 = 24.;
+/// Every icon in the chrome is drawn at this size.
+pub const ICON: f32 = 16.;
+
 pub fn tokens(cx: &App) -> Tokens {
     if cx.theme().mode.is_dark() {
         dark()
@@ -209,14 +335,49 @@ impl Pref {
         }
     }
 
-    /// `LGTM_THEME=system|dark|light` overrides the default at startup.
-    fn from_env() -> Self {
-        match std::env::var("LGTM_THEME").as_deref() {
-            Ok("dark") => Pref::Dark,
-            Ok("light") => Pref::Light,
+    fn key(self) -> &'static str {
+        match self {
+            Pref::System => "system",
+            Pref::Dark => "dark",
+            Pref::Light => "light",
+        }
+    }
+
+    /// `LGTM_THEME=system|dark|light` overrides what Settings stored.
+    fn stored() -> Self {
+        let from_config = config()
+            .get("theme")
+            .and_then(toml::Value::as_str)
+            .map(str::to_string);
+        match std::env::var("LGTM_THEME").ok().or(from_config).as_deref() {
+            Some("dark") => Pref::Dark,
+            Some("light") => Pref::Light,
             _ => Pref::System,
         }
     }
+}
+
+fn config_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|home| home.join(".lgtm/desktop.toml"))
+}
+
+/// `~/.lgtm/desktop.toml`, or an empty table when there isn't one.
+pub fn config() -> toml::Table {
+    config_path()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| toml::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// Read-modify-write so the token and orchestrator keys survive a preference
+/// change. Best effort: an unwritable home directory must not break a button.
+pub fn persist(key: &str, value: &str) {
+    let Some(path) = config_path() else {
+        return;
+    };
+    let mut table = config();
+    table.insert(key.into(), toml::Value::String(value.into()));
+    let _ = std::fs::write(path, table.to_string());
 }
 
 struct Current(Pref);
@@ -224,7 +385,7 @@ impl Global for Current {}
 
 pub fn init(cx: &mut App) {
     gpui_component::init(cx);
-    cx.set_global(Current(Pref::from_env()));
+    cx.set_global(Current(Pref::stored()));
     apply(None, cx);
 }
 
@@ -234,6 +395,7 @@ pub fn pref(cx: &App) -> Pref {
 
 pub fn set_pref(pref: Pref, window: &mut Window, cx: &mut App) {
     cx.set_global(Current(pref));
+    persist("theme", pref.key());
     apply(Some(window), cx);
 }
 
@@ -332,7 +494,7 @@ fn paint(t: &Tokens, dark_mode: bool, cx: &mut App) {
 mod tests {
     use super::*;
 
-    fn all(t: &Tokens) -> [Hsla; 26] {
+    fn all(t: &Tokens) -> [Hsla; 38] {
         [
             t.bg,
             t.fg,
@@ -360,6 +522,18 @@ mod tests {
             t.diff_del_emph,
             t.gutter,
             t.selection,
+            t.overlay,
+            t.composer_rear,
+            t.composer,
+            t.composer_edge,
+            t.composer_placeholder,
+            t.composer_secondary,
+            t.composer_primary,
+            t.composer_divider,
+            t.send_bg,
+            t.send_fg,
+            t.send_disabled_bg,
+            t.send_disabled_fg,
         ]
     }
 

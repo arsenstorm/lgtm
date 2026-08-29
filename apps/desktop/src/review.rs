@@ -6,7 +6,6 @@ use gpui_component::input::InputState;
 use lgtm_diff::tree::Tree;
 use lgtm_diff::{Anchor, DiffStyle, FileDiff, Side};
 use std::collections::HashSet;
-use std::path::PathBuf;
 
 actions!(review, [MarkViewed, NextFile, PrevFile, ToggleDiffStyle]);
 
@@ -149,37 +148,24 @@ impl ReviewState {
     }
 }
 
-fn config_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".lgtm/desktop.toml"))
-}
-
-fn config() -> toml::Table {
-    config_path()
-        .and_then(|path| std::fs::read_to_string(path).ok())
-        .and_then(|text| toml::from_str(&text).ok())
-        .unwrap_or_default()
-}
-
 fn stored_style() -> DiffStyle {
-    match config().get("diff_style").and_then(toml::Value::as_str) {
+    match crate::theme::config()
+        .get("diff_style")
+        .and_then(toml::Value::as_str)
+    {
         Some("split") => DiffStyle::Split,
         _ => DiffStyle::Unified,
     }
 }
 
-/// Read-modify-write so the token and orchestrator keys survive the toggle.
-/// Best effort: an unwritable home directory must not break the button.
 fn persist_style(style: DiffStyle) {
-    let Some(path) = config_path() else {
-        return;
-    };
-    let name = match style {
-        DiffStyle::Unified => "unified",
-        DiffStyle::Split => "split",
-    };
-    let mut table = config();
-    table.insert("diff_style".into(), toml::Value::String(name.into()));
-    let _ = std::fs::write(path, table.to_string());
+    crate::theme::persist(
+        "diff_style",
+        match style {
+            DiffStyle::Unified => "unified",
+            DiffStyle::Split => "split",
+        },
+    );
 }
 
 #[cfg(test)]
