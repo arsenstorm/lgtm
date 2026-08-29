@@ -164,6 +164,20 @@ impl GitHub {
         })
     }
 
+    /// Open issues carrying `label`, oldest first, pull requests excluded.
+    pub async fn issues_with_label(&self, repo: &Repo, label: &str) -> anyhow::Result<Vec<Issue>> {
+        // Only spaces are escaped; labels with other reserved characters
+        // (e.g. `#`, `&`) would need full percent-encoding.
+        let label = label.replace(' ', "%20");
+        let path = format!(
+            "/repos/{}/{}/issues?labels={label}&state=open&per_page=100&sort=created&direction=asc",
+            repo.owner, repo.repo
+        );
+        let items: Vec<serde_json::Value> =
+            Self::send_json(self.request(reqwest::Method::GET, &path)).await?;
+        Ok(parse_issue_list(&items))
+    }
+
     pub async fn create_pull(
         &self,
         repo: &Repo,
@@ -225,6 +239,27 @@ impl GitHub {
         let _: serde_json::Value = Self::send_json(req).await?;
         Ok(())
     }
+}
+
+/// Pure half of [`GitHub::issues_with_label`]: drops entries carrying a
+/// `pull_request` key; a null `body` becomes `""`.
+pub fn parse_issue_list(items: &[serde_json::Value]) -> Vec<Issue> {
+    items
+        .iter()
+        .filter(|item| item.get("pull_request").is_none())
+        .filter_map(|item| {
+            Some(Issue {
+                number: item.get("number")?.as_u64()?,
+                title: item.get("title")?.as_str()?.to_string(),
+                body: item
+                    .get("body")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                html_url: item.get("html_url")?.as_str()?.to_string(),
+            })
+        })
+        .collect()
 }
 
 const FAILING_CONCLUSIONS: [&str; 4] = ["failure", "timed_out", "cancelled", "action_required"];
@@ -406,5 +441,40 @@ mod tests {
         let status = aggregate_checks(&runs, "fallback");
         assert_eq!(status.state, CiState::Failure);
         assert_eq!(status.url, "u2");
+    }
+
+    #[test]
+    fn parse_issue_list_drops_prs_and_defaults_null_body() {
+        let items = vec![
+            json!({
+                "number": 1,
+                "title": "first issue",
+                "body": "has a body",
+                "html_url": "https://github.com/o/r/issues/1",
+            }),
+            json!({
+                "number": 2,
+                "title": "a pull request",
+                "body": "not an issue",
+                "html_url": "https://github.com/o/r/pull/2",
+                "pull_request": {"url": "https://api.github.com/repos/o/r/pulls/2"},
+            }),
+            json!({
+                "number": 3,
+                "title": "third issue",
+                "body": null,
+                "html_url": "https://github.com/o/r/issues/3",
+            }),
+        ];
+        let issues = parse_issue_list(&items);
+        assert_eq!(issues.len(), 2);
+        assert_eq!(issues[0].number, 1);
+        assert_eq!(issues[0].title, "first issue");
+        assert_eq!(issues[0].html_url, "https://github.com/o/r/issues/1");
+        assert_eq!(issues[0].body, "has a body");
+        assert_eq!(issues[1].number, 3);
+        assert_eq!(issues[1].title, "third issue");
+        assert_eq!(issues[1].html_url, "https://github.com/o/r/issues/3");
+        assert_eq!(issues[1].body, "");
     }
 }
