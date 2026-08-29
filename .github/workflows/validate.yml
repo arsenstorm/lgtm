@@ -104,6 +104,20 @@ jobs:
       - name: Test
         run: cargo test --workspace --exclude lgtm-desktop
 
+  scripts:
+    name: Install scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # shellcheck and pwsh both ship with the ubuntu runner image.
+      - name: Shellcheck
+        run: shellcheck scripts/install.sh
+
+      - name: PowerShell syntax
+        run: pwsh -NoProfile -c '[scriptblock]::Create((Get-Content -Raw scripts/install.ps1)) | Out-Null'
+
   desktop:
     name: Desktop (macOS)
     runs-on: macos-latest

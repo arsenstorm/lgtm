@@ -119,6 +119,9 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
 
     match opts.tls {
         Some((cert, key)) => {
+            // axum-server brings no crypto provider; the lib must not rely on
+            // the binary having installed one.
+            let _ = rustls::crypto::ring::default_provider().install_default();
             let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key).await?;
             tracing::info!(%bind, "orchestrator listening over https");
             axum_server::bind_rustls(bind, config)
