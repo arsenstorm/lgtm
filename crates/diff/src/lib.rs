@@ -5,12 +5,12 @@
 //! and [`Anchor`] addresses a single line on one side of a file so comments and
 //! marks can hang off it.
 
+mod intraline;
 pub mod tree;
 
 use serde::{Deserialize, Serialize};
 
-/// Lines longer than this skip the intra-line word diff.
-const MAX_INTRALINE_LEN: usize = 1000;
+use crate::intraline::mark_intraline;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FileStatus {
@@ -58,6 +58,22 @@ pub struct Line {
     /// The whole line as one unchanged segment unless an intra-line diff applies.
     pub segments: Vec<Segment>,
     pub no_newline: bool,
+}
+
+impl Line {
+    fn new(kind: LineKind, text: &str) -> Self {
+        Line {
+            kind,
+            old_no: None,
+            new_no: None,
+            text: text.to_string(),
+            segments: vec![Segment {
+                text: text.to_string(),
+                changed: false,
+            }],
+            no_newline: false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,34 +152,39 @@ pub fn layout(file: &FileDiff, style: DiffStyle) -> Vec<Row<'_>> {
 fn split_rows<'a>(lines: &'a [Line], rows: &mut Vec<Row<'a>>) {
     let mut i = 0;
     while i < lines.len() {
-        match lines[i].kind {
-            LineKind::Context => {
-                rows.push(Row::Split {
-                    left: Some(&lines[i]),
-                    right: Some(&lines[i]),
-                });
-                i += 1;
-            }
-            LineKind::Deletion | LineKind::Addition => {
-                let del_start = i;
-                while i < lines.len() && lines[i].kind == LineKind::Deletion {
-                    i += 1;
-                }
-                let add_start = i;
-                while i < lines.len() && lines[i].kind == LineKind::Addition {
-                    i += 1;
-                }
-                let dels = add_start - del_start;
-                let adds = i - add_start;
-                for k in 0..dels.max(adds) {
-                    rows.push(Row::Split {
-                        left: (k < dels).then(|| &lines[del_start + k]),
-                        right: (k < adds).then(|| &lines[add_start + k]),
-                    });
-                }
-            }
+        if lines[i].kind == LineKind::Context {
+            rows.push(Row::Split {
+                left: Some(&lines[i]),
+                right: Some(&lines[i]),
+            });
+            i += 1;
+            continue;
         }
+        let (add_start, end) = change_run(lines, i);
+        let dels = add_start - i;
+        let adds = end - add_start;
+        for k in 0..dels.max(adds) {
+            rows.push(Row::Split {
+                left: (k < dels).then(|| &lines[i + k]),
+                right: (k < adds).then(|| &lines[add_start + k]),
+            });
+        }
+        i = end;
     }
+}
+
+/// The run of deletions starting at `start` and the additions after it:
+/// `(first addition, first line past the run)`.
+fn change_run(lines: &[Line], start: usize) -> (usize, usize) {
+    let mut i = start;
+    while i < lines.len() && lines[i].kind == LineKind::Deletion {
+        i += 1;
+    }
+    let add_start = i;
+    while i < lines.len() && lines[i].kind == LineKind::Addition {
+        i += 1;
+    }
+    (add_start, i)
 }
 
 /// Parses `git diff` output containing one or more files.
@@ -257,17 +278,7 @@ impl Pending {
             None => (LineKind::Context, raw),
             _ => return false,
         };
-        let mut line = Line {
-            kind,
-            old_no: None,
-            new_no: None,
-            text: text.to_string(),
-            segments: vec![Segment {
-                text: text.to_string(),
-                changed: false,
-            }],
-            no_newline: false,
-        };
+        let mut line = Line::new(kind, text);
         if kind != LineKind::Addition {
             line.old_no = Some(self.old_no);
             self.old_no += 1;
@@ -332,9 +343,8 @@ impl Pending {
         }
     }
 
-    fn finish(mut self) -> FileDiff {
-        self.finish_hunk();
-        let status = if self.binary {
+    fn status(&self) -> FileStatus {
+        if self.binary {
             FileStatus::Binary
         } else if self.renamed {
             FileStatus::Renamed
@@ -344,7 +354,12 @@ impl Pending {
             FileStatus::Deleted
         } else {
             FileStatus::Modified
-        };
+        }
+    }
+
+    fn finish(mut self) -> FileDiff {
+        self.finish_hunk();
+        let status = self.status();
         let name = self
             .new_path
             .clone()
@@ -360,15 +375,9 @@ impl Pending {
         } else {
             None
         };
-        let mut additions = 0;
-        let mut deletions = 0;
-        for line in self.hunks.iter().flat_map(|h| &h.lines) {
-            match line.kind {
-                LineKind::Addition => additions += 1,
-                LineKind::Deletion => deletions += 1,
-                LineKind::Context => {}
-            }
-        }
+        let lines = || self.hunks.iter().flat_map(|h| &h.lines);
+        let additions = lines().filter(|l| l.kind == LineKind::Addition).count();
+        let deletions = lines().filter(|l| l.kind == LineKind::Deletion).count();
         FileDiff {
             name,
             prev_name,
@@ -414,130 +423,4 @@ fn parse_range(range: &str, sign: char) -> Option<(u32, u32)> {
         None => 1,
     };
     Some((start, count))
-}
-
-/// Pairs each run of deletions with the additions that follow it and gives the
-/// paired lines word-level segments.
-fn mark_intraline(lines: &mut [Line]) {
-    let mut i = 0;
-    while i < lines.len() {
-        if lines[i].kind != LineKind::Deletion {
-            i += 1;
-            continue;
-        }
-        let del_start = i;
-        while i < lines.len() && lines[i].kind == LineKind::Deletion {
-            i += 1;
-        }
-        let add_start = i;
-        while i < lines.len() && lines[i].kind == LineKind::Addition {
-            i += 1;
-        }
-        let pairs = (add_start - del_start).min(i - add_start);
-        for k in 0..pairs {
-            let (dels, adds) = lines.split_at_mut(add_start);
-            let del = &mut dels[del_start + k];
-            let add = &mut adds[k];
-            if del.text.len() > MAX_INTRALINE_LEN || add.text.len() > MAX_INTRALINE_LEN {
-                continue;
-            }
-            let old_tokens = tokenize(&del.text);
-            let new_tokens = tokenize(&add.text);
-            let (old_kept, new_kept) = lcs_kept(&old_tokens, &new_tokens);
-            del.segments = segments(&old_tokens, &old_kept);
-            add.segments = segments(&new_tokens, &new_kept);
-        }
-    }
-}
-
-/// Splits on word boundaries and whitespace, keeping separators as tokens.
-fn tokenize(text: &str) -> Vec<&str> {
-    let mut tokens = Vec::new();
-    let mut chars = text.char_indices().peekable();
-    while let Some((start, c)) = chars.next() {
-        let class = char_class(c);
-        let mut end = start + c.len_utf8();
-        if class != CharClass::Other {
-            while let Some(&(i, next)) = chars.peek() {
-                if char_class(next) != class {
-                    break;
-                }
-                end = i + next.len_utf8();
-                chars.next();
-            }
-        }
-        tokens.push(&text[start..end]);
-    }
-    tokens
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum CharClass {
-    Word,
-    Space,
-    Other,
-}
-
-fn char_class(c: char) -> CharClass {
-    if c.is_alphanumeric() || c == '_' {
-        CharClass::Word
-    } else if c.is_whitespace() {
-        CharClass::Space
-    } else {
-        CharClass::Other
-    }
-}
-
-/// Longest common subsequence over tokens; the flags mark the tokens inside it.
-fn lcs_kept(old: &[&str], new: &[&str]) -> (Vec<bool>, Vec<bool>) {
-    let (n, m) = (old.len(), new.len());
-    let mut table = vec![0_u32; (n + 1) * (m + 1)];
-    let at = |i: usize, j: usize| i * (m + 1) + j;
-    for i in (0..n).rev() {
-        for j in (0..m).rev() {
-            table[at(i, j)] = if old[i] == new[j] {
-                table[at(i + 1, j + 1)] + 1
-            } else {
-                table[at(i + 1, j)].max(table[at(i, j + 1)])
-            };
-        }
-    }
-    let mut old_kept = vec![false; n];
-    let mut new_kept = vec![false; m];
-    let (mut i, mut j) = (0, 0);
-    while i < n && j < m {
-        if old[i] == new[j] {
-            old_kept[i] = true;
-            new_kept[j] = true;
-            i += 1;
-            j += 1;
-        } else if table[at(i + 1, j)] >= table[at(i, j + 1)] {
-            i += 1;
-        } else {
-            j += 1;
-        }
-    }
-    (old_kept, new_kept)
-}
-
-/// Merges neighbouring tokens that share a changed flag into segments.
-fn segments(tokens: &[&str], kept: &[bool]) -> Vec<Segment> {
-    let mut out: Vec<Segment> = Vec::new();
-    for (token, keep) in tokens.iter().zip(kept) {
-        let changed = !keep;
-        match out.last_mut() {
-            Some(last) if last.changed == changed => last.text.push_str(token),
-            _ => out.push(Segment {
-                text: (*token).to_string(),
-                changed,
-            }),
-        }
-    }
-    if out.is_empty() {
-        out.push(Segment {
-            text: String::new(),
-            changed: false,
-        });
-    }
-    out
 }
