@@ -10,20 +10,14 @@ use tokio::sync::oneshot;
 use crate::automation::{execute, recorded_session};
 use crate::connection::Ctx;
 use crate::git::{
-    add_worktree, branch_name, fetch, git, mirror_path, session_path, task_path, worktree_path,
+    add_worktree, branch_name, fetch, git, mirror_path, remove_worktree, session_path, task_path,
+    worktree_path,
 };
 use crate::plan::{planning_prompt, revision_prompt};
 
 pub async fn run_task(task: Task, ctx: Arc<Ctx>, cancel: oneshot::Receiver<()>) {
-    if let Err(err) = run(&task, &ctx, cancel).await {
-        ctx.emit(
-            &task.id,
-            TaskEvent::Failed {
-                error: format!("{err:#}"),
-            },
-        );
-    }
-    finished(&task.id, &ctx);
+    let result = run(&task, &ctx, cancel).await;
+    finished(&task.id, &ctx, result);
 }
 
 /// A follow-up in the worktree of a task that already ran, resuming the agent
@@ -34,18 +28,14 @@ pub async fn follow_up(
     ctx: Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) {
-    if let Err(err) = resume(&task_id, &text, &ctx, cancel).await {
-        ctx.emit(
-            &task_id,
-            TaskEvent::Failed {
-                error: format!("{err:#}"),
-            },
-        );
-    }
-    finished(&task_id, &ctx);
+    let result = resume(&task_id, &text, &ctx, cancel).await;
+    finished(&task_id, &ctx, result);
 }
 
-fn finished(task_id: &str, ctx: &Arc<Ctx>) {
+fn finished(task_id: &str, ctx: &Arc<Ctx>, result: Result<()>) {
+    if let Err(err) = result {
+        ctx.fail(task_id, err);
+    }
     ctx.running
         .lock()
         .expect("running map poisoned")
@@ -132,12 +122,7 @@ pub async fn push_task(task_id: TaskId, ctx: Arc<Ctx>) {
             };
             ctx.emit(&task_id, TaskEvent::Pushed { branch, sha });
         }
-        Err(err) => ctx.emit(
-            &task_id,
-            TaskEvent::Failed {
-                error: format!("{err:#}"),
-            },
-        ),
+        Err(err) => ctx.fail(&task_id, err),
     }
 }
 
@@ -150,46 +135,15 @@ pub async fn discard_task(task_id: TaskId, ctx: Arc<Ctx>) {
         .lock()
         .expect("mirrors poisoned")
         .remove(&task_id);
-    let Some(mirror) = mirror else {
+    let result = match mirror {
+        Some(mirror) => remove_worktree(&mirror, &worktree, &branch_name(&task_id)).await,
         // Restarted since the task ran: the mirror is unknown, so drop the files.
-        match tokio::fs::remove_dir_all(&worktree).await {
-            Ok(()) => ctx.emit(&task_id, TaskEvent::Discarded),
-            Err(err) => ctx.emit(
-                &task_id,
-                TaskEvent::Failed {
-                    error: format!("remove {}: {err}", worktree.display()),
-                },
-            ),
-        }
-        return;
+        None => tokio::fs::remove_dir_all(&worktree)
+            .await
+            .map_err(|err| anyhow::anyhow!("remove {}: {err}", worktree.display())),
     };
-    let mirror_s = mirror.display().to_string();
-    let worktree_s = worktree.display().to_string();
-    let branch = branch_name(&task_id);
-    let result = async {
-        git(
-            &[
-                "-C",
-                &mirror_s,
-                "worktree",
-                "remove",
-                "--force",
-                &worktree_s,
-            ],
-            None,
-        )
-        .await?;
-        git(&["-C", &mirror_s, "branch", "-D", &branch], None).await?;
-        anyhow::Ok(())
-    }
-    .await;
     match result {
         Ok(()) => ctx.emit(&task_id, TaskEvent::Discarded),
-        Err(err) => ctx.emit(
-            &task_id,
-            TaskEvent::Failed {
-                error: format!("{err:#}"),
-            },
-        ),
+        Err(err) => ctx.fail(&task_id, err),
     }
 }

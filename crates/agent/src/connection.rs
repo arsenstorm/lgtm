@@ -65,6 +65,15 @@ impl Ctx {
         });
     }
 
+    pub fn fail(&self, task_id: &str, err: impl std::fmt::Display) {
+        self.emit(
+            task_id,
+            TaskEvent::Failed {
+                error: format!("{err:#}"),
+            },
+        );
+    }
+
     /// One run ended; count it and leave if this worker is done.
     pub fn task_finished(&self) {
         self.finished.fetch_add(1, Ordering::Relaxed);
