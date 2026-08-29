@@ -1,3 +1,4 @@
+mod backlog;
 mod http;
 mod render;
 mod run;
@@ -5,7 +6,7 @@ mod run;
 use clap::{Parser, Subcommand};
 use http::Client;
 use lgtm_protocol::{
-    CiState, Executor, Review, StoredEvent, Task, TaskKind, TaskStatus, WorkerStatus,
+    BatchSource, CiState, Executor, Review, StoredEvent, Task, TaskKind, TaskStatus, WorkerStatus,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -116,6 +117,71 @@ enum Command {
         id: String,
         message: String,
     },
+    /// Import a backlog of issues as tasks, or inspect a past import.
+    Backlog {
+        #[command(subcommand)]
+        command: BacklogCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum BacklogCommand {
+    /// Import every open issue labeled `--label` in a GitHub repository.
+    Github {
+        /// `OWNER/REPO`.
+        repo: String,
+        #[arg(long)]
+        label: String,
+        /// Have the agent propose a plan for each issue instead of a diff.
+        #[arg(long)]
+        plan: bool,
+        /// Approve plan tasks in this batch without a person.
+        #[arg(long)]
+        approve_plans: bool,
+        #[arg(long, default_value_t = 20)]
+        max: u32,
+        /// List the matching issues without creating a batch.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "main")]
+        base: String,
+        #[arg(long, default_value = "claude", value_parser = parse_executor)]
+        agent: Executor,
+        #[arg(long)]
+        on: Option<String>,
+    },
+    /// Import every issue in the named Linear team and workflow state.
+    Linear {
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        state: String,
+        /// Git URL the tasks clone from. Required: unlike `run --linear`,
+        /// there is no origin-remote fallback.
+        #[arg(long)]
+        repo: String,
+        /// Have the agent propose a plan for each issue instead of a diff.
+        #[arg(long)]
+        plan: bool,
+        /// Approve plan tasks in this batch without a person.
+        #[arg(long)]
+        approve_plans: bool,
+        #[arg(long, default_value_t = 20)]
+        max: u32,
+        /// List the matching issues without creating a batch.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "main")]
+        base: String,
+        #[arg(long, default_value = "claude", value_parser = parse_executor)]
+        agent: Executor,
+        #[arg(long)]
+        on: Option<String>,
+    },
+    /// List every batch imported so far.
+    List,
+    /// Show one batch's summary and its tasks.
+    Status { id: String },
 }
 
 /// Body of `GET /api/tasks/:id`.
@@ -162,7 +228,7 @@ fn ci_str(state: CiState) -> String {
 /// `#<pr-number> <mark>` for the `tasks` table's PR column, empty when the
 /// task has no pull request. Mark is ✓/✗ for CI success/failure, … for
 /// pending or missing CI info.
-fn pr_cell(task: &Task) -> String {
+pub(crate) fn pr_cell(task: &Task) -> String {
     let Some(pr) = &task.pull_request else {
         return String::new();
     };
@@ -179,7 +245,7 @@ fn pr_cell(task: &Task) -> String {
 /// keep their existing relative order; a task's own children keep their
 /// existing relative order too. A task whose declared parent isn't in the
 /// list is treated as top-level.
-fn order_tasks(tasks: Vec<Task>) -> Vec<Task> {
+pub(crate) fn order_tasks(tasks: Vec<Task>) -> Vec<Task> {
     let ids: std::collections::HashSet<String> = tasks.iter().map(|t| t.id.clone()).collect();
     let mut children: std::collections::HashMap<String, Vec<Task>> =
         std::collections::HashMap::new();
@@ -207,7 +273,7 @@ fn order_tasks(tasks: Vec<Task>) -> Vec<Task> {
 /// wire status. A queued, unassigned task with unmet dependencies shows
 /// `blocked` instead of `queued`, so the table hints at why it isn't
 /// running yet.
-fn display_status(task: &Task, all: &[Task]) -> String {
+pub(crate) fn display_status(task: &Task, all: &[Task]) -> String {
     let has_unmet_deps = !task.spec.depends_on.is_empty()
         && !task.spec.depends_on.iter().all(|dep_id| {
             all.iter().any(|t| {
@@ -221,7 +287,31 @@ fn display_status(task: &Task, all: &[Task]) -> String {
     }
 }
 
-fn first_line_truncated(s: &str, max: usize) -> String {
+/// Prints the `tasks`-style table: `ID STATUS WORKER PR PROMPT`, children
+/// ordered after their parent. Shared by `tasks` and `backlog status`.
+pub(crate) fn print_task_table(tasks: Vec<Task>) {
+    println!(
+        "{:<10}{:<16}{:<16}{:<10}PROMPT",
+        "ID", "STATUS", "WORKER", "PR"
+    );
+    for t in order_tasks(tasks.clone()) {
+        let worker = t.worker.as_deref().unwrap_or("-");
+        let prefix = if t.spec.parent.is_some() { "↳ " } else { "" };
+        let prompt = format!("{prefix}{}", first_line_truncated(&t.spec.prompt, 60));
+        let failed = t.result.as_ref().is_some_and(|r| {
+            r.validation_failed() || r.review.as_ref().is_some_and(Review::has_blocking)
+        });
+        let status = display_status(&t, &tasks);
+        let status = if failed { format!("{status}!") } else { status };
+        let pr = pr_cell(&t);
+        println!(
+            "{:<10}{:<16}{:<16}{:<10}{}",
+            t.id, status, worker, pr, prompt
+        );
+    }
+}
+
+pub(crate) fn first_line_truncated(s: &str, max: usize) -> String {
     let first = s.lines().next().unwrap_or("");
     if first.chars().count() > max {
         first.chars().take(max).collect()
@@ -467,25 +557,7 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         }
         Command::Tasks => {
             let tasks: Vec<Task> = client.get("/api/tasks").await?;
-            println!(
-                "{:<10}{:<16}{:<16}{:<10}PROMPT",
-                "ID", "STATUS", "WORKER", "PR"
-            );
-            for t in order_tasks(tasks.clone()) {
-                let worker = t.worker.as_deref().unwrap_or("-");
-                let prefix = if t.spec.parent.is_some() { "↳ " } else { "" };
-                let prompt = format!("{prefix}{}", first_line_truncated(&t.spec.prompt, 60));
-                let failed = t.result.as_ref().is_some_and(|r| {
-                    r.validation_failed() || r.review.as_ref().is_some_and(Review::has_blocking)
-                });
-                let status = display_status(&t, &tasks);
-                let status = if failed { format!("{status}!") } else { status };
-                let pr = pr_cell(&t);
-                println!(
-                    "{:<10}{:<16}{:<16}{:<10}{}",
-                    t.id, status, worker, pr, prompt
-                );
-            }
+            print_task_table(tasks);
             Ok(0)
         }
         Command::Show { id } => {
@@ -577,6 +649,70 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             eprintln!("task {id} → follow-up sent");
             run::stream(&orchestrator, &token, ca.as_deref(), &id, from).await
         }
+        Command::Backlog { command } => match command {
+            BacklogCommand::Github {
+                repo,
+                label,
+                plan,
+                approve_plans,
+                max,
+                dry_run,
+                base,
+                agent,
+                on,
+            } => {
+                let Some((owner, name)) = repo.split_once('/') else {
+                    anyhow::bail!("expected OWNER/REPO, got '{repo}'");
+                };
+                let source = BatchSource::GithubLabel {
+                    owner: owner.to_string(),
+                    repo: name.to_string(),
+                    label,
+                };
+                backlog::create(
+                    &client,
+                    source,
+                    None,
+                    base,
+                    agent,
+                    on,
+                    plan,
+                    approve_plans,
+                    max,
+                    dry_run,
+                )
+                .await
+            }
+            BacklogCommand::Linear {
+                team,
+                state,
+                repo,
+                plan,
+                approve_plans,
+                max,
+                dry_run,
+                base,
+                agent,
+                on,
+            } => {
+                let source = BatchSource::Linear { team, state };
+                backlog::create(
+                    &client,
+                    source,
+                    Some(repo),
+                    base,
+                    agent,
+                    on,
+                    plan,
+                    approve_plans,
+                    max,
+                    dry_run,
+                )
+                .await
+            }
+            BacklogCommand::List => backlog::list(&client).await,
+            BacklogCommand::Status { id } => backlog::status(&client, &id).await,
+        },
     }
 }
 
@@ -623,6 +759,7 @@ mod tests {
                 kind: TaskKind::Run,
                 parent: None,
                 depends_on: vec![],
+                batch: None,
             },
             status: TaskStatus::Approved,
             worker: None,
