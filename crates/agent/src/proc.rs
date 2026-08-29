@@ -69,45 +69,51 @@ pub struct Sinks {
     pub cost: Option<Cost>,
 }
 
-pub async fn pump<R: AsyncRead + Unpin>(
-    reader: R,
-    stream: OutputStream,
-    ctx: Arc<Ctx>,
-    task_id: TaskId,
-    sinks: Sinks,
-) {
-    let Sinks {
-        tail,
-        mut session,
-        text,
-        cost,
-    } = sinks;
-    let mut lines = BufReader::new(reader).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        if let Some(text) = &text {
-            capture_answer(&line, text);
+/// Forwards one output stream of a run to the orchestrator, recording what
+/// `sinks` asks for on the way.
+pub struct Pump {
+    pub ctx: Arc<Ctx>,
+    pub task_id: TaskId,
+    pub stream: OutputStream,
+    pub sinks: Sinks,
+}
+
+impl Pump {
+    pub async fn run<R: AsyncRead + Unpin>(mut self, reader: R) {
+        let mut lines = BufReader::new(reader).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            self.record(&line).await;
+            let stream = self.stream;
+            self.ctx
+                .emit(&self.task_id, TaskEvent::Output { stream, line });
         }
-        if let Some(cost) = &cost {
-            if let Some(spent) = result_cost(&line) {
-                *cost.lock().expect("cost poisoned") += spent;
+    }
+
+    async fn record(&mut self, line: &str) {
+        let sinks = &mut self.sinks;
+        if let Some(text) = &sinks.text {
+            capture_answer(line, text);
+        }
+        if let (Some(cost), Some(spent)) = (&sinks.cost, result_cost(line)) {
+            *cost.lock().expect("cost poisoned") += spent;
+        }
+        if let (Some(path), Some(id)) = (&sinks.session, init_session_id(line)) {
+            if let Err(err) = tokio::fs::write(path, &id).await {
+                tracing::warn!("write {}: {err}", path.display());
             }
+            sinks.session = None;
         }
-        if let Some(path) = &session {
-            if let Some(id) = init_session_id(&line) {
-                if let Err(err) = tokio::fs::write(path, &id).await {
-                    tracing::warn!("write {}: {err}", path.display());
-                }
-                session = None;
-            }
+        if let Some(tail) = &sinks.tail {
+            push_tail(tail, line);
         }
-        if let Some(tail) = &tail {
-            let mut tail = tail.lock().expect("tail poisoned");
-            tail.push_back(line.clone());
-            if tail.len() > TAIL_LINES {
-                tail.pop_front();
-            }
-        }
-        ctx.emit(&task_id, TaskEvent::Output { stream, line });
+    }
+}
+
+fn push_tail(tail: &Tail, line: &str) {
+    let mut tail = tail.lock().expect("tail poisoned");
+    tail.push_back(line.to_string());
+    if tail.len() > TAIL_LINES {
+        tail.pop_front();
     }
 }
 

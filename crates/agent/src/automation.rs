@@ -21,7 +21,7 @@ use crate::policy::{
     PolicyConfig,
 };
 use crate::proc::{
-    cost_buffer, cost_total, final_text, pump, tail_buffer, tail_lines, text_buffer, Cost, Sinks,
+    cost_buffer, cost_total, final_text, tail_buffer, tail_lines, text_buffer, Cost, Pump, Sinks,
     Text,
 };
 use crate::validate::{load_validation, run_validation, tail};
@@ -259,28 +259,28 @@ impl Run<'_> {
         let stderr_tail = tail_buffer();
         let stdout = child.stdout.take().context("no stdout")?;
         let stderr = child.stderr.take().context("no stderr")?;
-        let pump_out = tokio::spawn(pump(
-            stdout,
-            OutputStream::Stdout,
-            self.ctx.clone(),
-            self.task.id.clone(),
-            Sinks {
-                session: opts.session,
-                text: opts.answer,
-                cost: Some(self.cost.clone()),
-                ..Sinks::default()
-            },
-        ));
-        let pump_err = tokio::spawn(pump(
-            stderr,
-            OutputStream::Stderr,
-            self.ctx.clone(),
-            self.task.id.clone(),
-            Sinks {
-                tail: Some(stderr_tail.clone()),
-                ..Sinks::default()
-            },
-        ));
+        let pump_out = tokio::spawn(
+            self.pump(
+                OutputStream::Stdout,
+                Sinks {
+                    session: opts.session,
+                    text: opts.answer,
+                    cost: Some(self.cost.clone()),
+                    ..Sinks::default()
+                },
+            )
+            .run(stdout),
+        );
+        let pump_err = tokio::spawn(
+            self.pump(
+                OutputStream::Stderr,
+                Sinks {
+                    tail: Some(stderr_tail.clone()),
+                    ..Sinks::default()
+                },
+            )
+            .run(stderr),
+        );
 
         let waited = tokio::select! {
             status = child.wait() => Some(status),
@@ -297,6 +297,15 @@ impl Run<'_> {
             status,
             stderr_tail: tail(&tail_lines(&stderr_tail)),
         }))
+    }
+
+    fn pump(&self, stream: OutputStream, sinks: Sinks) -> Pump {
+        Pump {
+            ctx: self.ctx.clone(),
+            task_id: self.task.id.clone(),
+            stream,
+            sinks,
+        }
     }
 
     fn command(&self, path: &Path, opts: &RunOpts<'_>) -> Command {
