@@ -82,34 +82,7 @@ fn conflict(msg: impl Into<String>) -> MergeError {
 /// Merges an approved task's pull request and records it, for the merge route
 /// and for the CI poller's auto-merge alike. The GitHub calls run off the lock.
 pub async fn merge_task(app: &Arc<App>, id: &str) -> Result<Task, MergeError> {
-    let (github, repo, number) = {
-        let state = app.state.lock().unwrap();
-        let task = state
-            .tasks
-            .get(id)
-            .map(|rec| &rec.task)
-            .ok_or(MergeError::Cmd(CmdError::NotFound))?;
-        if task.status != TaskStatus::Approved {
-            return Err(conflict("task is not approved"));
-        }
-        let pull = task
-            .pull_request
-            .as_ref()
-            .ok_or_else(|| conflict("task has no pull request"))?;
-        match task.ci.as_ref().map(|ci| ci.state) {
-            Some(CiState::Success) => {}
-            Some(CiState::Failure) => return Err(conflict("ci is failing")),
-            Some(CiState::Pending) | None => return Err(conflict("ci is pending")),
-        }
-        let repo = lgtm_github::parse_repo(&task.spec.repository).ok_or_else(|| {
-            conflict(format!("unrecognised repository: {}", task.spec.repository))
-        })?;
-        let github = app
-            .github
-            .clone()
-            .ok_or_else(|| conflict("GITHUB_TOKEN is not configured"))?;
-        (github, repo, pull.number)
-    };
+    let (github, repo, number) = mergeable(app, id)?;
     match github.pull_mergeable(&repo, number).await {
         Ok(Some(true)) => {}
         Ok(Some(false)) => return Err(conflict("pull request is not mergeable")),
@@ -128,6 +101,35 @@ pub async fn merge_task(app: &Arc<App>, id: &str) -> Result<Task, MergeError> {
     };
     crate::linear::after_transition(app, id, TaskStatus::Approved, false);
     Ok(task)
+}
+
+/// The client and pull request to merge, once the task's own state allows it.
+fn mergeable(app: &Arc<App>, id: &str) -> Result<(lgtm_github::GitHub, Repo, u64), MergeError> {
+    let state = app.state.lock().unwrap();
+    let task = state
+        .tasks
+        .get(id)
+        .map(|rec| &rec.task)
+        .ok_or(MergeError::Cmd(CmdError::NotFound))?;
+    if task.status != TaskStatus::Approved {
+        return Err(conflict("task is not approved"));
+    }
+    let pull = task
+        .pull_request
+        .as_ref()
+        .ok_or_else(|| conflict("task has no pull request"))?;
+    match task.ci.as_ref().map(|ci| ci.state) {
+        Some(CiState::Success) => {}
+        Some(CiState::Failure) => return Err(conflict("ci is failing")),
+        Some(CiState::Pending) | None => return Err(conflict("ci is pending")),
+    }
+    let repo = lgtm_github::parse_repo(&task.spec.repository)
+        .ok_or_else(|| conflict(format!("unrecognised repository: {}", task.spec.repository)))?;
+    let github = app
+        .github
+        .clone()
+        .ok_or_else(|| conflict("GITHUB_TOKEN is not configured"))?;
+    Ok((github, repo, pull.number))
 }
 
 /// Merges a task the policy says needs no one's say-so, once its checks passed.
