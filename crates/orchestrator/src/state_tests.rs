@@ -45,6 +45,7 @@ fn spec(executor: Executor, worker: Option<&str>) -> TaskSpec {
         kind: TaskKind::Run,
         parent: None,
         depends_on: Vec::new(),
+        batch: None,
     }
 }
 

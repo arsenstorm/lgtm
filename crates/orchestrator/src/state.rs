@@ -6,11 +6,12 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
-    OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskId, TaskSpec, TaskStatus, WorkerInfo,
+    Batch, OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskId, TaskSpec, TaskStatus,
+    WorkerInfo,
 };
 use tokio::sync::{broadcast, mpsc};
 
-use crate::persist::Stored;
+use crate::persist::{Persist, Stored};
 
 const LIVE_CAPACITY: usize = 1024;
 
@@ -19,7 +20,7 @@ pub struct App {
     pub state: Mutex<State>,
     /// Writes go to a task that owns the directory; a request handler never
     /// holds a path of its own.
-    pub persist: mpsc::UnboundedSender<crate::persist::Stored>,
+    pub persist: mpsc::UnboundedSender<Persist>,
     /// `None` when no `GITHUB_TOKEN` was set, which turns the pull request,
     /// CI and merge routes off.
     pub github: Option<lgtm_github::GitHub>,
@@ -32,8 +33,14 @@ impl App {
     /// Queues a write for each id a transition reported as changed.
     pub fn persist_ids(&self, state: &State, ids: &[TaskId]) {
         for rec in ids.iter().filter_map(|id| state.tasks.get(id)) {
-            let _ = self.persist.send(Stored::from(rec));
+            let _ = self
+                .persist
+                .send(Persist::Task(Box::new(Stored::from(rec))));
         }
+    }
+
+    pub fn persist_batch(&self, batch: &Batch) {
+        let _ = self.persist.send(Persist::Batch(batch.clone()));
     }
 }
 
@@ -41,6 +48,8 @@ impl App {
 pub struct State {
     pub workers: HashMap<String, WorkerConn>,
     pub tasks: HashMap<TaskId, TaskRecord>,
+    /// Backlog imports, by id. A task points back with `spec.batch`.
+    pub batches: HashMap<String, Batch>,
     /// Accept tasks no connected worker can run, because provisioning is on
     /// and a worker for them is a queue away.
     pub queue_without_workers: bool,
@@ -166,14 +175,22 @@ pub fn now_ms() -> u64 {
         .map_or(0, |d| d.as_millis() as u64)
 }
 
+/// Eight lowercase hex characters, which `persist::file_stem` accepts.
+fn random_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()[..8].to_string()
+}
+
 impl State {
     pub(crate) fn new_id(&self) -> TaskId {
-        loop {
-            let id = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
-            if !self.tasks.contains_key(&id) {
-                return id;
-            }
-        }
+        std::iter::repeat_with(random_id)
+            .find(|id| !self.tasks.contains_key(id))
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn new_batch_id(&self) -> String {
+        std::iter::repeat_with(random_id)
+            .find(|id| !self.batches.contains_key(id))
+            .unwrap_or_default()
     }
 
     /// Whether a task could ever run, so one that cannot is refused instead of

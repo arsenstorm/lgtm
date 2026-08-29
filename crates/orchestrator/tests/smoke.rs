@@ -58,6 +58,7 @@ async fn end_to_end() {
         kind: TaskKind::Run,
         parent: None,
         depends_on: Vec::new(),
+        batch: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -538,6 +539,34 @@ async fn end_to_end() {
             .status(),
         404
     );
+    // a batch needs the integration its source names
+    let r = http
+        .post(format!("{base}/api/batches"))
+        .bearer_auth("tok")
+        .json(&serde_json::json!({
+            "source": { "type": "github_label", "owner": "o", "repo": "r", "label": "lgtm" },
+            "base_branch": "main",
+            "executor": "claude",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409);
+    assert_eq!(
+        r.text().await.unwrap(),
+        r#"{"error":"GITHUB_TOKEN is not configured"}"#
+    );
+    let batches: Vec<Batch> = http
+        .get(format!("{base}/api/batches"))
+        .bearer_auth("tok")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(batches.is_empty());
+
     // restart: running tasks are failed on load, queued ones survive
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr2 = listener.local_addr().unwrap();

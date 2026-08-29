@@ -11,7 +11,7 @@ use gpui::{
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::ActiveTheme as _;
 use lgtm_client::Client;
-use lgtm_protocol::{Executor, Task, TaskKind, TaskSpec, TaskStatus, WorkerStatus};
+use lgtm_protocol::{Batch, Executor, Task, TaskKind, TaskSpec, TaskStatus, WorkerStatus};
 use std::time::Duration;
 use tokio::task::JoinHandle;
 
@@ -50,6 +50,7 @@ pub struct LgtmApp {
     pub focus: FocusHandle,
     pub tasks: Vec<Task>,
     pub workers: Vec<WorkerStatus>,
+    pub batches: Vec<Batch>,
     pub banner: Option<String>,
     pub error: Option<String>,
     pub selected: Option<String>,
@@ -114,6 +115,7 @@ impl LgtmApp {
             focus,
             tasks: Vec::new(),
             workers: Vec::new(),
+            batches: Vec::new(),
             banner: None,
             error: None,
             selected: None,
@@ -135,10 +137,11 @@ impl LgtmApp {
 
     fn apply(&mut self, msg: Msg, window: &mut Window, cx: &mut Context<Self>) {
         match msg {
-            Msg::Lists(Ok((mut tasks, workers))) => {
+            Msg::Lists(Ok((mut tasks, workers, batches))) => {
                 tasks.sort_by_key(|task| std::cmp::Reverse(task.created_at));
                 self.tasks = tasks;
                 self.workers = workers;
+                self.batches = batches;
                 self.banner = None;
                 if self.selected.is_none() {
                     if let Some(first) = self.tasks.first().map(|t| t.id.clone()) {
@@ -259,6 +262,7 @@ impl LgtmApp {
             kind: TaskKind::Run,
             parent: None,
             depends_on: vec![],
+            batch: None,
         };
         net::act(
             self.client.clone(),
@@ -401,6 +405,7 @@ mod tests {
                 kind: TaskKind::Run,
                 parent: None,
                 depends_on: depends_on.into_iter().map(String::from).collect(),
+                batch: None,
             },
             status,
             worker: None,

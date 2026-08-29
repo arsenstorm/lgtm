@@ -147,6 +147,8 @@ fn apply(app: &Arc<App>, task_id: &str, event: TaskEvent) {
         app.persist_ids(&state, &changed);
         if completed {
             auto_approve(app, &mut state, task_id);
+            let changed = state.auto_approve_plan(task_id);
+            app.persist_ids(&state, &changed);
         }
         let plan = pushed
             .then(|| state.pull_request_plan(task_id, app.github.is_some()))

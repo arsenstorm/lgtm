@@ -60,6 +60,7 @@ mod tests {
                 kind: TaskKind::Run,
                 parent: None,
                 depends_on: Vec::new(),
+                batch: None,
             },
             status,
             worker: Some("w".into()),

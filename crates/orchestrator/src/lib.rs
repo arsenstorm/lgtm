@@ -1,6 +1,7 @@
 //! Orchestrator: one HTTP API for developers, one WebSocket per worker agent.
 
 mod api;
+mod backlog;
 mod github;
 mod linear;
 mod persist;
@@ -56,7 +57,9 @@ pub async fn serve_plain(bind: SocketAddr, token: String, data_dir: PathBuf) -> 
 pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
     let bind = opts.bind;
     let tasks_dir = opts.data_dir.join("tasks");
+    let batches_dir = opts.data_dir.join("batches");
     std::fs::create_dir_all(&tasks_dir)?;
+    std::fs::create_dir_all(&batches_dir)?;
 
     let mut state = State {
         queue_without_workers: opts.provision.is_some(),
@@ -81,10 +84,17 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
         }
         state.tasks.insert(rec.task.id.clone(), rec);
     }
-    tracing::info!(tasks = state.tasks.len(), "loaded tasks");
+    for batch in persist::load_all_batches(&batches_dir) {
+        state.batches.insert(batch.id.clone(), batch);
+    }
+    tracing::info!(
+        tasks = state.tasks.len(),
+        batches = state.batches.len(),
+        "loaded tasks",
+    );
 
     let (persist_tx, persist_rx) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(persist::writer(tasks_dir, persist_rx));
+    tokio::spawn(persist::writer(opts.data_dir, persist_rx));
 
     let github = lgtm_github::GitHub::from_env();
     tracing::info!(enabled = github.is_some(), "github integration");

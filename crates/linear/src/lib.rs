@@ -146,6 +146,23 @@ impl Linear {
             .collect()
     }
 
+    /// Issues of team `team_key` (e.g. "ENG") whose workflow state is named
+    /// `state_name`, oldest first.
+    pub async fn issues_in_state(
+        &self,
+        team_key: &str,
+        state_name: &str,
+    ) -> anyhow::Result<Vec<Issue>> {
+        let query = "query($team: String!, $state: String!) { issues(filter: { team: { key: { eq: $team } }, state: { name: { eq: $state } } }, first: 100, orderBy: createdAt) { nodes { id identifier title description url team { id } } } }";
+        let value = self
+            .query(
+                query,
+                serde_json::json!({ "team": team_key, "state": state_name }),
+            )
+            .await?;
+        parse_issue_list(&value)
+    }
+
     pub async fn move_issue(&self, issue_id: &str, state_id: &str) -> anyhow::Result<()> {
         let query = "mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }";
         let value = self
@@ -206,6 +223,36 @@ fn parse_issue_response(value: &Value) -> anyhow::Result<Issue> {
             "id",
         )?,
     })
+}
+
+/// Pure half: parses `data.issues.nodes` into `Issue`s (description null → "").
+pub fn parse_issue_list(v: &Value) -> anyhow::Result<Vec<Issue>> {
+    let nodes = v
+        .pointer("/data/issues/nodes")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow!("linear: missing issues in response"))?;
+    nodes
+        .iter()
+        .map(|issue| {
+            Ok(Issue {
+                id: field_str(issue, "id")?,
+                identifier: field_str(issue, "identifier")?,
+                title: field_str(issue, "title")?,
+                description: issue
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                url: field_str(issue, "url")?,
+                team_id: field_str(
+                    issue
+                        .get("team")
+                        .ok_or_else(|| anyhow!("linear: missing team in response"))?,
+                    "id",
+                )?,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -333,5 +380,61 @@ mod tests {
                 team_id: "team-1".into(),
             }
         );
+    }
+
+    #[test]
+    fn parse_issue_list_parses_nodes_with_null_description() {
+        let value = json!({
+            "data": {
+                "issues": {
+                    "nodes": [
+                        {
+                            "id": "1",
+                            "identifier": "ENG-1",
+                            "title": "First",
+                            "description": "has body",
+                            "url": "https://linear.app/w/issue/ENG-1",
+                            "team": { "id": "team-1" }
+                        },
+                        {
+                            "id": "2",
+                            "identifier": "ENG-2",
+                            "title": "Second",
+                            "description": null,
+                            "url": "https://linear.app/w/issue/ENG-2",
+                            "team": { "id": "team-1" }
+                        }
+                    ]
+                }
+            }
+        });
+        let issues = parse_issue_list(&value).unwrap();
+        assert_eq!(
+            issues,
+            vec![
+                Issue {
+                    id: "1".into(),
+                    identifier: "ENG-1".into(),
+                    title: "First".into(),
+                    description: "has body".into(),
+                    url: "https://linear.app/w/issue/ENG-1".into(),
+                    team_id: "team-1".into(),
+                },
+                Issue {
+                    id: "2".into(),
+                    identifier: "ENG-2".into(),
+                    title: "Second".into(),
+                    description: String::new(),
+                    url: "https://linear.app/w/issue/ENG-2".into(),
+                    team_id: "team-1".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_issue_list_missing_issues_is_error() {
+        let value = json!({ "data": {} });
+        assert!(parse_issue_list(&value).is_err());
     }
 }

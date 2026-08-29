@@ -121,6 +121,52 @@ pub struct TaskSpec {
     /// Tasks that must be approved before this one may start.
     #[serde(default)]
     pub depends_on: Vec<TaskId>,
+    /// The backlog batch this task was imported by.
+    #[serde(default)]
+    pub batch: Option<String>,
+}
+
+/// Where a batch's issues came from.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum BatchSource {
+    GithubLabel {
+        owner: String,
+        repo: String,
+        label: String,
+    },
+    Linear {
+        team: String,
+        state: String,
+    },
+}
+
+/// One backlog import: the issues it found became these tasks.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Batch {
+    pub id: String,
+    /// Unix milliseconds.
+    pub created_at: u64,
+    pub source: BatchSource,
+    pub repository: String,
+    pub task_ids: Vec<TaskId>,
+    /// Approve plan tasks in this batch without a person.
+    #[serde(default)]
+    pub approve_plans: bool,
+}
+
+/// Task counts by state for `GET /api/batches/:id`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct BatchSummary {
+    pub queued: u32,
+    pub blocked: u32,
+    pub running: u32,
+    pub awaiting_review: u32,
+    pub approved: u32,
+    pub merged: u32,
+    pub failed: u32,
+    pub cancelled: u32,
+    pub rejected: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -397,6 +443,7 @@ mod tests {
                 kind: TaskKind::Plan,
                 parent: Some("00000000".into()),
                 depends_on: vec!["11111111".into()],
+                batch: Some("b1".into()),
             },
             status: TaskStatus::Queued,
             worker: None,
@@ -511,6 +558,23 @@ mod tests {
             info,
             running: vec!["0123abcd".into()],
         });
+        round_trip(Batch {
+            id: "b1".into(),
+            created_at: 3,
+            source: BatchSource::GithubLabel {
+                owner: "o".into(),
+                repo: "r".into(),
+                label: "P1".into(),
+            },
+            repository: "https://github.com/o/r.git".into(),
+            task_ids: vec!["0123abcd".into()],
+            approve_plans: true,
+        });
+        round_trip(BatchSource::Linear {
+            team: "ENG".into(),
+            state: "Todo".into(),
+        });
+        round_trip(BatchSummary::default());
         for msg in [
             OrchestratorMessage::HelloAck,
             OrchestratorMessage::Start {
@@ -560,6 +624,7 @@ mod tests {
         assert!(task.spec.linear.is_none());
         assert_eq!(task.spec.kind, TaskKind::Run);
         assert!(task.spec.parent.is_none() && task.spec.depends_on.is_empty());
+        assert!(task.spec.batch.is_none());
         let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
         assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
     }

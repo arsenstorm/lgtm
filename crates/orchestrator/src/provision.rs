@@ -145,6 +145,7 @@ mod tests {
                 kind: TaskKind::Run,
                 parent: None,
                 depends_on: deps,
+                batch: None,
             },
             status,
             worker: None,

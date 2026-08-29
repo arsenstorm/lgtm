@@ -55,6 +55,7 @@ pub async fn run(
         kind,
         parent: None,
         depends_on: vec![],
+        batch: None,
     };
     let task: Task = client.post("/api/tasks", Some(&spec)).await?;
     announce_and_stream(orchestrator, token, ca, task).await

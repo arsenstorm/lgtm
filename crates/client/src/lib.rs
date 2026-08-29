@@ -47,6 +47,43 @@ struct FromIssue<'a> {
     worker: Option<&'a str>,
 }
 
+/// Body of `POST /api/batches`.
+#[derive(Serialize, Clone, Debug)]
+pub struct BatchRequest {
+    pub source: lgtm_protocol::BatchSource,
+    pub repository: Option<String>,
+    pub base_branch: String,
+    pub executor: lgtm_protocol::Executor,
+    pub worker: Option<String>,
+    pub plan: bool,
+    pub approve_plans: bool,
+    pub max: u32,
+    pub dry_run: bool,
+}
+
+/// One issue found for a batch, previewed before (or instead of) import.
+#[derive(Deserialize, Clone, Debug)]
+pub struct IssuePreview {
+    pub key: String,
+    pub title: String,
+    pub url: String,
+}
+
+/// Body of `POST /api/batches`.
+#[derive(Deserialize, Clone, Debug)]
+pub struct BatchResponse {
+    pub batch: Option<lgtm_protocol::Batch>,
+    pub issues: Vec<IssuePreview>,
+}
+
+/// Body of `GET /api/batches/:id`.
+#[derive(Deserialize, Clone, Debug)]
+pub struct BatchDetail {
+    pub batch: lgtm_protocol::Batch,
+    pub summary: lgtm_protocol::BatchSummary,
+    pub tasks: Vec<lgtm_protocol::Task>,
+}
+
 #[derive(Serialize)]
 struct FromLinear<'a> {
     issue: &'a str,
@@ -234,6 +271,18 @@ impl Client {
             }),
         )
         .await
+    }
+
+    pub async fn create_batch(&self, req: &BatchRequest) -> anyhow::Result<BatchResponse> {
+        self.post("/api/batches", Some(req)).await
+    }
+
+    pub async fn batches(&self) -> anyhow::Result<Vec<lgtm_protocol::Batch>> {
+        self.get("/api/batches").await
+    }
+
+    pub async fn batch(&self, id: &str) -> anyhow::Result<BatchDetail> {
+        self.get(&format!("/api/batches/{id}")).await
     }
 
     /// Opens the events socket from event index `from` and returns a stream
