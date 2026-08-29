@@ -282,6 +282,22 @@ impl Run<'_> {
             .run(stderr),
         );
 
+        let Some(status) = self.wait_or_kill(&mut child).await? else {
+            return Ok(None);
+        };
+        let _ = tokio::join!(pump_out, pump_err);
+        Ok(Some(Finish {
+            status,
+            stderr_tail: tail(&tail_lines(&stderr_tail)),
+        }))
+    }
+
+    /// The exit status, or `None` when the task was cancelled first and the
+    /// child killed.
+    async fn wait_or_kill(
+        &mut self,
+        child: &mut tokio::process::Child,
+    ) -> Result<Option<ExitStatus>> {
         let waited = tokio::select! {
             status = child.wait() => Some(status),
             _ = &mut self.cancel => None,
@@ -291,12 +307,7 @@ impl Run<'_> {
             let _ = child.wait().await;
             return Ok(None);
         };
-        let status = status?;
-        let _ = tokio::join!(pump_out, pump_err);
-        Ok(Some(Finish {
-            status,
-            stderr_tail: tail(&tail_lines(&stderr_tail)),
-        }))
+        Ok(Some(status?))
     }
 
     fn pump(&self, stream: OutputStream, sinks: Sinks) -> Pump {
