@@ -26,13 +26,10 @@ async fn end_to_end() {
 
     let client = Client::new(format!("http://{addr}"), "tok");
 
-    // no workers yet
     assert!(client.workers().await.unwrap().is_empty());
 
-    // no batches yet
     assert!(client.batches().await.unwrap().is_empty());
 
-    // no eligible worker -> error
     let spec = TaskSpec {
         repository: "r".into(),
         base_branch: "main".into(),
@@ -49,7 +46,6 @@ async fn end_to_end() {
     let err = client.create_task(&spec).await.unwrap_err();
     assert!(err.to_string().contains("no eligible worker"), "{err}");
 
-    // fake worker connects with one slot
     let mut w = ws(&format!("ws://{addr}{WORKER_WS_PATH}")).await;
     let info = WorkerInfo {
         name: "w1".into(),
@@ -70,10 +66,9 @@ async fn end_to_end() {
     ))
     .await
     .unwrap();
-    w.next().await.unwrap().unwrap(); // HelloAck
+    w.next().await.unwrap().unwrap();
 
     let task = client.create_task(&spec).await.unwrap();
-    // worker gets Start
     let start = w.next().await.unwrap().unwrap();
     assert!(matches!(
         serde_json::from_str::<OrchestratorMessage>(start.to_text().unwrap()).unwrap(),
