@@ -49,6 +49,24 @@ pub const LIGHTS_W: f32 = 78.;
 /// The sidebar's status row.
 pub const FOOTER_H: f32 = 40.;
 
+/// The composer, layer by layer. Codex builds its prompt out of luminance
+/// alone: a darker panel behind, a lighter card over it, one hairline edge.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Composer {
+    pub rear: Hsla,
+    pub card: Hsla,
+    pub edge: Hsla,
+    pub placeholder: Hsla,
+    /// The dimmer of the two label greys: icons, the second half of a control.
+    pub secondary: Hsla,
+    pub primary: Hsla,
+    pub divider: Hsla,
+    pub send_bg: Hsla,
+    pub send_fg: Hsla,
+    pub send_disabled_bg: Hsla,
+    pub send_disabled_fg: Hsla,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
     pub bg: Hsla,
@@ -83,20 +101,7 @@ pub struct Tokens {
     pub selection: Hsla,
     /// The scrim a modal lays over the window.
     pub overlay: Hsla,
-    /// The composer, layer by layer. Codex builds its prompt out of luminance
-    /// alone: a darker panel behind, a lighter card over it, one hairline edge.
-    pub composer_rear: Hsla,
-    pub composer: Hsla,
-    pub composer_edge: Hsla,
-    pub composer_placeholder: Hsla,
-    /// The dimmer of the two label greys: icons, the second half of a control.
-    pub composer_secondary: Hsla,
-    pub composer_primary: Hsla,
-    pub composer_divider: Hsla,
-    pub send_bg: Hsla,
-    pub send_fg: Hsla,
-    pub send_disabled_bg: Hsla,
-    pub send_disabled_fg: Hsla,
+    pub composer: Composer,
 }
 
 /// The 3% lift a hovered diff row gets, applied to whatever tint it carries so

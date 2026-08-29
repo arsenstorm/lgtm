@@ -2,7 +2,7 @@
 
 use gpui::{rgb, rgba, Hsla};
 
-use super::Tokens;
+use super::{Composer, Tokens};
 
 /// `amount` of `base` mixed over `bg`, both packed `0xRRGGBB`. This is how
 /// `@pierre/diffs` builds its row tints and gutter fills.
@@ -12,6 +12,22 @@ fn mix(bg: u32, base: u32, amount: f32) -> Hsla {
         (b as f32 + (f as f32 - b as f32) * amount).round() as u32
     };
     rgb((channel(16) << 16) | (channel(8) << 8) | channel(0)).into()
+}
+
+fn dark_composer() -> Composer {
+    Composer {
+        rear: rgb(0x1f1f1f).into(),
+        card: rgb(0x2a2a2a).into(),
+        edge: rgb(0x2f2f2f).into(),
+        placeholder: rgb(0x5f5f5f).into(),
+        secondary: rgb(0x959595).into(),
+        primary: rgb(0xf4f4f4).into(),
+        divider: rgb(0x363636).into(),
+        send_bg: rgb(0xffffff).into(),
+        send_fg: rgb(0x000000).into(),
+        send_disabled_bg: rgb(0x3a3a3a).into(),
+        send_disabled_fg: rgb(0x8f8f8f).into(),
+    }
 }
 
 pub fn dark() -> Tokens {
@@ -48,17 +64,23 @@ pub fn dark() -> Tokens {
         hunk_bg: mix(BG, FG, 0.075),
         selection: rgba(0xebebeb40).into(),
         overlay: rgba(0x00000099).into(),
-        composer_rear: rgb(0x1f1f1f).into(),
-        composer: rgb(0x2a2a2a).into(),
-        composer_edge: rgb(0x2f2f2f).into(),
-        composer_placeholder: rgb(0x5f5f5f).into(),
-        composer_secondary: rgb(0x959595).into(),
-        composer_primary: rgb(0xf4f4f4).into(),
-        composer_divider: rgb(0x363636).into(),
-        send_bg: rgb(0xffffff).into(),
-        send_fg: rgb(0x000000).into(),
-        send_disabled_bg: rgb(0x3a3a3a).into(),
-        send_disabled_fg: rgb(0x8f8f8f).into(),
+        composer: dark_composer(),
+    }
+}
+
+fn light_composer() -> Composer {
+    Composer {
+        rear: rgb(0xf3f3f3).into(),
+        card: rgb(0xffffff).into(),
+        edge: rgb(0xe6e6e6).into(),
+        placeholder: rgb(0x9a9a9a).into(),
+        secondary: rgb(0x6e6e6e).into(),
+        primary: rgb(0x111111).into(),
+        divider: rgb(0xdcdcdc).into(),
+        send_bg: rgb(0x111111).into(),
+        send_fg: rgb(0xffffff).into(),
+        send_disabled_bg: rgb(0xe6e6e6).into(),
+        send_disabled_fg: rgb(0x9a9a9a).into(),
     }
 }
 
@@ -98,17 +120,7 @@ pub fn light() -> Tokens {
         overlay: rgba(0x0b0b0b4d).into(),
         // The dark levels inverted around the page: the rear panel sits below
         // the page, the card on it.
-        composer_rear: rgb(0xf3f3f3).into(),
-        composer: rgb(0xffffff).into(),
-        composer_edge: rgb(0xe6e6e6).into(),
-        composer_placeholder: rgb(0x9a9a9a).into(),
-        composer_secondary: rgb(0x6e6e6e).into(),
-        composer_primary: rgb(0x111111).into(),
-        composer_divider: rgb(0xdcdcdc).into(),
-        send_bg: rgb(0x111111).into(),
-        send_fg: rgb(0xffffff).into(),
-        send_disabled_bg: rgb(0xe6e6e6).into(),
-        send_disabled_fg: rgb(0x9a9a9a).into(),
+        composer: light_composer(),
     }
 }
 
@@ -145,17 +157,17 @@ mod tests {
             t.gutter,
             t.selection,
             t.overlay,
-            t.composer_rear,
-            t.composer,
-            t.composer_edge,
-            t.composer_placeholder,
-            t.composer_secondary,
-            t.composer_primary,
-            t.composer_divider,
-            t.send_bg,
-            t.send_fg,
-            t.send_disabled_bg,
-            t.send_disabled_fg,
+            t.composer.rear,
+            t.composer.card,
+            t.composer.edge,
+            t.composer.placeholder,
+            t.composer.secondary,
+            t.composer.primary,
+            t.composer.divider,
+            t.composer.send_bg,
+            t.composer.send_fg,
+            t.composer.send_disabled_bg,
+            t.composer.send_disabled_fg,
         ]
     }
 
