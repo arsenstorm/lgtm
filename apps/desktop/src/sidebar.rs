@@ -46,7 +46,7 @@ pub fn render_sidebar(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
-                .track_scroll(&app.task_scroll)
+                .track_scroll(&app.ui.task_scroll)
                 .px(px(SPACE[1]))
                 .pb(px(SPACE[1]))
                 .children(repository_groups(app, &t, cx)),
@@ -56,7 +56,7 @@ pub fn render_sidebar(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<
 
 /// The product name, and the way into the palette.
 fn brand(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let searching = app.overlay == Overlay::Palette;
+    let searching = app.ui.overlay == Overlay::Palette;
     div()
         .flex()
         .flex_shrink_0()
@@ -164,7 +164,7 @@ fn repository_groups(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Ve
 
     for (slug, rows) in group_by_repo(&app.tasks) {
         let key = format!("repo:{slug}");
-        let expanded = app.expanded.contains(&key);
+        let expanded = app.ui.expanded.contains(&key);
         let hidden = rows.len().saturating_sub(PER_PROJECT);
         out.push(repo_header(slug, t));
         let shown = if expanded { rows.len() } else { PER_PROJECT };
@@ -197,7 +197,7 @@ fn show_more(key: String, t: &Tokens, cx: &mut Context<LgtmApp>) -> AnyElement {
         .pl(px(NEST))
         .child("Show more")
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.expanded.insert(key.clone());
+            this.ui.expanded.insert(key.clone());
             cx.notify();
         }))
         .into_any_element()
@@ -235,15 +235,33 @@ fn dot(size: f32, color: gpui::Hsla) -> Div {
         .bg(color)
 }
 
+/// A dot on a halo of its own colour.
+fn status_dot(tone: gpui::Hsla) -> Div {
+    div()
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .w(px(STATUS_DOT))
+        .h(px(STATUS_DOT))
+        .rounded_full()
+        .bg(gpui::Hsla { a: 0.15, ..tone })
+        .child(dot(6., tone))
+}
+
 /// One row: whether the orchestrator answered, and the way into Settings.
 fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> gpui::Stateful<Div> {
-    let status = if app.reachable {
+    let status = if app.link.reachable {
         let n = app.workers.len();
         format!("Connected · {n} worker{}", if n == 1 { "" } else { "s" })
     } else {
         "Not connected".to_string()
     };
-    let tone = if app.reachable { t.success } else { t.danger };
+    let tone = if app.link.reachable {
+        t.success
+    } else {
+        t.danger
+    };
     div()
         .id("status")
         .flex()
@@ -257,18 +275,7 @@ fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> gpui::Statefu
         .text_color(t.muted_fg)
         .cursor_pointer()
         .hover(|this| this.text_color(t.fg))
-        .child(
-            div()
-                .flex()
-                .flex_shrink_0()
-                .items_center()
-                .justify_center()
-                .w(px(STATUS_DOT))
-                .h(px(STATUS_DOT))
-                .rounded_full()
-                .bg(gpui::Hsla { a: 0.15, ..tone })
-                .child(dot(6., tone)),
-        )
+        .child(status_dot(tone))
         .child(div().flex_1().min_w_0().truncate().child(status))
         .child(
             icon_button("open-settings", "settings", true, t)
