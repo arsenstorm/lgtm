@@ -303,6 +303,7 @@ fn create_task(
         review_executor: None,
         model: None,
         goal: Some(goal),
+        allowed_hosts: Vec::new(),
     };
     state.create_task(spec).map(|(_, changed)| changed)
 }

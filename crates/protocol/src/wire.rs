@@ -59,6 +59,16 @@ pub enum TaskEvent {
     NetworkDenied {
         host: String,
     },
+    /// The agent asked for something its sandbox refused; a person answers with `lgtm allow`.
+    PermissionRequested {
+        kind: String,
+        target: String,
+        reason: String,
+    },
+    /// A person added `host` to this task's allowlist for its next run.
+    HostAllowed {
+        host: String,
+    },
     /// Agent exited 0 and the change is committed on the task branch.
     Completed {
         result: TaskResult,
@@ -189,6 +199,11 @@ pub enum OrchestratorMessage {
         /// orchestrator so a runner never needs the store.
         #[serde(default)]
         memories: Vec<Memory>,
+        /// The task as the orchestrator has it now, so a follow-up carries a
+        /// spec change (e.g. an allowed host) the worker's own stored copy
+        /// predates.
+        #[serde(default)]
+        task: Option<Box<Task>>,
     },
     /// Push `lgtm/<task-id>` to origin.
     Push {

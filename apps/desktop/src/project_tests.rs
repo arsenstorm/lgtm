@@ -23,6 +23,7 @@ fn task(repository: &str, status: TaskStatus) -> Task {
             review_executor: None,
             model: None,
             goal: None,
+            allowed_hosts: Vec::new(),
         },
         status,
         worker: None,

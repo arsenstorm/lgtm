@@ -22,6 +22,20 @@ pub(crate) struct FollowUp<'a> {
     pub(crate) text: &'a str,
 }
 
+/// Body of `POST /api/tasks/:id/allow`.
+#[derive(Serialize)]
+pub(crate) struct AllowHost<'a> {
+    pub(crate) host: &'a str,
+}
+
+/// Body of `POST /api/tasks/:id/permissions`.
+#[derive(Serialize)]
+pub(crate) struct PermissionRequest<'a> {
+    pub(crate) kind: &'a str,
+    pub(crate) target: &'a str,
+    pub(crate) reason: &'a str,
+}
+
 /// Body of `POST /api/tasks/:id/retry`. Both `None` retries where it was.
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Retry {

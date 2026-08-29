@@ -36,6 +36,12 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
             writeln!(out, "running checks: {}", names.join(", "))
         }
         TaskEvent::NetworkDenied { host } => writeln!(out, "network denied: {host}"),
+        TaskEvent::PermissionRequested {
+            kind,
+            target,
+            reason,
+        } => writeln!(out, "permission requested: {kind} {target} — {reason}"),
+        TaskEvent::HostAllowed { host } => writeln!(out, "allowed host {host}"),
         TaskEvent::Completed { result } => {
             if let Some(plan) = &result.plan {
                 return writeln!(out, "plan: {} steps", plan.steps.len());
@@ -398,6 +404,20 @@ mod tests {
                 names: vec!["test".into(), "lint".into()]
             }),
             "running checks: test, lint\n"
+        );
+        assert_eq!(
+            rendered(&TaskEvent::PermissionRequested {
+                kind: "network".into(),
+                target: "registry.internal".into(),
+                reason: "install a private package".into(),
+            }),
+            "permission requested: network registry.internal — install a private package\n"
+        );
+        assert_eq!(
+            rendered(&TaskEvent::HostAllowed {
+                host: "registry.internal".into()
+            }),
+            "allowed host registry.internal\n"
         );
     }
 

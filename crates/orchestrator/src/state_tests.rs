@@ -55,6 +55,7 @@ fn spec(executor: Executor, worker: Option<&str>) -> TaskSpec {
         goal: None,
         review_executor: None,
         model: None,
+        allowed_hosts: Vec::new(),
     }
 }
 
@@ -468,6 +469,61 @@ fn message_requires_awaiting_review() {
         state.workers["a"].running.is_empty(),
         "slot freed again after the follow-up run"
     );
+}
+
+#[test]
+fn allow_host_adds_once_and_is_idempotent() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+
+    let (task, changed) = state.allow_host(&id, "registry.internal".into()).unwrap();
+    assert_eq!(task.spec.allowed_hosts, vec!["registry.internal"]);
+    assert!(changed.contains(&id));
+    assert!(matches!(
+        state.tasks[&id].events.last().unwrap().event,
+        TaskEvent::HostAllowed { ref host } if host == "registry.internal"
+    ));
+
+    // Already granted: a no-op, not a second event.
+    let before = state.tasks[&id].events.len();
+    let (task, _) = state.allow_host(&id, "registry.internal".into()).unwrap();
+    assert_eq!(task.spec.allowed_hosts, vec!["registry.internal"]);
+    assert_eq!(state.tasks[&id].events.len(), before);
+}
+
+/// A follow-up carries the orchestrator's current task, so the worker's
+/// stale on-disk copy doesn't shadow a host allowed since the last run.
+#[test]
+fn a_follow_up_carries_the_current_spec() {
+    let mut state = State::default();
+    let mut rx = connect(&mut state, "a", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+    state.allow_host(&id, "registry.internal".into()).unwrap();
+    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Completed {
+            result: TaskResult {
+                branch: format!("lgtm/{id}"),
+                diff: "diff".into(),
+                changed_files: vec!["a.rs".into()],
+                validation: Vec::new(),
+                plan: None,
+                review: None,
+                policy: None,
+                cost_usd: 0.0,
+            },
+        },
+    );
+    state.message(&id, "keep going".into()).unwrap();
+    let sent = std::iter::from_fn(|| rx.try_recv().ok())
+        .find_map(|msg| match msg {
+            OrchestratorMessage::Message { task, .. } => task,
+            _ => None,
+        })
+        .expect("a Message with a task");
+    assert_eq!(sent.spec.allowed_hosts, vec!["registry.internal"]);
 }
 
 /// The last follow-up the worker was sent, ignoring everything else on the

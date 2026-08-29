@@ -167,7 +167,10 @@ pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> 
     (run.allowed_hosts, run.network) = match &policy.network {
         NetworkPolicy::Unrestricted => (None, Network::Unrestricted),
         NetworkPolicy::None => (None, Network::Blocked),
-        NetworkPolicy::Allowlist(hosts) => (Some(hosts.clone()), Network::Blocked),
+        NetworkPolicy::Allowlist(hosts) => (
+            Some(with_task_hosts(hosts, &run.task.spec.allowed_hosts)),
+            Network::Blocked,
+        ),
     };
     tracing::info!(profile = run.sandbox.as_str(), "sandbox profile");
     if run.task.spec.kind == TaskKind::Plan {
@@ -588,6 +591,18 @@ fn http_url(ws: &str) -> String {
     }
 }
 
+/// The repository's allowlist plus whatever a person has granted this task,
+/// deduplicated: a host allowed twice must still be one proxy rule.
+fn with_task_hosts(repo_hosts: &[String], task_hosts: &[String]) -> Vec<String> {
+    let mut hosts = repo_hosts.to_vec();
+    for host in task_hosts {
+        if !hosts.contains(host) {
+            hosts.push(host.clone());
+        }
+    }
+    hosts
+}
+
 fn capped(content: &str) -> String {
     let mut end = NOTES_MAX.min(content.len());
     while !content.is_char_boundary(end) {
@@ -723,6 +738,16 @@ mod tests {
         assert_eq!(http_url("ws://127.0.0.1:4750"), "http://127.0.0.1:4750");
         assert_eq!(http_url("wss://example.com"), "https://example.com");
         assert_eq!(http_url("http://example.com"), "http://example.com");
+    }
+
+    #[test]
+    fn task_hosts_extend_the_repository_allowlist_without_duplicating() {
+        let repo = vec!["github.com".to_string()];
+        let task = vec!["github.com".to_string(), "registry.internal".to_string()];
+        assert_eq!(
+            with_task_hosts(&repo, &task),
+            vec!["github.com".to_string(), "registry.internal".to_string()]
+        );
     }
 
     #[test]

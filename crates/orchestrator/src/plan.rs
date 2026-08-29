@@ -175,6 +175,7 @@ fn child_spec(spec: &TaskSpec, step: &PlanStep, depends_on: Vec<TaskId>, parent:
         goal: spec.goal.clone(),
         review_executor: None,
         model: spec.model.clone(),
+        allowed_hosts: Vec::new(),
     }
 }
 

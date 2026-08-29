@@ -44,6 +44,7 @@ fn spec(goal: Option<String>) -> TaskSpec {
         review_executor: None,
         model: None,
         goal,
+        allowed_hosts: Vec::new(),
     }
 }
 

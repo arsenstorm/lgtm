@@ -13,7 +13,7 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::Sizable as _;
 use lgtm_protocol::{
-    Finding, Severity, StoredEvent, Task, TaskEvent, TaskStatus, ValidationResult,
+    pending_requests, Finding, Severity, StoredEvent, Task, TaskEvent, TaskStatus, ValidationResult,
 };
 
 pub(super) fn review(
@@ -64,8 +64,54 @@ pub(super) fn review(
                     )
                 }),
         )
+        .child(requests(app, task, t, cx))
         .children(actions(app, task, t, cx))
         .into_any_element()
+}
+
+/// Hosts an agent asked for that a person hasn't granted yet, each with a
+/// button to grant it for the task's next run.
+fn requests(app: &LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let pending = pending_requests(&app.events, &task.spec);
+    let empty = pending.is_empty();
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(SPACE[0]))
+        .child(section_label("Requests", t))
+        .children(
+            pending
+                .into_iter()
+                .map(|(target, reason)| request_row(target, reason, t, cx)),
+        )
+        .when(empty, |this| this.child(muted("No requests.", t)))
+}
+
+fn request_row(target: String, reason: String, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let host = target.clone();
+    div()
+        .flex()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .child(div().text_color(t.fg).child(target.clone()))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(px(TEXT_SECONDARY))
+                .text_color(t.muted_fg)
+                .child(reason),
+        )
+        .child(
+            Button::new(SharedString::from(format!("allow:{target}")))
+                .label("Allow")
+                .outline()
+                .small()
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.act(Action::AllowHost(host.clone()), cx)
+                })),
+        )
 }
 
 fn check_row(check: &ValidationResult, t: &Tokens) -> Div {

@@ -34,6 +34,7 @@ fn seed(dir: &std::path::Path) {
             review_executor: None,
             model: None,
             goal: None,
+            allowed_hosts: Vec::new(),
         },
         status: TaskStatus::AwaitingReview,
         worker: None,
@@ -93,6 +94,9 @@ async fn the_server_answers_initialize_and_round_trips_the_scratchpad() {
         json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
             "name": "scratchpad_read", "arguments": {}
         }}),
+        json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {
+            "name": "request_network", "arguments": { "host": "registry.internal", "reason": "install a private package" }
+        }}),
     ] {
         stdin
             .write_all(format!("{request}\n").as_bytes())
@@ -101,7 +105,7 @@ async fn the_server_answers_initialize_and_round_trips_the_scratchpad() {
     }
 
     let mut replies = Vec::new();
-    while replies.len() < 3 {
+    while replies.len() < 4 {
         let line = stdout.next_line().await.unwrap().expect("server exited");
         replies.push(serde_json::from_str::<Value>(&line).unwrap());
     }
@@ -111,6 +115,11 @@ async fn the_server_answers_initialize_and_round_trips_the_scratchpad() {
     assert!(replies[1]["result"]["isError"].is_null(), "{}", replies[1]);
     assert_eq!(replies[2]["id"], 3);
     assert_eq!(replies[2]["result"]["content"][0]["text"], "what I found");
+    assert_eq!(replies[3]["id"], 4);
+    assert_eq!(
+        replies[3]["result"]["content"][0]["text"],
+        format!("recorded; a person can allow it with: lgtm allow {TASK_ID} registry.internal")
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

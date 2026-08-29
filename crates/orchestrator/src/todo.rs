@@ -61,6 +61,7 @@ impl State {
             review_executor: None,
             requirements: Vec::new(),
             model: None,
+            allowed_hosts: Vec::new(),
         };
         let (task, changed) = self.create_task(spec)?;
         let todo = self

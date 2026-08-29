@@ -24,6 +24,7 @@ fn running() -> Task {
             goal: None,
             review_executor: None,
             model: None,
+            allowed_hosts: Vec::new(),
         },
         status: TaskStatus::Running,
         worker: Some("w1".into()),

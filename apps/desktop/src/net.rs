@@ -55,6 +55,7 @@ pub enum Action {
     Retry,
     Tell(String),
     SetScratchpad(String),
+    AllowHost(String),
 }
 
 pub fn runtime() -> &'static Runtime {
@@ -160,6 +161,7 @@ pub fn act(client: Client, id: String, action: Action, tx: Sender) {
                 .map(|_| None),
             Action::Tell(text) => client.tell(&id, &text).await.map(|_| None),
             Action::SetScratchpad(notes) => client.set_scratchpad(&id, &notes).await.map(|_| None),
+            Action::AllowHost(host) => client.allow_host(&id, &host).await.map(|_| None),
         };
         let _ = tx.send(Msg::Action(result.map_err(|e| e.to_string())));
     });

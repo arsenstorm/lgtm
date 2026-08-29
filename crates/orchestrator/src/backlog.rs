@@ -73,6 +73,7 @@ impl SpecInput {
             goal: None,
             review_executor: self.review_executor,
             model: self.model,
+            allowed_hosts: Vec::new(),
         }
     }
 }

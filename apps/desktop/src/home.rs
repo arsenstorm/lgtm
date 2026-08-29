@@ -68,6 +68,7 @@ pub fn compose(prompt: &str, project: Option<&str>, chips: &[Chip]) -> Option<Ta
         goal: None,
         review_executor: None,
         model: None,
+        allowed_hosts: Vec::new(),
     })
 }
 

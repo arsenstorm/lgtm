@@ -112,6 +112,8 @@ pub enum Command {
     },
     /// Send a follow-up to a task awaiting review, then resume streaming.
     Tell { id: String, message: String },
+    /// Grant a host an agent asked for; it applies to the task's next run.
+    Allow { id: String, host: String },
     /// Show the working notes an agent kept for a task
     Pad {
         id: String,

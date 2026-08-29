@@ -314,6 +314,7 @@ async fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
             task_id,
             text,
             memories,
+            task,
         } => {
             let (cancel_tx, cancel_rx) = oneshot::channel();
             ctx.running
@@ -324,6 +325,7 @@ async fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
                 task_id,
                 text,
                 memories,
+                task,
                 ctx.clone(),
                 cancel_rx,
             ));
