@@ -54,6 +54,17 @@ pub enum Command {
         target: Target,
         goal: String,
     },
+    /// State an outcome to work toward, and run its first task
+    Goal {
+        #[command(flatten)]
+        target: Target,
+        /// Propose a plan first instead of running the objective as one task.
+        #[arg(long)]
+        plan: bool,
+        objective: String,
+    },
+    /// List goals
+    Goals,
     /// List tasks
     Tasks,
     /// Print a task, its events, checks, and review

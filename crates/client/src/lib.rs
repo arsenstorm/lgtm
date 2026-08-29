@@ -17,7 +17,8 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
 pub use types::{
-    BatchDetail, BatchRequest, BatchResponse, EventStream, FromLinear, IssuePreview, TaskDetail,
+    BatchDetail, BatchRequest, BatchResponse, EventStream, FromLinear, GoalDetail, IssuePreview,
+    NewGoal, TaskDetail,
 };
 use types::{ErrorBody, FollowUp, FromIssue, NewMemory};
 
@@ -256,6 +257,18 @@ impl Client {
             return Ok(());
         }
         Err(Self::failure(resp).await)
+    }
+
+    pub async fn create_goal(&self, goal: &NewGoal) -> anyhow::Result<lgtm_protocol::GoalSummary> {
+        self.post("/api/goals", Some(goal)).await
+    }
+
+    pub async fn goals(&self) -> anyhow::Result<Vec<lgtm_protocol::GoalSummary>> {
+        self.get("/api/goals").await
+    }
+
+    pub async fn goal(&self, id: &str) -> anyhow::Result<GoalDetail> {
+        self.get(&format!("/api/goals/{id}")).await
     }
 
     /// Opens the events socket from event index `from` and returns a stream

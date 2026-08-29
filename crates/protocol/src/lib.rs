@@ -172,6 +172,9 @@ pub struct TaskSpec {
     /// `None` defers to the repository's `[sandbox] profile`, then `Standard`.
     #[serde(default)]
     pub sandbox: Option<SandboxProfile>,
+    /// The goal this task works toward.
+    #[serde(default)]
+    pub goal: Option<String>,
 }
 
 impl TaskSpec {
@@ -235,6 +238,43 @@ pub struct Memory {
     pub created_at: u64,
 }
 
+impl BatchSummary {
+    /// Every task counted, whatever state it is in.
+    pub fn total(&self) -> u32 {
+        self.queued
+            + self.blocked
+            + self.running
+            + self.awaiting_review
+            + self.approved
+            + self.merged
+            + self.failed
+            + self.cancelled
+            + self.rejected
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalStatus {
+    Draft,
+    Planning,
+    Running,
+    Review,
+    Blocked,
+    Completed,
+    Cancelled,
+}
+
+/// What the developer wants; tasks are how LGTM gets there.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Goal {
+    pub id: String,
+    pub objective: String,
+    pub repository: String,
+    /// Unix milliseconds.
+    pub created_at: u64,
+}
+
 impl Memory {
     /// Whether a run in `repository` should be told this.
     pub fn applies_to(&self, repository: &str) -> bool {
@@ -255,6 +295,35 @@ pub fn knowledge_block(memories: &[Memory]) -> String {
     }
     out.push('\n');
     out
+}
+
+/// Body of `GET /api/goals` items and `GET /api/goals/:id`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct GoalSummary {
+    pub goal: Goal,
+    pub status: GoalStatus,
+    pub tasks: BatchSummary,
+}
+
+/// Derived from the goal's tasks, so it is never stored.
+pub fn goal_status(tasks: &[&Task]) -> GoalStatus {
+    let any = |f: fn(&Task) -> bool| tasks.iter().any(|task| f(task));
+    let all = |f: fn(&Task) -> bool| tasks.iter().all(|task| f(task));
+    if tasks.is_empty() {
+        GoalStatus::Draft
+    } else if any(|t| t.spec.kind == TaskKind::Plan && !t.status.is_terminal()) {
+        GoalStatus::Planning
+    } else if any(|t| matches!(t.status, TaskStatus::Queued | TaskStatus::Running)) {
+        GoalStatus::Running
+    } else if any(|t| t.status == TaskStatus::AwaitingReview) {
+        GoalStatus::Review
+    } else if all(|t| matches!(t.status, TaskStatus::Approved | TaskStatus::Merged)) {
+        GoalStatus::Completed
+    } else if all(|t| matches!(t.status, TaskStatus::Cancelled | TaskStatus::Rejected)) {
+        GoalStatus::Cancelled
+    } else {
+        GoalStatus::Blocked
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

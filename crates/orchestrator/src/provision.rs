@@ -143,6 +143,7 @@ mod tests {
                 depends_on: deps,
                 batch: None,
                 sandbox: None,
+                goal: None,
             },
             status,
             worker: None,

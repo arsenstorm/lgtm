@@ -1,9 +1,10 @@
 //! One JSON file per task under `<data_dir>/tasks`, one per batch under
-//! `<data_dir>/batches`, and one per memory under `<data_dir>/memories`.
+//! `<data_dir>/batches`, one per memory under `<data_dir>/memories`, and one
+//! per goal under `<data_dir>/goals`.
 
 use std::path::{Path, PathBuf};
 
-use lgtm_protocol::{Batch, Memory, StoredEvent, Task};
+use lgtm_protocol::{Batch, Goal, Memory, StoredEvent, Task};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -23,6 +24,7 @@ pub enum Persist {
     Batch(Batch),
     Memory(Memory),
     RemoveMemory(String),
+    Goal(Goal),
 }
 
 impl From<&TaskRecord> for Stored {
@@ -36,17 +38,20 @@ impl From<&TaskRecord> for Stored {
 
 /// Owns the data directory so no request handler ever holds it, and keeps
 /// writes for a task in the order its events arrived. `dir` is the data
-/// directory; `tasks`, `batches` and `memories` under it must already exist.
+/// directory; `tasks`, `batches`, `memories` and `goals` under it must
+/// already exist.
 pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
     let tasks = dir.join("tasks");
     let batches = dir.join("batches");
     let memories = dir.join("memories");
+    let goals = dir.join("goals");
     while let Some(item) = rx.recv().await {
         match item {
             Persist::Task(stored) => save(&tasks, &stored),
             Persist::Batch(batch) => save_batch(&batches, &batch),
             Persist::Memory(memory) => save_memory(&memories, &memory),
             Persist::RemoveMemory(id) => remove_memory(&memories, &id),
+            Persist::Goal(goal) => save_goal(&goals, &goal),
         }
     }
 }
@@ -72,34 +77,32 @@ fn write_json<T: Serialize>(dir: &Path, stem: &str, value: &T) -> std::io::Resul
         .and_then(|()| std::fs::rename(&tmp_path, &final_path))
 }
 
-pub fn save(dir: &Path, stored: &Stored) {
-    let Some(stem) = file_stem(&stored.task.id) else {
-        tracing::error!(task = %stored.task.id, "refusing to persist task with unsafe id");
+/// `kind` names the record in the log; everything else is the same however
+/// the record is shaped.
+fn save_by_id<T: Serialize>(dir: &Path, kind: &str, id: &str, value: &T) {
+    let Some(stem) = file_stem(id) else {
+        tracing::error!(kind, id, "refusing to persist record with unsafe id");
         return;
     };
-    if let Err(err) = write_json(dir, &stem, stored) {
-        tracing::error!(task = %stored.task.id, %err, "failed to persist task");
+    if let Err(err) = write_json(dir, &stem, value) {
+        tracing::error!(kind, id, %err, "failed to persist record");
     }
+}
+
+pub fn save(dir: &Path, stored: &Stored) {
+    save_by_id(dir, "task", &stored.task.id, stored);
 }
 
 pub fn save_batch(dir: &Path, batch: &Batch) {
-    let Some(stem) = file_stem(&batch.id) else {
-        tracing::error!(batch = %batch.id, "refusing to persist batch with unsafe id");
-        return;
-    };
-    if let Err(err) = write_json(dir, &stem, batch) {
-        tracing::error!(batch = %batch.id, %err, "failed to persist batch");
-    }
+    save_by_id(dir, "batch", &batch.id, batch);
+}
+
+pub fn save_goal(dir: &Path, goal: &Goal) {
+    save_by_id(dir, "goal", &goal.id, goal);
 }
 
 pub fn save_memory(dir: &Path, memory: &Memory) {
-    let Some(stem) = file_stem(&memory.id) else {
-        tracing::error!(memory = %memory.id, "refusing to persist memory with unsafe id");
-        return;
-    };
-    if let Err(err) = write_json(dir, &stem, memory) {
-        tracing::error!(memory = %memory.id, %err, "failed to persist memory");
-    }
+    save_by_id(dir, "memory", &memory.id, memory);
 }
 
 pub fn remove_memory(dir: &Path, id: &str) {
@@ -153,6 +156,10 @@ pub fn load_all_batches(dir: &Path) -> Vec<Batch> {
 
 pub fn load_all_memories(dir: &Path) -> Vec<Memory> {
     load_dir(dir, |memory: &Memory| memory.id.as_str())
+}
+
+pub fn load_all_goals(dir: &Path) -> Vec<Goal> {
+    load_dir(dir, |goal: &Goal| goal.id.as_str())
 }
 
 #[cfg(test)]
