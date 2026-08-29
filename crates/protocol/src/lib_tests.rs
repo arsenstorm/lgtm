@@ -140,6 +140,9 @@ fn every_message_round_trips() {
         TaskEvent::Validating {
             names: vec!["test".into(), "lint".into()],
         },
+        TaskEvent::NetworkDenied {
+            host: "evil.example".into(),
+        },
         TaskEvent::Completed {
             result: result.clone(),
         },

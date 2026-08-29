@@ -35,6 +35,7 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
         TaskEvent::Validating { names } => {
             writeln!(out, "running checks: {}", names.join(", "))
         }
+        TaskEvent::NetworkDenied { host } => writeln!(out, "network denied: {host}"),
         TaskEvent::Completed { result } => {
             if let Some(plan) = &result.plan {
                 return writeln!(out, "plan: {} steps", plan.steps.len());

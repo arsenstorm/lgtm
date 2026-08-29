@@ -6,6 +6,7 @@ mod git;
 mod plan;
 mod policy;
 mod proc;
+mod proxy;
 mod runner;
 /// Public so the seatbelt and bubblewrap builders stay compiled, and tested,
 /// on every platform.

@@ -53,6 +53,9 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
             Kind::Status,
             format!("running checks: {}", names.join(", ")),
         )],
+        TaskEvent::NetworkDenied { host } => {
+            vec![Line::new(Kind::Status, format!("network denied: {host}"))]
+        }
         TaskEvent::Completed { result } => {
             let changed = result.changed_files.len();
             let total = result.validation.len();
