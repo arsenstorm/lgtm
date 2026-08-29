@@ -1,9 +1,10 @@
 //! The task view: header with status and actions, then the four tabs.
 
+mod tabs;
+
 use crate::app::{LgtmApp, Pane};
 use crate::labels::{header_preview, status_label};
 use crate::net::Action;
-use crate::render::Kind;
 use crate::sidebar::repo_slug;
 use crate::theme::{
     field, icon, tokens, Tokens, HEADER_H, LINE_MONO, MONO_FONT, RADIUS_PILL, SPACE, TEXT_MONO,
@@ -18,7 +19,9 @@ use gpui::{
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::tab::{Tab, TabBar};
 use gpui_component::Sizable as _;
-use lgtm_protocol::{CiState, CiStatus, Severity, Task, TaskStatus};
+use lgtm_protocol::{CiState, CiStatus, Task, TaskStatus};
+
+use tabs::{activity, checks, plan_pane};
 
 /// `h-5`, the reference badge height.
 const BADGE_H: f32 = 20.;
@@ -37,15 +40,6 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
     } else {
         app.pane
     };
-    let mut tabs = vec![
-        Tab::new().label("Activity"),
-        Tab::new().label("Changes"),
-        Tab::new().label("Checks"),
-    ];
-    if has_plan {
-        tabs.push(Tab::new().label("Plan"));
-    }
-
     div()
         .flex_1()
         .min_w_0()
@@ -70,29 +64,7 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
                     .child(error),
             )
         })
-        .child(
-            div().p(px(SPACE[1])).child(
-                TabBar::new("panes")
-                    .segmented()
-                    .text_size(px(TEXT_SECONDARY))
-                    .selected_index(match pane {
-                        Pane::Activity => 0,
-                        Pane::Changes => 1,
-                        Pane::Checks => 2,
-                        Pane::Plan => 3,
-                    })
-                    .children(tabs)
-                    .on_click(cx.listener(|this, index: &usize, _, cx| {
-                        this.pane = match index {
-                            0 => Pane::Activity,
-                            1 => Pane::Changes,
-                            2 => Pane::Checks,
-                            _ => Pane::Plan,
-                        };
-                        cx.notify();
-                    })),
-            ),
-        )
+        .child(div().p(px(SPACE[1])).child(tab_bar(pane, has_plan, cx)))
         .child(match pane {
             Pane::Changes => div()
                 .flex_1()
@@ -104,6 +76,36 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
             Pane::Activity => scrolling(app, activity(app, &t)),
         })
         .into_any_element()
+}
+
+fn tab_bar(pane: Pane, has_plan: bool, cx: &mut Context<LgtmApp>) -> TabBar {
+    let mut tabs = vec![
+        Tab::new().label("Activity"),
+        Tab::new().label("Changes"),
+        Tab::new().label("Checks"),
+    ];
+    if has_plan {
+        tabs.push(Tab::new().label("Plan"));
+    }
+    TabBar::new("panes")
+        .segmented()
+        .text_size(px(TEXT_SECONDARY))
+        .selected_index(match pane {
+            Pane::Activity => 0,
+            Pane::Changes => 1,
+            Pane::Checks => 2,
+            Pane::Plan => 3,
+        })
+        .children(tabs)
+        .on_click(cx.listener(|this, index: &usize, _, cx| {
+            this.pane = match index {
+                0 => Pane::Activity,
+                1 => Pane::Changes,
+                2 => Pane::Checks,
+                _ => Pane::Plan,
+            };
+            cx.notify();
+        }))
 }
 
 /// The monospace, scrolling body shared by every pane but Changes.
@@ -170,28 +172,28 @@ fn header(app: &mut LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>)
                 )
                 .when_some(task.pull_request.clone(), |this, pr| {
                     let (mark, tone) = ci_mark(task.ci.as_ref(), t);
-                    this.child(
-                        badge(format!("#{}", pr.number), tone, t)
-                            .when_some(mark, |this, name| this.child(icon(name, MARK, tone)))
-                            .id("pr-chip")
-                            .cursor_pointer()
-                            .on_click(
-                                cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_url(&pr.url)),
-                            ),
-                    )
+                    let chip = badge(format!("#{}", pr.number), tone, t)
+                        .when_some(mark, |this, name| this.child(icon(name, MARK, tone)));
+                    this.child(link_chip(chip, "pr-chip", pr.url, cx))
                 })
                 .when_some(task.spec.linear.clone(), |this, linear| {
-                    this.child(
-                        badge(linear.identifier.clone(), t.fg, t)
-                            .id("linear-chip")
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                                cx.open_url(&linear.url)
-                            })),
-                    )
+                    let chip = badge(linear.identifier, t.fg, t);
+                    this.child(link_chip(chip, "linear-chip", linear.url, cx))
                 }),
         )
         .child(actions(task, t, cx))
+}
+
+/// A badge that opens `url` in the browser.
+fn link_chip(
+    chip: Div,
+    id: &'static str,
+    url: String,
+    cx: &mut Context<LgtmApp>,
+) -> impl IntoElement {
+    chip.id(id)
+        .cursor_pointer()
+        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_url(&url)))
 }
 
 /// A ghost button that reads as destructive: no fill, danger-coloured label.
@@ -212,38 +214,7 @@ fn actions(task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .items_center()
         .gap(px(SPACE[1]));
     match task.status {
-        TaskStatus::AwaitingReview => row
-            .child(
-                Button::new("approve")
-                    .label("Approve")
-                    .primary()
-                    .small()
-                    .on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Approve, cx)),
-                    ),
-            )
-            .child(
-                Button::new("request-changes")
-                    .label("Request changes")
-                    .outline()
-                    .small()
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        if this.review.comment_count() > 0 {
-                            crate::changes::request_changes(this, cx);
-                        } else {
-                            this.open_follow_up(window, cx);
-                        }
-                    })),
-            )
-            .child(
-                Button::new("reject")
-                    .label("Reject")
-                    .custom(danger_ghost(t, cx))
-                    .small()
-                    .on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Reject, cx)),
-                    ),
-            ),
+        TaskStatus::AwaitingReview => row.children(review_actions(t, cx)),
         TaskStatus::Queued | TaskStatus::Running => row.child(
             Button::new("cancel")
                 .label("Cancel")
@@ -251,27 +222,51 @@ fn actions(task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                 .small()
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Cancel, cx))),
         ),
-        TaskStatus::Approved
-            if matches!(
-                task.ci,
-                Some(CiStatus {
-                    state: CiState::Success,
-                    ..
-                })
-            ) =>
-        {
-            row.child(
-                Button::new("merge")
-                    .label("Merge")
-                    .primary()
-                    .small()
-                    .on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Merge, cx)),
-                    ),
-            )
-        }
+        TaskStatus::Approved if ci_passed(task) => row.child(
+            Button::new("merge")
+                .label("Merge")
+                .primary()
+                .small()
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Merge, cx))),
+        ),
         _ => row,
     }
+}
+
+fn ci_passed(task: &Task) -> bool {
+    matches!(
+        task.ci,
+        Some(CiStatus {
+            state: CiState::Success,
+            ..
+        })
+    )
+}
+
+fn review_actions(t: &Tokens, cx: &mut Context<LgtmApp>) -> [Button; 3] {
+    [
+        Button::new("approve")
+            .label("Approve")
+            .primary()
+            .small()
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Approve, cx))),
+        Button::new("request-changes")
+            .label("Request changes")
+            .outline()
+            .small()
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                if this.review.comment_count() > 0 {
+                    crate::changes::request_changes(this, cx);
+                } else {
+                    this.open_follow_up(window, cx);
+                }
+            })),
+        Button::new("reject")
+            .label("Reject")
+            .custom(danger_ghost(t, cx))
+            .small()
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Reject, cx))),
+    ]
 }
 
 fn status_tone(status: &str, t: &Tokens) -> Hsla {
@@ -311,133 +306,4 @@ fn ci_mark(ci: Option<&CiStatus>, t: &Tokens) -> (Option<&'static str>, Hsla) {
         Some(CiState::Pending) => (Some("ellipsis"), t.muted_fg),
         None => (None, t.muted_fg),
     }
-}
-
-fn activity(app: &LgtmApp, t: &Tokens) -> AnyElement {
-    if app.lines.is_empty() {
-        return muted("Nothing yet.", t);
-    }
-    div()
-        .flex()
-        .flex_col()
-        .children(app.lines.iter().map(|line| {
-            let color = match line.kind {
-                Kind::Text => t.fg,
-                Kind::Tool => t.info,
-                Kind::Stderr => t.danger,
-                Kind::Message => t.warning,
-                Kind::Status => t.muted_fg,
-            };
-            div().text_color(color).child(line.text.clone())
-        }))
-        .into_any_element()
-}
-
-fn checks(task: &Task, t: &Tokens) -> AnyElement {
-    let result = task.result.as_ref();
-    let checks = result.map(|r| r.validation.clone()).unwrap_or_default();
-    let findings = result
-        .and_then(|r| r.review.as_ref())
-        .map(|r| r.findings.as_slice())
-        .unwrap_or_default();
-
-    if checks.is_empty() && findings.is_empty() {
-        return muted("No checks configured.", t);
-    }
-
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(SPACE[1]))
-        .children(checks.into_iter().map(|check| {
-            let tone = if check.ok { t.success } else { t.danger };
-            let mark = if check.ok { "check" } else { "x" };
-            div()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(SPACE[0]))
-                        .text_color(tone)
-                        .child(icon(mark, MARK, tone))
-                        .child(check.name.clone()),
-                )
-                .when(!check.ok, |this| {
-                    this.children(
-                        check
-                            .output_tail
-                            .lines()
-                            .map(|line| {
-                                div()
-                                    .pl(px(SPACE[2]))
-                                    .text_color(t.muted_fg)
-                                    .child(line.to_string())
-                            })
-                            .collect::<Vec<_>>(),
-                    )
-                })
-        }))
-        .when(!findings.is_empty(), |this| {
-            this.child(
-                div()
-                    .pt(px(SPACE[1]))
-                    .text_color(t.muted_fg)
-                    .font_weight(FontWeight::BOLD)
-                    .child("Review"),
-            )
-            .children(findings.iter().map(|finding| {
-                let (mark, tone) = match finding.severity {
-                    Severity::Blocking => ("x", t.danger),
-                    Severity::Warning => ("circle-dot", t.warning),
-                };
-                let location = match finding.line {
-                    Some(line) => format!("{}:{line}", finding.file),
-                    None => finding.file.clone(),
-                };
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(SPACE[1]))
-                    .child(icon(mark, MARK, tone))
-                    .child(div().text_color(t.muted_fg).child(location))
-                    .child(div().child(finding.message.clone()))
-            }))
-        })
-        .into_any_element()
-}
-
-fn plan_pane(task: &Task, t: &Tokens) -> AnyElement {
-    let Some(plan) = task.result.as_ref().and_then(|r| r.plan.as_ref()) else {
-        return muted("No plan.", t);
-    };
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(SPACE[2]))
-        .children(plan.steps.iter().enumerate().map(|(i, step)| {
-            div()
-                .flex()
-                .flex_col()
-                .child(div().font_weight(FontWeight::BOLD).child(format!(
-                    "{}. {}  {}",
-                    i + 1,
-                    step.key,
-                    step.title
-                )))
-                .child(div().text_color(t.muted_fg).child(step.prompt.clone()))
-                .when(!step.depends_on.is_empty(), |this| {
-                    this.child(
-                        div()
-                            .text_color(t.muted_fg)
-                            .child(format!("after: {}", step.depends_on.join(", "))),
-                    )
-                })
-        }))
-        .into_any_element()
-}
-
-fn muted(text: &'static str, t: &Tokens) -> AnyElement {
-    div().text_color(t.muted_fg).child(text).into_any_element()
 }
