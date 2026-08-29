@@ -12,6 +12,7 @@ use lgtm_protocol::{
 };
 use tokio::process::Command;
 use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 
 use crate::connection::Ctx;
 use crate::git::{branch_name, commit, session_path};
@@ -22,7 +23,7 @@ use crate::policy::{
 };
 use crate::proc::{
     cost_buffer, cost_total, final_text, tail_buffer, tail_lines, text_buffer, Cost, Pump, Sinks,
-    Text,
+    Tail, Text,
 };
 use crate::validate::{load_validation, run_validation, tail};
 
@@ -257,31 +258,7 @@ impl Run<'_> {
         self.ctx.emit(&self.task.id, TaskEvent::Started);
 
         let stderr_tail = tail_buffer();
-        let stdout = child.stdout.take().context("no stdout")?;
-        let stderr = child.stderr.take().context("no stderr")?;
-        let pump_out = tokio::spawn(
-            self.pump(
-                OutputStream::Stdout,
-                Sinks {
-                    session: opts.session,
-                    text: opts.answer,
-                    cost: Some(self.cost.clone()),
-                    ..Sinks::default()
-                },
-            )
-            .run(stdout),
-        );
-        let pump_err = tokio::spawn(
-            self.pump(
-                OutputStream::Stderr,
-                Sinks {
-                    tail: Some(stderr_tail.clone()),
-                    ..Sinks::default()
-                },
-            )
-            .run(stderr),
-        );
-
+        let (pump_out, pump_err) = self.spawn_pumps(&mut child, opts, &stderr_tail)?;
         let Some(status) = self.wait_or_kill(&mut child).await? else {
             return Ok(None);
         };
@@ -290,6 +267,35 @@ impl Run<'_> {
             status,
             stderr_tail: tail(&tail_lines(&stderr_tail)),
         }))
+    }
+
+    /// Forwards stdout and stderr; stdout also feeds the answer, cost, and
+    /// session sinks the run asked for, stderr the tail kept for failures.
+    fn spawn_pumps(
+        &self,
+        child: &mut tokio::process::Child,
+        opts: RunOpts<'_>,
+        stderr_tail: &Tail,
+    ) -> Result<(JoinHandle<()>, JoinHandle<()>)> {
+        let stdout = child.stdout.take().context("no stdout")?;
+        let stderr = child.stderr.take().context("no stderr")?;
+        let out = self.pump(
+            OutputStream::Stdout,
+            Sinks {
+                session: opts.session,
+                text: opts.answer,
+                cost: Some(self.cost.clone()),
+                ..Sinks::default()
+            },
+        );
+        let err = self.pump(
+            OutputStream::Stderr,
+            Sinks {
+                tail: Some(stderr_tail.clone()),
+                ..Sinks::default()
+            },
+        );
+        Ok((tokio::spawn(out.run(stdout)), tokio::spawn(err.run(stderr))))
     }
 
     /// The exit status, or `None` when the task was cancelled first and the
