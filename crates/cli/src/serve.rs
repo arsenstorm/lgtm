@@ -8,7 +8,7 @@ use crate::require_token;
 pub async fn serve(args: ServeArgs, token: Option<String>) -> anyhow::Result<i32> {
     init_tracing();
     let bind_addr: std::net::SocketAddr = args.bind.parse()?;
-    let data_dir = data_dir(args.data_dir);
+    let data_dir = data_dir(args.data_dir.clone());
     // Unlike every other subcommand, `serve` mints a token rather than
     // demanding one: it is the machine everyone else joins.
     let (token, source) = lgtm_orchestrator::token::resolve_or_create(token, &data_dir)?;
@@ -18,27 +18,17 @@ pub async fn serve(args: ServeArgs, token: Option<String>) -> anyhow::Result<i32
             lgtm_orchestrator::token::stored_token_path(&data_dir).display()
         );
     }
-    let tls = match (args.tls_cert, args.tls_key) {
+    let tls = match (args.tls_cert.clone(), args.tls_key.clone()) {
         (Some(cert), Some(key)) => Some((cert, key)),
         (None, None) => None,
         _ => anyhow::bail!("pass both --tls-cert and --tls-key"),
     };
-    let public_url = args
-        .public_url
-        .unwrap_or_else(|| default_public_url(&args.bind, tls.is_some(), &advertised(bind_addr)));
-    let provision = args
-        .provision
-        .map(|command| lgtm_orchestrator::ProvisionOptions {
-            command,
-            max: args.provision_max,
-            public_url,
-        });
     let serve_opts = lgtm_orchestrator::ServeOptions {
         bind: bind_addr,
         token,
         data_dir,
+        provision: provision_options(&args, tls.is_some(), bind_addr),
         tls,
-        provision,
     };
     eprintln!("{}", lgtm_orchestrator::local::join_line_for(&serve_opts));
     lgtm_orchestrator::local::serve_local(lgtm_orchestrator::local::LocalOptions {
@@ -71,6 +61,23 @@ pub async fn worker(
     })
     .await?;
     Ok(0)
+}
+
+fn provision_options(
+    args: &ServeArgs,
+    tls: bool,
+    bind: std::net::SocketAddr,
+) -> Option<lgtm_orchestrator::ProvisionOptions> {
+    let command = args.provision.clone()?;
+    let public_url = args
+        .public_url
+        .clone()
+        .unwrap_or_else(|| default_public_url(&args.bind, tls, &advertised(bind)));
+    Some(lgtm_orchestrator::ProvisionOptions {
+        command,
+        max: args.provision_max,
+        public_url,
+    })
 }
 
 /// A specific bind address is the only one workers can dial; `0.0.0.0`
