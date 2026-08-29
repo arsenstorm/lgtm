@@ -34,7 +34,7 @@ async fn run(app: Arc<App>, socket: WebSocket) {
         return;
     };
     let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::unbounded_channel();
     // Queued before anything the hello schedules, so the ack stays first.
     let _ = tx.send(OrchestratorMessage::HelloAck);
     {
@@ -50,38 +50,51 @@ async fn run(app: Arc<App>, socket: WebSocket) {
         app.persist_ids(&state, &changed);
     }
 
-    let writer = tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            let Ok(text) = serde_json::to_string(&msg) else {
-                continue;
-            };
-            if sink.send(Message::Text(text.into())).await.is_err() {
-                break;
-            }
-        }
-    });
-
+    let writer = tokio::spawn(write_all(sink, rx));
     while let Some(Ok(frame)) = stream.next().await {
-        match frame {
-            Message::Text(text) => match serde_json::from_str::<WorkerMessage>(&text) {
-                Ok(WorkerMessage::Event { task_id, event }) => apply(&app, &task_id, event),
-                // Deliberate exit: forget the worker now. `disconnect` below
-                // finds nothing left and so starts no grace timer.
-                Ok(WorkerMessage::Goodbye) => {
-                    let mut state = app.state.lock().unwrap();
-                    let changed = state.worker_goodbye(&info.name, conn_id);
-                    app.persist_ids(&state, &changed);
-                    break;
-                }
-                Ok(WorkerMessage::Hello { .. }) => {}
-                Err(err) => tracing::warn!(worker = %info.name, %err, "bad worker frame"),
-            },
+        let text = match frame {
+            Message::Text(text) => text,
             Message::Close(_) => break,
-            _ => {}
+            _ => continue,
+        };
+        if handle(&app, &info, conn_id, &text) {
+            break;
         }
     }
     writer.abort();
     disconnect(&app, &info.name, conn_id);
+}
+
+async fn write_all(
+    mut sink: SplitSink<WebSocket, Message>,
+    mut rx: mpsc::UnboundedReceiver<OrchestratorMessage>,
+) {
+    while let Some(msg) = rx.recv().await {
+        let Ok(text) = serde_json::to_string(&msg) else {
+            continue;
+        };
+        if sink.send(Message::Text(text.into())).await.is_err() {
+            break;
+        }
+    }
+}
+
+/// Applies one frame; `true` when the worker said goodbye and the socket is done.
+fn handle(app: &Arc<App>, info: &WorkerInfo, conn_id: u64, text: &str) -> bool {
+    match serde_json::from_str::<WorkerMessage>(text) {
+        Ok(WorkerMessage::Event { task_id, event }) => apply(app, &task_id, event),
+        // Deliberate exit: forget the worker now. `disconnect` finds nothing
+        // left and so starts no grace timer.
+        Ok(WorkerMessage::Goodbye) => {
+            let mut state = app.state.lock().unwrap();
+            let changed = state.worker_goodbye(&info.name, conn_id);
+            app.persist_ids(&state, &changed);
+            return true;
+        }
+        Ok(WorkerMessage::Hello { .. }) => {}
+        Err(err) => tracing::warn!(worker = %info.name, %err, "bad worker frame"),
+    }
+    false
 }
 
 async fn hello(

@@ -1,9 +1,11 @@
 //! The task view: header with status and actions, then the four tabs.
 
-use crate::app::{header_preview, status_label, LgtmApp, Pane};
+mod tabs;
+
+use crate::app::{LgtmApp, Pane};
+use crate::labels::{header_preview, status_label};
 use crate::net::Action;
-use crate::render::Kind;
-use crate::sidebar::repo_slug;
+use crate::tasks::repo_slug;
 use crate::theme::{
     field, icon, tokens, Tokens, HEADER_H, LINE_MONO, MONO_FONT, RADIUS_PILL, SPACE, TEXT_MONO,
     TEXT_SECONDARY,
@@ -17,7 +19,9 @@ use gpui::{
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::tab::{Tab, TabBar};
 use gpui_component::Sizable as _;
-use lgtm_protocol::{CiState, CiStatus, Severity, Task, TaskStatus};
+use lgtm_protocol::{CiState, CiStatus, Task, TaskStatus};
+
+use tabs::{activity, checks, plan_pane};
 
 /// `h-5`, the reference badge height.
 const BADGE_H: f32 = 20.;
@@ -36,6 +40,52 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
     } else {
         app.pane
     };
+    div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .child(header(app, &task, &t, cx))
+        .children(notices(app, &t))
+        .child(div().p(px(SPACE[1])).child(tab_bar(pane, has_plan, cx)))
+        .child(match pane {
+            Pane::Changes => div()
+                .flex_1()
+                .min_h_0()
+                .child(crate::changes::changes_pane(app, window, cx))
+                .into_any_element(),
+            Pane::Checks => scrolling(app, checks(&task, &t)),
+            Pane::Plan => scrolling(app, plan_pane(&task, &t)),
+            Pane::Activity => scrolling(app, activity(app, &t)),
+        })
+        .into_any_element()
+}
+
+/// The follow-up field and the error line, when either is showing.
+fn notices(app: &LgtmApp, t: &Tokens) -> Vec<Div> {
+    let mut out = Vec::new();
+    if app.ui.show_follow_up {
+        out.push(
+            div()
+                .px(px(SPACE[1]))
+                .pt(px(SPACE[1]))
+                .child(field(&app.inputs.follow_up, t)),
+        );
+    }
+    if let Some(error) = app.error.clone() {
+        out.push(
+            div()
+                .px(px(SPACE[2]))
+                .pt(px(SPACE[1]))
+                .text_size(px(TEXT_SECONDARY))
+                .text_color(t.danger)
+                .child(error),
+        );
+    }
+    out
+}
+
+fn tab_bar(pane: Pane, has_plan: bool, cx: &mut Context<LgtmApp>) -> TabBar {
     let mut tabs = vec![
         Tab::new().label("Activity"),
         Tab::new().label("Changes"),
@@ -44,94 +94,46 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
     if has_plan {
         tabs.push(Tab::new().label("Plan"));
     }
+    TabBar::new("panes")
+        .segmented()
+        .text_size(px(TEXT_SECONDARY))
+        .selected_index(match pane {
+            Pane::Activity => 0,
+            Pane::Changes => 1,
+            Pane::Checks => 2,
+            Pane::Plan => 3,
+        })
+        .children(tabs)
+        .on_click(cx.listener(|this, index: &usize, _, cx| {
+            this.pane = match index {
+                0 => Pane::Activity,
+                1 => Pane::Changes,
+                2 => Pane::Checks,
+                _ => Pane::Plan,
+            };
+            cx.notify();
+        }))
+}
 
+/// The monospace, scrolling body shared by every pane but Changes.
+fn scrolling(app: &LgtmApp, body: impl IntoElement) -> AnyElement {
     div()
+        .id("pane-content")
         .flex_1()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .child(header(app, &task, &t, cx))
-        .when(app.show_follow_up, |this| {
-            this.child(
-                div()
-                    .px(px(SPACE[1]))
-                    .pt(px(SPACE[1]))
-                    .child(field(&app.follow_up, &t)),
-            )
-        })
-        .when_some(app.error.clone(), |this, error| {
-            this.child(
-                div()
-                    .px(px(SPACE[2]))
-                    .pt(px(SPACE[1]))
-                    .text_size(px(TEXT_SECONDARY))
-                    .text_color(t.danger)
-                    .child(error),
-            )
-        })
-        .child(
-            div().p(px(SPACE[1])).child(
-                TabBar::new("panes")
-                    .segmented()
-                    .text_size(px(TEXT_SECONDARY))
-                    .selected_index(match pane {
-                        Pane::Activity => 0,
-                        Pane::Changes => 1,
-                        Pane::Checks => 2,
-                        Pane::Plan => 3,
-                    })
-                    .children(tabs)
-                    .on_click(cx.listener(|this, index: &usize, _, cx| {
-                        this.pane = match index {
-                            0 => Pane::Activity,
-                            1 => Pane::Changes,
-                            2 => Pane::Checks,
-                            _ => Pane::Plan,
-                        };
-                        cx.notify();
-                    })),
-            ),
-        )
-        .child(match pane {
-            Pane::Changes => div()
-                .flex_1()
-                .min_h_0()
-                .child(crate::changes::changes_pane(app, window, cx))
-                .into_any_element(),
-            _ => div()
-                .id("pane-content")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .track_scroll(&app.content_scroll)
-                .px(px(SPACE[2]))
-                .pb(px(SPACE[2]))
-                .font_family(MONO_FONT)
-                .text_size(px(TEXT_MONO))
-                .line_height(px(LINE_MONO))
-                .child(match pane {
-                    Pane::Checks => checks(&task, &t),
-                    Pane::Plan => plan_pane(&task, &t),
-                    _ => activity(app, &t),
-                })
-                .into_any_element(),
-        })
+        .min_h_0()
+        .overflow_y_scroll()
+        .track_scroll(&app.ui.content_scroll)
+        .px(px(SPACE[2]))
+        .pb(px(SPACE[2]))
+        .font_family(MONO_FONT)
+        .text_size(px(TEXT_MONO))
+        .line_height(px(LINE_MONO))
+        .child(body)
         .into_any_element()
 }
 
 fn header(app: &mut LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let status = status_label(task, &app.tasks);
-    let worker = task.worker.clone().unwrap_or_else(|| "unassigned".into());
-    let cost = task.result.as_ref().map(|r| r.cost_usd).unwrap_or(0.0);
-    let mut meta = format!(
-        "{} · {} · {worker}",
-        repo_slug(&task.spec.repository),
-        task.spec.base_branch
-    );
-    if cost > 0.0 {
-        meta.push_str(&format!(" · ${cost:.2}"));
-    }
-
     div()
         .h(px(HEADER_H))
         .flex_shrink_0()
@@ -162,32 +164,54 @@ fn header(app: &mut LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>)
                         .flex_shrink_0()
                         .text_size(px(TEXT_SECONDARY))
                         .text_color(t.muted_fg)
-                        .child(meta),
+                        .child(meta_line(task)),
                 )
-                .when_some(task.pull_request.clone(), |this, pr| {
-                    let (mark, tone) = ci_mark(task.ci.as_ref(), t);
-                    this.child(
-                        badge(format!("#{}", pr.number), tone, t)
-                            .when_some(mark, |this, name| this.child(icon(name, MARK, tone)))
-                            .id("pr-chip")
-                            .cursor_pointer()
-                            .on_click(
-                                cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_url(&pr.url)),
-                            ),
-                    )
-                })
-                .when_some(task.spec.linear.clone(), |this, linear| {
-                    this.child(
-                        badge(linear.identifier.clone(), t.fg, t)
-                            .id("linear-chip")
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                                cx.open_url(&linear.url)
-                            })),
-                    )
-                }),
+                .children(chips(task, t, cx)),
         )
         .child(actions(task, t, cx))
+}
+
+/// The pull request and Linear chips, for the task that has them.
+fn chips(task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
+    let mut out = Vec::new();
+    if let Some(pr) = task.pull_request.clone() {
+        let (mark, tone) = ci_mark(task.ci.as_ref(), t);
+        let chip = badge(format!("#{}", pr.number), tone, t)
+            .when_some(mark, |this, name| this.child(icon(name, MARK, tone)));
+        out.push(link_chip(chip, "pr-chip", pr.url, cx).into_any_element());
+    }
+    if let Some(linear) = task.spec.linear.clone() {
+        let chip = badge(linear.identifier, t.fg, t);
+        out.push(link_chip(chip, "linear-chip", linear.url, cx).into_any_element());
+    }
+    out
+}
+
+/// `repo · base · worker`, and the cost once there is one.
+fn meta_line(task: &Task) -> String {
+    let worker = task.worker.as_deref().unwrap_or("unassigned");
+    let cost = task.result.as_ref().map(|r| r.cost_usd).unwrap_or(0.0);
+    let mut meta = format!(
+        "{} · {} · {worker}",
+        repo_slug(&task.spec.repository),
+        task.spec.base_branch
+    );
+    if cost > 0.0 {
+        meta.push_str(&format!(" · ${cost:.2}"));
+    }
+    meta
+}
+
+/// A badge that opens `url` in the browser.
+fn link_chip(
+    chip: Div,
+    id: &'static str,
+    url: String,
+    cx: &mut Context<LgtmApp>,
+) -> impl IntoElement {
+    chip.id(id)
+        .cursor_pointer()
+        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_url(&url)))
 }
 
 /// A ghost button that reads as destructive: no fill, danger-coloured label.
@@ -208,38 +232,7 @@ fn actions(task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .items_center()
         .gap(px(SPACE[1]));
     match task.status {
-        TaskStatus::AwaitingReview => row
-            .child(
-                Button::new("approve")
-                    .label("Approve")
-                    .primary()
-                    .small()
-                    .on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Approve, cx)),
-                    ),
-            )
-            .child(
-                Button::new("request-changes")
-                    .label("Request changes")
-                    .outline()
-                    .small()
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        if this.review.comment_count() > 0 {
-                            crate::changes::request_changes(this, cx);
-                        } else {
-                            this.open_follow_up(window, cx);
-                        }
-                    })),
-            )
-            .child(
-                Button::new("reject")
-                    .label("Reject")
-                    .custom(danger_ghost(t, cx))
-                    .small()
-                    .on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Reject, cx)),
-                    ),
-            ),
+        TaskStatus::AwaitingReview => row.children(review_actions(t, cx)),
         TaskStatus::Queued | TaskStatus::Running => row.child(
             Button::new("cancel")
                 .label("Cancel")
@@ -247,27 +240,51 @@ fn actions(task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                 .small()
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Cancel, cx))),
         ),
-        TaskStatus::Approved
-            if matches!(
-                task.ci,
-                Some(CiStatus {
-                    state: CiState::Success,
-                    ..
-                })
-            ) =>
-        {
-            row.child(
-                Button::new("merge")
-                    .label("Merge")
-                    .primary()
-                    .small()
-                    .on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Merge, cx)),
-                    ),
-            )
-        }
+        TaskStatus::Approved if ci_passed(task) => row.child(
+            Button::new("merge")
+                .label("Merge")
+                .primary()
+                .small()
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Merge, cx))),
+        ),
         _ => row,
     }
+}
+
+fn ci_passed(task: &Task) -> bool {
+    matches!(
+        task.ci,
+        Some(CiStatus {
+            state: CiState::Success,
+            ..
+        })
+    )
+}
+
+fn review_actions(t: &Tokens, cx: &mut Context<LgtmApp>) -> [Button; 3] {
+    [
+        Button::new("approve")
+            .label("Approve")
+            .primary()
+            .small()
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Approve, cx))),
+        Button::new("request-changes")
+            .label("Request changes")
+            .outline()
+            .small()
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                if this.review.comment_count() > 0 {
+                    crate::changes::request_changes(this, cx);
+                } else {
+                    this.open_follow_up(window, cx);
+                }
+            })),
+        Button::new("reject")
+            .label("Reject")
+            .custom(danger_ghost(t, cx))
+            .small()
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Reject, cx))),
+    ]
 }
 
 fn status_tone(status: &str, t: &Tokens) -> Hsla {
@@ -307,133 +324,4 @@ fn ci_mark(ci: Option<&CiStatus>, t: &Tokens) -> (Option<&'static str>, Hsla) {
         Some(CiState::Pending) => (Some("ellipsis"), t.muted_fg),
         None => (None, t.muted_fg),
     }
-}
-
-fn activity(app: &LgtmApp, t: &Tokens) -> AnyElement {
-    if app.lines.is_empty() {
-        return muted("Nothing yet.", t);
-    }
-    div()
-        .flex()
-        .flex_col()
-        .children(app.lines.iter().map(|line| {
-            let color = match line.kind {
-                Kind::Text => t.fg,
-                Kind::Tool => t.info,
-                Kind::Stderr => t.danger,
-                Kind::Message => t.warning,
-                Kind::Status => t.muted_fg,
-            };
-            div().text_color(color).child(line.text.clone())
-        }))
-        .into_any_element()
-}
-
-fn checks(task: &Task, t: &Tokens) -> AnyElement {
-    let result = task.result.as_ref();
-    let checks = result.map(|r| r.validation.clone()).unwrap_or_default();
-    let findings = result
-        .and_then(|r| r.review.as_ref())
-        .map(|r| r.findings.as_slice())
-        .unwrap_or_default();
-
-    if checks.is_empty() && findings.is_empty() {
-        return muted("No checks configured.", t);
-    }
-
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(SPACE[1]))
-        .children(checks.into_iter().map(|check| {
-            let tone = if check.ok { t.success } else { t.danger };
-            let mark = if check.ok { "check" } else { "x" };
-            div()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(SPACE[0]))
-                        .text_color(tone)
-                        .child(icon(mark, MARK, tone))
-                        .child(check.name.clone()),
-                )
-                .when(!check.ok, |this| {
-                    this.children(
-                        check
-                            .output_tail
-                            .lines()
-                            .map(|line| {
-                                div()
-                                    .pl(px(SPACE[2]))
-                                    .text_color(t.muted_fg)
-                                    .child(line.to_string())
-                            })
-                            .collect::<Vec<_>>(),
-                    )
-                })
-        }))
-        .when(!findings.is_empty(), |this| {
-            this.child(
-                div()
-                    .pt(px(SPACE[1]))
-                    .text_color(t.muted_fg)
-                    .font_weight(FontWeight::BOLD)
-                    .child("Review"),
-            )
-            .children(findings.iter().map(|finding| {
-                let (mark, tone) = match finding.severity {
-                    Severity::Blocking => ("x", t.danger),
-                    Severity::Warning => ("circle-dot", t.warning),
-                };
-                let location = match finding.line {
-                    Some(line) => format!("{}:{line}", finding.file),
-                    None => finding.file.clone(),
-                };
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(SPACE[1]))
-                    .child(icon(mark, MARK, tone))
-                    .child(div().text_color(t.muted_fg).child(location))
-                    .child(div().child(finding.message.clone()))
-            }))
-        })
-        .into_any_element()
-}
-
-fn plan_pane(task: &Task, t: &Tokens) -> AnyElement {
-    let Some(plan) = task.result.as_ref().and_then(|r| r.plan.as_ref()) else {
-        return muted("No plan.", t);
-    };
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(SPACE[2]))
-        .children(plan.steps.iter().enumerate().map(|(i, step)| {
-            div()
-                .flex()
-                .flex_col()
-                .child(div().font_weight(FontWeight::BOLD).child(format!(
-                    "{}. {}  {}",
-                    i + 1,
-                    step.key,
-                    step.title
-                )))
-                .child(div().text_color(t.muted_fg).child(step.prompt.clone()))
-                .when(!step.depends_on.is_empty(), |this| {
-                    this.child(
-                        div()
-                            .text_color(t.muted_fg)
-                            .child(format!("after: {}", step.depends_on.join(", "))),
-                    )
-                })
-        }))
-        .into_any_element()
-}
-
-fn muted(text: &'static str, t: &Tokens) -> AnyElement {
-    div().text_color(t.muted_fg).child(text).into_any_element()
 }

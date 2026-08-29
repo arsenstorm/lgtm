@@ -1,5 +1,6 @@
 //! The Changes tab: a file tree on the left, the diff on the right.
 
+mod comments;
 mod rows;
 
 use crate::app::LgtmApp;
@@ -40,32 +41,32 @@ pub fn changes_pane(
         return muted("no changes yet", &t);
     }
 
-    // Actions dispatch along the focus path, which ends at the app root, so
-    // these fire only when focus is inside the pane; `LgtmApp::render` mirrors
-    // them for the v/n/p/s keybindings.
-    div()
-        .size_full()
-        .flex()
-        .min_h_0()
-        .on_action(cx.listener(|this, _: &MarkViewed, _, cx| {
-            this.review.mark_current_viewed();
-            cx.notify();
-        }))
-        .on_action(cx.listener(|this, _: &NextFile, _, cx| {
-            this.review.step_file(1);
-            cx.notify();
-        }))
-        .on_action(cx.listener(|this, _: &PrevFile, _, cx| {
-            this.review.step_file(-1);
-            cx.notify();
-        }))
-        .on_action(cx.listener(|this, _: &ToggleDiffStyle, _, cx| {
-            this.review.flip_style();
-            cx.notify();
-        }))
+    bind_review_actions(div().size_full().flex().min_h_0(), cx)
         .child(sidebar(app, &t, cx))
         .child(rows::file_column(app, &t, cx))
         .into_any_element()
+}
+
+/// Actions dispatch along the focus path, which ends at the app root, so
+/// these fire only when focus is inside the pane; `LgtmApp::render` mirrors
+/// them for the v/n/p/s keybindings.
+fn bind_review_actions(pane: Div, cx: &mut Context<LgtmApp>) -> Div {
+    pane.on_action(cx.listener(|this, _: &MarkViewed, _, cx| {
+        this.review.mark_current_viewed();
+        cx.notify();
+    }))
+    .on_action(cx.listener(|this, _: &NextFile, _, cx| {
+        this.review.step_file(1);
+        cx.notify();
+    }))
+    .on_action(cx.listener(|this, _: &PrevFile, _, cx| {
+        this.review.step_file(-1);
+        cx.notify();
+    }))
+    .on_action(cx.listener(|this, _: &ToggleDiffStyle, _, cx| {
+        this.review.flip_style();
+        cx.notify();
+    }))
 }
 
 /// Sends the collected comments as one follow-up and clears them.
@@ -122,21 +123,15 @@ fn summary(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
             div()
                 .flex()
                 .gap(px(theme::SPACE[0]))
-                .child(style_button("unified", "Unified", !split, cx))
-                .child(style_button("split", "Split", split, cx)),
+                .child(style_button(DiffStyle::Unified, !split, cx))
+                .child(style_button(DiffStyle::Split, split, cx)),
         )
 }
 
-fn style_button(
-    id: &'static str,
-    label: &'static str,
-    selected: bool,
-    cx: &mut Context<LgtmApp>,
-) -> Button {
-    let style = if id == "split" {
-        DiffStyle::Split
-    } else {
-        DiffStyle::Unified
+fn style_button(style: DiffStyle, selected: bool, cx: &mut Context<LgtmApp>) -> Button {
+    let (id, label) = match style {
+        DiffStyle::Unified => ("unified", "Unified"),
+        DiffStyle::Split => ("split", "Split"),
     };
     Button::new(id)
         .label(label)
@@ -156,32 +151,30 @@ fn tree_rows(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyEle
     tree.visible()
         .into_iter()
         .map(|node| {
-            let pad = px(theme::SPACE[2] + node.depth as f32 * INDENT);
-            // `px-3 py-1.5`, mono: the reference changed-file row.
-            let row = div()
-                .flex()
-                .items_center()
-                .gap(px(theme::SPACE[1]))
-                .pl(pad)
-                .pr(px(theme::SPACE[1]))
-                .py(px(6.))
-                .font_family(theme::MONO_FONT)
-                .text_size(px(theme::TEXT_MONO));
             if node.is_dir {
-                dir_row(row, node, t, cx)
+                dir_row(node, t, cx)
             } else {
-                file_row(app, row, node, t, cx)
+                file_row(app, node, t, cx)
             }
         })
         .collect()
 }
 
-fn dir_row(
-    row: Div,
-    node: lgtm_diff::tree::Node,
-    t: &Tokens,
-    cx: &mut Context<LgtmApp>,
-) -> AnyElement {
+/// `px-3 py-1.5`, mono: the reference changed-file row, indented by depth.
+fn tree_row(depth: usize) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(theme::SPACE[1]))
+        .pl(px(theme::SPACE[2] + depth as f32 * INDENT))
+        .pr(px(theme::SPACE[1]))
+        .py(px(6.))
+        .font_family(theme::MONO_FONT)
+        .text_size(px(theme::TEXT_MONO))
+}
+
+fn dir_row(node: lgtm_diff::tree::Node, t: &Tokens, cx: &mut Context<LgtmApp>) -> AnyElement {
+    let row = tree_row(node.depth);
     let path = node.path.clone();
     let chevron = if node.expanded {
         "chevron-down"
@@ -205,11 +198,11 @@ fn dir_row(
 
 fn file_row(
     app: &LgtmApp,
-    row: Div,
     node: lgtm_diff::tree::Node,
     t: &Tokens,
     cx: &mut Context<LgtmApp>,
 ) -> AnyElement {
+    let row = tree_row(node.depth);
     let Some(index) = app.review.files.iter().position(|f| f.name == node.path) else {
         return row.into_any_element();
     };
@@ -235,22 +228,21 @@ fn file_row(
         )
         .child(div().flex_1().min_w_0().truncate().child(node.name.clone()))
         .child(counts(file.additions, file.deletions, t))
-        .child(
-            Checkbox::new(SharedString::from(format!("viewed:{}", node.path)))
-                .checked(viewed)
-                .on_click({
-                    let name = name.clone();
-                    cx.listener(move |this, _: &bool, _, cx| {
-                        this.review.toggle_viewed(&name);
-                        cx.notify();
-                    })
-                }),
-        )
+        .child(viewed_checkbox(&node.path, name, viewed, cx))
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.review.focus_file(index);
             cx.notify();
         }))
         .into_any_element()
+}
+
+fn viewed_checkbox(path: &str, name: String, viewed: bool, cx: &mut Context<LgtmApp>) -> Checkbox {
+    Checkbox::new(SharedString::from(format!("viewed:{path}")))
+        .checked(viewed)
+        .on_click(cx.listener(move |this, _: &bool, _, cx| {
+            this.review.toggle_viewed(&name);
+            cx.notify();
+        }))
 }
 
 /// `+n` in the addition colour, `−n` in the deletion colour, 11px and mono so

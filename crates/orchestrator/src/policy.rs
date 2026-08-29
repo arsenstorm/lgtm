@@ -1,7 +1,16 @@
 //! What the repository's `[policy]` lets the orchestrator do on its own. Pure:
 //! the callers do the storing, the sending and the GitHub calls.
 
-use lgtm_protocol::{CiState, Task, TaskKind, TaskStatus};
+use lgtm_protocol::{CiState, Task, TaskKind, TaskResult, TaskStatus};
+
+/// Checks passed and the reviewer, if any, found nothing blocking.
+fn clean(result: &TaskResult) -> bool {
+    !result.validation_failed()
+        && result
+            .review
+            .as_ref()
+            .is_none_or(|review| !review.has_blocking())
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AutoAction {
@@ -14,16 +23,10 @@ pub fn auto_action(task: &Task) -> Option<AutoAction> {
     let result = task.result.as_ref()?;
     let policy = result.policy?;
     match task.status {
+        // A plan is approved by creating its steps, which is a decision
+        // about work, not a diff to wave through.
         TaskStatus::AwaitingReview
-            if policy.auto_approve
-                // A plan is approved by creating its steps, which is a
-                // decision about work, not a diff to wave through.
-                && task.spec.kind == TaskKind::Run
-                && !result.validation_failed()
-                && result
-                    .review
-                    .as_ref()
-                    .is_none_or(|review| !review.has_blocking()) =>
+            if policy.auto_approve && task.spec.kind == TaskKind::Run && clean(result) =>
         {
             Some(AutoAction::Approve)
         }

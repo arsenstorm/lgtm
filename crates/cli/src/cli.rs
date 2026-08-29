@@ -1,0 +1,212 @@
+//! The `lgtm` command line, as clap sees it.
+
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+use lgtm_protocol::Executor;
+
+#[derive(Parser)]
+#[command(name = "lgtm", version)]
+pub struct Cli {
+    #[arg(
+        long,
+        env = "LGTM_ORCHESTRATOR",
+        default_value = "http://127.0.0.1:4750",
+        global = true
+    )]
+    pub orchestrator: String,
+    /// Required by every subcommand; checked manually so the missing-token
+    /// message can be a plain sentence instead of clap's usage dump.
+    #[arg(long, env = "LGTM_TOKEN", global = true)]
+    pub token: Option<String>,
+    /// Extra PEM root certificate to trust, for an orchestrator serving a
+    /// self-signed TLS cert.
+    #[arg(long, env = "LGTM_CA", global = true)]
+    pub ca: Option<PathBuf>,
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Run the orchestrator (and a local worker) on this machine
+    Serve(ServeArgs),
+    /// Join this machine to an orchestrator as a worker.
+    Worker(WorkerArgs),
+    /// List connected workers
+    Workers,
+    /// Run a prompt as a task and stream its output
+    Run {
+        #[command(flatten)]
+        target: Target,
+        /// GitHub issue to work from, e.g. an issue URL or `owner/repo#123`.
+        #[arg(long)]
+        issue: Option<String>,
+        /// Linear issue to work from, e.g. `ENG-123` or a linear.app issue URL.
+        #[arg(long)]
+        linear: Option<String>,
+        prompt: Option<String>,
+    },
+    /// Have the agent read the repository and propose a plan (a set of
+    /// dependent steps) instead of making a change.
+    Plan {
+        #[command(flatten)]
+        target: Target,
+        goal: String,
+    },
+    /// List tasks
+    Tasks,
+    /// Print a task, its events, checks, and review
+    Show { id: String },
+    /// Print a task's rendered output
+    Logs { id: String },
+    /// Print a task's diff
+    Diff { id: String },
+    /// Approve a task: push its branch, or create a plan's tasks
+    Approve { id: String },
+    /// Reject a task and discard its branch
+    Reject { id: String },
+    /// Cancel a queued or running task
+    Cancel { id: String },
+    /// Merge a task's pull request
+    Merge { id: String },
+    /// Send a follow-up to a task awaiting review, then resume streaming.
+    Tell { id: String, message: String },
+    /// Import a backlog of issues as tasks, or inspect a past import.
+    Backlog {
+        #[command(subcommand)]
+        command: BacklogCommand,
+    },
+    /// Replace this binary with the latest release
+    Upgrade {
+        /// Install a specific release tag instead of the latest.
+        #[arg(long)]
+        version: Option<String>,
+    },
+}
+
+#[derive(Args)]
+pub struct ServeArgs {
+    #[arg(long, default_value = "0.0.0.0:4750")]
+    pub bind: String,
+    #[arg(long, env = "LGTM_DATA_DIR")]
+    pub data_dir: Option<PathBuf>,
+    /// PEM certificate; requires `--tls-key` too. Plain HTTP if neither
+    /// is given.
+    #[arg(long)]
+    pub tls_cert: Option<PathBuf>,
+    /// PEM private key; requires `--tls-cert` too.
+    #[arg(long)]
+    pub tls_key: Option<PathBuf>,
+    /// Command that brings up an ephemeral worker when the queue needs
+    /// one, run through `sh -c`.
+    #[arg(long, env = "LGTM_PROVISION")]
+    pub provision: Option<String>,
+    /// Ceiling on connected ephemeral workers.
+    #[arg(long, default_value_t = 4)]
+    pub provision_max: u32,
+    /// Where a provisioned worker should connect back to. Defaults to
+    /// this orchestrator's bind address.
+    #[arg(long, env = "LGTM_PUBLIC_URL")]
+    pub public_url: Option<String>,
+    /// Don't run a worker inside this process. Tasks then only run on
+    /// machines that joined with `lgtm worker`.
+    #[arg(long)]
+    pub no_worker: bool,
+}
+
+#[derive(Args)]
+pub struct WorkerArgs {
+    /// Orchestrator WebSocket base, ws:// or wss://. An http(s) URL is
+    /// accepted and converted.
+    pub url: String,
+    #[arg(long, env = "LGTM_WORKER_NAME")]
+    pub name: Option<String>,
+    /// Maximum tasks to run at once.
+    #[arg(long, env = "LGTM_SLOTS")]
+    pub slots: Option<u32>,
+    /// Exit once `--max-tasks` runs have ended; for disposable machines.
+    #[arg(long, env = "LGTM_EPHEMERAL")]
+    pub ephemeral: bool,
+    /// Runs to accept before exiting. Only read with `--ephemeral`.
+    #[arg(long, env = "LGTM_MAX_TASKS", default_value_t = 1)]
+    pub max_tasks: u32,
+    /// Where mirrors and worktrees live.
+    #[arg(long, env = "LGTM_DATA_DIR")]
+    pub data_dir: Option<PathBuf>,
+}
+
+/// Where a task runs and on what: shared by `run` and `plan`.
+#[derive(Args)]
+pub struct Target {
+    #[arg(long)]
+    pub on: Option<String>,
+    #[arg(long)]
+    pub repo: Option<String>,
+    #[arg(long, default_value = "main")]
+    pub base: String,
+    #[arg(long, default_value = "claude", value_parser = parse_executor)]
+    pub agent: Executor,
+}
+
+#[derive(Subcommand)]
+pub enum BacklogCommand {
+    /// Import every open issue labeled `--label` in a GitHub repository.
+    Github {
+        /// `OWNER/REPO`.
+        repo: String,
+        #[arg(long)]
+        label: String,
+        #[command(flatten)]
+        flags: BatchFlags,
+    },
+    /// Import every issue in the named Linear team and workflow state.
+    Linear {
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        state: String,
+        /// Git URL the tasks clone from. Required: unlike `run --linear`,
+        /// there is no origin-remote fallback.
+        #[arg(long)]
+        repo: String,
+        #[command(flatten)]
+        flags: BatchFlags,
+    },
+    /// List every batch imported so far.
+    List,
+    /// Show one batch's summary and its tasks.
+    Status { id: String },
+}
+
+/// How a batch is imported, whichever source it comes from.
+#[derive(Args)]
+pub struct BatchFlags {
+    /// Have the agent propose a plan for each issue instead of a diff.
+    #[arg(long)]
+    pub plan: bool,
+    /// Approve plan tasks in this batch without a person.
+    #[arg(long)]
+    pub approve_plans: bool,
+    #[arg(long, default_value_t = 20)]
+    pub max: u32,
+    /// List the matching issues without creating a batch.
+    #[arg(long)]
+    pub dry_run: bool,
+    #[arg(long, default_value = "main")]
+    pub base: String,
+    #[arg(long, default_value = "claude", value_parser = parse_executor)]
+    pub agent: Executor,
+    #[arg(long)]
+    pub on: Option<String>,
+}
+
+fn parse_executor(s: &str) -> Result<Executor, String> {
+    match s {
+        "claude" => Ok(Executor::Claude),
+        "codex" => Ok(Executor::Codex),
+        other => Err(format!(
+            "invalid agent '{other}', expected 'claude' or 'codex'"
+        )),
+    }
+}

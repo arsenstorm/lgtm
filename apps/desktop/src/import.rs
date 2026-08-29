@@ -3,13 +3,13 @@
 use crate::app::LgtmApp;
 use crate::net;
 use crate::theme::{
-    field, icon_button, panel, scrim, section_label, tokens, Tokens, HEADER_H, MONO_FONT, RADIUS,
-    SPACE, TEXT_MONO, TEXT_SECONDARY,
+    field, modal_header, panel, scrim, section_label, tokens, Tokens, MONO_FONT, RADIUS, SPACE,
+    TEXT_MONO, TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, relative, AnyElement, App, AppContext as _, ClickEvent, Context, Div, Entity,
-    FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
+    InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
     StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -69,7 +69,7 @@ impl ImportForm {
     }
 
     /// The request the fields describe, or None while one is still empty.
-    pub fn request(&self, dry_run: bool, cx: &App) -> Option<BatchRequest> {
+    pub fn request(&self, cx: &App) -> Option<BatchRequest> {
         let read = |input: &Entity<InputState>| input.read(cx).value().trim().to_string();
         let filled = |value: String| (!value.is_empty()).then_some(value);
         let (source, repository) = match self.source {
@@ -98,7 +98,7 @@ impl ImportForm {
             plan: self.plan,
             approve_plans: self.approve,
             max: read(&self.max).parse().unwrap_or(DEFAULT_MAX),
-            dry_run,
+            dry_run: false,
         })
     }
 }
@@ -106,7 +106,6 @@ impl ImportForm {
 pub fn modal(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
     let t = tokens(cx);
     let form = &app.import;
-    let github = form.source == Source::Github;
     scrim("import-scrim", &t)
         .pt(relative(0.1))
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)))
@@ -115,26 +114,7 @@ pub fn modal(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                 .id("import")
                 .w(px(WIDTH))
                 .on_click(|_, _, cx| cx.stop_propagation())
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(HEADER_H))
-                        .px(px(SPACE[2]))
-                        .border_b_1()
-                        .border_color(t.border)
-                        .child(
-                            div()
-                                .flex_1()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("Import a batch"),
-                        )
-                        .child(
-                            icon_button("import-close", "x", true, &t).on_click(cx.listener(
-                                |this, _: &ClickEvent, window, cx| this.close_overlay(window, cx),
-                            )),
-                        ),
-                )
+                .child(modal_header("Import a batch", "import-close", &t, cx))
                 .child(
                     div()
                         .id("import-body")
@@ -144,102 +124,113 @@ pub fn modal(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                         .max_h(px(460.))
                         .overflow_y_scroll()
                         .p(px(SPACE[2]))
-                        .child(div().flex().gap(px(SPACE[0])).children(
-                            [(Source::Github, "GitHub"), (Source::Linear, "Linear")].map(
-                                |(source, label)| {
-                                    Button::new(SharedString::from(format!("source-{label}")))
-                                        .label(label)
-                                        .xsmall()
-                                        .ghost()
-                                        .selected(form.source == source)
-                                        .on_click(cx.listener(
-                                            move |this, _: &ClickEvent, _, cx| {
-                                                this.import.source = source;
-                                                this.import.issues.clear();
-                                                cx.notify();
-                                            },
-                                        ))
-                                },
-                            ),
-                        ))
-                        .when(github, |this| {
-                            this.child(row("Owner", &form.owner, &t))
-                                .child(row("Repository", &form.repo, &t))
-                                .child(row("Label", &form.label, &t))
-                        })
-                        .when(!github, |this| {
-                            this.child(row("Team", &form.team, &t))
-                                .child(row("State", &form.state, &t))
-                                .child(row("Repository", &form.repository, &t))
-                        })
-                        .child(row("Base branch", &form.base, &t))
-                        .child(row("Max", &form.max, &t))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(SPACE[3]))
-                                .child(
-                                    Switch::new("plan-first")
-                                        .label("Plan first")
-                                        .checked(form.plan)
-                                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                                            this.import.plan = *checked;
-                                            cx.notify();
-                                        })),
-                                )
-                                .child(
-                                    Switch::new("approve-plans")
-                                        .label("Approve plans")
-                                        .checked(form.approve)
-                                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                                            this.import.approve = *checked;
-                                            cx.notify();
-                                        })),
-                                ),
-                        )
+                        .child(source_buttons(form, cx))
+                        .children(fields(form, &t))
+                        .child(switches(form, cx))
                         .when(!form.issues.is_empty(), |this| {
                             this.child(preview(&form.issues, &t))
                         }),
                 )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_end()
-                        .gap(px(SPACE[1]))
-                        .p(px(SPACE[2]))
-                        .border_t_1()
-                        .border_color(t.border)
-                        .child(
-                            Button::new("dry-run")
-                                .label("Dry run")
-                                .outline()
-                                .small()
-                                .on_click(
-                                    cx.listener(|this, _: &ClickEvent, _, cx| send(this, true, cx)),
-                                ),
-                        )
-                        .child(
-                            Button::new("import")
-                                .label("Import")
-                                .primary()
-                                .small()
-                                .on_click(
-                                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        send(this, false, cx)
-                                    }),
-                                ),
-                        ),
-                ),
+                .child(footer(&t, cx)),
         )
         .into_any_element()
 }
 
-fn send(app: &mut LgtmApp, dry_run: bool, cx: &mut Context<LgtmApp>) {
-    let Some(request) = app.import.request(dry_run, cx) else {
+fn source_buttons(form: &ImportForm, cx: &mut Context<LgtmApp>) -> Div {
+    div().flex().gap(px(SPACE[0])).children(
+        [(Source::Github, "GitHub"), (Source::Linear, "Linear")].map(|(source, label)| {
+            Button::new(SharedString::from(format!("source-{label}")))
+                .label(label)
+                .xsmall()
+                .ghost()
+                .selected(form.source == source)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.import.source = source;
+                    this.import.issues.clear();
+                    cx.notify();
+                }))
+        }),
+    )
+}
+
+/// The source's own fields, then the two every source shares.
+fn fields(form: &ImportForm, t: &Tokens) -> Vec<Div> {
+    let own: [(&'static str, &Entity<InputState>); 3] = match form.source {
+        Source::Github => [
+            ("Owner", &form.owner),
+            ("Repository", &form.repo),
+            ("Label", &form.label),
+        ],
+        Source::Linear => [
+            ("Team", &form.team),
+            ("State", &form.state),
+            ("Repository", &form.repository),
+        ],
+    };
+    own.into_iter()
+        .chain([("Base branch", &form.base), ("Max", &form.max)])
+        .map(|(label, input)| row(label, input, t))
+        .collect()
+}
+
+fn switches(form: &ImportForm, cx: &mut Context<LgtmApp>) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(SPACE[3]))
+        .child(
+            Switch::new("plan-first")
+                .label("Plan first")
+                .checked(form.plan)
+                .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                    this.import.plan = *checked;
+                    cx.notify();
+                })),
+        )
+        .child(
+            Switch::new("approve-plans")
+                .label("Approve plans")
+                .checked(form.approve)
+                .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                    this.import.approve = *checked;
+                    cx.notify();
+                })),
+        )
+}
+
+fn footer(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .justify_end()
+        .gap(px(SPACE[1]))
+        .p(px(SPACE[2]))
+        .border_t_1()
+        .border_color(t.border)
+        .child(
+            Button::new("dry-run")
+                .label("Dry run")
+                .outline()
+                .small()
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    send(this, cx, |request| request.dry_run = true)
+                })),
+        )
+        .child(
+            Button::new("import")
+                .label("Import")
+                .primary()
+                .small()
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| send(this, cx, |_| {}))),
+        )
+}
+
+/// Posts the form, after `adjust` has its say (the dry run sets its flag).
+fn send(app: &mut LgtmApp, cx: &mut Context<LgtmApp>, adjust: impl FnOnce(&mut BatchRequest)) {
+    let Some(mut request) = app.import.request(cx) else {
         return;
     };
+    adjust(&mut request);
     net::create_batch(app.client.clone(), request, app.tx.clone());
     cx.notify();
 }

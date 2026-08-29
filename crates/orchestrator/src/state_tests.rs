@@ -2,7 +2,7 @@
 
 use super::*;
 use lgtm_protocol::{
-    Executor, IssueRef, LinearRef, Plan, PlanStep, PullRequest, TaskKind, TaskResult,
+    Executor, IssueRef, LinearRef, Plan, PlanStep, PullRequest, TaskKind, TaskResult, WorkerInfo,
 };
 
 fn info(name: &str, slots: u32, executors: Vec<Executor>) -> WorkerInfo {
@@ -328,15 +328,18 @@ fn pull_request_plan_needs_github_and_approval() {
     let id = approved(&mut state, Some(7), "cafe1234");
 
     let plan = state.pull_request_plan(&id, true).unwrap();
-    assert_eq!(plan.repo.owner, "arsenstorm");
-    assert_eq!(plan.repo.repo, "lgtm");
-    assert_eq!(plan.head, format!("lgtm/{id}"));
-    assert_eq!(plan.base, "main");
+    assert_eq!(plan.pull.repo.owner, "arsenstorm");
+    assert_eq!(plan.pull.repo.repo, "lgtm");
+    assert_eq!(plan.pull.head, format!("lgtm/{id}"));
+    assert_eq!(plan.pull.base, "main");
     assert_eq!(plan.sha, "cafe1234");
-    assert!(plan.title.chars().count() <= 72, "{}", plan.title);
-    assert!(!plan.title.contains('\n'));
-    assert!(plan.body.contains("Closes #7"));
-    assert!(plan.body.contains(&format!("Created by LGTM task {id}")));
+    assert!(plan.pull.title.chars().count() <= 72, "{}", plan.pull.title);
+    assert!(!plan.pull.title.contains('\n'));
+    assert!(plan.pull.body.contains("Closes #7"));
+    assert!(plan
+        .pull
+        .body
+        .contains(&format!("Created by LGTM task {id}")));
 
     assert!(state.pull_request_plan(&id, false).is_none(), "github off");
     assert!(state.pull_request_plan("nope", true).is_none());
@@ -344,7 +347,7 @@ fn pull_request_plan_needs_github_and_approval() {
     // A task without an issue says nothing about closing one.
     let plain = approved(&mut state, None, "beef");
     let plan = state.pull_request_plan(&plain, true).unwrap();
-    assert!(!plan.body.contains("Closes"));
+    assert!(!plan.pull.body.contains("Closes"));
 
     // Not approved yet, and not on GitHub, are both nothing to open.
     let running = create(&mut state, Executor::Claude).id;

@@ -2,10 +2,12 @@ mod app;
 mod assets;
 mod batches;
 mod changes;
+mod commands;
 mod composer;
 mod home;
 mod import;
 mod keys;
+mod labels;
 mod net;
 mod palette;
 mod panes;
@@ -13,6 +15,7 @@ mod render;
 mod review;
 mod settings;
 mod sidebar;
+mod tasks;
 mod theme;
 mod titlebar;
 
@@ -210,6 +213,25 @@ impl Render for MissingConfig {
     }
 }
 
+/// The app draws its own bar, so the system one only contributes the
+/// traffic lights.
+fn window_options(cx: &mut App) -> WindowOptions {
+    WindowOptions {
+        titlebar: Some(TitlebarOptions {
+            title: None,
+            appears_transparent: true,
+            traffic_light_position: Some(point(px(12.), px(12.))),
+        }),
+        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+            None,
+            size(px(1200.), px(800.)),
+            cx,
+        ))),
+        window_min_size: Some(size(px(1000.), px(680.))),
+        ..Default::default()
+    }
+}
+
 fn main() {
     // ring and aws-lc-rs can both be linked; rustls will not guess.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -220,23 +242,7 @@ fn main() {
             theme::init(cx);
             keys::init(cx);
 
-            let options = WindowOptions {
-                // The app draws its own bar, so the system one only contributes the
-                // traffic lights.
-                titlebar: Some(TitlebarOptions {
-                    title: None,
-                    appears_transparent: true,
-                    traffic_light_position: Some(point(px(12.), px(12.))),
-                }),
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(px(1200.), px(800.)),
-                    cx,
-                ))),
-                window_min_size: Some(size(px(1000.), px(680.))),
-                ..Default::default()
-            };
-
+            let options = window_options(cx);
             cx.open_window(options, |window, cx| {
                 let view: AnyView = match config.clone() {
                     Some(config) => cx.new(|cx| LgtmApp::new(config, window, cx)).into(),

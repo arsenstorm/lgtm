@@ -1,69 +1,27 @@
 //! Minimal GitHub REST client: issue lookup, pull request creation and
 //! merging, and check-run aggregation for CI status.
 
+mod checks;
+mod refs;
+
 use std::process::Command;
 
 use anyhow::{anyhow, Context};
-use lgtm_protocol::{CiState, CiStatus, PullRequest};
+use lgtm_protocol::{CiStatus, PullRequest};
 use serde::Deserialize;
+
+pub use checks::aggregate_checks;
+pub use refs::{parse_issue, parse_repo, Repo};
 
 const API_BASE: &str = "https://api.github.com";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Repo {
-    pub owner: String,
-    pub repo: String,
-}
-
-/// Parses `https://github.com/o/r`, `https://github.com/o/r.git`, and
-/// `git@github.com:o/r.git`. Anything else, including other hosts, is `None`.
-pub fn parse_repo(url: &str) -> Option<Repo> {
-    let rest = url
-        .strip_prefix("https://github.com/")
-        .or_else(|| url.strip_prefix("git@github.com:"))?;
-    let rest = rest.strip_suffix(".git").unwrap_or(rest);
-    let (owner, repo) = rest.split_once('/')?;
-    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
-        return None;
-    }
-    Some(Repo {
-        owner: owner.to_string(),
-        repo: repo.to_string(),
-    })
-}
-
-/// Parses `https://github.com/o/r/issues/N`, `o/r#N`, and `github:o/r#N`.
-pub fn parse_issue(s: &str) -> Option<(Repo, u64)> {
-    if let Some(rest) = s.strip_prefix("https://github.com/") {
-        let mut parts = rest.splitn(4, '/');
-        let owner = parts.next()?;
-        let repo = parts.next()?;
-        let issues = parts.next()?;
-        let number = parts.next()?;
-        if issues != "issues" || owner.is_empty() || repo.is_empty() {
-            return None;
-        }
-        return Some((
-            Repo {
-                owner: owner.to_string(),
-                repo: repo.to_string(),
-            },
-            number.parse().ok()?,
-        ));
-    }
-    let rest = s.strip_prefix("github:").unwrap_or(s);
-    let (repo_part, number_part) = rest.split_once('#')?;
-    let (owner, repo) = repo_part.split_once('/')?;
-    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
-        return None;
-    }
-    Some((
-        Repo {
-            owner: owner.to_string(),
-            repo: repo.to_string(),
-        },
-        number_part.parse().ok()?,
-    ))
+pub struct NewPull {
+    pub repo: Repo,
+    pub head: String,
+    pub base: String,
+    pub title: String,
+    pub body: String,
 }
 
 #[derive(Clone, Debug)]
@@ -178,22 +136,15 @@ impl GitHub {
         Ok(parse_issue_list(&items))
     }
 
-    pub async fn create_pull(
-        &self,
-        repo: &Repo,
-        head: &str,
-        base: &str,
-        title: &str,
-        body: &str,
-    ) -> anyhow::Result<PullRequest> {
-        let path = format!("/repos/{}/{}/pulls", repo.owner, repo.repo);
+    pub async fn create_pull(&self, pull: &NewPull) -> anyhow::Result<PullRequest> {
+        let path = format!("/repos/{}/{}/pulls", pull.repo.owner, pull.repo.repo);
         let req = self
             .request(reqwest::Method::POST, &path)
             .json(&serde_json::json!({
-                "title": title,
-                "body": body,
-                "head": head,
-                "base": base,
+                "title": pull.title,
+                "body": pull.body,
+                "head": pull.head,
+                "base": pull.base,
             }));
         let resp: PullResponse = Self::send_json(req).await?;
         Ok(PullRequest {
@@ -262,60 +213,10 @@ pub fn parse_issue_list(items: &[serde_json::Value]) -> Vec<Issue> {
         .collect()
 }
 
-const FAILING_CONCLUSIONS: [&str; 4] = ["failure", "timed_out", "cancelled", "action_required"];
-
-/// Pure aggregation used by [`GitHub::checks`]: no runs, or any run not yet
-/// `completed`, is `Pending`; any completed run with a failing conclusion is
-/// `Failure`; otherwise `Success`.
-pub fn aggregate_checks(runs: &[serde_json::Value], fallback_url: &str) -> CiStatus {
-    let html_url = |run: &serde_json::Value| -> String {
-        run.get("html_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string()
-    };
-    fn status(run: &serde_json::Value) -> &str {
-        run.get("status").and_then(|v| v.as_str()).unwrap_or("")
-    }
-    fn conclusion(run: &serde_json::Value) -> &str {
-        run.get("conclusion").and_then(|v| v.as_str()).unwrap_or("")
-    }
-
-    if runs.is_empty() {
-        return CiStatus {
-            state: CiState::Pending,
-            url: fallback_url.to_string(),
-        };
-    }
-
-    let first_url = html_url(&runs[0]);
-
-    if runs.iter().any(|run| status(run) != "completed") {
-        return CiStatus {
-            state: CiState::Pending,
-            url: first_url,
-        };
-    }
-
-    if let Some(failing) = runs
-        .iter()
-        .find(|run| FAILING_CONCLUSIONS.contains(&conclusion(run)))
-    {
-        return CiStatus {
-            state: CiState::Failure,
-            url: html_url(failing),
-        };
-    }
-
-    CiStatus {
-        state: CiState::Success,
-        url: first_url,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lgtm_protocol::CiState;
     use serde_json::json;
 
     #[test]

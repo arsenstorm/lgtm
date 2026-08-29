@@ -1,7 +1,8 @@
 //! The Batches page: what was imported, and how far each import has got.
 
-use crate::app::{prompt_preview, status_label, LgtmApp, Overlay};
-use crate::sidebar::{batch_label, now_ms, relative_age, status_color};
+use crate::app::{LgtmApp, Overlay};
+use crate::labels::{prompt_preview, status_label};
+use crate::tasks::{batch_label, now_ms, relative_age, status_color};
 use crate::theme::{
     icon, tokens, Tokens, HEADER_H, ICON, RADIUS, RADIUS_PILL, ROW_H, SPACE, TEXT_SECONDARY,
 };
@@ -51,36 +52,8 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
         .min_w_0()
         .flex()
         .flex_col()
-        .child(
-            div()
-                .flex()
-                .flex_shrink_0()
-                .items_center()
-                .h(px(HEADER_H))
-                .px(px(SPACE[2]))
-                .border_b_1()
-                .border_color(t.border)
-                .child(
-                    div()
-                        .flex_1()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child("Batches"),
-                )
-                .child(import_button("import-top", cx)),
-        )
-        .when(empty, |this| {
-            this.child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .justify_center()
-                    .gap(px(SPACE[2]))
-                    .child(div().text_color(t.muted_fg).child("No batches yet"))
-                    .child(import_button("import-empty", cx)),
-            )
-        })
+        .child(page_header(&t, cx))
+        .when(empty, |this| this.child(empty_state(&t, cx)))
         .when(!empty, |this| {
             this.child(
                 div()
@@ -98,27 +71,54 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
         .into_any_element()
 }
 
+fn page_header(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    div()
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .h(px(HEADER_H))
+        .px(px(SPACE[2]))
+        .border_b_1()
+        .border_color(t.border)
+        .child(
+            div()
+                .flex_1()
+                .font_weight(FontWeight::MEDIUM)
+                .child("Batches"),
+        )
+        .child(import_button("import-top", cx))
+}
+
+fn empty_state(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    div()
+        .flex_1()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(px(SPACE[2]))
+        .child(div().text_color(t.muted_fg).child("No batches yet"))
+        .child(import_button("import-empty", cx))
+}
+
 fn import_button(id: &'static str, cx: &mut Context<LgtmApp>) -> Button {
     Button::new(id)
         .label("Import")
         .outline()
         .small()
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.overlay = Overlay::Import;
+            this.ui.overlay = Overlay::Import;
             cx.notify();
         }))
 }
 
 fn card(app: &LgtmApp, batch: &Batch, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let id = batch.id.clone();
-    let open = app.expanded.contains(&id);
-    let now = now_ms();
+    let open = app.ui.expanded.contains(&batch.id);
     let rows: Vec<&Task> = app
         .tasks
         .iter()
-        .filter(|task| task.spec.batch.as_deref() == Some(id.as_str()))
+        .filter(|task| task.spec.batch.as_deref() == Some(batch.id.as_str()))
         .collect();
-
     div()
         .flex()
         .flex_col()
@@ -126,51 +126,7 @@ fn card(app: &LgtmApp, batch: &Batch, t: &Tokens, cx: &mut Context<LgtmApp>) -> 
         .bg(t.card)
         .border_1()
         .border_color(t.border)
-        .child(
-            div()
-                .id(SharedString::from(format!("batch-{id}")))
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .p(px(SPACE[2]))
-                .cursor_pointer()
-                .hover(|this| this.bg(t.muted))
-                .child(icon(
-                    if open {
-                        "chevron-down"
-                    } else {
-                        "chevron-right"
-                    },
-                    ICON,
-                    t.muted_fg,
-                ))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(batch_label(&batch.source)),
-                )
-                .children(
-                    counts(&id, &app.tasks)
-                        .into_iter()
-                        .map(|(state, count)| pill(state, count, t)),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_size(px(TEXT_SECONDARY))
-                        .text_color(t.muted_fg)
-                        .child(format!("{} ago", relative_age(batch.created_at, now))),
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if !this.expanded.remove(&id) {
-                        this.expanded.insert(id.clone());
-                    }
-                    cx.notify();
-                })),
-        )
+        .child(card_header(app, batch, t, cx))
         .when(open, |this| {
             this.child(
                 div()
@@ -178,15 +134,67 @@ fn card(app: &LgtmApp, batch: &Batch, t: &Tokens, cx: &mut Context<LgtmApp>) -> 
                     .flex_col()
                     .px(px(SPACE[1]))
                     .pb(px(SPACE[1]))
-                    .children(rows.into_iter().map(|task| task_row(app, task, now, t, cx))),
+                    .children(rows.into_iter().map(|task| task_row(app, task, t, cx))),
             )
         })
+}
+
+/// The clickable row that names the batch and folds its tasks in and out.
+fn card_header(
+    app: &LgtmApp,
+    batch: &Batch,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> gpui::Stateful<Div> {
+    let id = batch.id.clone();
+    let open = app.ui.expanded.contains(&id);
+    let chevron = if open {
+        "chevron-down"
+    } else {
+        "chevron-right"
+    };
+    div()
+        .id(SharedString::from(format!("batch-{id}")))
+        .flex()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .p(px(SPACE[2]))
+        .cursor_pointer()
+        .hover(|this| this.bg(t.muted))
+        .child(icon(chevron, ICON, t.muted_fg))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .font_weight(FontWeight::MEDIUM)
+                .child(batch_label(&batch.source)),
+        )
+        .children(
+            counts(&id, &app.tasks)
+                .into_iter()
+                .map(|(state, count)| pill(state, count, t)),
+        )
+        .child(age(batch.created_at, t))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            if !this.ui.expanded.remove(&id) {
+                this.ui.expanded.insert(id.clone());
+            }
+            cx.notify();
+        }))
+}
+
+fn age(created_at: u64, t: &Tokens) -> Div {
+    div()
+        .flex_shrink_0()
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.muted_fg)
+        .child(format!("{} ago", relative_age(created_at, now_ms())))
 }
 
 fn task_row(
     app: &LgtmApp,
     task: &Task,
-    now: u64,
     t: &Tokens,
     cx: &mut Context<LgtmApp>,
 ) -> gpui::Stateful<Div> {
@@ -212,7 +220,7 @@ fn task_row(
                 .truncate()
                 .child(prompt_preview(&task.spec.prompt, 64)),
         )
-        .child(div().child(relative_age(task.created_at, now)))
+        .child(div().child(relative_age(task.created_at, now_ms())))
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)))
 }
 

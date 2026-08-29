@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lgtm_github::Repo;
-use lgtm_protocol::{CiState, Task, TaskEvent, TaskId, TaskStatus};
+use lgtm_protocol::{CiState, CiStatus, Task, TaskEvent, TaskId, TaskStatus};
 
 use crate::policy::{auto_action, AutoAction};
 use crate::state::{App, CmdError, PrPlan};
@@ -22,34 +22,34 @@ pub fn open_pull_request(app: Arc<App>, task_id: TaskId, plan: PrPlan) {
         return;
     };
     tokio::spawn(async move {
-        let opened = github
-            .create_pull(&plan.repo, &plan.head, &plan.base, &plan.title, &plan.body)
-            .await;
-        match opened {
-            Ok(pr) => {
-                tracing::info!(task = %task_id, pull = pr.number, "pull request opened");
-                {
-                    let mut state = app.state.lock().unwrap();
-                    if let Some(rec) = state.tasks.get_mut(&task_id) {
-                        rec.task.pull_request = Some(pr);
-                    }
-                    app.persist_ids(&state, std::slice::from_ref(&task_id));
-                }
-                crate::linear::after_transition(&app, &task_id, TaskStatus::Approved, true);
-                if !plan.sha.is_empty() {
-                    poll_ci(app, task_id, plan.repo, plan.sha);
-                }
-            }
+        let pr = match github.create_pull(&plan.pull).await {
+            Ok(pr) => pr,
             Err(err) => {
                 tracing::warn!(task = %task_id, %err, "failed to open pull request");
-                let mut state = app.state.lock().unwrap();
-                if let Some(rec) = state.tasks.get_mut(&task_id) {
-                    rec.task.error = Some(format!("pull request: {err:#}"));
-                }
-                app.persist_ids(&state, std::slice::from_ref(&task_id));
+                return record_error(&app, &task_id, format!("pull request: {err:#}"));
             }
+        };
+        tracing::info!(task = %task_id, pull = pr.number, "pull request opened");
+        {
+            let mut state = app.state.lock().unwrap();
+            if let Some(rec) = state.tasks.get_mut(&task_id) {
+                rec.task.pull_request = Some(pr);
+            }
+            app.persist_ids(&state, std::slice::from_ref(&task_id));
+        }
+        crate::linear::after_transition(&app, &task_id, TaskStatus::Approved, true);
+        if !plan.sha.is_empty() {
+            poll_ci(app, task_id, plan.pull.repo, plan.sha);
         }
     });
+}
+
+fn record_error(app: &App, task_id: &TaskId, error: String) {
+    let mut state = app.state.lock().unwrap();
+    if let Some(rec) = state.tasks.get_mut(task_id) {
+        rec.task.error = Some(error);
+    }
+    app.persist_ids(&state, std::slice::from_ref(task_id));
 }
 
 /// Why a merge could not happen: a state the task is in, or GitHub itself.
@@ -82,34 +82,7 @@ fn conflict(msg: impl Into<String>) -> MergeError {
 /// Merges an approved task's pull request and records it, for the merge route
 /// and for the CI poller's auto-merge alike. The GitHub calls run off the lock.
 pub async fn merge_task(app: &Arc<App>, id: &str) -> Result<Task, MergeError> {
-    let (github, repo, number) = {
-        let state = app.state.lock().unwrap();
-        let task = state
-            .tasks
-            .get(id)
-            .map(|rec| &rec.task)
-            .ok_or(MergeError::Cmd(CmdError::NotFound))?;
-        if task.status != TaskStatus::Approved {
-            return Err(conflict("task is not approved"));
-        }
-        let pull = task
-            .pull_request
-            .as_ref()
-            .ok_or_else(|| conflict("task has no pull request"))?;
-        match task.ci.as_ref().map(|ci| ci.state) {
-            Some(CiState::Success) => {}
-            Some(CiState::Failure) => return Err(conflict("ci is failing")),
-            Some(CiState::Pending) | None => return Err(conflict("ci is pending")),
-        }
-        let repo = lgtm_github::parse_repo(&task.spec.repository).ok_or_else(|| {
-            conflict(format!("unrecognised repository: {}", task.spec.repository))
-        })?;
-        let github = app
-            .github
-            .clone()
-            .ok_or_else(|| conflict("GITHUB_TOKEN is not configured"))?;
-        (github, repo, pull.number)
-    };
+    let (github, repo, number) = mergeable(app, id)?;
     match github.pull_mergeable(&repo, number).await {
         Ok(Some(true)) => {}
         Ok(Some(false)) => return Err(conflict("pull request is not mergeable")),
@@ -130,6 +103,35 @@ pub async fn merge_task(app: &Arc<App>, id: &str) -> Result<Task, MergeError> {
     Ok(task)
 }
 
+/// The client and pull request to merge, once the task's own state allows it.
+fn mergeable(app: &Arc<App>, id: &str) -> Result<(lgtm_github::GitHub, Repo, u64), MergeError> {
+    let state = app.state.lock().unwrap();
+    let task = state
+        .tasks
+        .get(id)
+        .map(|rec| &rec.task)
+        .ok_or(MergeError::Cmd(CmdError::NotFound))?;
+    if task.status != TaskStatus::Approved {
+        return Err(conflict("task is not approved"));
+    }
+    let pull = task
+        .pull_request
+        .as_ref()
+        .ok_or_else(|| conflict("task has no pull request"))?;
+    match task.ci.as_ref().map(|ci| ci.state) {
+        Some(CiState::Success) => {}
+        Some(CiState::Failure) => return Err(conflict("ci is failing")),
+        Some(CiState::Pending) | None => return Err(conflict("ci is pending")),
+    }
+    let repo = lgtm_github::parse_repo(&task.spec.repository)
+        .ok_or_else(|| conflict(format!("unrecognised repository: {}", task.spec.repository)))?;
+    let github = app
+        .github
+        .clone()
+        .ok_or_else(|| conflict("GITHUB_TOKEN is not configured"))?;
+    Ok((github, repo, pull.number))
+}
+
 /// Merges a task the policy says needs no one's say-so, once its checks passed.
 async fn auto_merge(app: &Arc<App>, task_id: &TaskId) {
     match merge_task(app, task_id).await {
@@ -141,11 +143,7 @@ async fn auto_merge(app: &Arc<App>, task_id: &TaskId) {
         }
         Err(err) => {
             tracing::warn!(task = %task_id, %err, "auto-merge failed");
-            let mut state = app.state.lock().unwrap();
-            if let Some(rec) = state.tasks.get_mut(task_id) {
-                rec.task.error = Some(format!("auto-merge: {err}"));
-            }
-            app.persist_ids(&state, std::slice::from_ref(task_id));
+            record_error(app, task_id, format!("auto-merge: {err}"));
         }
     }
 }
@@ -159,41 +157,46 @@ pub fn poll_ci(app: Arc<App>, task_id: TaskId, repo: Repo, sha: String) {
     tokio::spawn(async move {
         let mut errors = 0u32;
         loop {
-            match github.checks(&repo, &sha).await {
+            let done = match github.checks(&repo, &sha).await {
                 Ok(status) => {
                     errors = 0;
-                    let settled = status.state != CiState::Pending;
-                    let merge = {
-                        let mut state = app.state.lock().unwrap();
-                        let Some(rec) = state.tasks.get_mut(&task_id) else {
-                            return;
-                        };
-                        if rec.task.status != TaskStatus::Approved {
-                            return;
-                        }
-                        rec.task.ci = Some(status);
-                        let merge = auto_action(&rec.task) == Some(AutoAction::Merge);
-                        app.persist_ids(&state, std::slice::from_ref(&task_id));
-                        merge
-                    };
-                    if merge {
-                        auto_merge(&app, &task_id).await;
-                    }
-                    if settled {
-                        return;
-                    }
+                    settle(&app, &task_id, status).await
                 }
                 Err(err) => {
                     errors += 1;
                     tracing::warn!(task = %task_id, %err, "failed to read ci checks");
-                    if errors >= CI_MAX_ERRORS {
-                        return;
-                    }
+                    errors >= CI_MAX_ERRORS
                 }
+            };
+            if done {
+                return;
             }
             tokio::time::sleep(CI_POLL).await;
         }
     });
+}
+
+/// Records one reading of the checks and merges if policy says so. `true`
+/// when polling can stop: the checks settled or the task moved on.
+async fn settle(app: &Arc<App>, task_id: &TaskId, status: CiStatus) -> bool {
+    let settled = status.state != CiState::Pending;
+    let merge = {
+        let mut state = app.state.lock().unwrap();
+        let Some(rec) = state.tasks.get_mut(task_id) else {
+            return true;
+        };
+        if rec.task.status != TaskStatus::Approved {
+            return true;
+        }
+        rec.task.ci = Some(status);
+        let merge = auto_action(&rec.task) == Some(AutoAction::Merge);
+        app.persist_ids(&state, std::slice::from_ref(task_id));
+        merge
+    };
+    if merge {
+        auto_merge(app, task_id).await;
+    }
+    settled
 }
 
 /// After a restart, picks up polling for tasks whose pull request is open and

@@ -2,6 +2,7 @@
 
 mod api;
 mod backlog;
+mod commands;
 mod github;
 mod linear;
 pub mod local;
@@ -11,6 +12,7 @@ mod policy;
 mod provision;
 mod state;
 pub mod token;
+mod worker;
 mod worker_ws;
 
 use std::net::SocketAddr;
@@ -57,44 +59,7 @@ pub async fn serve_plain(bind: SocketAddr, token: String, data_dir: PathBuf) -> 
 /// Binds `opts.bind` and serves until the process exits. Installing a tracing
 /// subscriber is the caller's job.
 pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
-    let bind = opts.bind;
-    let tasks_dir = opts.data_dir.join("tasks");
-    let batches_dir = opts.data_dir.join("batches");
-    std::fs::create_dir_all(&tasks_dir)?;
-    std::fs::create_dir_all(&batches_dir)?;
-
-    let mut state = State {
-        queue_without_workers: opts.provision.is_some(),
-        ..State::default()
-    };
-    for stored in persist::load_all(&tasks_dir) {
-        let mut task = stored.task;
-        // No worker process survived the restart, so anything running is lost.
-        // Queued tasks are schedulable again once their stale assignment is
-        // cleared; the scheduler only looks at unassigned ones.
-        let interrupted = matches!(task.status, TaskStatus::Running);
-        let changed = interrupted || (task.status == TaskStatus::Queued && task.worker.is_some());
-        if interrupted {
-            task.status = TaskStatus::Failed;
-            task.error = Some("orchestrator restarted".into());
-        } else if changed {
-            task.worker = None;
-        }
-        let rec = TaskRecord::new(task, stored.events);
-        if changed {
-            persist::save(&tasks_dir, &persist::Stored::from(&rec));
-        }
-        state.tasks.insert(rec.task.id.clone(), rec);
-    }
-    for batch in persist::load_all_batches(&batches_dir) {
-        state.batches.insert(batch.id.clone(), batch);
-    }
-    tracing::info!(
-        tasks = state.tasks.len(),
-        batches = state.batches.len(),
-        "loaded tasks",
-    );
-
+    let state = load_state(&opts.data_dir, opts.provision.is_some())?;
     let (persist_tx, persist_rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(persist::writer(opts.data_dir, persist_rx));
 
@@ -118,23 +83,71 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
         .nest("/api", api::router(app.clone()))
         .route(WORKER_WS_PATH, get(worker_ws::handler))
         .with_state(app);
+    listen(router, opts.bind, opts.tls).await
+}
 
-    match opts.tls {
-        Some((cert, key)) => {
-            // axum-server brings no crypto provider; the lib must not rely on
-            // the binary having installed one.
-            let _ = rustls::crypto::ring::default_provider().install_default();
-            let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key).await?;
-            tracing::info!(%bind, "orchestrator listening over https");
-            axum_server::bind_rustls(bind, config)
-                .serve(router.into_make_service())
-                .await?;
+/// Reads every stored task and batch back, repairing what the restart broke.
+fn load_state(data_dir: &std::path::Path, queue_without_workers: bool) -> anyhow::Result<State> {
+    let tasks_dir = data_dir.join("tasks");
+    let batches_dir = data_dir.join("batches");
+    std::fs::create_dir_all(&tasks_dir)?;
+    std::fs::create_dir_all(&batches_dir)?;
+    let mut state = State {
+        queue_without_workers,
+        ..State::default()
+    };
+    for stored in persist::load_all(&tasks_dir) {
+        let (task, changed) = restore(stored.task);
+        let rec = TaskRecord::new(task, stored.events);
+        if changed {
+            persist::save(&tasks_dir, &persist::Stored::from(&rec));
         }
-        None => {
-            let listener = tokio::net::TcpListener::bind(bind).await?;
-            tracing::info!(%bind, "orchestrator listening over http");
-            axum::serve(listener, router).await?;
-        }
+        state.tasks.insert(rec.task.id.clone(), rec);
     }
+    for batch in persist::load_all_batches(&batches_dir) {
+        state.batches.insert(batch.id.clone(), batch);
+    }
+    tracing::info!(
+        tasks = state.tasks.len(),
+        batches = state.batches.len(),
+        "loaded tasks",
+    );
+    Ok(state)
+}
+
+/// No worker process survived the restart, so anything running is lost.
+/// Queued tasks are schedulable again once their stale assignment is cleared;
+/// the scheduler only looks at unassigned ones. Returns whether it changed.
+fn restore(mut task: lgtm_protocol::Task) -> (lgtm_protocol::Task, bool) {
+    if task.status == TaskStatus::Running {
+        task.status = TaskStatus::Failed;
+        task.error = Some("orchestrator restarted".into());
+        return (task, true);
+    }
+    if task.status == TaskStatus::Queued && task.worker.is_some() {
+        task.worker = None;
+        return (task, true);
+    }
+    (task, false)
+}
+
+async fn listen(
+    router: Router,
+    bind: std::net::SocketAddr,
+    tls: Option<(std::path::PathBuf, std::path::PathBuf)>,
+) -> anyhow::Result<()> {
+    let Some((cert, key)) = tls else {
+        let listener = tokio::net::TcpListener::bind(bind).await?;
+        tracing::info!(%bind, "orchestrator listening over http");
+        return Ok(axum::serve(listener, router).await?);
+    };
+    // axum-server brings no crypto provider; the lib must not rely on the
+    // binary having installed one.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key).await?;
+    tracing::info!(%bind, "orchestrator listening over https");
+    axum_server::bind_rustls(bind, config)
+        .serve(router.into_make_service())
+        .await?;
     Ok(())
 }

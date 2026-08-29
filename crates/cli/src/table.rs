@@ -1,0 +1,231 @@
+//! The `tasks` table and the cells in it.
+
+use lgtm_protocol::{CiState, Review, Task, TaskStatus};
+
+/// The wire form ("awaiting_review") rather than Rust's Debug form, so it
+/// matches the JSON everywhere else in the CLI's output.
+pub fn status_str(status: TaskStatus) -> String {
+    serde_json::to_value(status)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// The wire form ("success") rather than Rust's Debug form, matching
+/// `status_str` above.
+pub fn ci_str(state: CiState) -> String {
+    serde_json::to_value(state)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// `#<pr-number> <mark>` for the `tasks` table's PR column, empty when the
+/// task has no pull request. Mark is ✓/✗ for CI success/failure, … for
+/// pending or missing CI info.
+pub fn pr_cell(task: &Task) -> String {
+    let Some(pr) = &task.pull_request else {
+        return String::new();
+    };
+    let mark = match task.ci.as_ref().map(|ci| ci.state) {
+        Some(CiState::Success) => "✓",
+        Some(CiState::Failure) => "✗",
+        Some(CiState::Pending) | None => "…",
+    };
+    format!("#{} {mark}", pr.number)
+}
+
+/// Reorders `tasks` for the `tasks` table so each child (`spec.parent`
+/// `Some`) is listed right after its parent. Top-level tasks (and parents)
+/// keep their existing relative order; a task's own children keep their
+/// existing relative order too. A task whose declared parent isn't in the
+/// list is treated as top-level.
+pub fn order_tasks(tasks: Vec<Task>) -> Vec<Task> {
+    let ids: std::collections::HashSet<String> = tasks.iter().map(|t| t.id.clone()).collect();
+    let mut children: std::collections::HashMap<String, Vec<Task>> =
+        std::collections::HashMap::new();
+    let mut top_level: Vec<Task> = Vec::new();
+    for task in tasks {
+        match &task.spec.parent {
+            Some(parent_id) if ids.contains(parent_id.as_str()) => {
+                children.entry(parent_id.clone()).or_default().push(task);
+            }
+            _ => top_level.push(task),
+        }
+    }
+    let mut ordered = Vec::with_capacity(top_level.len());
+    for task in top_level {
+        let id = task.id.clone();
+        ordered.push(task);
+        if let Some(kids) = children.remove(&id) {
+            ordered.extend(kids);
+        }
+    }
+    ordered
+}
+
+/// STATUS cell for the `tasks` table: `display_status` only, not the raw
+/// wire status. A queued, unassigned task with unmet dependencies shows
+/// `blocked` instead of `queued`, so the table hints at why it isn't
+/// running yet.
+pub fn display_status(task: &Task, all: &[Task]) -> String {
+    let has_unmet_deps = !task.spec.depends_on.is_empty()
+        && !task.spec.depends_on.iter().all(|dep_id| {
+            all.iter().any(|t| {
+                &t.id == dep_id && matches!(t.status, TaskStatus::Approved | TaskStatus::Merged)
+            })
+        });
+    if task.status == TaskStatus::Queued && task.worker.is_none() && has_unmet_deps {
+        "blocked".to_string()
+    } else {
+        status_str(task.status)
+    }
+}
+
+/// Prints the `tasks`-style table: `ID STATUS WORKER PR PROMPT`, children
+/// ordered after their parent. Shared by `tasks` and `backlog status`.
+pub fn print_task_table(tasks: Vec<Task>) {
+    println!(
+        "{:<10}{:<16}{:<16}{:<10}PROMPT",
+        "ID", "STATUS", "WORKER", "PR"
+    );
+    for t in order_tasks(tasks.clone()) {
+        let worker = t.worker.as_deref().unwrap_or("-");
+        let prefix = if t.spec.parent.is_some() { "↳ " } else { "" };
+        let prompt = format!("{prefix}{}", first_line_truncated(&t.spec.prompt, 60));
+        let failed = t.result.as_ref().is_some_and(|r| {
+            r.validation_failed() || r.review.as_ref().is_some_and(Review::has_blocking)
+        });
+        let status = display_status(&t, &tasks);
+        let status = if failed { format!("{status}!") } else { status };
+        let pr = pr_cell(&t);
+        println!(
+            "{:<10}{:<16}{:<16}{:<10}{}",
+            t.id, status, worker, pr, prompt
+        );
+    }
+}
+
+pub fn first_line_truncated(s: &str, max: usize) -> String {
+    let first = s.lines().next().unwrap_or("");
+    if first.chars().count() > max {
+        first.chars().take(max).collect()
+    } else {
+        first.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lgtm_protocol::{CiStatus, Executor, PullRequest, TaskKind, TaskSpec};
+
+    fn sample_task(pull_request: Option<PullRequest>, ci: Option<CiStatus>) -> Task {
+        Task {
+            id: "0123abcd".into(),
+            spec: TaskSpec {
+                repository: "https://github.com/arsenstorm/lgtm.git".into(),
+                base_branch: "main".into(),
+                prompt: "add a /health endpoint".into(),
+                executor: Executor::Claude,
+                worker: None,
+                issue: None,
+                linear: None,
+                kind: TaskKind::Run,
+                parent: None,
+                depends_on: vec![],
+                batch: None,
+            },
+            status: TaskStatus::Approved,
+            worker: None,
+            created_at: 1,
+            result: None,
+            error: None,
+            pull_request,
+            ci,
+        }
+    }
+
+    /// A minimal task for `order_tasks`/`display_status` tests, where only
+    /// id, status, worker, parent, and dependencies matter.
+    fn task(
+        id: &str,
+        status: TaskStatus,
+        worker: Option<&str>,
+        parent: Option<&str>,
+        depends_on: &[&str],
+    ) -> Task {
+        let mut t = sample_task(None, None);
+        t.id = id.into();
+        t.status = status;
+        t.worker = worker.map(String::from);
+        t.spec.parent = parent.map(String::from);
+        t.spec.depends_on = depends_on.iter().map(|s| s.to_string()).collect();
+        t
+    }
+
+    #[test]
+    fn pr_cell_empty_without_pull_request() {
+        assert_eq!(pr_cell(&sample_task(None, None)), "");
+    }
+
+    #[test]
+    fn pr_cell_pending_without_ci() {
+        let pr = PullRequest {
+            number: 12,
+            url: "https://github.com/arsenstorm/lgtm/pull/12".into(),
+        };
+        assert_eq!(pr_cell(&sample_task(Some(pr), None)), "#12 …");
+    }
+
+    #[test]
+    fn pr_cell_marks_ci_success() {
+        let pr = PullRequest {
+            number: 12,
+            url: "https://github.com/arsenstorm/lgtm/pull/12".into(),
+        };
+        let ci = CiStatus {
+            state: CiState::Success,
+            url: "https://github.com/arsenstorm/lgtm/pull/12/checks".into(),
+        };
+        assert_eq!(pr_cell(&sample_task(Some(pr), Some(ci))), "#12 ✓");
+    }
+
+    #[test]
+    fn pr_cell_marks_ci_failure() {
+        let pr = PullRequest {
+            number: 12,
+            url: "https://github.com/arsenstorm/lgtm/pull/12".into(),
+        };
+        let ci = CiStatus {
+            state: CiState::Failure,
+            url: "https://github.com/arsenstorm/lgtm/pull/12/checks".into(),
+        };
+        assert_eq!(pr_cell(&sample_task(Some(pr), Some(ci))), "#12 ✗");
+    }
+
+    #[test]
+    fn order_tasks_places_children_after_parent() {
+        let p = task("p", TaskStatus::Queued, None, None, &[]);
+        let q = task("q", TaskStatus::Queued, None, None, &[]);
+        let c1 = task("c1", TaskStatus::Queued, None, Some("p"), &[]);
+        let c2 = task("c2", TaskStatus::Queued, None, Some("p"), &[]);
+        let ordered = order_tasks(vec![p, q, c1, c2]);
+        let ids: Vec<&str> = ordered.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, ["p", "c1", "c2", "q"]);
+    }
+
+    #[test]
+    fn display_status_blocks_queued_task_with_unmet_dependency() {
+        let dep = task("d", TaskStatus::Queued, None, None, &[]);
+        let t = task("t", TaskStatus::Queued, None, None, &["d"]);
+        assert_eq!(display_status(&t, &[dep, t.clone()]), "blocked");
+    }
+
+    #[test]
+    fn display_status_queued_once_dependency_is_approved() {
+        let dep = task("d", TaskStatus::Approved, None, None, &[]);
+        let t = task("t", TaskStatus::Queued, None, None, &["d"]);
+        assert_eq!(display_status(&t, &[dep, t.clone()]), "queued");
+    }
+}

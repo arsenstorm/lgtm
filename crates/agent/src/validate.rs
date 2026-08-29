@@ -65,24 +65,10 @@ async fn run_check(worktree: &Path, name: &str, command: &str) -> ValidationResu
         ok,
         output_tail,
     };
-    let (shell, flag) = if cfg!(windows) {
-        ("cmd", "/C")
-    } else {
-        ("sh", "-c")
-    };
-    let mut child = match Command::new(shell)
-        .args([flag, command])
-        .current_dir(worktree)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-    {
+    let mut child = match spawn_shell(worktree, command) {
         Ok(child) => child,
-        Err(err) => return done(false, format!("spawn {shell}: {err}")),
+        Err(err) => return done(false, err),
     };
-
     let lines: Lines = Arc::new(Mutex::new(Vec::new()));
     let out = child
         .stdout
@@ -93,29 +79,46 @@ async fn run_check(worktree: &Path, name: &str, command: &str) -> ValidationResu
         .take()
         .map(|pipe| tokio::spawn(collect(pipe, lines.clone())));
 
-    let mut ok = false;
-    let mut timed_out = false;
+    let ok = wait_or_kill(&mut child, &lines).await;
+    for pump in [out, err].into_iter().flatten() {
+        let _ = pump.await;
+    }
+    let lines = std::mem::take(&mut *lines.lock().expect("validation lines poisoned"));
+    done(ok, tail(&lines))
+}
+
+fn spawn_shell(worktree: &Path, command: &str) -> Result<tokio::process::Child, String> {
+    let (shell, flag) = if cfg!(windows) {
+        ("cmd", "/C")
+    } else {
+        ("sh", "-c")
+    };
+    Command::new(shell)
+        .args([flag, command])
+        .current_dir(worktree)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|err| format!("spawn {shell}: {err}"))
+}
+
+/// Whether the check passed; a timeout kills it and is reported as a line.
+async fn wait_or_kill(child: &mut tokio::process::Child, lines: &Lines) -> bool {
     match tokio::time::timeout(TIMEOUT, child.wait()).await {
-        Ok(Ok(status)) => ok = status.success(),
-        Ok(Err(err)) => push(&lines, format!("wait failed: {err}")),
+        Ok(Ok(status)) => status.success(),
+        Ok(Err(err)) => {
+            push(lines, format!("wait failed: {err}"));
+            false
+        }
         Err(_) => {
             let _ = child.start_kill();
             let _ = child.wait().await;
-            timed_out = true;
+            push(lines, "timed out after 600s".to_string());
+            false
         }
     }
-    if let Some(out) = out {
-        let _ = out.await;
-    }
-    if let Some(err) = err {
-        let _ = err.await;
-    }
-
-    let mut lines = std::mem::take(&mut *lines.lock().expect("validation lines poisoned"));
-    if timed_out {
-        lines.push("timed out after 600s".to_string());
-    }
-    done(ok, tail(&lines))
 }
 
 async fn collect<R: AsyncRead + Unpin>(reader: R, lines: Lines) {

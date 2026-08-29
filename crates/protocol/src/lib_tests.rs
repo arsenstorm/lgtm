@@ -1,0 +1,215 @@
+use super::*;
+
+fn sample_task() -> Task {
+    Task {
+        id: "0123abcd".into(),
+        spec: TaskSpec {
+            repository: "https://github.com/arsenstorm/lgtm.git".into(),
+            base_branch: "main".into(),
+            prompt: "add a /health endpoint".into(),
+            executor: Executor::Claude,
+            worker: Some("compute".into()),
+            issue: Some(IssueRef {
+                owner: "arsenstorm".into(),
+                repo: "lgtm".into(),
+                number: 7,
+            }),
+            linear: Some(LinearRef {
+                id: "uuid".into(),
+                identifier: "ENG-123".into(),
+                url: "https://linear.app/w/issue/ENG-123".into(),
+            }),
+            kind: TaskKind::Plan,
+            parent: Some("00000000".into()),
+            depends_on: vec!["11111111".into()],
+            batch: Some("b1".into()),
+        },
+        status: TaskStatus::Queued,
+        worker: None,
+        created_at: 1,
+        result: None,
+        error: None,
+        pull_request: Some(PullRequest {
+            number: 12,
+            url: "https://github.com/arsenstorm/lgtm/pull/12".into(),
+        }),
+        ci: Some(CiStatus {
+            state: CiState::Pending,
+            url: "https://github.com/arsenstorm/lgtm/pull/12/checks".into(),
+        }),
+    }
+}
+
+fn round_trip<T: Serialize + for<'de> Deserialize<'de> + PartialEq + std::fmt::Debug>(v: T) {
+    let json = serde_json::to_string(&v).unwrap();
+    let back: T = serde_json::from_str(&json).unwrap();
+    assert_eq!(v, back, "{json}");
+}
+
+#[test]
+fn every_message_round_trips() {
+    let info = WorkerInfo {
+        name: "compute".into(),
+        os: "windows".into(),
+        arch: "x86_64".into(),
+        executors: vec![Executor::Claude],
+        slots: 2,
+        ephemeral: true,
+    };
+    let result = TaskResult {
+        branch: "lgtm/0123abcd".into(),
+        diff: "--- a\n+++ b\n".into(),
+        changed_files: vec!["HEALTH.md".into()],
+        validation: vec![ValidationResult {
+            name: "test".into(),
+            command: "bun test".into(),
+            ok: false,
+            output_tail: "1 failed".into(),
+        }],
+        plan: Some(Plan {
+            steps: vec![PlanStep {
+                key: "schema".into(),
+                title: "Add schema".into(),
+                prompt: "Add the table".into(),
+                depends_on: vec![],
+            }],
+        }),
+        review: Some(Review {
+            findings: vec![Finding {
+                severity: Severity::Blocking,
+                file: "src/a.rs".into(),
+                line: Some(3),
+                message: "unwrap on user input".into(),
+            }],
+        }),
+        policy: Some(Policy {
+            auto_approve: true,
+            auto_merge: false,
+        }),
+        cost_usd: 0.42,
+    };
+    assert!(result.review.as_ref().unwrap().has_blocking());
+    assert!(result.validation_failed());
+    for event in [
+        TaskEvent::Started,
+        TaskEvent::Message {
+            text: "use the existing helper".into(),
+        },
+        TaskEvent::Output {
+            stream: OutputStream::Stdout,
+            line: "{}".into(),
+        },
+        TaskEvent::Completed {
+            result: result.clone(),
+        },
+        TaskEvent::Failed {
+            error: "boom".into(),
+        },
+        TaskEvent::Cancelled,
+        TaskEvent::Retry {
+            attempt: 1,
+            reason: "checks failed".into(),
+        },
+        TaskEvent::AutoApproved,
+        TaskEvent::AutoMerged,
+        TaskEvent::Pushed {
+            branch: "lgtm/0123abcd".into(),
+            sha: "abc123".into(),
+        },
+        TaskEvent::Discarded,
+    ] {
+        round_trip(StoredEvent {
+            at: 2,
+            event: event.clone(),
+        });
+        round_trip(WorkerMessage::Event {
+            task_id: "0123abcd".into(),
+            event,
+        });
+    }
+    round_trip(WorkerMessage::Hello {
+        token: "t".into(),
+        info: info.clone(),
+        running: vec!["0123abcd".into()],
+    });
+    round_trip(WorkerMessage::Goodbye);
+    round_trip(WorkerStatus {
+        info,
+        running: vec!["0123abcd".into()],
+    });
+    round_trip(Batch {
+        id: "b1".into(),
+        created_at: 3,
+        source: BatchSource::GithubLabel {
+            owner: "o".into(),
+            repo: "r".into(),
+            label: "P1".into(),
+        },
+        repository: "https://github.com/o/r.git".into(),
+        task_ids: vec!["0123abcd".into()],
+        approve_plans: true,
+    });
+    round_trip(BatchSource::Linear {
+        team: "ENG".into(),
+        state: "Todo".into(),
+    });
+    round_trip(BatchSummary::default());
+    for msg in [
+        OrchestratorMessage::HelloAck,
+        OrchestratorMessage::Start {
+            task: Box::new(sample_task()),
+        },
+        OrchestratorMessage::Cancel {
+            task_id: "0123abcd".into(),
+        },
+        OrchestratorMessage::Message {
+            task_id: "0123abcd".into(),
+            text: "again".into(),
+        },
+        OrchestratorMessage::Push {
+            task_id: "0123abcd".into(),
+        },
+        OrchestratorMessage::Discard {
+            task_id: "0123abcd".into(),
+        },
+    ] {
+        round_trip(msg);
+    }
+}
+
+#[test]
+fn phase_one_frames_still_parse() {
+    let info: WorkerInfo =
+        serde_json::from_str(r#"{"name":"w","os":"linux","arch":"x86_64","executors":["claude"]}"#)
+            .unwrap();
+    assert_eq!(info.slots, 1);
+    assert!(!info.ephemeral);
+    let hello: WorkerMessage = serde_json::from_str(
+        r#"{"type":"hello","token":"t","info":{"name":"w","os":"linux","arch":"x86_64","executors":[]}}"#,
+    )
+    .unwrap();
+    assert!(matches!(hello, WorkerMessage::Hello { running, .. } if running.is_empty()));
+    let result: TaskResult =
+        serde_json::from_str(r#"{"branch":"lgtm/0123abcd","diff":"","changed_files":[]}"#).unwrap();
+    assert!(result.validation.is_empty());
+    assert!(result.review.is_none() && result.policy.is_none() && result.cost_usd == 0.0);
+    let task: Task = serde_json::from_str(
+        r#"{"id":"0123abcd","spec":{"repository":"r","base_branch":"main","prompt":"p","executor":"claude","worker":null},"status":"approved","worker":"w","created_at":1,"result":null,"error":null}"#,
+    )
+    .unwrap();
+    assert!(task.pull_request.is_none() && task.ci.is_none() && task.spec.issue.is_none());
+    assert!(task.spec.linear.is_none());
+    assert_eq!(task.spec.kind, TaskKind::Run);
+    assert!(task.spec.parent.is_none() && task.spec.depends_on.is_empty());
+    assert!(task.spec.batch.is_none());
+    let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
+    assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
+}
+
+#[test]
+fn tags_are_snake_case_type_fields() {
+    let json = serde_json::to_string(&OrchestratorMessage::HelloAck).unwrap();
+    assert_eq!(json, r#"{"type":"hello_ack"}"#);
+    let json = serde_json::to_string(&TaskStatus::AwaitingReview).unwrap();
+    assert_eq!(json, r#""awaiting_review""#);
+}

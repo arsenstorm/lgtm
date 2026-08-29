@@ -121,40 +121,47 @@ pub async fn add_worktree(
     branch: &str,
     base_branch: &str,
 ) -> Result<()> {
-    let mirror_s = mirror.display().to_string();
-    let worktree_s = worktree.display().to_string();
     if worktree.exists() {
-        let _ = git(
-            &[
-                "-C",
-                &mirror_s,
-                "worktree",
-                "remove",
-                "--force",
-                &worktree_s,
-            ],
-            None,
-        )
-        .await;
-        let _ = git(&["-C", &mirror_s, "branch", "-D", branch], None).await;
+        let _ = remove_worktree(mirror, worktree, branch).await;
         // `worktree remove` fails on a directory git never registered.
         let _ = tokio::fs::remove_dir_all(worktree).await;
     }
     git(
         &[
             "-C",
-            &mirror_s,
+            &mirror.display().to_string(),
             "worktree",
             "add",
             "-b",
             branch,
-            &worktree_s,
+            &worktree.display().to_string(),
             &format!("origin/{base_branch}"),
         ],
         None,
     )
     .await?;
     Ok(())
+}
+
+/// Removes the worktree and its branch, running both even when the first
+/// fails so a half-registered worktree still loses its branch.
+pub async fn remove_worktree(mirror: &Path, worktree: &Path, branch: &str) -> Result<()> {
+    let mirror_s = mirror.display().to_string();
+    let worktree_s = worktree.display().to_string();
+    let removed = git(
+        &[
+            "-C",
+            &mirror_s,
+            "worktree",
+            "remove",
+            "--force",
+            &worktree_s,
+        ],
+        None,
+    )
+    .await;
+    let deleted = git(&["-C", &mirror_s, "branch", "-D", branch], None).await;
+    removed.and(deleted).map(|_| ())
 }
 
 /// Commits whatever the agent left in the worktree and describes the change.

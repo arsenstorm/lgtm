@@ -38,11 +38,31 @@ pub fn select(existing: &[Task], candidates: Vec<Candidate>, max: u32) -> Vec<Ca
         .collect()
 }
 
-fn kind(plan: bool) -> TaskKind {
-    if plan {
-        TaskKind::Plan
-    } else {
-        TaskKind::Run
+/// What every task made from an issue shares, whichever source it came from.
+#[derive(Clone)]
+pub struct SpecInput {
+    pub base_branch: String,
+    pub executor: Executor,
+    pub worker: Option<String>,
+    pub kind: TaskKind,
+    pub batch: Option<String>,
+}
+
+impl SpecInput {
+    fn spec(self, repository: String, prompt: String) -> TaskSpec {
+        TaskSpec {
+            repository,
+            base_branch: self.base_branch,
+            prompt,
+            executor: self.executor,
+            worker: self.worker,
+            issue: None,
+            linear: None,
+            kind: self.kind,
+            parent: None,
+            depends_on: Vec::new(),
+            batch: self.batch,
+        }
     }
 }
 
@@ -50,37 +70,25 @@ fn kind(plan: bool) -> TaskKind {
 pub fn github_candidate(
     issue: &lgtm_github::Issue,
     repo: &lgtm_github::Repo,
-    base_branch: &str,
-    executor: Executor,
-    worker: Option<String>,
-    plan: bool,
-    batch: &str,
+    input: SpecInput,
 ) -> Candidate {
     let number = issue.number;
+    let prompt = format!(
+        "Resolve GitHub issue #{number}: {}\n\n{}",
+        issue.title, issue.body
+    );
+    let repository = format!("https://github.com/{}/{}.git", repo.owner, repo.repo);
+    let mut spec = input.spec(repository, prompt);
+    spec.issue = Some(IssueRef {
+        owner: repo.owner.clone(),
+        repo: repo.repo.clone(),
+        number,
+    });
     Candidate {
         key: format!("#{number}"),
         title: issue.title.clone(),
         url: issue.html_url.clone(),
-        spec: TaskSpec {
-            repository: format!("https://github.com/{}/{}.git", repo.owner, repo.repo),
-            base_branch: base_branch.to_string(),
-            prompt: format!(
-                "Resolve GitHub issue #{number}: {}\n\n{}",
-                issue.title, issue.body
-            ),
-            executor,
-            worker,
-            issue: Some(IssueRef {
-                owner: repo.owner.clone(),
-                repo: repo.repo.clone(),
-                number,
-            }),
-            linear: None,
-            kind: kind(plan),
-            parent: None,
-            depends_on: Vec::new(),
-            batch: Some(batch.to_string()),
-        },
+        spec,
     }
 }
 
@@ -88,36 +96,23 @@ pub fn github_candidate(
 pub fn linear_candidate(
     issue: &lgtm_linear::Issue,
     repository: &str,
-    base_branch: &str,
-    executor: Executor,
-    worker: Option<String>,
-    plan: bool,
-    batch: &str,
+    input: SpecInput,
 ) -> Candidate {
+    let prompt = format!(
+        "Resolve Linear issue {}: {}\n\n{}",
+        issue.identifier, issue.title, issue.description
+    );
+    let mut spec = input.spec(repository.to_string(), prompt);
+    spec.linear = Some(LinearRef {
+        id: issue.id.clone(),
+        identifier: issue.identifier.clone(),
+        url: issue.url.clone(),
+    });
     Candidate {
         key: issue.identifier.clone(),
         title: issue.title.clone(),
         url: issue.url.clone(),
-        spec: TaskSpec {
-            repository: repository.to_string(),
-            base_branch: base_branch.to_string(),
-            prompt: format!(
-                "Resolve Linear issue {}: {}\n\n{}",
-                issue.identifier, issue.title, issue.description
-            ),
-            executor,
-            worker,
-            issue: None,
-            linear: Some(LinearRef {
-                id: issue.id.clone(),
-                identifier: issue.identifier.clone(),
-                url: issue.url.clone(),
-            }),
-            kind: kind(plan),
-            parent: None,
-            depends_on: Vec::new(),
-            batch: Some(batch.to_string()),
-        },
+        spec,
     }
 }
 

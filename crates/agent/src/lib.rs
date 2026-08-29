@@ -9,13 +9,14 @@ mod proc;
 mod runner;
 mod validate;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use lgtm_protocol::{Executor, WorkerInfo};
+use lgtm_protocol::{Executor, WorkerInfo, WORKER_WS_PATH};
 use tokio::sync::mpsc;
+use tokio_tungstenite::Connector;
 
 use crate::connection::Ctx;
 
@@ -83,17 +84,11 @@ pub async fn run(opts: WorkerOptions) -> Result<()> {
         ephemeral: opts.ephemeral,
     };
 
-    let connector = match &opts.ca {
-        Some(path) => {
-            let pem = std::fs::read(path).with_context(|| format!("read CA {}", path.display()))?;
-            let count = connection::load_roots(&pem)?;
-            tracing::info!(
-                "trusting {count} extra CA certificate(s) from {}",
-                path.display()
-            );
-            Some(connection::ca_connector(&pem)?)
-        }
-        None => None,
+    let link = connection::Link {
+        url: format!("{}{WORKER_WS_PATH}", opts.orchestrator),
+        token: opts.token,
+        info,
+        connector: opts.ca.as_deref().map(load_connector).transpose()?,
     };
 
     // One channel for the process lifetime: events emitted while disconnected
@@ -103,7 +98,17 @@ pub async fn run(opts: WorkerOptions) -> Result<()> {
 
     tokio::spawn(shutdown(ctx.clone()));
 
-    connection::run(&opts.orchestrator, &opts.token, &info, connector, ctx, rx).await
+    connection::run(link, ctx, rx).await
+}
+
+fn load_connector(path: &Path) -> Result<Connector> {
+    let pem = std::fs::read(path).with_context(|| format!("read CA {}", path.display()))?;
+    let count = connection::load_roots(&pem)?;
+    tracing::info!(
+        "trusting {count} extra CA certificate(s) from {}",
+        path.display()
+    );
+    connection::ca_connector(&pem)
 }
 
 /// The process is killed without unwinding, so `kill_on_drop` never runs.

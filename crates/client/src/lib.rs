@@ -2,17 +2,24 @@
 //! the task events WebSocket. This is the library form of `crates/cli`'s
 //! `http.rs` + `run.rs`, for other Rust frontends (e.g. the desktop app).
 
+mod types;
+
 use std::sync::Arc;
 
 use futures_util::StreamExt;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::CertificateDer;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{Connector, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::Connector;
+pub use types::{
+    BatchDetail, BatchRequest, BatchResponse, EventStream, FromLinear, IssuePreview, TaskDetail,
+};
+use types::{ErrorBody, FollowUp, FromIssue};
 
 #[derive(Clone)]
 pub struct Client {
@@ -20,77 +27,6 @@ pub struct Client {
     token: String,
     http: reqwest::Client,
     connector: Option<Connector>,
-}
-
-#[derive(Deserialize)]
-struct ErrorBody {
-    error: String,
-}
-
-/// Body of `GET /api/tasks/:id`.
-#[derive(serde::Deserialize, Clone, Debug)]
-pub struct TaskDetail {
-    pub task: lgtm_protocol::Task,
-    pub events: Vec<lgtm_protocol::StoredEvent>,
-}
-
-#[derive(Serialize)]
-struct FollowUp<'a> {
-    text: &'a str,
-}
-
-#[derive(Serialize)]
-struct FromIssue<'a> {
-    issue: &'a str,
-    base_branch: &'a str,
-    executor: lgtm_protocol::Executor,
-    worker: Option<&'a str>,
-}
-
-/// Body of `POST /api/batches`.
-#[derive(Serialize, Clone, Debug)]
-pub struct BatchRequest {
-    pub source: lgtm_protocol::BatchSource,
-    pub repository: Option<String>,
-    pub base_branch: String,
-    pub executor: lgtm_protocol::Executor,
-    pub worker: Option<String>,
-    pub plan: bool,
-    pub approve_plans: bool,
-    pub max: u32,
-    pub dry_run: bool,
-}
-
-/// One issue found for a batch, previewed before (or instead of) import.
-#[derive(Deserialize, Clone, Debug)]
-pub struct IssuePreview {
-    pub key: String,
-    pub title: String,
-    pub url: String,
-}
-
-/// Body of `POST /api/batches`.
-#[derive(Deserialize, Clone, Debug)]
-pub struct BatchResponse {
-    pub batch: Option<lgtm_protocol::Batch>,
-    pub issues: Vec<IssuePreview>,
-}
-
-/// Body of `GET /api/batches/:id`.
-#[derive(Deserialize, Clone, Debug)]
-pub struct BatchDetail {
-    pub batch: lgtm_protocol::Batch,
-    pub summary: lgtm_protocol::BatchSummary,
-    pub tasks: Vec<lgtm_protocol::Task>,
-}
-
-#[derive(Serialize)]
-struct FromLinear<'a> {
-    issue: &'a str,
-    repository: &'a str,
-    base_branch: &'a str,
-    executor: lgtm_protocol::Executor,
-    worker: Option<&'a str>,
 }
 
 impl Client {
@@ -254,23 +190,9 @@ impl Client {
 
     pub async fn create_task_from_linear(
         &self,
-        issue: &str,
-        repository: &str,
-        base_branch: &str,
-        executor: lgtm_protocol::Executor,
-        worker: Option<&str>,
+        body: &FromLinear<'_>,
     ) -> anyhow::Result<lgtm_protocol::Task> {
-        self.post(
-            "/api/tasks/from-linear",
-            Some(&FromLinear {
-                issue,
-                repository,
-                base_branch,
-                executor,
-                worker,
-            }),
-        )
-        .await
+        self.post("/api/tasks/from-linear", Some(body)).await
     }
 
     pub async fn create_batch(&self, req: &BatchRequest) -> anyhow::Result<BatchResponse> {
@@ -318,10 +240,6 @@ impl Client {
             Ok(format!("{scheme}{rest}/api/tasks/{id}/events?from={from}"))
         }
     }
-}
-
-pub struct EventStream {
-    stream: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
 }
 
 impl EventStream {

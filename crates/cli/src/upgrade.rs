@@ -94,13 +94,27 @@ pub async fn run(version: Option<String>) -> anyhow::Result<i32> {
             std::env::consts::ARCH
         )
     })?;
+    let http = reqwest::Client::new();
+    let release = fetch_release(&http, version.as_deref()).await?;
+    let latest = release.tag_name.trim_start_matches('v');
+    let current = env!("CARGO_PKG_VERSION");
+    if version.is_none() && latest == current {
+        println!("already up to date (v{current})");
+        return Ok(0);
+    }
+    let asset = asset_name(target);
+    let bytes = fetch_verified(&http, &release, &asset).await?;
+    install(&asset, &bytes, target)?;
+    println!("lgtm v{current} → v{latest}");
+    Ok(0)
+}
 
+async fn fetch_release(http: &reqwest::Client, tag: Option<&str>) -> anyhow::Result<Release> {
     let base = api_base();
-    let url = match &version {
+    let url = match tag {
         Some(tag) => format!("{base}/releases/tags/{tag}"),
         None => format!("{base}/releases/latest"),
     };
-    let http = reqwest::Client::new();
     let response = http
         .get(&url)
         .header("User-Agent", USER_AGENT)
@@ -108,54 +122,52 @@ pub async fn run(version: Option<String>) -> anyhow::Result<i32> {
         .send()
         .await?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
-        anyhow::bail!(match &version {
+        anyhow::bail!(match tag {
             Some(tag) => format!("no release named {tag}"),
             // `latest` skips pre-releases, so this is the state before v0.1.0.
             None => "no stable release yet; pass --version <tag> for a pre-release".to_string(),
         });
     }
-    let release: Release = response.error_for_status()?.json().await?;
+    Ok(response.error_for_status()?.json().await?)
+}
 
-    let latest = release.tag_name.trim_start_matches('v');
-    let current = env!("CARGO_PKG_VERSION");
-    if version.is_none() && latest == current {
-        println!("already up to date (v{current})");
-        return Ok(0);
-    }
-
-    let asset = asset_name(target);
-    let asset_url = release
-        .assets
-        .iter()
-        .find(|a| a.name == asset)
-        .map(|a| a.browser_download_url.clone())
-        .ok_or_else(|| anyhow::anyhow!("release {} has no asset for {target}", release.tag_name))?;
-    let sums_url = release
-        .assets
-        .iter()
-        .find(|a| a.name == "SHA256SUMS")
-        .map(|a| a.browser_download_url.clone())
-        .ok_or_else(|| anyhow::anyhow!("release {} is missing SHA256SUMS", release.tag_name))?;
-
-    let asset_bytes = download(&http, &asset_url).await?;
-    let sums_text = String::from_utf8(download(&http, &sums_url).await?)?;
-
-    let expected = expected_sha(&sums_text, &asset)
+/// Downloads `asset` and checks it against the release's `SHA256SUMS`.
+async fn fetch_verified(
+    http: &reqwest::Client,
+    release: &Release,
+    asset: &str,
+) -> anyhow::Result<Vec<u8>> {
+    let url = |name: &str, missing: &str| {
+        release
+            .assets
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| a.browser_download_url.clone())
+            .ok_or_else(|| anyhow::anyhow!("release {} {missing}", release.tag_name))
+    };
+    let asset_url = url(asset, &format!("has no asset {asset}"))?;
+    let sums_url = url("SHA256SUMS", "is missing SHA256SUMS")?;
+    let bytes = download(http, &asset_url).await?;
+    let sums_text = String::from_utf8(download(http, &sums_url).await?)?;
+    let expected = expected_sha(&sums_text, asset)
         .ok_or_else(|| anyhow::anyhow!("SHA256SUMS has no entry for {asset}"))?;
-    let actual = sha256_hex(&asset_bytes);
+    let actual = sha256_hex(&bytes);
     if actual != expected {
         anyhow::bail!("checksum mismatch for {asset}: expected {expected}, got {actual}");
     }
+    Ok(bytes)
+}
 
+/// Unpacks the archive next to a scratch directory and swaps the running
+/// binary for the one inside it.
+fn install(asset: &str, bytes: &[u8], target: &str) -> anyhow::Result<()> {
     let work_dir = std::env::temp_dir().join(format!("lgtm-upgrade-{}", std::process::id()));
     std::fs::create_dir_all(&work_dir)?;
-    let archive_path = work_dir.join(&asset);
-    std::fs::write(&archive_path, &asset_bytes)?;
-
+    let archive_path = work_dir.join(asset);
+    std::fs::write(&archive_path, bytes)?;
     let extract_dir = work_dir.join("extracted");
     std::fs::create_dir_all(&extract_dir)?;
-    extract(&archive_path, &extract_dir, &asset)?;
-
+    extract(&archive_path, &extract_dir, asset)?;
     let binary_name = if target.contains("windows") {
         "lgtm.exe"
     } else {
@@ -163,13 +175,9 @@ pub async fn run(version: Option<String>) -> anyhow::Result<i32> {
     };
     let new_binary = find_binary(&extract_dir, binary_name)
         .ok_or_else(|| anyhow::anyhow!("{binary_name} not found in {asset}"))?;
-
-    let current_exe = std::env::current_exe()?;
-    replace_binary(&current_exe, &new_binary)?;
+    replace_binary(&std::env::current_exe()?, &new_binary)?;
     let _ = std::fs::remove_dir_all(&work_dir);
-
-    println!("lgtm v{current} → v{latest}");
-    Ok(0)
+    Ok(())
 }
 
 async fn download(http: &reqwest::Client, url: &str) -> anyhow::Result<Vec<u8>> {

@@ -41,28 +41,26 @@ fn issue(number: u64) -> lgtm_github::Issue {
 }
 
 fn candidate(number: u64) -> Candidate {
-    github_candidate(
-        &issue(number),
-        &repo(),
-        "main",
-        Executor::Claude,
-        None,
-        false,
-        "b0000001",
-    )
+    let input = SpecInput {
+        base_branch: "main".into(),
+        executor: Executor::Claude,
+        worker: None,
+        kind: TaskKind::Run,
+        batch: Some("b0000001".into()),
+    };
+    github_candidate(&issue(number), &repo(), input)
 }
 
 #[test]
 fn github_candidate_builds_the_from_issue_shape() {
-    let candidate = github_candidate(
-        &issue(12),
-        &repo(),
-        "trunk",
-        Executor::Codex,
-        Some("w".into()),
-        true,
-        "b0000001",
-    );
+    let input = SpecInput {
+        base_branch: "trunk".into(),
+        executor: Executor::Codex,
+        worker: Some("w".into()),
+        kind: TaskKind::Plan,
+        batch: Some("b0000001".into()),
+    };
+    let candidate = github_candidate(&issue(12), &repo(), input);
     assert_eq!(candidate.key, "#12");
     assert_eq!(candidate.title, "Issue 12");
     assert_eq!(

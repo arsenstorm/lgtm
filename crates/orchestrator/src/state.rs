@@ -1,17 +1,17 @@
 //! Shared state and every status transition, kept free of I/O so it can be
 //! tested without sockets or files.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
     Batch, OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskId, TaskSpec, TaskStatus,
-    WorkerInfo,
 };
 use tokio::sync::{broadcast, mpsc};
 
 use crate::persist::{Persist, Stored};
+pub use crate::worker::{Conn, WorkerConn};
 
 const LIVE_CAPACITY: usize = 1024;
 
@@ -55,42 +55,6 @@ pub struct State {
     pub queue_without_workers: bool,
 }
 
-/// A live worker socket.
-pub struct Conn {
-    pub tx: mpsc::UnboundedSender<OrchestratorMessage>,
-    /// Identifies the socket that registered this entry. A reconnecting worker
-    /// replaces the entry under the same name, and the old socket's cleanup
-    /// must not disconnect the new registration.
-    pub conn_id: u64,
-}
-
-pub struct WorkerConn {
-    pub info: WorkerInfo,
-    pub running: HashSet<TaskId>,
-    /// `None` while the worker is gone but still inside its grace period.
-    pub conn: Option<Conn>,
-    /// Bumped on every connect and disconnect, so a grace timer only expires
-    /// the disconnect it was started for.
-    pub generation: u64,
-}
-
-impl WorkerConn {
-    pub fn is_connected(&self) -> bool {
-        self.conn.is_some()
-    }
-
-    pub(crate) fn free_slots(&self) -> u32 {
-        let running = u32::try_from(self.running.len()).unwrap_or(u32::MAX);
-        self.info.slots.saturating_sub(running)
-    }
-
-    fn send(&self, msg: OrchestratorMessage) {
-        if let Some(conn) = &self.conn {
-            let _ = conn.tx.send(msg);
-        }
-    }
-}
-
 pub struct TaskRecord {
     pub task: Task,
     pub events: Vec<StoredEvent>,
@@ -120,16 +84,12 @@ impl TaskRecord {
 /// GitHub call itself can run without it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrPlan {
-    pub repo: lgtm_github::Repo,
-    pub head: String,
-    pub base: String,
-    pub title: String,
-    pub body: String,
+    pub pull: lgtm_github::NewPull,
     /// Head sha to poll checks for, empty when the worker did not report one.
     pub sha: String,
 }
 
-const TITLE_MAX: usize = 72;
+pub(crate) const TITLE_MAX: usize = 72;
 
 /// One thing to tell Linear about a task.
 #[derive(Debug, PartialEq, Eq)]
@@ -225,15 +185,7 @@ impl State {
     fn candidate(&self, spec: &TaskSpec) -> Option<String> {
         self.workers
             .values()
-            .filter(|worker| {
-                worker.is_connected()
-                    && worker.free_slots() > 0
-                    && worker.info.executors.contains(&spec.executor)
-                    && spec
-                        .worker
-                        .as_ref()
-                        .is_none_or(|name| *name == worker.info.name)
-            })
+            .filter(|worker| worker.can_run(spec) && spec.pins(&worker.info.name))
             .max_by(|a, b| {
                 a.free_slots()
                     .cmp(&b.free_slots())
@@ -244,15 +196,16 @@ impl State {
 
     /// Assigns unassigned queued tasks, oldest first, and starts them.
     /// Returns the ids it assigned.
+    /// Queued, unassigned, and not waiting on any dependency.
+    pub fn is_ready(&self, task: &Task) -> bool {
+        task.status == TaskStatus::Queued && task.worker.is_none() && self.deps_met(&task.spec)
+    }
+
     pub fn schedule(&mut self) -> Vec<TaskId> {
         let mut queued: Vec<(u64, TaskId)> = self
             .tasks
             .values()
-            .filter(|rec| {
-                rec.task.status == TaskStatus::Queued
-                    && rec.task.worker.is_none()
-                    && self.deps_met(&rec.task.spec)
-            })
+            .filter(|rec| self.is_ready(&rec.task))
             .map(|rec| (rec.task.created_at, rec.task.id.clone()))
             .collect();
         queued.sort();
@@ -305,113 +258,7 @@ impl State {
         Ok((self.tasks[&id].task.clone(), changed))
     }
 
-    /// Registers a connection under `info.name`, restoring the tasks the worker
-    /// says it is still running. Returns the ids to persist.
-    pub fn worker_hello(
-        &mut self,
-        info: WorkerInfo,
-        running: Vec<TaskId>,
-        conn: Conn,
-    ) -> Vec<TaskId> {
-        let name = info.name.clone();
-        let restored: HashSet<TaskId> = running
-            .into_iter()
-            .filter(|id| {
-                self.tasks.get(id).is_some_and(|rec| {
-                    rec.task.status == TaskStatus::Running
-                        || (rec.task.status == TaskStatus::Queued
-                            && rec.task.worker.as_ref() == Some(&name))
-                })
-            })
-            .collect();
-        let previous = match self.workers.get_mut(&name) {
-            Some(worker) => {
-                worker.info = info;
-                worker.conn = Some(conn);
-                worker.generation += 1;
-                std::mem::replace(&mut worker.running, restored.clone())
-            }
-            None => {
-                self.workers.insert(
-                    name.clone(),
-                    WorkerConn {
-                        info,
-                        running: restored.clone(),
-                        conn: Some(conn),
-                        generation: 1,
-                    },
-                );
-                HashSet::new()
-            }
-        };
-        tracing::info!(worker = %name, tasks = restored.len(), "worker connected");
-        let mut changed = Vec::new();
-        for id in previous.difference(&restored) {
-            changed.extend(self.fail_unfinished(id, "lost on worker"));
-        }
-        changed.extend(self.schedule());
-        changed
-    }
-
-    /// Drops the socket but keeps the worker's tasks. Returns the generation
-    /// the grace timer should expire, or `None` if a newer socket owns the name.
-    pub fn disconnect(&mut self, name: &str, conn_id: u64) -> Option<u64> {
-        let worker = self.workers.get_mut(name)?;
-        if worker
-            .conn
-            .as_ref()
-            .is_none_or(|conn| conn.conn_id != conn_id)
-        {
-            return None;
-        }
-        worker.conn = None;
-        worker.generation += 1;
-        tracing::info!(worker = %name, tasks = worker.running.len(), "worker disconnected");
-        Some(worker.generation)
-    }
-
-    /// End of the grace period: the worker never came back, so its tasks are
-    /// lost and the entry goes away. A no-op if it reconnected since.
-    pub fn expire_worker(&mut self, name: &str, generation: u64) -> Vec<TaskId> {
-        let Some(worker) = self.workers.get(name) else {
-            return Vec::new();
-        };
-        if worker.is_connected() || worker.generation != generation {
-            return Vec::new();
-        }
-        tracing::info!(worker = %name, "worker grace period expired");
-        self.remove_worker(name, "worker disconnected")
-    }
-
-    /// The worker said it is exiting on purpose, so there is nothing to wait
-    /// for: it goes away now. A no-op if a newer socket owns the name.
-    pub fn worker_goodbye(&mut self, name: &str, conn_id: u64) -> Vec<TaskId> {
-        let worker = self.workers.get(name).filter(|worker| {
-            worker
-                .conn
-                .as_ref()
-                .is_some_and(|conn| conn.conn_id == conn_id)
-        });
-        if worker.is_none() {
-            return Vec::new();
-        }
-        tracing::info!(worker = %name, "worker said goodbye");
-        self.remove_worker(name, "worker exited")
-    }
-
-    /// Forgets the worker and fails whatever it still had running.
-    fn remove_worker(&mut self, name: &str, error: &str) -> Vec<TaskId> {
-        let Some(worker) = self.workers.remove(name) else {
-            return Vec::new();
-        };
-        let mut changed = Vec::new();
-        for id in worker.running {
-            changed.extend(self.fail_unfinished(&id, error));
-        }
-        changed
-    }
-
-    fn fail_unfinished(&mut self, id: &TaskId, error: &str) -> Vec<TaskId> {
+    pub(crate) fn fail_unfinished(&mut self, id: &TaskId, error: &str) -> Vec<TaskId> {
         match self.tasks.get(id) {
             Some(rec) if !rec.task.status.is_terminal() => self.apply_event(
                 id,
@@ -435,45 +282,8 @@ impl State {
             event,
         };
         rec.events.push(stored.clone());
-        // A worker that reconnects may keep reporting on a task we already
-        // failed; keep the event but leave a terminal status alone.
         let terminal = rec.task.status.is_terminal();
-        let mut finished = false;
-        match &stored.event {
-            TaskEvent::Started if !terminal => rec.task.status = TaskStatus::Running,
-            TaskEvent::Completed { result } => {
-                finished = true;
-                if !terminal {
-                    rec.task.status = TaskStatus::AwaitingReview;
-                    rec.task.result = Some(result.clone());
-                }
-            }
-            TaskEvent::Failed { error } => {
-                finished = true;
-                if !terminal {
-                    rec.task.status = TaskStatus::Failed;
-                    rec.task.error = Some(error.clone());
-                }
-            }
-            TaskEvent::Cancelled => {
-                finished = true;
-                if !terminal {
-                    rec.task.status = TaskStatus::Cancelled;
-                }
-            }
-            TaskEvent::Pushed { .. } if !terminal => rec.task.status = TaskStatus::Approved,
-            TaskEvent::Discarded if !terminal => rec.task.status = TaskStatus::Rejected,
-            // Retry and the two policy notes are for the reader, not the
-            // status; a run in progress stays exactly where it was.
-            TaskEvent::Started
-            | TaskEvent::Output { .. }
-            | TaskEvent::Message { .. }
-            | TaskEvent::Retry { .. }
-            | TaskEvent::AutoApproved
-            | TaskEvent::AutoMerged
-            | TaskEvent::Pushed { .. }
-            | TaskEvent::Discarded => {}
-        }
+        let finished = transition(&mut rec.task, &stored.event);
         let status = rec.task.status;
         let worker = rec.task.worker.clone();
         let _ = rec.live.send(stored);
@@ -498,133 +308,42 @@ impl State {
         }
         changed
     }
+}
 
-    /// Shared guard for cancel/approve/reject: the task must exist, be in one
-    /// of `allowed`, and its worker must still be connected.
-    pub fn command(
-        &mut self,
-        task_id: &str,
-        allowed: &[TaskStatus],
-        wrong_status: &str,
-        msg: impl FnOnce(TaskId) -> OrchestratorMessage,
-    ) -> Result<Task, CmdError> {
-        let rec = self.tasks.get(task_id).ok_or(CmdError::NotFound)?;
-        if !allowed.contains(&rec.task.status) {
-            return Err(CmdError::Conflict(wrong_status.to_string()));
+/// Moves the task's status for `event` and says whether the run ended. A
+/// worker that reconnects may keep reporting on a task we already failed;
+/// the event is kept but a terminal status is left alone.
+fn transition(task: &mut Task, event: &TaskEvent) -> bool {
+    let terminal = task.status.is_terminal();
+    let (status, finished) = match event {
+        TaskEvent::Started => (Some(TaskStatus::Running), false),
+        TaskEvent::Completed { result } => {
+            if !terminal {
+                task.result = Some(result.clone());
+            }
+            (Some(TaskStatus::AwaitingReview), true)
         }
-        let name = rec.task.worker.clone().unwrap_or_default();
-        let worker = self
-            .workers
-            .get(&name)
-            .filter(|worker| worker.is_connected())
-            .ok_or_else(|| CmdError::Conflict(format!("worker {name} is not connected")))?;
-        worker.send(msg(task_id.to_string()));
-        Ok(rec.task.clone())
+        TaskEvent::Failed { error } => {
+            if !terminal {
+                task.error = Some(error.clone());
+            }
+            (Some(TaskStatus::Failed), true)
+        }
+        TaskEvent::Cancelled => (Some(TaskStatus::Cancelled), true),
+        TaskEvent::Pushed { .. } => (Some(TaskStatus::Approved), false),
+        TaskEvent::Discarded => (Some(TaskStatus::Rejected), false),
+        // Retry and the two policy notes are for the reader, not the
+        // status; a run in progress stays exactly where it was.
+        TaskEvent::Output { .. }
+        | TaskEvent::Message { .. }
+        | TaskEvent::Retry { .. }
+        | TaskEvent::AutoApproved
+        | TaskEvent::AutoMerged => (None, false),
+    };
+    if let (Some(status), false) = (status, terminal) {
+        task.status = status;
     }
-
-    /// The pull request an approved task still needs, or `None` when there is
-    /// nothing to open: GitHub is off, the task is not approved, it already
-    /// has a pull request, or its repository is not on GitHub.
-    pub fn pull_request_plan(&self, task_id: &str, github_enabled: bool) -> Option<PrPlan> {
-        if !github_enabled {
-            return None;
-        }
-        let rec = self.tasks.get(task_id)?;
-        if rec.task.status != TaskStatus::Approved || rec.task.pull_request.is_some() {
-            return None;
-        }
-        let spec = &rec.task.spec;
-        let repo = lgtm_github::parse_repo(&spec.repository)?;
-        let mut body = format!("{}\n\n", spec.prompt);
-        if let Some(issue) = &spec.issue {
-            body.push_str(&format!("Closes #{}\n\n", issue.number));
-        }
-        body.push_str(&format!("Created by LGTM task {task_id}"));
-        Some(PrPlan {
-            repo,
-            head: format!("lgtm/{task_id}"),
-            base: spec.base_branch.clone(),
-            title: spec
-                .prompt
-                .lines()
-                .next()
-                .unwrap_or_default()
-                .chars()
-                .take(TITLE_MAX)
-                .collect(),
-            body,
-            sha: rec.pushed_sha().unwrap_or_default(),
-        })
-    }
-
-    /// Returns the merged task and the ids to persist; merging can release
-    /// tasks that were waiting on it.
-    pub fn mark_merged(&mut self, task_id: &str) -> Result<(Task, Vec<TaskId>), CmdError> {
-        let rec = self.tasks.get_mut(task_id).ok_or(CmdError::NotFound)?;
-        if rec.task.status != TaskStatus::Approved {
-            return Err(CmdError::Conflict("task is not approved".into()));
-        }
-        rec.task.status = TaskStatus::Merged;
-        let task = rec.task.clone();
-        tracing::info!(task = %task_id, "task merged");
-        let mut changed = vec![task_id.to_string()];
-        changed.extend(self.schedule());
-        Ok((task, changed))
-    }
-
-    pub fn cancel(&mut self, task_id: &str) -> Result<Task, CmdError> {
-        let rec = self.tasks.get(task_id).ok_or(CmdError::NotFound)?;
-        // Nothing has been told to run it yet, so it ends here.
-        if rec.task.status == TaskStatus::Queued && rec.task.worker.is_none() {
-            self.apply_event(task_id, TaskEvent::Cancelled);
-            return self
-                .tasks
-                .get(task_id)
-                .map(|rec| rec.task.clone())
-                .ok_or(CmdError::NotFound);
-        }
-        self.command(
-            task_id,
-            &[TaskStatus::Queued, TaskStatus::Running],
-            "task is not running",
-            |task_id| OrchestratorMessage::Cancel { task_id },
-        )
-    }
-
-    /// Records a follow-up and hands it to the worker; the slot is taken again
-    /// until the worker reports the run finished.
-    pub fn message(
-        &mut self,
-        task_id: &str,
-        text: String,
-    ) -> Result<(Task, Vec<TaskId>), CmdError> {
-        let rec = self.tasks.get(task_id).ok_or(CmdError::NotFound)?;
-        if rec.task.status != TaskStatus::AwaitingReview {
-            return Err(CmdError::Conflict("task is not awaiting review".into()));
-        }
-        let name = rec.task.worker.clone().unwrap_or_default();
-        let connected = self
-            .workers
-            .get(&name)
-            .is_some_and(|worker| worker.is_connected());
-        if !connected {
-            return Err(CmdError::Conflict(format!(
-                "worker {name} is not connected"
-            )));
-        }
-        let changed = self.apply_event(task_id, TaskEvent::Message { text: text.clone() });
-        if let Some(worker) = self.workers.get_mut(&name) {
-            worker.running.insert(task_id.to_string());
-            worker.send(OrchestratorMessage::Message {
-                task_id: task_id.to_string(),
-                text,
-            });
-        }
-        self.tasks
-            .get(task_id)
-            .map(|rec| (rec.task.clone(), changed))
-            .ok_or(CmdError::NotFound)
-    }
+    finished
 }
 
 #[cfg(test)]

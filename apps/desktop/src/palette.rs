@@ -1,7 +1,8 @@
 //! ⌘K: one input over everything, with tasks, repositories and actions under it.
 
-use crate::app::{prompt_preview, status_label, LgtmApp, Page};
-use crate::sidebar::repo_slug;
+use crate::app::{LgtmApp, Page};
+use crate::labels::{prompt_preview, status_label};
+use crate::tasks::repo_slug;
 use crate::theme::{
     panel, scrim, section_label, tokens, Pref, Tokens, ROW_H, SPACE, TEXT_SECONDARY,
 };
@@ -91,65 +92,48 @@ fn item(kind: Kind, label: String, hint: String, query: &str) -> Option<Item> {
 }
 
 pub fn build_groups(query: &str, tasks: &[Task], repos: &[String]) -> Vec<Group> {
-    let task_items = tasks
-        .iter()
-        .filter_map(|task| {
-            item(
-                Kind::Task(task.id.clone()),
-                prompt_preview(&task.spec.prompt, PROMPT_PREVIEW),
-                format!(
-                    "{} · {}",
-                    repo_slug(&task.spec.repository),
-                    status_label(task, tasks)
-                ),
-                query,
-            )
-        })
-        .collect();
+    let task_items = tasks.iter().map(|task| {
+        let hint = format!(
+            "{} · {}",
+            repo_slug(&task.spec.repository),
+            status_label(task, tasks)
+        );
+        (
+            Kind::Task(task.id.clone()),
+            prompt_preview(&task.spec.prompt, PROMPT_PREVIEW),
+            hint,
+        )
+    });
     let repo_items = repos
         .iter()
-        .filter_map(|url| {
-            item(
-                Kind::Repository(url.clone()),
-                repo_slug(url),
-                String::new(),
-                query,
-            )
-        })
-        .collect();
+        .map(|url| (Kind::Repository(url.clone()), repo_slug(url), String::new()));
     let action_items = Act::ALL
         .iter()
-        .filter_map(|(act, label)| {
-            item(
-                Kind::Action(*act),
-                (*label).to_string(),
-                String::new(),
-                query,
-            )
-        })
-        .collect();
-
+        .map(|(act, label)| (Kind::Action(*act), (*label).to_string(), String::new()));
     [
-        Group {
-            title: "Tasks",
-            items: task_items,
-        },
-        Group {
-            title: "Repositories",
-            items: repo_items,
-        },
-        Group {
-            title: "Actions",
-            items: action_items,
-        },
+        group("Tasks", task_items, query),
+        group("Repositories", repo_items, query),
+        group("Actions", action_items, query),
     ]
     .into_iter()
     .filter(|group| !group.items.is_empty())
     .collect()
 }
 
+/// The entries of `candidates` (kind, label, hint) that match `query`.
+fn group(
+    title: &'static str,
+    candidates: impl Iterator<Item = (Kind, String, String)>,
+    query: &str,
+) -> Group {
+    let items = candidates
+        .filter_map(|(kind, label, hint)| item(kind, label, hint, query))
+        .collect();
+    Group { title, items }
+}
+
 fn items(app: &LgtmApp, cx: &Context<LgtmApp>) -> Vec<Item> {
-    let query = app.query.read(cx).value().to_string();
+    let query = app.inputs.query.read(cx).value().to_string();
     build_groups(&query, &app.tasks, &app.known_repositories())
         .into_iter()
         .flat_map(|group| group.items)
@@ -161,12 +145,12 @@ pub fn step(app: &mut LgtmApp, delta: isize, cx: &mut Context<LgtmApp>) {
     if count == 0 {
         return;
     }
-    app.palette_at = (app.palette_at as isize + delta).rem_euclid(count) as usize;
+    app.ui.palette_at = (app.ui.palette_at as isize + delta).rem_euclid(count) as usize;
     cx.notify();
 }
 
 pub fn run(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmApp>) {
-    let Some(item) = items(app, cx).into_iter().nth(app.palette_at) else {
+    let Some(item) = items(app, cx).into_iter().nth(app.ui.palette_at) else {
         return;
     };
     activate(app, item.kind, window, cx);
@@ -177,12 +161,12 @@ fn activate(app: &mut LgtmApp, kind: Kind, window: &mut Window, cx: &mut Context
     match kind {
         Kind::Task(id) => app.select(id, cx),
         Kind::Repository(url) => {
-            app.project = Some(url);
+            app.composer.project = Some(url);
             app.show_page(Page::Home, cx);
         }
         Kind::Action(Act::NewTask) => app.go_home(window, cx),
         Kind::Action(Act::Batches) => app.show_page(Page::Batches, cx),
-        Kind::Action(Act::Settings) => app.open_settings(false, cx),
+        Kind::Action(Act::Settings) => app.open_settings(cx),
         Kind::Action(Act::ToggleSidebar) => app.toggle_sidebar(cx),
         Kind::Action(Act::ToggleTheme) => {
             let next = if gpui_component::ActiveTheme::theme(&**cx).mode.is_dark() {
@@ -197,22 +181,73 @@ fn activate(app: &mut LgtmApp, kind: Kind, window: &mut Window, cx: &mut Context
 
 pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
     let t = tokens(cx);
-    let at = app.palette_at;
-    let query = app.query.read(cx).value().to_string();
+    let at = app.ui.palette_at;
+    let query = app.inputs.query.read(cx).value().to_string();
     let groups = build_groups(&query, &app.tasks, &app.known_repositories());
 
+    let rows = rows(groups, at, &t, cx);
+
+    scrim("palette-scrim", &t)
+        .pt(relative(0.2))
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)))
+        .child(
+            panel(&t)
+                .id("palette")
+                .key_context("Palette")
+                .w(px(WIDTH))
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .child(search_box(app, &t))
+                .child(
+                    div()
+                        .id("palette-list")
+                        .flex()
+                        .flex_col()
+                        .max_h(px(MAX_LIST_H))
+                        .overflow_y_scroll()
+                        .p(px(SPACE[0]))
+                        .children(rows),
+                )
+                .child(footer(&t)),
+        )
+        .into_any_element()
+}
+
+fn search_box(app: &LgtmApp, t: &Tokens) -> Div {
+    div()
+        .px(px(SPACE[1]))
+        .py(px(SPACE[0]))
+        .border_b_1()
+        .border_color(t.border)
+        .child(Input::new(&app.inputs.query).appearance(false).large())
+}
+
+fn footer(t: &Tokens) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .h(px(ROW_H))
+        .px(px(SPACE[2]))
+        .border_t_1()
+        .border_color(t.border)
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.muted_fg)
+        .child(FOOTER)
+}
+
+/// Every group's label and rows, or "No matches" when there are none.
+fn rows(groups: Vec<Group>, at: usize, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
     let mut index = 0;
     let mut rows: Vec<AnyElement> = Vec::new();
     for group in groups {
         rows.push(
-            section_label(group.title, &t)
+            section_label(group.title, t)
                 .px(px(SPACE[2]))
                 .pt(px(SPACE[1]))
                 .pb(px(SPACE[0]))
                 .into_any_element(),
         );
         for item in group.items {
-            rows.push(row(item, index, index == at, &t, cx).into_any_element());
+            rows.push(row(item, (index, index == at), t, cx).into_any_element());
             index += 1;
         }
     }
@@ -226,54 +261,12 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                 .into_any_element(),
         );
     }
-
-    scrim("palette-scrim", &t)
-        .pt(relative(0.2))
-        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)))
-        .child(
-            panel(&t)
-                .id("palette")
-                .key_context("Palette")
-                .w(px(WIDTH))
-                .on_click(|_, _, cx| cx.stop_propagation())
-                .child(
-                    div()
-                        .px(px(SPACE[1]))
-                        .py(px(SPACE[0]))
-                        .border_b_1()
-                        .border_color(t.border)
-                        .child(Input::new(&app.query).appearance(false).large()),
-                )
-                .child(
-                    div()
-                        .id("palette-list")
-                        .flex()
-                        .flex_col()
-                        .max_h(px(MAX_LIST_H))
-                        .overflow_y_scroll()
-                        .p(px(SPACE[0]))
-                        .children(rows),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(ROW_H))
-                        .px(px(SPACE[2]))
-                        .border_t_1()
-                        .border_color(t.border)
-                        .text_size(px(TEXT_SECONDARY))
-                        .text_color(t.muted_fg)
-                        .child(FOOTER),
-                ),
-        )
-        .into_any_element()
+    rows
 }
 
 fn row(
     item: Item,
-    index: usize,
-    active: bool,
+    (index, active): (usize, bool),
     t: &Tokens,
     cx: &mut Context<LgtmApp>,
 ) -> gpui::Stateful<Div> {

@@ -1,8 +1,15 @@
 //! Minimal Linear GraphQL client: issue lookup, workflow states, moving an
 //! issue between states, and posting comments.
 
+mod parse;
+mod refs;
+
 use anyhow::anyhow;
 use serde_json::Value;
+
+pub use parse::parse_issue_list;
+use parse::{field_str, parse_issue_response, require_success};
+pub use refs::{parse_issue, pick_state};
 
 const API_URL: &str = "https://api.linear.app/graphql";
 
@@ -28,42 +35,6 @@ pub enum Target {
     Started,
     InReview,
     Completed,
-}
-
-/// Parses `ENG-123` or `https://linear.app/<workspace>/issue/ENG-123[/anything]`.
-pub fn parse_issue(s: &str) -> Option<String> {
-    if let Some(rest) = s
-        .strip_prefix("https://linear.app/")
-        .and_then(|rest| rest.split_once("/issue/").map(|(_, tail)| tail))
-    {
-        let identifier = rest.split('/').next().unwrap_or("");
-        return is_issue_identifier(identifier).then(|| identifier.to_string());
-    }
-    is_issue_identifier(s).then(|| s.to_string())
-}
-
-fn is_issue_identifier(s: &str) -> bool {
-    let Some((team, number)) = s.rsplit_once('-') else {
-        return false;
-    };
-    !team.is_empty()
-        && team.chars().all(|c| c.is_ascii_uppercase())
-        && !number.is_empty()
-        && number.chars().all(|c| c.is_ascii_digit())
-}
-
-/// Started → first state with kind "started"; Completed → first with kind
-/// "completed"; InReview → the state whose name equals "in review"
-/// case-insensitively, else `None`.
-pub fn pick_state(states: &[WorkflowState], target: Target) -> Option<WorkflowState> {
-    match target {
-        Target::Started => states.iter().find(|s| s.kind == "started").cloned(),
-        Target::Completed => states.iter().find(|s| s.kind == "completed").cloned(),
-        Target::InReview => states
-            .iter()
-            .find(|s| s.name.eq_ignore_ascii_case("in review"))
-            .cloned(),
-    }
 }
 
 #[derive(Clone)]
@@ -184,75 +155,6 @@ impl Linear {
             .await?;
         require_success(&value, "/data/commentCreate/success")
     }
-}
-
-fn field_str(value: &Value, field: &str) -> anyhow::Result<String> {
-    value
-        .get(field)
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .ok_or_else(|| anyhow!("linear: missing field {field} in response"))
-}
-
-fn require_success(value: &Value, pointer: &str) -> anyhow::Result<()> {
-    if value.pointer(pointer).and_then(|v| v.as_bool()) == Some(true) {
-        Ok(())
-    } else {
-        Err(anyhow!("linear: mutation failed"))
-    }
-}
-
-fn parse_issue_response(value: &Value) -> anyhow::Result<Issue> {
-    let issue = value
-        .pointer("/data/issue")
-        .ok_or_else(|| anyhow!("linear: missing issue in response"))?;
-    Ok(Issue {
-        id: field_str(issue, "id")?,
-        identifier: field_str(issue, "identifier")?,
-        title: field_str(issue, "title")?,
-        description: issue
-            .get("description")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        url: field_str(issue, "url")?,
-        team_id: field_str(
-            issue
-                .get("team")
-                .ok_or_else(|| anyhow!("linear: missing team in response"))?,
-            "id",
-        )?,
-    })
-}
-
-/// Pure half: parses `data.issues.nodes` into `Issue`s (description null → "").
-pub fn parse_issue_list(v: &Value) -> anyhow::Result<Vec<Issue>> {
-    let nodes = v
-        .pointer("/data/issues/nodes")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| anyhow!("linear: missing issues in response"))?;
-    nodes
-        .iter()
-        .map(|issue| {
-            Ok(Issue {
-                id: field_str(issue, "id")?,
-                identifier: field_str(issue, "identifier")?,
-                title: field_str(issue, "title")?,
-                description: issue
-                    .get("description")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
-                url: field_str(issue, "url")?,
-                team_id: field_str(
-                    issue
-                        .get("team")
-                        .ok_or_else(|| anyhow!("linear: missing team in response"))?,
-                    "id",
-                )?,
-            })
-        })
-        .collect()
 }
 
 #[cfg(test)]

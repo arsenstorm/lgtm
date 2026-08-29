@@ -1,48 +1,10 @@
 //! `lgtm backlog`: import a batch of issues as tasks, and inspect batches.
 
-use crate::http::Client;
-use crate::{first_line_truncated, print_task_table};
-use lgtm_protocol::{Batch, BatchSource, BatchSummary, Executor, Task};
-use serde::{Deserialize, Serialize};
+use lgtm_client::{BatchRequest, Client};
+use lgtm_protocol::{BatchSource, BatchSummary};
 
-/// Body of `POST /api/batches`.
-#[derive(Serialize)]
-#[allow(clippy::struct_excessive_bools)]
-struct CreateBatch {
-    source: BatchSource,
-    repository: Option<String>,
-    base_branch: String,
-    executor: Executor,
-    worker: Option<String>,
-    plan: bool,
-    approve_plans: bool,
-    max: u32,
-    dry_run: bool,
-}
-
-#[derive(Deserialize)]
-struct BatchIssue {
-    key: String,
-    title: String,
-    #[allow(dead_code)]
-    url: String,
-}
-
-/// Body of `POST /api/batches`'s response, 200 (dry run, `batch: None`) or
-/// 201 (`batch: Some`).
-#[derive(Deserialize)]
-struct CreateBatchResponse {
-    batch: Option<Batch>,
-    issues: Vec<BatchIssue>,
-}
-
-/// Body of `GET /api/batches/:id`.
-#[derive(Deserialize)]
-struct BatchDetail {
-    batch: Batch,
-    summary: BatchSummary,
-    tasks: Vec<Task>,
-}
+use crate::cli::BatchFlags;
+use crate::table::{first_line_truncated, print_task_table};
 
 /// `github o/r label:L` or `linear TEAM/STATE`, for the `list` table's
 /// SOURCE column and `status`'s header line.
@@ -74,31 +36,24 @@ pub(crate) fn summary_line(summary: &BatchSummary) -> String {
 /// Shared by `backlog github` and `backlog linear`: posts the batch, then
 /// prints `dry run: n issues` or `batch <id>: n tasks from n issues`
 /// followed by one line per matched issue.
-#[allow(clippy::too_many_arguments)]
 pub async fn create(
     client: &Client,
     source: BatchSource,
     repository: Option<String>,
-    base_branch: String,
-    executor: Executor,
-    worker: Option<String>,
-    plan: bool,
-    approve_plans: bool,
-    max: u32,
-    dry_run: bool,
+    flags: BatchFlags,
 ) -> anyhow::Result<i32> {
-    let body = CreateBatch {
+    let body = BatchRequest {
         source,
         repository,
-        base_branch,
-        executor,
-        worker,
-        plan,
-        approve_plans,
-        max,
-        dry_run,
+        base_branch: flags.base,
+        executor: flags.agent,
+        worker: flags.on,
+        plan: flags.plan,
+        approve_plans: flags.approve_plans,
+        max: flags.max,
+        dry_run: flags.dry_run,
     };
-    let resp: CreateBatchResponse = client.post("/api/batches", Some(&body)).await?;
+    let resp = client.create_batch(&body).await?;
     match &resp.batch {
         None => println!("dry run: {} issues", resp.issues.len()),
         Some(batch) => println!(
@@ -119,9 +74,8 @@ pub async fn create(
 }
 
 pub async fn list(client: &Client) -> anyhow::Result<i32> {
-    let batches: Vec<Batch> = client.get("/api/batches").await?;
     println!("{:<10}{:<16}{:<30}TASKS", "ID", "CREATED", "SOURCE");
-    for b in batches {
+    for b in client.batches().await? {
         println!(
             "{:<10}{:<16}{:<30}{}",
             b.id,
@@ -134,7 +88,7 @@ pub async fn list(client: &Client) -> anyhow::Result<i32> {
 }
 
 pub async fn status(client: &Client, id: &str) -> anyhow::Result<i32> {
-    let detail: BatchDetail = client.get(&format!("/api/batches/{id}")).await?;
+    let detail = client.batch(id).await?;
     println!(
         "batch {} · {}",
         detail.batch.id,
