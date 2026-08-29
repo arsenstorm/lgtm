@@ -37,13 +37,9 @@ struct Raw {
 
 impl Tree {
     /// Builds a tree from file paths, inferring the directories between them.
-    ///
-    /// With `flatten_empty_dirs`, a directory whose only child is a directory
-    /// collapses into a single node named `a/b`. All directories start expanded.
-    pub fn build<I: IntoIterator<Item = S>, S: AsRef<str>>(
-        paths: I,
-        flatten_empty_dirs: bool,
-    ) -> Self {
+    /// A directory whose only child is a directory collapses into a single
+    /// node named `a/b`. All directories start expanded.
+    pub fn build<I: IntoIterator<Item = S>, S: AsRef<str>>(paths: I) -> Self {
         let mut root = Raw::default();
         for path in paths {
             let mut node = &mut root;
@@ -57,7 +53,7 @@ impl Tree {
             let leaf = node.children.entry((*last).to_string()).or_default();
             leaf.is_file = true;
         }
-        let roots = convert(&root, "", flatten_empty_dirs);
+        let roots = convert(&root, "");
         let len = roots.iter().map(Entry::count).sum();
         Self { roots, len }
     }
@@ -98,7 +94,7 @@ impl Entry {
     }
 }
 
-fn convert(raw: &Raw, prefix: &str, flatten: bool) -> Vec<Entry> {
+fn convert(raw: &Raw, prefix: &str) -> Vec<Entry> {
     let mut entries: Vec<Entry> = raw
         .children
         .iter()
@@ -111,14 +107,12 @@ fn convert(raw: &Raw, prefix: &str, flatten: bool) -> Vec<Entry> {
             let is_dir = !child.children.is_empty();
             let mut entry = Entry {
                 name: name.clone(),
-                children: convert(child, &path, flatten),
+                children: convert(child, &path),
                 path,
                 is_dir,
                 expanded: true,
             };
-            if flatten {
-                collapse(&mut entry);
-            }
+            collapse(&mut entry);
             entry
         })
         .collect();

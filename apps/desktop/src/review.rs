@@ -74,7 +74,7 @@ impl ReviewState {
         self.patch = diff.to_string();
         self.files = lgtm_diff::parse_patch(diff);
         let names: Vec<String> = self.files.iter().map(|file| file.name.clone()).collect();
-        self.tree = Some(Tree::build(&names, true));
+        self.tree = Some(Tree::build(&names));
         self.current_file = self.current_file.min(self.files.len().saturating_sub(1));
     }
 

@@ -281,7 +281,7 @@ fn malformed_input_is_skipped_not_fatal() {
 
 #[test]
 fn tree_flattens_single_child_directories() {
-    let mut tree = Tree::build(["src/a/b/c.rs", "src/a/b/d.rs", "README.md"], true);
+    let mut tree = Tree::build(["src/a/b/c.rs", "src/a/b/d.rs", "README.md"]);
     let visible = tree.visible();
     let shown: Vec<(&str, usize)> = visible.iter().map(|n| (n.name.as_str(), n.depth)).collect();
     assert_eq!(
@@ -304,28 +304,10 @@ fn tree_flattens_single_child_directories() {
 }
 
 #[test]
-fn tree_without_flattening_keeps_every_directory() {
-    let tree = Tree::build(["src/a/b/c.rs", "src/a/b/d.rs", "README.md"], false);
-    let visible = tree.visible();
-    let shown: Vec<(&str, usize)> = visible.iter().map(|n| (n.name.as_str(), n.depth)).collect();
-    assert_eq!(
-        shown,
-        [
-            ("src", 0),
-            ("a", 1),
-            ("b", 2),
-            ("c.rs", 3),
-            ("d.rs", 3),
-            ("README.md", 0)
-        ]
-    );
-}
-
-#[test]
 fn tree_sorts_directories_first_case_insensitively() {
-    let tree = Tree::build(["zeta.rs", "Alpha.rs", "beta/one.rs", "beta/two.rs"], true);
+    let tree = Tree::build(["zeta.rs", "Alpha.rs", "beta/one.rs", "beta/two.rs"]);
     let visible = tree.visible();
     let shown: Vec<&str> = visible.iter().map(|n| n.name.as_str()).collect();
     assert_eq!(shown, ["beta", "one.rs", "two.rs", "Alpha.rs", "zeta.rs"]);
-    assert!(Tree::build(Vec::<String>::new(), true).is_empty());
+    assert!(Tree::build(Vec::<String>::new()).is_empty());
 }
