@@ -67,6 +67,12 @@ pub enum Command {
     Goals,
     /// List tasks
     Tasks,
+    /// Throughput, duration, and cost over a window of created tasks
+    Stats {
+        /// Window in days, default 7.
+        #[arg(long, default_value_t = 7)]
+        days: u32,
+    },
     /// Print a task, its events, checks, and review
     Show { id: String },
     /// List a plan's versions: a goal's plan tasks, or one plan task.

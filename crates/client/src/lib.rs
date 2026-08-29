@@ -135,6 +135,15 @@ impl Client {
         self.get("/api/tasks").await
     }
 
+    /// Stats for tasks created since `since` (unix ms), or the server's
+    /// default window when `None`.
+    pub async fn stats(&self, since: Option<u64>) -> anyhow::Result<lgtm_protocol::Stats> {
+        match since {
+            Some(since) => self.get(&format!("/api/stats?since={since}")).await,
+            None => self.get("/api/stats").await,
+        }
+    }
+
     pub async fn task(&self, id: &str) -> anyhow::Result<TaskDetail> {
         self.get(&format!("/api/tasks/{id}")).await
     }

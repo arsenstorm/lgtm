@@ -18,6 +18,12 @@ use crate::table::{
     ci_str, print_goal_table, print_memory_table, print_task_table, print_todo_table, status_str,
 };
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
 fn default_repo() -> anyhow::Result<String> {
     let result = std::process::Command::new("git")
         .args(["remote", "get-url", "origin"])
@@ -126,6 +132,12 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
             Ok(0)
         }
         Command::Plans { id } => plans(client, &id).await,
+        Command::Stats { days } => {
+            let since = now_ms().saturating_sub(u64::from(days) * 24 * 60 * 60 * 1000);
+            let stats = client.stats(Some(since)).await?;
+            render::print_stats(&stats, &mut std::io::stdout())?;
+            Ok(0)
+        }
         Command::Backlog { command } => backlog_command(client, command).await,
         Command::Memory { command } => memory_command(client, command).await,
         Command::Todo { command } => todo_command(client, command).await,

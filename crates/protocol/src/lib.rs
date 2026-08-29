@@ -18,9 +18,10 @@ pub const WORKER_WS_PATH: &str = "/ws/worker";
 /// Eight lowercase hex characters, assigned by the orchestrator.
 pub type TaskId = String;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Executor {
+    #[default]
     Claude,
     Codex,
 }
@@ -585,6 +586,37 @@ pub fn plan_versions(task: &Task, events: &[StoredEvent]) -> Vec<PlanVersion> {
         last.status = plan_status_for(task.status);
     }
     out
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct ExecutorStats {
+    pub executor: Executor,
+    pub attempts: u32,
+    pub completed: u32,
+    pub failed: u32,
+}
+
+/// Counts and medians over the tasks created inside one window.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Stats {
+    /// Unix milliseconds; tasks created before this are left out.
+    pub since: u64,
+    pub tasks: u32,
+    pub queued: u32,
+    pub running: u32,
+    pub awaiting_review: u32,
+    pub approved: u32,
+    pub merged: u32,
+    pub failed: u32,
+    pub cancelled: u32,
+    pub rejected: u32,
+    /// Median of every finished execution's `finished_at - started_at`, ms.
+    pub median_execution_ms: u64,
+    /// Median of `first Started - created_at` over tasks that started, ms.
+    pub median_queue_ms: u64,
+    pub retried_tasks: u32,
+    pub cost_usd: f64,
+    pub by_executor: Vec<ExecutorStats>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
