@@ -89,29 +89,25 @@ fn render_assistant(value: &Value) -> Vec<Line> {
     let Some(blocks) = value.pointer("/message/content").and_then(Value::as_array) else {
         return Vec::new();
     };
-    let mut lines = Vec::new();
-    for block in blocks {
-        match block.get("type").and_then(Value::as_str) {
-            Some("text") => {
-                let text = block.get("text").and_then(Value::as_str).unwrap_or("");
-                if !text.is_empty() {
-                    lines.push(Line::new(Kind::Text, text));
-                }
-            }
-            Some("tool_use") => {
-                let name = block.get("name").and_then(Value::as_str).unwrap_or("");
-                let detail = block.get("input").map(tool_detail).unwrap_or_default();
-                let text = if detail.is_empty() {
-                    format!("▸ {name}")
-                } else {
-                    format!("▸ {name} {detail}")
-                };
-                lines.push(Line::new(Kind::Tool, text));
-            }
-            _ => {}
+    blocks.iter().filter_map(assistant_line).collect()
+}
+
+fn assistant_line(block: &Value) -> Option<Line> {
+    let text = |key: &str| block.get(key).and_then(Value::as_str).unwrap_or("");
+    match text("type") {
+        "text" if !text("text").is_empty() => Some(Line::new(Kind::Text, text("text"))),
+        "tool_use" => {
+            let name = text("name");
+            let detail = block.get("input").map(tool_detail).unwrap_or_default();
+            let line = if detail.is_empty() {
+                format!("▸ {name}")
+            } else {
+                format!("▸ {name} {detail}")
+            };
+            Some(Line::new(Kind::Tool, line))
         }
+        _ => None,
     }
-    lines
 }
 
 fn render_result(value: &Value) -> Vec<Line> {

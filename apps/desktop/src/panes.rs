@@ -98,24 +98,27 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
                 .min_h_0()
                 .child(crate::changes::changes_pane(app, window, cx))
                 .into_any_element(),
-            _ => div()
-                .id("pane-content")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .track_scroll(&app.content_scroll)
-                .px(px(SPACE[2]))
-                .pb(px(SPACE[2]))
-                .font_family(MONO_FONT)
-                .text_size(px(TEXT_MONO))
-                .line_height(px(LINE_MONO))
-                .child(match pane {
-                    Pane::Checks => checks(&task, &t),
-                    Pane::Plan => plan_pane(&task, &t),
-                    _ => activity(app, &t),
-                })
-                .into_any_element(),
+            Pane::Checks => scrolling(app, checks(&task, &t)),
+            Pane::Plan => scrolling(app, plan_pane(&task, &t)),
+            Pane::Activity => scrolling(app, activity(app, &t)),
         })
+        .into_any_element()
+}
+
+/// The monospace, scrolling body shared by every pane but Changes.
+fn scrolling(app: &LgtmApp, body: impl IntoElement) -> AnyElement {
+    div()
+        .id("pane-content")
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .track_scroll(&app.content_scroll)
+        .px(px(SPACE[2]))
+        .pb(px(SPACE[2]))
+        .font_family(MONO_FONT)
+        .text_size(px(TEXT_MONO))
+        .line_height(px(LINE_MONO))
+        .child(body)
         .into_any_element()
 }
 
