@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use lgtm_protocol::{PlanStep, Task, TaskEvent, TaskId, TaskKind, TaskSpec, TaskStatus};
+use lgtm_protocol::{Plan, PlanStep, Task, TaskEvent, TaskId, TaskKind, TaskSpec, TaskStatus};
 
 use crate::state::{now_ms, CmdError, State, TaskRecord};
 
@@ -77,9 +77,26 @@ impl State {
         // half-built graph behind.
         check_step_keys(&plan.steps)?;
 
+        let mut changed = vec![id.to_string()];
+        changed.extend(self.create_children(id, &spec, &plan));
+        if let Some(rec) = self.tasks.get_mut(id) {
+            rec.task.status = TaskStatus::Approved;
+        }
+        tracing::info!(task = %id, steps = plan.steps.len(), "plan approved");
+        changed.extend(self.schedule());
+        self.tasks
+            .get(id)
+            .map(|rec| (rec.task.clone(), changed))
+            .ok_or(CmdError::NotFound)
+    }
+}
+
+impl State {
+    /// One queued task per step, each depending on the tasks its keys name.
+    fn create_children(&mut self, id: &str, spec: &TaskSpec, plan: &Plan) -> Vec<TaskId> {
         let created_at = now_ms();
         let mut ids: HashMap<&str, TaskId> = HashMap::new();
-        let mut changed = vec![id.to_string()];
+        let mut changed = Vec::new();
         for (index, step) in plan.steps.iter().enumerate() {
             let depends_on: Vec<TaskId> = step
                 .depends_on
@@ -88,7 +105,7 @@ impl State {
                 .collect();
             let child = Task {
                 id: self.new_id(),
-                spec: child_spec(&spec, step, depends_on, id),
+                spec: child_spec(spec, step, depends_on, id),
                 status: TaskStatus::Queued,
                 worker: None,
                 created_at: created_at + index as u64,
@@ -104,15 +121,7 @@ impl State {
             changed.push(child_id);
         }
 
-        if let Some(rec) = self.tasks.get_mut(id) {
-            rec.task.status = TaskStatus::Approved;
-        }
-        tracing::info!(task = %id, steps = plan.steps.len(), "plan approved");
-        changed.extend(self.schedule());
-        self.tasks
-            .get(id)
-            .map(|rec| (rec.task.clone(), changed))
-            .ok_or(CmdError::NotFound)
+        changed
     }
 }
 
