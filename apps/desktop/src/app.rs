@@ -123,12 +123,7 @@ impl LgtmApp {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         net::poll(client.clone(), tx.clone());
 
-        let prompt = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
-                .auto_grow(2, 8)
-                .placeholder("Describe your task…")
-        });
+        let prompt = cx.new(|cx| InputState::new(window, cx).multi_line(true).auto_grow(2, 8));
         let repo_url = field("https://github.com/you/repo.git", window, cx);
         let base_branch = cx.new(|cx| InputState::new(window, cx).default_value("main"));
         let follow_up = field("Ask for a change…", window, cx);

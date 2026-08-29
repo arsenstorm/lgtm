@@ -80,6 +80,20 @@ pub struct Tokens {
     pub selection: Hsla,
     /// The scrim a modal lays over the window.
     pub overlay: Hsla,
+    /// The composer, layer by layer. Codex builds its prompt out of luminance
+    /// alone: a darker panel behind, a lighter card over it, one hairline edge.
+    pub composer_rear: Hsla,
+    pub composer: Hsla,
+    pub composer_edge: Hsla,
+    pub composer_placeholder: Hsla,
+    /// The dimmer of the two label greys: icons, the second half of a control.
+    pub composer_secondary: Hsla,
+    pub composer_primary: Hsla,
+    pub composer_divider: Hsla,
+    pub send_bg: Hsla,
+    pub send_fg: Hsla,
+    pub send_disabled_bg: Hsla,
+    pub send_disabled_fg: Hsla,
 }
 
 /// `amount` of `base` mixed over `bg`, both packed `0xRRGGBB`. This is how
@@ -126,6 +140,17 @@ pub fn dark() -> Tokens {
         hunk_bg: mix(BG, FG, 0.075),
         selection: rgba(0xebebeb40).into(),
         overlay: rgba(0x00000099).into(),
+        composer_rear: rgb(0x1f1f1f).into(),
+        composer: rgb(0x2a2a2a).into(),
+        composer_edge: rgb(0x2f2f2f).into(),
+        composer_placeholder: rgb(0x5f5f5f).into(),
+        composer_secondary: rgb(0x959595).into(),
+        composer_primary: rgb(0xf4f4f4).into(),
+        composer_divider: rgb(0x363636).into(),
+        send_bg: rgb(0xffffff).into(),
+        send_fg: rgb(0x000000).into(),
+        send_disabled_bg: rgb(0x3a3a3a).into(),
+        send_disabled_fg: rgb(0x8f8f8f).into(),
     }
 }
 
@@ -163,6 +188,19 @@ pub fn light() -> Tokens {
         hunk_bg: mix(BG, FG, 0.015),
         selection: rgba(0x1b1b1b26).into(),
         overlay: rgba(0x0b0b0b4d).into(),
+        // The dark levels inverted around the page: the rear panel sits below
+        // the page, the card on it.
+        composer_rear: rgb(0xf3f3f3).into(),
+        composer: rgb(0xffffff).into(),
+        composer_edge: rgb(0xe6e6e6).into(),
+        composer_placeholder: rgb(0x9a9a9a).into(),
+        composer_secondary: rgb(0x6e6e6e).into(),
+        composer_primary: rgb(0x111111).into(),
+        composer_divider: rgb(0xdcdcdc).into(),
+        send_bg: rgb(0x111111).into(),
+        send_fg: rgb(0xffffff).into(),
+        send_disabled_bg: rgb(0xe6e6e6).into(),
+        send_disabled_fg: rgb(0x9a9a9a).into(),
     }
 }
 
@@ -456,7 +494,7 @@ fn paint(t: &Tokens, dark_mode: bool, cx: &mut App) {
 mod tests {
     use super::*;
 
-    fn all(t: &Tokens) -> [Hsla; 27] {
+    fn all(t: &Tokens) -> [Hsla; 38] {
         [
             t.bg,
             t.fg,
@@ -485,6 +523,17 @@ mod tests {
             t.gutter,
             t.selection,
             t.overlay,
+            t.composer_rear,
+            t.composer,
+            t.composer_edge,
+            t.composer_placeholder,
+            t.composer_secondary,
+            t.composer_primary,
+            t.composer_divider,
+            t.send_bg,
+            t.send_fg,
+            t.send_disabled_bg,
+            t.send_disabled_fg,
         ]
     }
 
