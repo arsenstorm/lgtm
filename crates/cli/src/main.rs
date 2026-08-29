@@ -479,7 +479,12 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             (None, None) => None,
             _ => anyhow::bail!("pass both --tls-cert and --tls-key"),
         };
-        let ip = config::advertised_ip();
+        // A specific bind address is the only one workers can dial.
+        let ip = if bind_addr.ip().is_unspecified() {
+            config::advertised_ip()
+        } else {
+            bind_addr.ip().to_string()
+        };
         let provision = provision.map(|command| lgtm_orchestrator::ProvisionOptions {
             command,
             max: provision_max,
