@@ -101,15 +101,20 @@ pub async fn run(version: Option<String>) -> anyhow::Result<i32> {
         None => format!("{base}/releases/latest"),
     };
     let http = reqwest::Client::new();
-    let release: Release = http
+    let response = http
         .get(&url)
         .header("User-Agent", USER_AGENT)
         .header("Accept", "application/vnd.github+json")
         .send()
-        .await?
-        .error_for_status()?
-        .json()
         .await?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        anyhow::bail!(match &version {
+            Some(tag) => format!("no release named {tag}"),
+            // `latest` skips pre-releases, so this is the state before v0.1.0.
+            None => "no stable release yet; pass --version <tag> for a pre-release".to_string(),
+        });
+    }
+    let release: Release = response.error_for_status()?.json().await?;
 
     let latest = release.tag_name.trim_start_matches('v');
     let current = env!("CARGO_PKG_VERSION");
