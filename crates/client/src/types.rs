@@ -66,12 +66,13 @@ pub struct BatchDetail {
 }
 
 #[derive(Serialize)]
-pub(crate) struct FromLinear<'a> {
-    pub(crate) issue: &'a str,
-    pub(crate) repository: &'a str,
-    pub(crate) base_branch: &'a str,
-    pub(crate) executor: lgtm_protocol::Executor,
-    pub(crate) worker: Option<&'a str>,
+/// Body of `POST /api/tasks/from-linear`.
+pub struct FromLinear<'a> {
+    pub issue: &'a str,
+    pub repository: &'a str,
+    pub base_branch: &'a str,
+    pub executor: lgtm_protocol::Executor,
+    pub worker: Option<&'a str>,
 }
 
 pub struct EventStream {

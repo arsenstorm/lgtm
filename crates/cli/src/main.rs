@@ -9,7 +9,7 @@ mod upgrade;
 use std::path::Path;
 
 use clap::Parser;
-use lgtm_client::Client;
+use lgtm_client::{Client, FromLinear};
 use lgtm_orchestrator::token::{data_dir, resolve_token};
 use lgtm_protocol::{BatchSource, TaskKind, TaskSpec};
 
@@ -114,6 +114,14 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
             print_task_table(client.tasks().await?);
             Ok(0)
         }
+        Command::Backlog { command } => backlog_command(client, command).await,
+        other => task_command(client, other).await,
+    }
+}
+
+/// The commands that name one task.
+async fn task_command(client: &Client, command: Command) -> anyhow::Result<i32> {
+    match command {
         Command::Show { id } => show(client, &id).await,
         Command::Logs { id } => {
             let mut stdout = std::io::stdout();
@@ -142,7 +150,7 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
             eprintln!("task {id} → follow-up sent");
             run::stream(client, &id, from).await
         }
-        Command::Backlog { command } => backlog_command(client, command).await,
+        _ => unreachable!("handled by run_command"),
     }
 }
 
@@ -216,15 +224,14 @@ async fn run(
             .await?
     } else if let Some(linear) = linear {
         let repo = target.repo.map_or_else(default_repo, Ok)?;
-        client
-            .create_task_from_linear(
-                &linear,
-                &repo,
-                &target.base,
-                target.agent,
-                target.on.as_deref(),
-            )
-            .await?
+        let body = FromLinear {
+            issue: &linear,
+            repository: &repo,
+            base_branch: &target.base,
+            executor: target.agent,
+            worker: target.on.as_deref(),
+        };
+        client.create_task_from_linear(&body).await?
     } else if let Some(prompt) = prompt {
         client
             .create_task(&target.spec(prompt, TaskKind::Run)?)

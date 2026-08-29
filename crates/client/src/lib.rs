@@ -16,8 +16,10 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
-pub use types::{BatchDetail, BatchRequest, BatchResponse, EventStream, IssuePreview, TaskDetail};
-use types::{ErrorBody, FollowUp, FromIssue, FromLinear};
+pub use types::{
+    BatchDetail, BatchRequest, BatchResponse, EventStream, FromLinear, IssuePreview, TaskDetail,
+};
+use types::{ErrorBody, FollowUp, FromIssue};
 
 #[derive(Clone)]
 pub struct Client {
@@ -188,23 +190,9 @@ impl Client {
 
     pub async fn create_task_from_linear(
         &self,
-        issue: &str,
-        repository: &str,
-        base_branch: &str,
-        executor: lgtm_protocol::Executor,
-        worker: Option<&str>,
+        body: &FromLinear<'_>,
     ) -> anyhow::Result<lgtm_protocol::Task> {
-        self.post(
-            "/api/tasks/from-linear",
-            Some(&FromLinear {
-                issue,
-                repository,
-                base_branch,
-                executor,
-                worker,
-            }),
-        )
-        .await
+        self.post("/api/tasks/from-linear", Some(body)).await
     }
 
     pub async fn create_batch(&self, req: &BatchRequest) -> anyhow::Result<BatchResponse> {
