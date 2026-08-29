@@ -170,12 +170,18 @@ parked until the review layer moves over.
 Quick start:
 
 ```sh
-cargo install --path crates/cli
+curl -fsSL https://lgtm.arsenstorm.com/install | bash        # macOS, Linux, Raspberry Pi
+powershell -c "irm lgtm.arsenstorm.com/install.ps1 | iex"    # Windows
+
 lgtm serve                          # runs a local worker too; prints a join line for other machines
 lgtm run "add a HEALTH.md file"     # from any repo with an origin
 ```
 
 To add another machine, paste the printed `lgtm worker …` line on it.
+
+From source: `cargo install --path crates/cli`. To update an installed
+`lgtm`, run the install line again or `lgtm upgrade`.
+[docs/release.md](docs/release.md)).
 
 Checks: `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
