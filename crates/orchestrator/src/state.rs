@@ -10,6 +10,8 @@ use lgtm_protocol::{
 };
 use tokio::sync::{broadcast, mpsc};
 
+use crate::persist::Stored;
+
 const LIVE_CAPACITY: usize = 1024;
 
 pub struct App {
@@ -20,20 +22,55 @@ pub struct App {
     pub persist: mpsc::UnboundedSender<crate::persist::Stored>,
 }
 
+impl App {
+    /// Queues a write for each id a transition reported as changed.
+    pub fn persist_ids(&self, state: &State, ids: &[TaskId]) {
+        for rec in ids.iter().filter_map(|id| state.tasks.get(id)) {
+            let _ = self.persist.send(Stored::from(rec));
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct State {
     pub workers: HashMap<String, WorkerConn>,
     pub tasks: HashMap<TaskId, TaskRecord>,
 }
 
-pub struct WorkerConn {
-    pub info: WorkerInfo,
+/// A live worker socket.
+pub struct Conn {
     pub tx: mpsc::UnboundedSender<OrchestratorMessage>,
-    pub running: HashSet<TaskId>,
     /// Identifies the socket that registered this entry. A reconnecting worker
     /// replaces the entry under the same name, and the old socket's cleanup
-    /// must not delete the new registration.
+    /// must not disconnect the new registration.
     pub conn_id: u64,
+}
+
+pub struct WorkerConn {
+    pub info: WorkerInfo,
+    pub running: HashSet<TaskId>,
+    /// `None` while the worker is gone but still inside its grace period.
+    pub conn: Option<Conn>,
+    /// Bumped on every connect and disconnect, so a grace timer only expires
+    /// the disconnect it was started for.
+    pub generation: u64,
+}
+
+impl WorkerConn {
+    pub fn is_connected(&self) -> bool {
+        self.conn.is_some()
+    }
+
+    fn free_slots(&self) -> u32 {
+        let running = u32::try_from(self.running.len()).unwrap_or(u32::MAX);
+        self.info.slots.saturating_sub(running)
+    }
+
+    fn send(&self, msg: OrchestratorMessage) {
+        if let Some(conn) = &self.conn {
+            let _ = conn.tx.send(msg);
+        }
+    }
 }
 
 pub struct TaskRecord {
@@ -50,6 +87,7 @@ impl TaskRecord {
 }
 
 /// Why a command against a task could not run.
+#[derive(Debug)]
 pub enum CmdError {
     NotFound,
     Conflict(String),
@@ -71,61 +109,209 @@ impl State {
         }
     }
 
-    /// Explicit worker if the spec names one, else the connected worker with
-    /// the fewest running tasks. `Err` holds the 409 message.
-    pub fn pick_worker(&self, spec: &TaskSpec) -> Result<String, String> {
+    /// Whether a task could ever run, so one that cannot is refused instead of
+    /// queued forever. `Err` holds the 409 message.
+    pub fn check_eligible(&self, spec: &TaskSpec) -> Result<(), String> {
         if let Some(name) = &spec.worker {
-            let Some(conn) = self.workers.get(name) else {
-                return Err(format!("worker {name} is not connected"));
-            };
-            if !conn.info.executors.contains(&spec.executor) {
+            let worker = self
+                .workers
+                .get(name)
+                .filter(|worker| worker.is_connected())
+                .ok_or_else(|| format!("worker {name} is not connected"))?;
+            if !worker.info.executors.contains(&spec.executor) {
                 let executor = spec.executor.binary();
                 return Err(format!("worker {name} does not have {executor}"));
             }
-            return Ok(name.clone());
+            return Ok(());
         }
-        self.workers
+        let any = self
+            .workers
             .values()
-            .filter(|conn| conn.info.executors.contains(&spec.executor))
-            .min_by(|a, b| {
-                a.running
-                    .len()
-                    .cmp(&b.running.len())
-                    .then_with(|| a.info.name.cmp(&b.info.name))
-            })
-            .map(|conn| conn.info.name.clone())
-            .ok_or_else(|| "no eligible worker".to_string())
+            .any(|worker| worker.is_connected() && worker.info.executors.contains(&spec.executor));
+        any.then_some(()).ok_or_else(|| "no eligible worker".into())
     }
 
-    pub fn create_task(&mut self, spec: TaskSpec) -> Result<Task, String> {
-        let worker = self.pick_worker(&spec)?;
+    /// Connected worker with the most free slots that can run `spec`, ties
+    /// broken by the lowest name.
+    fn candidate(&self, spec: &TaskSpec) -> Option<String> {
+        self.workers
+            .values()
+            .filter(|worker| {
+                worker.is_connected()
+                    && worker.free_slots() > 0
+                    && worker.info.executors.contains(&spec.executor)
+                    && spec
+                        .worker
+                        .as_ref()
+                        .is_none_or(|name| *name == worker.info.name)
+            })
+            .max_by(|a, b| {
+                a.free_slots()
+                    .cmp(&b.free_slots())
+                    .then_with(|| b.info.name.cmp(&a.info.name))
+            })
+            .map(|worker| worker.info.name.clone())
+    }
+
+    /// Assigns unassigned queued tasks, oldest first, and starts them.
+    /// Returns the ids it assigned.
+    pub fn schedule(&mut self) -> Vec<TaskId> {
+        let mut queued: Vec<(u64, TaskId)> = self
+            .tasks
+            .values()
+            .filter(|rec| rec.task.status == TaskStatus::Queued && rec.task.worker.is_none())
+            .map(|rec| (rec.task.created_at, rec.task.id.clone()))
+            .collect();
+        queued.sort();
+        let mut assigned = Vec::new();
+        for (_, id) in queued {
+            let Some(name) = self
+                .tasks
+                .get(&id)
+                .and_then(|rec| self.candidate(&rec.task.spec))
+            else {
+                continue;
+            };
+            let Some(rec) = self.tasks.get_mut(&id) else {
+                continue;
+            };
+            rec.task.worker = Some(name.clone());
+            let task = rec.task.clone();
+            if let Some(worker) = self.workers.get_mut(&name) {
+                worker.running.insert(id.clone());
+                worker.send(OrchestratorMessage::Start {
+                    task: Box::new(task),
+                });
+            }
+            tracing::info!(task = %id, worker = %name, "task assigned");
+            assigned.push(id);
+        }
+        assigned
+    }
+
+    /// Queues a task and schedules it. Returns the task and the ids to persist.
+    pub fn create_task(&mut self, spec: TaskSpec) -> Result<(Task, Vec<TaskId>), String> {
+        self.check_eligible(&spec)?;
         let task = Task {
             id: self.new_id(),
             spec,
             status: TaskStatus::Queued,
-            worker: Some(worker.clone()),
+            worker: None,
             created_at: now_ms(),
             result: None,
             error: None,
         };
-        if let Some(conn) = self.workers.get_mut(&worker) {
-            conn.running.insert(task.id.clone());
-            let _ = conn.tx.send(OrchestratorMessage::Start {
-                task: Box::new(task.clone()),
-            });
-        }
-        tracing::info!(task = %task.id, %worker, "task created");
+        let id = task.id.clone();
+        tracing::info!(task = %id, "task created");
         self.tasks
-            .insert(task.id.clone(), TaskRecord::new(task.clone(), Vec::new()));
-        Ok(task)
+            .insert(id.clone(), TaskRecord::new(task, Vec::new()));
+        let mut changed = vec![id.clone()];
+        changed.extend(self.schedule());
+        Ok((self.tasks[&id].task.clone(), changed))
     }
 
-    /// Records a worker event and applies its status transition. Returns the
-    /// record so the caller can persist it.
-    pub fn apply_event(&mut self, task_id: &str, event: TaskEvent) -> Option<&TaskRecord> {
+    /// Registers a connection under `info.name`, restoring the tasks the worker
+    /// says it is still running. Returns the ids to persist.
+    pub fn worker_hello(
+        &mut self,
+        info: WorkerInfo,
+        running: Vec<TaskId>,
+        conn: Conn,
+    ) -> Vec<TaskId> {
+        let name = info.name.clone();
+        let restored: HashSet<TaskId> = running
+            .into_iter()
+            .filter(|id| {
+                self.tasks.get(id).is_some_and(|rec| {
+                    rec.task.status == TaskStatus::Running
+                        || (rec.task.status == TaskStatus::Queued
+                            && rec.task.worker.as_ref() == Some(&name))
+                })
+            })
+            .collect();
+        let previous = match self.workers.get_mut(&name) {
+            Some(worker) => {
+                worker.info = info;
+                worker.conn = Some(conn);
+                worker.generation += 1;
+                std::mem::replace(&mut worker.running, restored.clone())
+            }
+            None => {
+                self.workers.insert(
+                    name.clone(),
+                    WorkerConn {
+                        info,
+                        running: restored.clone(),
+                        conn: Some(conn),
+                        generation: 1,
+                    },
+                );
+                HashSet::new()
+            }
+        };
+        tracing::info!(worker = %name, tasks = restored.len(), "worker connected");
+        let mut changed = Vec::new();
+        for id in previous.difference(&restored) {
+            changed.extend(self.fail_unfinished(id, "lost on worker"));
+        }
+        changed.extend(self.schedule());
+        changed
+    }
+
+    /// Drops the socket but keeps the worker's tasks. Returns the generation
+    /// the grace timer should expire, or `None` if a newer socket owns the name.
+    pub fn disconnect(&mut self, name: &str, conn_id: u64) -> Option<u64> {
+        let worker = self.workers.get_mut(name)?;
+        if worker
+            .conn
+            .as_ref()
+            .is_none_or(|conn| conn.conn_id != conn_id)
+        {
+            return None;
+        }
+        worker.conn = None;
+        worker.generation += 1;
+        tracing::info!(worker = %name, tasks = worker.running.len(), "worker disconnected");
+        Some(worker.generation)
+    }
+
+    /// End of the grace period: the worker never came back, so its tasks are
+    /// lost and the entry goes away. A no-op if it reconnected since.
+    pub fn expire_worker(&mut self, name: &str, generation: u64) -> Vec<TaskId> {
+        let Some(worker) = self.workers.get(name) else {
+            return Vec::new();
+        };
+        if worker.is_connected() || worker.generation != generation {
+            return Vec::new();
+        }
+        let running: Vec<TaskId> = worker.running.iter().cloned().collect();
+        self.workers.remove(name);
+        tracing::info!(worker = %name, tasks = running.len(), "worker grace period expired");
+        let mut changed = Vec::new();
+        for id in running {
+            changed.extend(self.fail_unfinished(&id, "worker disconnected"));
+        }
+        changed
+    }
+
+    fn fail_unfinished(&mut self, id: &TaskId, error: &str) -> Vec<TaskId> {
+        match self.tasks.get(id) {
+            Some(rec) if !rec.task.status.is_terminal() => self.apply_event(
+                id,
+                TaskEvent::Failed {
+                    error: error.into(),
+                },
+            ),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Records a worker event, applies its status transition, and reschedules
+    /// if it freed a slot. Returns the ids to persist.
+    pub fn apply_event(&mut self, task_id: &str, event: TaskEvent) -> Vec<TaskId> {
         let Some(rec) = self.tasks.get_mut(task_id) else {
             tracing::warn!(task = %task_id, "event for unknown task, ignoring");
-            return None;
+            return Vec::new();
         };
         let stored = StoredEvent {
             at: now_ms(),
@@ -166,12 +352,15 @@ impl State {
         let worker = rec.task.worker.clone();
         let _ = rec.live.send(stored);
         tracing::debug!(task = %task_id, ?status, "task event applied");
-        if finished {
-            if let Some(conn) = worker.and_then(|name| self.workers.get_mut(&name)) {
-                conn.running.remove(task_id);
-            }
+        let freed = finished
+            && worker
+                .and_then(|name| self.workers.get_mut(&name))
+                .is_some_and(|worker| worker.running.remove(task_id));
+        let mut changed = vec![task_id.to_string()];
+        if freed {
+            changed.extend(self.schedule());
         }
-        self.tasks.get(task_id)
+        changed
     }
 
     /// Shared guard for cancel/approve/reject: the task must exist, be in one
@@ -188,132 +377,35 @@ impl State {
             return Err(CmdError::Conflict(wrong_status.to_string()));
         }
         let name = rec.task.worker.clone().unwrap_or_default();
-        let conn = self
+        let worker = self
             .workers
             .get(&name)
+            .filter(|worker| worker.is_connected())
             .ok_or_else(|| CmdError::Conflict(format!("worker {name} is not connected")))?;
-        let _ = conn.tx.send(msg(task_id.to_string()));
+        worker.send(msg(task_id.to_string()));
         Ok(rec.task.clone())
+    }
+
+    pub fn cancel(&mut self, task_id: &str) -> Result<Task, CmdError> {
+        let rec = self.tasks.get(task_id).ok_or(CmdError::NotFound)?;
+        // Nothing has been told to run it yet, so it ends here.
+        if rec.task.status == TaskStatus::Queued && rec.task.worker.is_none() {
+            self.apply_event(task_id, TaskEvent::Cancelled);
+            return self
+                .tasks
+                .get(task_id)
+                .map(|rec| rec.task.clone())
+                .ok_or(CmdError::NotFound);
+        }
+        self.command(
+            task_id,
+            &[TaskStatus::Queued, TaskStatus::Running],
+            "task is not running",
+            |task_id| OrchestratorMessage::Cancel { task_id },
+        )
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use lgtm_protocol::{Executor, TaskResult};
-
-    fn worker(state: &mut State, name: &str, executors: Vec<Executor>, running: &[&str]) {
-        let (tx, _rx) = mpsc::unbounded_channel();
-        state.workers.insert(
-            name.to_string(),
-            WorkerConn {
-                info: WorkerInfo {
-                    name: name.to_string(),
-                    os: "linux".into(),
-                    arch: "x86_64".into(),
-                    executors,
-                },
-                tx,
-                running: running.iter().map(|s| (*s).to_string()).collect(),
-                conn_id: 1,
-            },
-        );
-    }
-
-    fn spec(executor: Executor, worker: Option<&str>) -> TaskSpec {
-        TaskSpec {
-            repository: "https://example.com/repo.git".into(),
-            base_branch: "main".into(),
-            prompt: "do the thing".into(),
-            executor,
-            worker: worker.map(str::to_string),
-        }
-    }
-
-    #[test]
-    fn picks_least_loaded_worker() {
-        let mut state = State::default();
-        worker(&mut state, "busy", vec![Executor::Claude], &["aaaaaaaa"]);
-        worker(&mut state, "idle", vec![Executor::Claude], &[]);
-        worker(&mut state, "codexonly", vec![Executor::Codex], &[]);
-
-        assert_eq!(
-            state.pick_worker(&spec(Executor::Claude, None)).unwrap(),
-            "idle"
-        );
-        // The only Codex worker wins despite the Claude workers being idle.
-        assert_eq!(
-            state.pick_worker(&spec(Executor::Codex, None)).unwrap(),
-            "codexonly"
-        );
-        assert_eq!(
-            state
-                .pick_worker(&spec(Executor::Claude, Some("codexonly")))
-                .unwrap_err(),
-            "worker codexonly does not have claude"
-        );
-        assert_eq!(
-            state
-                .pick_worker(&spec(Executor::Claude, Some("ghost")))
-                .unwrap_err(),
-            "worker ghost is not connected"
-        );
-        state.workers.clear();
-        assert_eq!(
-            state
-                .pick_worker(&spec(Executor::Claude, None))
-                .unwrap_err(),
-            "no eligible worker"
-        );
-    }
-
-    #[test]
-    fn apply_event_transitions() {
-        let mut state = State::default();
-        worker(&mut state, "idle", vec![Executor::Claude], &[]);
-        let id = state.create_task(spec(Executor::Claude, None)).unwrap().id;
-        assert!(state.workers["idle"].running.contains(&id));
-
-        state.apply_event(&id, TaskEvent::Started);
-        assert_eq!(state.tasks[&id].task.status, TaskStatus::Running);
-
-        let result = TaskResult {
-            branch: format!("lgtm/{id}"),
-            diff: "diff".into(),
-            changed_files: vec!["a.rs".into()],
-        };
-        state.apply_event(&id, TaskEvent::Completed { result });
-        assert_eq!(state.tasks[&id].task.status, TaskStatus::AwaitingReview);
-        assert!(state.tasks[&id].task.result.is_some());
-        assert!(state.workers["idle"].running.is_empty());
-
-        state.apply_event(
-            &id,
-            TaskEvent::Pushed {
-                branch: format!("lgtm/{id}"),
-            },
-        );
-        assert_eq!(state.tasks[&id].task.status, TaskStatus::Approved);
-        assert_eq!(state.tasks[&id].events.len(), 3);
-    }
-
-    #[test]
-    fn terminal_status_survives_late_events() {
-        let mut state = State::default();
-        worker(&mut state, "idle", vec![Executor::Claude], &[]);
-        let id = state.create_task(spec(Executor::Claude, None)).unwrap().id;
-
-        state.apply_event(&id, TaskEvent::Cancelled);
-        assert_eq!(state.tasks[&id].task.status, TaskStatus::Cancelled);
-
-        state.apply_event(
-            &id,
-            TaskEvent::Failed {
-                error: "worker disconnected".into(),
-            },
-        );
-        assert_eq!(state.tasks[&id].task.status, TaskStatus::Cancelled);
-        assert!(state.tasks[&id].task.error.is_none());
-        assert_eq!(state.tasks[&id].events.len(), 2);
-    }
-}
+#[path = "state_tests.rs"]
+mod tests;

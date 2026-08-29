@@ -70,6 +70,7 @@ async fn workers(State(app): State<Arc<App>>) -> Json<Vec<WorkerStatus>> {
     let mut out: Vec<WorkerStatus> = state
         .workers
         .values()
+        .filter(|conn| conn.is_connected())
         .map(|conn| WorkerStatus {
             info: conn.info.clone(),
             running: conn.running.iter().cloned().collect(),
@@ -85,10 +86,8 @@ async fn create_task(
 ) -> Result<(StatusCode, Json<Task>), ApiError> {
     let Json(spec) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
     let mut state = app.state.lock().unwrap();
-    let task = state.create_task(spec).map_err(conflict)?;
-    if let Some(rec) = state.tasks.get(&task.id) {
-        let _ = app.persist.send(Stored::from(rec));
-    }
+    let (task, changed) = state.create_task(spec).map_err(conflict)?;
+    app.persist_ids(&state, &changed);
     Ok((StatusCode::CREATED, Json(task)))
 }
 
@@ -118,13 +117,10 @@ async fn cancel(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
 ) -> Result<Json<Task>, ApiError> {
-    command(
-        &app,
-        &id,
-        &[TaskStatus::Queued, TaskStatus::Running],
-        "task is not running",
-        |task_id| OrchestratorMessage::Cancel { task_id },
-    )
+    let mut state = app.state.lock().unwrap();
+    let task = state.cancel(&id)?;
+    app.persist_ids(&state, std::slice::from_ref(&id));
+    Ok(Json(task))
 }
 
 async fn approve(

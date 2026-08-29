@@ -24,14 +24,19 @@ pub async fn serve(bind: SocketAddr, token: String, data_dir: PathBuf) -> anyhow
     let mut state = State::default();
     for stored in persist::load_all(&tasks_dir) {
         let mut task = stored.task;
-        // Nothing survived the restart, so anything mid-flight is lost.
-        let interrupted = matches!(task.status, TaskStatus::Queued | TaskStatus::Running);
+        // No worker process survived the restart, so anything running is lost.
+        // Queued tasks are schedulable again once their stale assignment is
+        // cleared; the scheduler only looks at unassigned ones.
+        let interrupted = matches!(task.status, TaskStatus::Running);
+        let changed = interrupted || (task.status == TaskStatus::Queued && task.worker.is_some());
         if interrupted {
             task.status = TaskStatus::Failed;
             task.error = Some("orchestrator restarted".into());
+        } else if changed {
+            task.worker = None;
         }
         let rec = TaskRecord::new(task, stored.events);
-        if interrupted {
+        if changed {
             persist::save(&tasks_dir, &persist::Stored::from(&rec));
         }
         state.tasks.insert(rec.task.id.clone(), rec);

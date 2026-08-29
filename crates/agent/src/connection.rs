@@ -65,9 +65,17 @@ async fn session(
         .with_context(|| format!("connect {url}"))?;
     let (mut sink, mut stream) = ws.split();
 
+    let running = ctx
+        .running
+        .lock()
+        .expect("running map poisoned")
+        .keys()
+        .cloned()
+        .collect();
     let hello = WorkerMessage::Hello {
         token: token.to_string(),
         info: info.clone(),
+        running,
     };
     sink.send(Message::Text(serde_json::to_string(&hello)?))
         .await?;

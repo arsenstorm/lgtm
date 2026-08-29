@@ -1,6 +1,5 @@
 //! The worker agent's socket: `Hello` authenticates it, then it streams events.
 
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,10 +13,12 @@ use lgtm_protocol::{OrchestratorMessage, TaskEvent, TaskId, WorkerInfo, WorkerMe
 use tokio::sync::mpsc;
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a worker's tasks survive its socket, so a restarting agent or a
+/// flaky network does not throw away work that is still running.
+const GRACE: Duration = Duration::from_secs(30);
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
-use crate::persist::Stored;
-use crate::state::{App, WorkerConn};
+use crate::state::{App, Conn};
 
 pub async fn handler(State(app): State<Arc<App>>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| run(app, socket))
@@ -25,26 +26,25 @@ pub async fn handler(State(app): State<Arc<App>>, ws: WebSocketUpgrade) -> Respo
 
 async fn run(app: Arc<App>, socket: WebSocket) {
     let (mut sink, mut stream) = socket.split();
-    let Some(info) = hello(&app, &mut sink, &mut stream).await else {
+    let Some((info, running)) = hello(&app, &mut sink, &mut stream).await else {
         return;
     };
     let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
     let (tx, mut rx) = mpsc::unbounded_channel();
+    // Queued before anything the hello schedules, so the ack stays first.
+    let _ = tx.send(OrchestratorMessage::HelloAck);
     {
-        // Replaces any previous connection under this name; the old writer task
-        // ends when its receiver drops with the old WorkerConn.
         let mut state = app.state.lock().unwrap();
-        state.workers.insert(
-            info.name.clone(),
-            WorkerConn {
-                info: info.clone(),
+        let changed = state.worker_hello(
+            info.clone(),
+            running,
+            Conn {
                 tx: tx.clone(),
-                running: HashSet::new(),
                 conn_id,
             },
         );
+        app.persist_ids(&state, &changed);
     }
-    let _ = tx.send(OrchestratorMessage::HelloAck);
 
     let writer = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
@@ -76,7 +76,7 @@ async fn hello(
     app: &App,
     sink: &mut SplitSink<WebSocket, Message>,
     stream: &mut SplitStream<WebSocket>,
-) -> Option<WorkerInfo> {
+) -> Option<(WorkerInfo, Vec<TaskId>)> {
     let frame = tokio::time::timeout(HELLO_TIMEOUT, stream.next())
         .await
         .ok()??
@@ -84,7 +84,11 @@ async fn hello(
     let Message::Text(text) = frame else {
         return None;
     };
-    let Ok(WorkerMessage::Hello { token, info }) = serde_json::from_str::<WorkerMessage>(&text)
+    let Ok(WorkerMessage::Hello {
+        token,
+        info,
+        running,
+    }) = serde_json::from_str::<WorkerMessage>(&text)
     else {
         return None;
     };
@@ -93,48 +97,28 @@ async fn hello(
         let _ = sink.send(Message::Close(None)).await;
         return None;
     }
-    tracing::info!(worker = %info.name, "worker connected");
-    Some(info)
+    Some((info, running))
 }
 
 fn apply(app: &App, task_id: &str, event: TaskEvent) {
     let mut state = app.state.lock().unwrap();
-    if let Some(rec) = state.apply_event(task_id, event) {
-        let _ = app.persist.send(Stored::from(rec));
-    }
+    let changed = state.apply_event(task_id, event);
+    app.persist_ids(&state, &changed);
 }
 
-fn disconnect(app: &App, name: &str, conn_id: u64) {
-    let running: Vec<TaskId> = {
+fn disconnect(app: &Arc<App>, name: &str, conn_id: u64) {
+    let Some(generation) = ({
         let mut state = app.state.lock().unwrap();
-        match state.workers.get(name) {
-            // A newer socket already took this name over; leave it alone.
-            Some(conn) if conn.conn_id != conn_id => return,
-            Some(conn) => {
-                let running = conn.running.iter().cloned().collect();
-                state.workers.remove(name);
-                running
-            }
-            None => return,
-        }
+        state.disconnect(name, conn_id)
+    }) else {
+        return;
     };
-    tracing::info!(worker = %name, tasks = running.len(), "worker disconnected");
-    for task_id in running {
-        let unfinished = {
-            let state = app.state.lock().unwrap();
-            state
-                .tasks
-                .get(&task_id)
-                .is_some_and(|rec| !rec.task.status.is_terminal())
-        };
-        if unfinished {
-            apply(
-                app,
-                &task_id,
-                TaskEvent::Failed {
-                    error: "worker disconnected".into(),
-                },
-            );
-        }
-    }
+    let app = app.clone();
+    let name = name.to_string();
+    tokio::spawn(async move {
+        tokio::time::sleep(GRACE).await;
+        let mut state = app.state.lock().unwrap();
+        let changed = state.expire_worker(&name, generation);
+        app.persist_ids(&state, &changed);
+    });
 }

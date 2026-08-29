@@ -96,6 +96,13 @@ pub struct WorkerInfo {
     pub arch: String,
     /// Executors whose binary was found on PATH at startup.
     pub executors: Vec<Executor>,
+    /// Maximum tasks the worker runs at once.
+    #[serde(default = "one")]
+    pub slots: u32,
+}
+
+fn one() -> u32 {
+    1
 }
 
 /// Body of `GET /api/workers`.
@@ -151,10 +158,13 @@ pub struct StoredEvent {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WorkerMessage {
-    /// First frame on every connection.
+    /// First frame on every connection. `running` lists tasks the worker
+    /// still has processes for, so a reconnect does not lose them.
     Hello {
         token: String,
         info: WorkerInfo,
+        #[serde(default)]
+        running: Vec<TaskId>,
     },
     Event {
         task_id: TaskId,
@@ -218,6 +228,7 @@ mod tests {
             os: "windows".into(),
             arch: "x86_64".into(),
             executors: vec![Executor::Claude],
+            slots: 2,
         };
         let result = TaskResult {
             branch: "lgtm/0123abcd".into(),
@@ -254,6 +265,7 @@ mod tests {
         round_trip(WorkerMessage::Hello {
             token: "t".into(),
             info: info.clone(),
+            running: vec!["0123abcd".into()],
         });
         round_trip(WorkerStatus {
             info,
@@ -276,6 +288,20 @@ mod tests {
         ] {
             round_trip(msg);
         }
+    }
+
+    #[test]
+    fn phase_one_frames_still_parse() {
+        let info: WorkerInfo = serde_json::from_str(
+            r#"{"name":"w","os":"linux","arch":"x86_64","executors":["claude"]}"#,
+        )
+        .unwrap();
+        assert_eq!(info.slots, 1);
+        let hello: WorkerMessage = serde_json::from_str(
+            r#"{"type":"hello","token":"t","info":{"name":"w","os":"linux","arch":"x86_64","executors":[]}}"#,
+        )
+        .unwrap();
+        assert!(matches!(hello, WorkerMessage::Hello { running, .. } if running.is_empty()));
     }
 
     #[test]
