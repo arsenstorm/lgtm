@@ -2,10 +2,42 @@
 name: lgtm
 icon: null
 processes:
-  Start:
-    command: bun run tauri dev
+  Serve:
+    # Orchestrator plus a local worker; prints the token and the join line.
+    command: export PATH="$HOME/.cargo/bin:$PATH" && cargo run -p lgtm-cli -- serve
     working_dir: null
     auto_start: true
+    auto_restart: false
+    restart_when_changed: []
+    env:
+      RUST_LOG: info
+  Desktop:
+    command: export PATH="$HOME/.cargo/bin:$PATH" && cargo run -p lgtm-desktop
+    working_dir: null
+    auto_start: false
+    auto_restart: false
+    restart_when_changed: []
+    env: {}
+  Second worker:
+    # A second worker on this machine, to watch queueing and slots.
+    command: export PATH="$HOME/.cargo/bin:$PATH" && cargo run -p lgtm-cli -- worker ws://127.0.0.1:4750 --name laptop-2 --slots 1
+    working_dir: null
+    auto_start: false
+    auto_restart: false
+    restart_when_changed: []
+    env: {}
+  Install lgtm:
+    # Puts this checkout's `lgtm` on PATH (~/.cargo/bin) for use from any repo.
+    command: export PATH="$HOME/.cargo/bin:$PATH" && cargo install --path crates/cli
+    working_dir: null
+    auto_start: false
+    auto_restart: false
+    restart_when_changed: []
+    env: {}
+  Check:
+    command: export PATH="$HOME/.cargo/bin:$PATH" && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+    working_dir: null
+    auto_start: false
     auto_restart: false
     restart_when_changed: []
     env: {}
