@@ -20,7 +20,7 @@ use lgtm_diff::DiffStyle;
 const WIDTH: f32 = 640.;
 const MAX_BODY_H: f32 = 520.;
 /// Index of the Workers section among the dialog's scrolled children.
-pub const WORKERS_SECTION: usize = 2;
+pub const WORKERS_SECTION: usize = 3;
 
 /// `lgtm worker` takes a ws(s) URL; the app holds the http(s) one.
 fn ws_url(orchestrator: &str) -> String {
@@ -59,6 +59,7 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                         .p(px(SPACE[2]))
                         .child(orchestrator(app, &t, cx))
                         .child(appearance(app, &t, cx))
+                        .child(notifications(&t, cx))
                         .child(workers(app, &t, cx))
                         .child(about(&t)),
                 ),
@@ -151,6 +152,19 @@ fn appearance(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     section("Appearance", t)
         .child(choice_row("Theme", t).children(theme_buttons(cx)))
         .child(choice_row("Diff", t).children(diff_buttons(app.review.style, cx)))
+}
+
+fn notifications(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    section("Notifications", t).child(
+        Switch::new("notify")
+            .checked(crate::theme::notify(cx))
+            .label("Tell me when a task needs a person")
+            .small()
+            .on_click(cx.listener(|_, checked: &bool, _, cx| {
+                crate::theme::set_notify(*checked, cx);
+                cx.notify();
+            })),
+    )
 }
 
 fn choice_row(label: &'static str, t: &Tokens) -> Div {

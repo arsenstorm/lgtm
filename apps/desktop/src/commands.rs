@@ -11,6 +11,7 @@ impl LgtmApp {
         match msg {
             Msg::Lists(Ok((mut tasks, workers, batches))) => {
                 tasks.sort_by_key(|task| std::cmp::Reverse(task.created_at));
+                self.announce(&tasks, cx);
                 self.tasks = tasks;
                 self.workers = workers;
                 self.batches = batches;
@@ -46,6 +47,23 @@ impl LgtmApp {
             Msg::Action(Err(err)) | Msg::Batch(Err(err)) => self.set_error(err, cx),
         }
         cx.notify();
+    }
+
+    /// Notifies for every task this poll moved into a state a person cares
+    /// about. A task the last poll didn't have is the baseline, not news, so
+    /// the first poll after launch says nothing.
+    fn announce(&self, polled: &[Task], cx: &gpui::App) {
+        if !crate::theme::notify(cx) {
+            return;
+        }
+        for task in polled {
+            let Some(before) = self.tasks.iter().find(|known| known.id == task.id) else {
+                continue;
+            };
+            if let Some(line) = lgtm_protocol::attention_for_status(task, before.status) {
+                crate::notify::send("LGTM", &line);
+            }
+        }
     }
 
     /// An action went through; a new task also clears the prompt and opens.

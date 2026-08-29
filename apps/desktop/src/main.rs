@@ -9,6 +9,7 @@ mod import;
 mod keys;
 mod labels;
 mod net;
+mod notify;
 mod palette;
 mod panes;
 mod render;

@@ -121,6 +121,12 @@ certificate, `--ephemeral`/`--max-tasks` workers that clean themselves up,
 having the orchestrator provision workers on demand, and running over
 Tailscale with no TLS at all.
 
+## Notifications
+
+You should not have to watch LGTM. The desktop app raises an OS notification
+when a task needs a person — ready for review, failed, timed out, runner
+lost, merged. Settings → Notifications turns it off; it is on by default.
+
 ## Security
 
 Every orchestrator API call and worker connection carries a shared token.

@@ -485,3 +485,107 @@ fn goal_status_derives_each_arm() {
     );
     assert_eq!(goal_of(&[(R, Failed), (R, Merged)]), GoalStatus::Blocked);
 }
+
+/// A run task with this prompt, status, and error.
+fn attention_task(prompt: &str, status: TaskStatus, error: Option<&str>) -> Task {
+    let mut task = sample_task();
+    task.spec.kind = TaskKind::Run;
+    task.spec.prompt = prompt.into();
+    task.status = status;
+    task.error = error.map(str::to_string);
+    task
+}
+
+#[test]
+fn attention_names_the_task_and_why() {
+    let task = attention_task("add a /health endpoint", TaskStatus::Running, None);
+    let result = TaskResult {
+        branch: "lgtm/0123abcd".into(),
+        diff: String::new(),
+        changed_files: vec![],
+        validation: vec![],
+        plan: None,
+        review: None,
+        policy: None,
+        cost_usd: 0.,
+    };
+    let cases = [
+        (
+            TaskEvent::Completed { result },
+            "add a /health endpoint: ready for review",
+        ),
+        (
+            TaskEvent::Failed {
+                error: "cargo test failed\nsecond line".into(),
+            },
+            "add a /health endpoint: failed: cargo test failed",
+        ),
+        (
+            TaskEvent::TimedOut { secs: 3600 },
+            "add a /health endpoint: timed out after 3600s",
+        ),
+        (TaskEvent::RunnerLost, "add a /health endpoint: runner lost"),
+        (
+            TaskEvent::AutoMerged,
+            "add a /health endpoint: merged by policy",
+        ),
+    ];
+    for (event, expected) in cases {
+        assert_eq!(attention(&task, &event).as_deref(), Some(expected));
+    }
+}
+
+#[test]
+fn routine_events_want_nobody() {
+    let task = attention_task("p", TaskStatus::Running, None);
+    for event in [
+        TaskEvent::Started,
+        TaskEvent::AutoApproved,
+        TaskEvent::Cancelled,
+        TaskEvent::Discarded,
+        TaskEvent::Progress { text: "x".into() },
+    ] {
+        assert_eq!(attention(&task, &event), None);
+    }
+}
+
+#[test]
+fn a_plan_task_says_the_plan_is_ready() {
+    let mut task = attention_task("design the api", TaskStatus::AwaitingReview, None);
+    task.spec.kind = TaskKind::Plan;
+    assert_eq!(
+        attention_for_status(&task, TaskStatus::Running).as_deref(),
+        Some("design the api: plan ready")
+    );
+}
+
+#[test]
+fn the_title_is_the_first_line_cut_to_sixty_characters() {
+    let prompt = format!("{}\nrest", "x".repeat(80));
+    let task = attention_task(&prompt, TaskStatus::Failed, None);
+    let expected = format!("{}: failed", "x".repeat(60));
+    assert_eq!(
+        attention_for_status(&task, TaskStatus::Running).as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[test]
+fn only_a_changed_status_wants_a_person() {
+    let task = attention_task("p", TaskStatus::AwaitingReview, None);
+    assert_eq!(
+        attention_for_status(&task, TaskStatus::AwaitingReview),
+        None
+    );
+    assert_eq!(
+        attention_for_status(&task, TaskStatus::Running).as_deref(),
+        Some("p: ready for review")
+    );
+    let running = attention_task("p", TaskStatus::Running, None);
+    assert_eq!(attention_for_status(&running, TaskStatus::Queued), None);
+    let failed = attention_task("p", TaskStatus::Failed, Some("boom\nmore"));
+    assert_eq!(
+        attention_for_status(&failed, TaskStatus::Running).as_deref(),
+        Some("p: failed: boom")
+    );
+}
