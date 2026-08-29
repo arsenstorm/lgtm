@@ -1,30 +1,111 @@
 //! The welcome screen: the composer, and the tasks you touched last.
 
-use crate::app::{prompt_preview, LgtmApp, OTHER_REPOSITORY};
+use crate::app::{prompt_preview, LgtmApp};
 use crate::sidebar::{now_ms, relative_age, repo_slug, status_color};
-use crate::theme::{
-    field, section_label, tokens, Tokens, RADIUS, RADIUS_PILL, SPACE, TEXT_SECONDARY, TEXT_TITLE,
-};
+use crate::theme::{section_label, tokens, Tokens, RADIUS, RADIUS_PILL, SPACE, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
     IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
     Window,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::select::Select;
-use gpui_component::switch::Switch;
-use lgtm_protocol::Task;
+use lgtm_protocol::{Executor, Task, TaskKind, TaskSpec};
 
 const RECENT: usize = 6;
 /// `max-w-xl`, the width of the reference welcome column.
 const COLUMN: f32 = 576.;
-const TILE: f32 = 48.;
-const SUBTITLE: &str = "Describe a change and let an agent do it, or open a task to review.";
-const EMPTY_HINT: &str =
-    "Paste the join line `lgtm serve` printed on another machine to add a worker.";
+/// The round send button.
+const SEND: f32 = 28.;
+pub const AUTO_WORKER: &str = "Auto";
 
-pub fn home(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<LgtmApp>) -> AnyElement {
+/// One choice made in the composer's `+` menu.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Chip {
+    Plan,
+    Worker(String),
+    Branch(String),
+}
+
+impl Chip {
+    pub fn label(&self) -> String {
+        match self {
+            Chip::Plan => "Plan".to_string(),
+            Chip::Worker(name) => name.clone(),
+            Chip::Branch(branch) => branch.clone(),
+        }
+    }
+
+    /// Two chips of the same kind replace each other; Plan toggles.
+    fn same_kind(&self, other: &Chip) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+/// What the `+` menu is showing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PlusView {
+    Root,
+    Workers,
+    Branch,
+}
+
+/// The task the composer would start, or None while it is incomplete.
+pub fn compose(prompt: &str, project: Option<&str>, chips: &[Chip]) -> Option<TaskSpec> {
+    let prompt = prompt.trim();
+    let repository = project.map(str::trim).filter(|url| !url.is_empty())?;
+    if prompt.is_empty() {
+        return None;
+    }
+    let mut base_branch = "main".to_string();
+    let mut worker = None;
+    let mut kind = TaskKind::Run;
+    for chip in chips {
+        match chip {
+            Chip::Plan => kind = TaskKind::Plan,
+            Chip::Worker(name) if name != AUTO_WORKER => worker = Some(name.clone()),
+            Chip::Worker(_) => worker = None,
+            Chip::Branch(branch) if !branch.trim().is_empty() => {
+                base_branch = branch.trim().to_string()
+            }
+            Chip::Branch(_) => {}
+        }
+    }
+    Some(TaskSpec {
+        repository: repository.to_string(),
+        base_branch,
+        prompt: prompt.to_string(),
+        executor: Executor::Claude,
+        worker,
+        issue: None,
+        linear: None,
+        kind,
+        parent: None,
+        depends_on: vec![],
+        batch: None,
+    })
+}
+
+impl LgtmApp {
+    /// Adds a chip, replacing one of the same kind. Plan toggles off.
+    pub fn set_chip(&mut self, chip: Chip, cx: &mut Context<Self>) {
+        if let Some(at) = self.chips.iter().position(|held| held.same_kind(&chip)) {
+            let held = self.chips.remove(at);
+            if held == chip {
+                cx.notify();
+                return;
+            }
+        }
+        self.chips.push(chip);
+        cx.notify();
+    }
+
+    pub fn remove_chip(&mut self, chip: &Chip, cx: &mut Context<Self>) {
+        self.chips.retain(|held| held != chip);
+        cx.notify();
+    }
+}
+
+pub fn home(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmApp>) -> AnyElement {
     let t = tokens(cx);
     let empty = app.tasks.is_empty();
     div()
@@ -43,131 +124,71 @@ pub fn home(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<LgtmApp>) 
                 .max_w(px(COLUMN))
                 .flex()
                 .flex_col()
-                .gap(px(SPACE[4]))
-                .child(masthead(&t))
-                .child(composer(app, &t, cx))
-                .when(empty, |this| {
+                .gap(px(SPACE[2]))
+                .child(
+                    div()
+                        .flex()
+                        .child(crate::composer::project_chip(app, &t, cx))
+                        .child(div().flex_1()),
+                )
+                .child(crate::composer::card(app, &t, window, cx))
+                .when_some(app.error.clone(), |this, error| {
                     this.child(
                         div()
                             .text_size(px(TEXT_SECONDARY))
-                            .text_color(t.muted_fg)
-                            .child(EMPTY_HINT),
+                            .text_color(t.danger)
+                            .child(error),
                     )
                 })
-                .when(!empty, |this| this.child(recent(app, &t, cx))),
+                .when(!empty, |this| {
+                    this.child(div().h(px(SPACE[2]))).child(recent(app, &t, cx))
+                }),
         )
         .into_any_element()
 }
 
-fn masthead(t: &Tokens) -> Div {
+/// The round primary send button.
+pub fn send_button(enabled: bool, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
     div()
+        .id("send")
         .flex()
-        .flex_col()
+        .flex_shrink_0()
         .items_center()
-        .gap(px(SPACE[2]))
-        .child(
-            div()
-                .w(px(TILE))
-                .h(px(TILE))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(RADIUS_PILL))
-                .bg(t.muted)
-                .text_size(px(20.))
-                .text_color(t.fg)
-                .child("▤"),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap(px(SPACE[0]))
-                .child(
-                    div()
-                        .text_size(px(TEXT_TITLE))
-                        .font_weight(FontWeight::BOLD)
-                        .child("LGTM"),
-                )
-                .child(div().text_color(t.muted_fg).child(SUBTITLE)),
-        )
+        .justify_center()
+        .w(px(SEND))
+        .h(px(SEND))
+        .rounded(px(SEND / 2.))
+        .bg(if enabled { t.primary } else { t.muted })
+        .text_color(if enabled { t.primary_fg } else { t.muted_fg })
+        .when(enabled, |this| this.cursor_pointer())
+        .child("↑")
+        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            if enabled {
+                this.submit(window, cx);
+            }
+        }))
 }
 
-fn composer(app: &mut LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let other = app.repository_is_other(cx);
+/// One removable chip in the composer's bottom row.
+pub fn chip_pill(chip: &Chip, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
+    let held = chip.clone();
     div()
+        .id(SharedString::from(format!("chip-{}", chip.label())))
         .flex()
-        .flex_col()
-        .gap(px(SPACE[2]))
-        .p(px(SPACE[3]))
-        .rounded(px(RADIUS))
-        .bg(t.card)
-        .border_1()
-        .border_color(t.border)
-        .child(field(&app.prompt, t))
-        .when(other, |this| this.child(field(&app.repo_url, t)))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .child(
-                    div().w(px(180.)).child(picker(
-                        Select::new(&app.repo_select)
-                            .placeholder("Repository")
-                            .cleanable(false),
-                        t,
-                    )),
-                )
-                .child(div().w(px(120.)).child(field(&app.base_branch, t)))
-                .child(
-                    div().w(px(150.)).child(picker(
-                        Select::new(&app.worker_select)
-                            .placeholder("Worker")
-                            .cleanable(false),
-                        t,
-                    )),
-                )
-                .child(
-                    Switch::new("plan-first")
-                        .label("Plan first")
-                        .checked(app.plan_first)
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.plan_first = *checked;
-                            cx.notify();
-                        })),
-                )
-                .child(div().flex_1())
-                .child(
-                    Button::new("start")
-                        .label("Start")
-                        .primary()
-                        .tooltip("⌘↩")
-                        .on_click(
-                            cx.listener(|this, _: &ClickEvent, window, cx| this.submit(window, cx)),
-                        ),
-                ),
-        )
-        .when_some(app.error.clone(), |this, error| {
-            this.child(
-                div()
-                    .text_size(px(TEXT_SECONDARY))
-                    .text_color(t.danger)
-                    .child(error),
-            )
-        })
-}
-
-/// Selects default to the page background and a visible border; the reference
-/// pickers are `bg-input/50` pills with no border, like every other field.
-fn picker<D>(select: Select<D>, t: &Tokens) -> Select<D>
-where
-    D: gpui_component::select::SelectDelegate,
-{
-    select
-        .bg(t.input_fill)
-        .border_color(gpui::transparent_black())
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(SPACE[0]))
+        .h(px(20.))
+        .px(px(SPACE[1]))
+        .rounded(px(RADIUS_PILL))
+        .bg(t.muted)
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.fg)
+        .cursor_pointer()
+        .hover(|this| this.text_color(t.danger))
+        .child(chip.label())
+        .child(div().text_color(t.muted_fg).child("✕"))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.remove_chip(&held, cx)))
 }
 
 fn recent(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
@@ -254,20 +275,49 @@ fn row(
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)))
 }
 
-/// The repository picker's value, resolved back to a clone URL.
-pub fn chosen_repository(app: &LgtmApp, cx: &Context<LgtmApp>) -> String {
-    let picked = app
-        .repo_select
-        .read(cx)
-        .selected_value()
-        .cloned()
-        .unwrap_or_default();
-    if picked.is_empty() || picked == OTHER_REPOSITORY {
-        return app.repo_url.read(cx).value().to_string();
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const URL: &str = "https://github.com/you/repo.git";
+
+    #[test]
+    fn nothing_composes_without_a_prompt_or_a_project() {
+        assert!(compose("", Some(URL), &[]).is_none());
+        assert!(compose("   ", Some(URL), &[]).is_none());
+        assert!(compose("do it", None, &[]).is_none());
+        assert!(compose("do it", Some("  "), &[]).is_none());
     }
-    app.tasks
-        .iter()
-        .find(|task| repo_slug(&task.spec.repository) == picked)
-        .map(|task| task.spec.repository.clone())
-        .unwrap_or(picked)
+
+    #[test]
+    fn defaults_are_main_no_worker_and_a_run() {
+        let spec = compose("do it", Some(URL), &[]).unwrap();
+        assert_eq!(spec.repository, URL);
+        assert_eq!(spec.base_branch, "main");
+        assert_eq!(spec.prompt, "do it");
+        assert!(spec.worker.is_none());
+        assert_eq!(spec.kind, TaskKind::Run);
+    }
+
+    #[test]
+    fn chips_choose_the_kind_the_worker_and_the_branch() {
+        let chips = vec![
+            Chip::Plan,
+            Chip::Worker("MacBook".into()),
+            Chip::Branch("develop".into()),
+        ];
+        let spec = compose("do it", Some(URL), &chips).unwrap();
+        assert_eq!(spec.kind, TaskKind::Plan);
+        assert_eq!(spec.worker.as_deref(), Some("MacBook"));
+        assert_eq!(spec.base_branch, "develop");
+    }
+
+    #[test]
+    fn the_auto_worker_leaves_the_choice_to_the_orchestrator() {
+        let chips = vec![Chip::Worker(AUTO_WORKER.into())];
+        assert!(compose("do it", Some(URL), &chips)
+            .unwrap()
+            .worker
+            .is_none());
+    }
 }

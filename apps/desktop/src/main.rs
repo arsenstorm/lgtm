@@ -1,16 +1,23 @@
 mod app;
+mod batches;
 mod changes;
+mod composer;
 mod home;
+mod import;
+mod keys;
 mod net;
+mod palette;
 mod panes;
 mod render;
 mod review;
+mod settings;
 mod sidebar;
 mod theme;
+mod titlebar;
 
 use app::LgtmApp;
 use gpui::{
-    div, px, size, AnyView, App, AppContext as _, Application, Bounds, Context, IntoElement,
+    div, point, px, size, AnyView, App, AppContext as _, Application, Bounds, Context, IntoElement,
     ParentElement as _, Render, Styled as _, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::Root;
@@ -85,12 +92,15 @@ fn main() {
     let config = load_config();
     Application::new().run(move |cx: &mut App| {
         theme::init(cx);
-        app::init(cx);
+        keys::init(cx);
 
         let options = WindowOptions {
+            // The app draws its own bar, so the system one only contributes the
+            // traffic lights.
             titlebar: Some(TitlebarOptions {
-                title: Some("LGTM".into()),
-                ..Default::default()
+                title: None,
+                appears_transparent: true,
+                traffic_light_position: Some(point(px(12.), px(12.))),
             }),
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                 None,
@@ -106,8 +116,9 @@ fn main() {
                 Some(config) => cx
                     .new(|cx| {
                         LgtmApp::new(
-                            Client::new(config.orchestrator.clone(), config.token),
+                            Client::new(config.orchestrator.clone(), config.token.clone()),
                             config.orchestrator,
+                            config.token,
                             config.token_source,
                             window,
                             cx,

@@ -1,19 +1,14 @@
-//! The left rail: quick actions, a search filter, tasks grouped by repository,
-//! then workers and the orchestrator's reachability.
+//! The left rail: quick actions, tasks grouped by repository, and one status
+//! row that opens Settings.
 
-use crate::app::{prompt_preview, status_label, LgtmApp};
-use crate::theme::{
-    field, section_label, tokens, Tokens, MONO_FONT, RADIUS, ROW_H, SPACE, STATUS_H, TEXT_MONO,
-    TEXT_SECONDARY,
-};
+use crate::app::{prompt_preview, status_label, LgtmApp, Overlay, Page};
+use crate::theme::{tokens, Tokens, FOOTER_H, MONO_FONT, ROW_H, SPACE, TEXT_MONO, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement as _,
     IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
     Window,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{Selectable as _, Sizable as _};
 use lgtm_protocol::{Batch, BatchSource, Task};
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -123,7 +118,7 @@ pub fn batch_label(source: &BatchSource) -> String {
     }
 }
 
-pub fn render_sidebar(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmApp>) -> Div {
+pub fn render_sidebar(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<LgtmApp>) -> Div {
     let t = tokens(cx);
     div()
         .w(px(WIDTH))
@@ -134,17 +129,6 @@ pub fn render_sidebar(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<L
         .border_r_1()
         .border_color(t.sidebar_border)
         .child(quick_actions(app, &t, cx))
-        .when(app.show_settings, |this| {
-            this.child(settings_panel(app, &t, window, cx))
-        })
-        .when(app.show_search, |this| {
-            this.child(
-                div()
-                    .px(px(SPACE[1]))
-                    .pb(px(SPACE[1]))
-                    .child(field(&app.search, &t).small()),
-            )
-        })
         .child(
             div()
                 .id("tasks")
@@ -156,11 +140,12 @@ pub fn render_sidebar(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<L
                 .pb(px(SPACE[1]))
                 .children(repository_groups(app, &t, cx)),
         )
-        .child(workers(app, &t))
-        .child(footer(app, &t))
+        .child(footer(app, &t, cx))
 }
 
 fn quick_actions(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let home = app.selected.is_none() && app.page == Page::Home;
+    let batches = app.selected.is_none() && app.page == Page::Batches;
     div()
         .flex()
         .flex_col()
@@ -169,36 +154,37 @@ fn quick_actions(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .border_b_1()
         .border_color(t.sidebar_border)
         .child(
+            action_row("new-task", "＋", "New task", "⌘N", home, t)
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_home(window, cx))),
+        )
+        .child(
             action_row(
-                "new-task",
-                "＋",
-                "New task",
-                "⌘N",
-                app.selected.is_none(),
+                "search",
+                "⌕",
+                "Search",
+                "⌘K",
+                app.overlay == Overlay::Palette,
                 t,
             )
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_home(window, cx))),
-        )
-        .child(
-            action_row("search", "⌕", "Search", "⌘K", app.show_search, t).on_click(
-                cx.listener(|this, _: &ClickEvent, window, cx| this.toggle_search(window, cx)),
+            .on_click(
+                cx.listener(|this, _: &ClickEvent, window, cx| this.open_palette(window, cx)),
             ),
         )
         .child(
-            action_row("batches", "▣", "Batches", "", app.batches_only, t).on_click(cx.listener(
-                |this, _: &ClickEvent, _, cx| {
-                    this.batches_only = !this.batches_only;
-                    cx.notify();
-                },
-            )),
+            action_row("batches", "▣", "Batches", "", batches, t).on_click(
+                cx.listener(|this, _: &ClickEvent, _, cx| this.show_page(Page::Batches, cx)),
+            ),
         )
         .child(
-            action_row("settings", "⚙", "Settings", "", app.show_settings, t).on_click(
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.show_settings = !this.show_settings;
-                    cx.notify();
-                }),
-            ),
+            action_row(
+                "settings",
+                "⚙",
+                "Settings",
+                "",
+                app.overlay == Overlay::Settings,
+                t,
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(false, cx))),
         )
 }
 
@@ -234,68 +220,8 @@ fn action_row(
         .child(div().text_color(t.muted_fg).child(key))
 }
 
-fn settings_panel(
-    app: &LgtmApp,
-    t: &Tokens,
-    _window: &mut Window,
-    cx: &mut Context<LgtmApp>,
-) -> Div {
-    let current = crate::theme::pref(cx);
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(SPACE[0]))
-        .m(px(SPACE[1]))
-        .p(px(SPACE[2]))
-        .rounded(px(RADIUS))
-        .bg(t.card)
-        .border_1()
-        .border_color(t.border)
-        .text_size(px(TEXT_SECONDARY))
-        .child(labelled("Orchestrator", app.orchestrator.clone(), t))
-        .child(labelled("Token", app.token_source, t))
-        .child(
-            div()
-                .flex()
-                .gap(px(SPACE[0]))
-                .children(crate::theme::Pref::ALL.map(|pref| {
-                    Button::new(SharedString::from(format!("theme-{}", pref.label())))
-                        .label(pref.label())
-                        .xsmall()
-                        .ghost()
-                        .selected(pref == current)
-                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                            crate::theme::set_pref(pref, window, cx);
-                            cx.notify();
-                        }))
-                })),
-        )
-}
-
-fn labelled(label: &'static str, value: impl Into<SharedString>, t: &Tokens) -> Div {
-    div()
-        .flex()
-        .justify_between()
-        .gap(px(SPACE[1]))
-        .child(div().text_color(t.muted_fg).child(label))
-        .child(div().flex_1().text_right().truncate().child(value.into()))
-}
-
 fn repository_groups(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
-    let filter = app.search_query(cx).to_lowercase();
-    let visible: Vec<Task> = app
-        .tasks
-        .iter()
-        .filter(|task| !app.batches_only || task.spec.batch.is_some())
-        .filter(|task| {
-            filter.is_empty()
-                || task.spec.prompt.to_lowercase().contains(&filter)
-                || repo_slug(&task.spec.repository)
-                    .to_lowercase()
-                    .contains(&filter)
-        })
-        .cloned()
-        .collect();
+    let visible: Vec<Task> = app.tasks.clone();
 
     if visible.is_empty() {
         return vec![div()
@@ -321,7 +247,7 @@ fn repository_groups(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Ve
                 .text_size(px(TEXT_SECONDARY))
                 .text_color(t.muted_fg)
                 .font_weight(FontWeight::MEDIUM)
-                .child("🗀")
+                .child("📁")
                 .child(slug)
                 .into_any_element(),
         );
@@ -389,73 +315,28 @@ fn task_row(
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)))
 }
 
-fn workers(app: &LgtmApp, t: &Tokens) -> Div {
+/// One row: whether the orchestrator answered, and the way into Settings.
+fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> gpui::Stateful<Div> {
+    let status = if app.reachable {
+        let n = app.workers.len();
+        format!("Connected · {n} worker{}", if n == 1 { "" } else { "s" })
+    } else {
+        "Not connected".to_string()
+    };
     div()
-        .flex()
-        .flex_col()
-        .gap(px(2.))
-        .p(px(SPACE[1]))
-        .border_t_1()
-        .border_color(t.sidebar_border)
-        .text_size(px(TEXT_SECONDARY))
-        .child(
-            section_label("Workers", t)
-                .px(px(SPACE[1]))
-                .pb(px(SPACE[0])),
-        )
-        .when(app.workers.is_empty(), |this| {
-            this.child(
-                div()
-                    .px(px(SPACE[1]))
-                    .text_color(t.muted_fg)
-                    .child("none connected"),
-            )
-        })
-        .children(app.workers.iter().map(|worker| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[0]))
-                .h(px(ROW_H))
-                .px(px(SPACE[1]))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .child(SharedString::from(worker.info.name.clone())),
-                )
-                .when(worker.info.ephemeral, |this| {
-                    this.child(
-                        div()
-                            .px(px(SPACE[1]))
-                            .rounded(px(crate::theme::RADIUS_PILL))
-                            .bg(t.muted)
-                            .text_color(t.muted_fg)
-                            .child("ephemeral"),
-                    )
-                })
-                .child(div().text_color(t.muted_fg).child(format!(
-                    "{}/{}",
-                    worker.running.len(),
-                    worker.info.slots
-                )))
-        }))
-}
-
-/// The status bar from the reference app: `h-6`, a top border, `text-xs`.
-fn footer(app: &LgtmApp, t: &Tokens) -> Div {
-    div()
+        .id("status")
         .flex()
         .flex_shrink_0()
         .items_center()
         .gap(px(SPACE[1]))
-        .h(px(STATUS_H))
+        .h(px(FOOTER_H))
         .px(px(SPACE[2]))
         .border_t_1()
         .border_color(t.sidebar_border)
         .text_size(px(TEXT_SECONDARY))
         .text_color(t.muted_fg)
+        .cursor_pointer()
+        .hover(|this| this.bg(t.muted))
         .child(
             div()
                 .flex_shrink_0()
@@ -464,13 +345,9 @@ fn footer(app: &LgtmApp, t: &Tokens) -> Div {
                 .rounded_full()
                 .bg(if app.reachable { t.success } else { t.danger }),
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .child(SharedString::from(app.orchestrator.clone())),
-        )
+        .child(div().flex_1().min_w_0().truncate().child(status))
+        .child(div().flex_shrink_0().child("⚙"))
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(true, cx)))
 }
 
 #[cfg(test)]
