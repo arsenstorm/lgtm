@@ -123,21 +123,15 @@ fn summary(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
             div()
                 .flex()
                 .gap(px(theme::SPACE[0]))
-                .child(style_button("unified", "Unified", !split, cx))
-                .child(style_button("split", "Split", split, cx)),
+                .child(style_button(DiffStyle::Unified, !split, cx))
+                .child(style_button(DiffStyle::Split, split, cx)),
         )
 }
 
-fn style_button(
-    id: &'static str,
-    label: &'static str,
-    selected: bool,
-    cx: &mut Context<LgtmApp>,
-) -> Button {
-    let style = if id == "split" {
-        DiffStyle::Split
-    } else {
-        DiffStyle::Unified
+fn style_button(style: DiffStyle, selected: bool, cx: &mut Context<LgtmApp>) -> Button {
+    let (id, label) = match style {
+        DiffStyle::Unified => ("unified", "Unified"),
+        DiffStyle::Split => ("split", "Split"),
     };
     Button::new(id)
         .label(label)
@@ -157,32 +151,30 @@ fn tree_rows(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyEle
     tree.visible()
         .into_iter()
         .map(|node| {
-            let pad = px(theme::SPACE[2] + node.depth as f32 * INDENT);
-            // `px-3 py-1.5`, mono: the reference changed-file row.
-            let row = div()
-                .flex()
-                .items_center()
-                .gap(px(theme::SPACE[1]))
-                .pl(pad)
-                .pr(px(theme::SPACE[1]))
-                .py(px(6.))
-                .font_family(theme::MONO_FONT)
-                .text_size(px(theme::TEXT_MONO));
             if node.is_dir {
-                dir_row(row, node, t, cx)
+                dir_row(node, t, cx)
             } else {
-                file_row(app, row, node, t, cx)
+                file_row(app, node, t, cx)
             }
         })
         .collect()
 }
 
-fn dir_row(
-    row: Div,
-    node: lgtm_diff::tree::Node,
-    t: &Tokens,
-    cx: &mut Context<LgtmApp>,
-) -> AnyElement {
+/// `px-3 py-1.5`, mono: the reference changed-file row, indented by depth.
+fn tree_row(depth: usize) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(theme::SPACE[1]))
+        .pl(px(theme::SPACE[2] + depth as f32 * INDENT))
+        .pr(px(theme::SPACE[1]))
+        .py(px(6.))
+        .font_family(theme::MONO_FONT)
+        .text_size(px(theme::TEXT_MONO))
+}
+
+fn dir_row(node: lgtm_diff::tree::Node, t: &Tokens, cx: &mut Context<LgtmApp>) -> AnyElement {
+    let row = tree_row(node.depth);
     let path = node.path.clone();
     let chevron = if node.expanded {
         "chevron-down"
@@ -206,11 +198,11 @@ fn dir_row(
 
 fn file_row(
     app: &LgtmApp,
-    row: Div,
     node: lgtm_diff::tree::Node,
     t: &Tokens,
     cx: &mut Context<LgtmApp>,
 ) -> AnyElement {
+    let row = tree_row(node.depth);
     let Some(index) = app.review.files.iter().position(|f| f.name == node.path) else {
         return row.into_any_element();
     };
