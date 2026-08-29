@@ -15,6 +15,7 @@ mod render;
 mod review;
 mod settings;
 mod sidebar;
+mod tasks;
 mod theme;
 mod titlebar;
 

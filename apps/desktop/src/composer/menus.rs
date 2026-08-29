@@ -3,7 +3,7 @@
 use super::{ABOVE_ROW, CARD_INSET, MENU_W, REAR_H, REAR_INSET, ROW_H, SMALL_MENU_W};
 use crate::app::LgtmApp;
 use crate::home::{Chip, AUTO_WORKER};
-use crate::sidebar::repo_slug;
+use crate::tasks::repo_slug;
 use crate::theme::{field, icon, lighten, Tokens, ICON, RADIUS, SPACE, TEXT_ROW, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{

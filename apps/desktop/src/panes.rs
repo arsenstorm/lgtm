@@ -5,7 +5,7 @@ mod tabs;
 use crate::app::{LgtmApp, Pane};
 use crate::labels::{header_preview, status_label};
 use crate::net::Action;
-use crate::sidebar::repo_slug;
+use crate::tasks::repo_slug;
 use crate::theme::{
     field, icon, tokens, Tokens, HEADER_H, LINE_MONO, MONO_FONT, RADIUS_PILL, SPACE, TEXT_MONO,
     TEXT_SECONDARY,

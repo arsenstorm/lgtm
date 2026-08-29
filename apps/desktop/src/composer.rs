@@ -10,7 +10,7 @@ mod menus;
 use crate::app::LgtmApp;
 use crate::home::Chip;
 use crate::home::AUTO_WORKER;
-use crate::sidebar::repo_slug;
+use crate::tasks::repo_slug;
 use crate::theme::{icon, Tokens, ICON, SPACE, TEXT_BODY, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{

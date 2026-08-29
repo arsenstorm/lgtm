@@ -2,7 +2,7 @@
 
 use crate::app::{LgtmApp, Page};
 use crate::labels::{prompt_preview, status_label};
-use crate::sidebar::repo_slug;
+use crate::tasks::repo_slug;
 use crate::theme::{
     panel, scrim, section_label, tokens, Pref, Tokens, ROW_H, SPACE, TEXT_SECONDARY,
 };
