@@ -9,14 +9,15 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use lgtm_protocol::{
-    Executor, OutputStream, Policy, Review, Task, TaskEvent, TaskKind, TaskResult, ValidationResult,
+    Executor, OutputStream, Policy, Review, SandboxProfile, Task, TaskEvent, TaskKind, TaskResult,
+    ValidationResult,
 };
 use tokio::process::Command;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use crate::connection::Ctx;
-use crate::git::{branch_name, commit, session_path};
+use crate::git::{branch_name, commit, mirror_path, session_path};
 use crate::plan::extract_plan;
 use crate::policy::{
     effective_sandbox, failed_names, fix_prompt, load_policy, parse_review, review_prompt,
@@ -26,6 +27,7 @@ use crate::proc::{
     cost_buffer, cost_total, final_text, tail_buffer, tail_lines, text_buffer, Cost, Pump, Sinks,
     Tail, Text,
 };
+use crate::sandbox;
 use crate::validate::{load_validation, run_validation, tail};
 
 /// Commit subject for the follow-up run that fixed the checks.
@@ -75,6 +77,9 @@ pub struct Run<'a> {
     cost: Cost,
     /// The repository's `timeout_secs`, known only once `execute` has read it.
     timeout: Duration,
+    /// The profile every run of this task is confined by, known at the same
+    /// point as the timeout.
+    sandbox: SandboxProfile,
 }
 
 impl<'a> Run<'a> {
@@ -91,6 +96,7 @@ impl<'a> Run<'a> {
             cancel,
             cost: cost_buffer(),
             timeout: Duration::from_secs(3600),
+            sandbox: SandboxProfile::default(),
         }
     }
 }
@@ -99,10 +105,8 @@ impl<'a> Run<'a> {
 pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> Result<()> {
     let policy = load_policy(run.worktree);
     run.timeout = Duration::from_secs(policy.timeout_secs);
-    tracing::info!(
-        profile = effective_sandbox(&run.task.spec, &policy).as_str(),
-        "sandbox profile (not enforced yet)"
-    );
+    run.sandbox = effective_sandbox(&run.task.spec, &policy);
+    tracing::info!(profile = run.sandbox.as_str(), "sandbox profile");
     if run.task.spec.kind == TaskKind::Plan {
         return run.plan(prompt, policy).await;
     }
@@ -371,31 +375,44 @@ impl Run<'_> {
     }
 
     fn command(&self, path: &Path, opts: &RunOpts<'_>) -> Command {
-        let mut cmd = Command::new(path);
-        match self.task.spec.executor {
-            Executor::Claude => {
-                cmd.args(["-p", opts.prompt]);
-                if let Some(session) = opts.resume.as_ref() {
-                    cmd.args(["--resume", session]);
-                }
-                cmd.args([
-                    "--output-format",
-                    "stream-json",
-                    "--verbose",
-                    "--permission-mode",
-                    opts.permission,
-                ]);
-            }
-            Executor::Codex => {
-                cmd.args(["exec", opts.prompt]);
-            }
+        let mirror = mirror_path(&self.ctx.data_dir, &self.task.spec.repository);
+        let home = sandbox::home_dir(self.worktree);
+        let paths = sandbox::Paths {
+            worktree: self.worktree,
+            mirror: &mirror,
+            home: &home,
         };
+        let wrapped = sandbox::wrap(self.sandbox, &paths, path, &self.args(opts));
+        let mut cmd = Command::new(wrapped.program);
+        cmd.args(wrapped.args);
+        if self.sandbox != SandboxProfile::Off {
+            cmd.env_clear()
+                .envs(std::env::vars().filter(|(name, _)| sandbox::keep_env(name)));
+        }
         cmd.current_dir(self.worktree)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         cmd
+    }
+
+    fn args(&self, opts: &RunOpts<'_>) -> Vec<String> {
+        let mut args: Vec<String> = match self.task.spec.executor {
+            Executor::Claude => vec!["-p".into(), opts.prompt.into()],
+            Executor::Codex => return vec!["exec".into(), opts.prompt.into()],
+        };
+        if let Some(session) = opts.resume.as_ref() {
+            args.extend(["--resume".to_string(), session.clone()]);
+        }
+        args.extend([
+            "--output-format".into(),
+            "stream-json".into(),
+            "--verbose".into(),
+            "--permission-mode".into(),
+            opts.permission.into(),
+        ]);
+        args
     }
 }
 

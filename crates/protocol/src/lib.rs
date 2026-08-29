@@ -36,7 +36,7 @@ impl Executor {
 }
 
 /// How much of the host an agent run may touch. Enforcement is the runner's
-/// job and lands per platform; until then the profile is recorded, not applied.
+/// job and is per platform, so a profile can mean less than it says here.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SandboxProfile {

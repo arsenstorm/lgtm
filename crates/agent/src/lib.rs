@@ -7,6 +7,9 @@ mod plan;
 mod policy;
 mod proc;
 mod runner;
+/// Public so the seatbelt and bubblewrap builders stay compiled, and tested,
+/// on every platform.
+pub mod sandbox;
 mod validate;
 
 use std::path::{Path, PathBuf};
