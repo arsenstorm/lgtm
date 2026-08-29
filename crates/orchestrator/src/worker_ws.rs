@@ -9,8 +9,12 @@ use axum::extract::State;
 use axum::response::Response;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
-use lgtm_protocol::{OrchestratorMessage, TaskEvent, TaskId, WorkerInfo, WorkerMessage};
+use lgtm_protocol::{
+    OrchestratorMessage, TaskEvent, TaskId, TaskStatus, WorkerInfo, WorkerMessage,
+};
 use tokio::sync::mpsc;
+
+use crate::policy::AutoAction;
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a worker's tasks survive its socket, so a restarting agent or a
@@ -100,13 +104,42 @@ async fn hello(
     Some((info, running))
 }
 
+/// Approves a completed task the policy says needs no one to look at it. The
+/// `Pushed` the worker sends back is what actually moves it to `Approved`.
+fn auto_approve(app: &App, state: &mut crate::state::State, task_id: &str) {
+    let Some(task) = state.tasks.get(task_id).map(|rec| rec.task.clone()) else {
+        return;
+    };
+    if crate::policy::auto_action(&task) != Some(AutoAction::Approve) {
+        return;
+    }
+    // Asking the worker first, so a task is not marked auto-approved by an
+    // event no one can act on.
+    if let Err(err) = state.command(
+        task_id,
+        &[TaskStatus::AwaitingReview],
+        "task is not awaiting review",
+        |task_id| OrchestratorMessage::Push { task_id },
+    ) {
+        tracing::warn!(task = %task_id, ?err, "auto-approve skipped");
+        return;
+    }
+    tracing::info!(task = %task_id, "auto-approved by policy");
+    let changed = state.apply_event(task_id, TaskEvent::AutoApproved);
+    app.persist_ids(state, &changed);
+}
+
 fn apply(app: &Arc<App>, task_id: &str, event: TaskEvent) {
     let pushed = matches!(event, TaskEvent::Pushed { .. });
+    let completed = matches!(event, TaskEvent::Completed { .. });
     let (previous, plan) = {
         let mut state = app.state.lock().unwrap();
         let previous = state.tasks.get(task_id).map(|rec| rec.task.status);
         let changed = state.apply_event(task_id, event);
         app.persist_ids(&state, &changed);
+        if completed {
+            auto_approve(app, &mut state, task_id);
+        }
         let plan = pushed
             .then(|| state.pull_request_plan(task_id, app.github.is_some()))
             .flatten();

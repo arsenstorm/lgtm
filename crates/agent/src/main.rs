@@ -1,8 +1,10 @@
 //! lgtm worker agent: connects out to the orchestrator and runs coding tasks.
 
+mod automation;
 mod connection;
 mod git;
 mod plan;
+mod policy;
 mod proc;
 mod runner;
 mod validate;

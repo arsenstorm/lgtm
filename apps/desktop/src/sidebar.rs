@@ -79,7 +79,13 @@ pub fn render_sidebar(app: &mut LgtmApp, cx: &mut Context<LgtmApp>) -> Div {
 
 fn task_row(task: &Task, tasks: &[Task], active: bool, cx: &App) -> Stateful<Div> {
     let mut status = status_label(task, tasks).to_string();
-    if task.result.as_ref().is_some_and(|r| r.validation_failed()) {
+    let failing = task.result.as_ref().is_some_and(|r| {
+        r.validation_failed()
+            || r.review
+                .as_ref()
+                .is_some_and(|review| review.has_blocking())
+    });
+    if failing {
         status.push('!');
     }
     if let Some(pr) = &task.pull_request {

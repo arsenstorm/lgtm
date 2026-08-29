@@ -5,6 +5,7 @@ mod github;
 mod linear;
 mod persist;
 mod plan;
+mod policy;
 mod state;
 mod worker_ws;
 

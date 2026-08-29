@@ -42,7 +42,7 @@ pub fn extract_plan(text: &str) -> Result<Plan> {
 }
 
 /// The last ```json block, or the last fence holding something object-shaped.
-fn last_json_block(text: &str) -> Option<&str> {
+pub(crate) fn last_json_block(text: &str) -> Option<&str> {
     let mut found = None;
     let mut rest = text;
     while let Some(start) = rest.find("```") {

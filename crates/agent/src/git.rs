@@ -181,6 +181,9 @@ pub async fn commit(
         changed_files: names.lines().map(str::to_string).collect(),
         validation: Vec::new(),
         plan: None,
+        review: None,
+        policy: None,
+        cost_usd: 0.0,
     })
 }
 

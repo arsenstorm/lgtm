@@ -1,13 +1,15 @@
 //! GitHub side effects: opening the pull request and following its checks.
 //! Every call here runs off the state lock, on its own task.
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
 use lgtm_github::Repo;
-use lgtm_protocol::{CiState, TaskId, TaskStatus};
+use lgtm_protocol::{CiState, Task, TaskEvent, TaskId, TaskStatus};
 
-use crate::state::{App, PrPlan};
+use crate::policy::{auto_action, AutoAction};
+use crate::state::{App, CmdError, PrPlan};
 
 const CI_POLL: Duration = Duration::from_secs(60);
 /// Give up after this many consecutive check failures, so a revoked token or a
@@ -50,6 +52,104 @@ pub fn open_pull_request(app: Arc<App>, task_id: TaskId, plan: PrPlan) {
     });
 }
 
+/// Why a merge could not happen: a state the task is in, or GitHub itself.
+#[derive(Debug)]
+pub enum MergeError {
+    Cmd(CmdError),
+    Github(anyhow::Error),
+}
+
+impl From<CmdError> for MergeError {
+    fn from(err: CmdError) -> Self {
+        MergeError::Cmd(err)
+    }
+}
+
+impl fmt::Display for MergeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MergeError::Cmd(CmdError::NotFound) => write!(f, "task not found"),
+            MergeError::Cmd(CmdError::Conflict(msg)) => write!(f, "{msg}"),
+            MergeError::Github(err) => write!(f, "github: {err:#}"),
+        }
+    }
+}
+
+fn conflict(msg: impl Into<String>) -> MergeError {
+    MergeError::Cmd(CmdError::Conflict(msg.into()))
+}
+
+/// Merges an approved task's pull request and records it, for the merge route
+/// and for the CI poller's auto-merge alike. The GitHub calls run off the lock.
+pub async fn merge_task(app: &Arc<App>, id: &str) -> Result<Task, MergeError> {
+    let (github, repo, number) = {
+        let state = app.state.lock().unwrap();
+        let task = state
+            .tasks
+            .get(id)
+            .map(|rec| &rec.task)
+            .ok_or(MergeError::Cmd(CmdError::NotFound))?;
+        if task.status != TaskStatus::Approved {
+            return Err(conflict("task is not approved"));
+        }
+        let pull = task
+            .pull_request
+            .as_ref()
+            .ok_or_else(|| conflict("task has no pull request"))?;
+        match task.ci.as_ref().map(|ci| ci.state) {
+            Some(CiState::Success) => {}
+            Some(CiState::Failure) => return Err(conflict("ci is failing")),
+            Some(CiState::Pending) | None => return Err(conflict("ci is pending")),
+        }
+        let repo = lgtm_github::parse_repo(&task.spec.repository).ok_or_else(|| {
+            conflict(format!("unrecognised repository: {}", task.spec.repository))
+        })?;
+        let github = app
+            .github
+            .clone()
+            .ok_or_else(|| conflict("GITHUB_TOKEN is not configured"))?;
+        (github, repo, pull.number)
+    };
+    match github.pull_mergeable(&repo, number).await {
+        Ok(Some(true)) => {}
+        Ok(Some(false)) => return Err(conflict("pull request is not mergeable")),
+        Ok(None) => return Err(conflict("pull request mergeability is unknown, retry")),
+        Err(err) => return Err(MergeError::Github(err)),
+    }
+    github
+        .merge_pull(&repo, number)
+        .await
+        .map_err(MergeError::Github)?;
+    let task = {
+        let mut state = app.state.lock().unwrap();
+        let (task, changed) = state.mark_merged(id)?;
+        app.persist_ids(&state, &changed);
+        task
+    };
+    crate::linear::after_transition(app, id, TaskStatus::Approved, false);
+    Ok(task)
+}
+
+/// Merges a task the policy says needs no one's say-so, once its checks passed.
+async fn auto_merge(app: &Arc<App>, task_id: &TaskId) {
+    match merge_task(app, task_id).await {
+        Ok(_) => {
+            tracing::info!(task = %task_id, "auto-merged by policy");
+            let mut state = app.state.lock().unwrap();
+            let changed = state.apply_event(task_id, TaskEvent::AutoMerged);
+            app.persist_ids(&state, &changed);
+        }
+        Err(err) => {
+            tracing::warn!(task = %task_id, %err, "auto-merge failed");
+            let mut state = app.state.lock().unwrap();
+            if let Some(rec) = state.tasks.get_mut(task_id) {
+                rec.task.error = Some(format!("auto-merge: {err}"));
+            }
+            app.persist_ids(&state, std::slice::from_ref(task_id));
+        }
+    }
+}
+
 /// Follows the checks for one pushed sha until they settle, the task leaves
 /// `Approved`, or GitHub keeps failing.
 pub fn poll_ci(app: Arc<App>, task_id: TaskId, repo: Repo, sha: String) {
@@ -63,7 +163,7 @@ pub fn poll_ci(app: Arc<App>, task_id: TaskId, repo: Repo, sha: String) {
                 Ok(status) => {
                     errors = 0;
                     let settled = status.state != CiState::Pending;
-                    {
+                    let merge = {
                         let mut state = app.state.lock().unwrap();
                         let Some(rec) = state.tasks.get_mut(&task_id) else {
                             return;
@@ -72,7 +172,12 @@ pub fn poll_ci(app: Arc<App>, task_id: TaskId, repo: Repo, sha: String) {
                             return;
                         }
                         rec.task.ci = Some(status);
+                        let merge = auto_action(&rec.task) == Some(AutoAction::Merge);
                         app.persist_ids(&state, std::slice::from_ref(&task_id));
+                        merge
+                    };
+                    if merge {
+                        auto_merge(&app, &task_id).await;
                     }
                     if settled {
                         return;
