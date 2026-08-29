@@ -2,6 +2,7 @@
 
 mod api;
 mod backlog;
+mod commands;
 mod github;
 mod linear;
 pub mod local;
