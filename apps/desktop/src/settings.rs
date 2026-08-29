@@ -118,52 +118,51 @@ fn orchestrator(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
             },
             t,
         ))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .child(div().w(px(120.)).text_color(t.muted_fg).child("Connection"))
-                .child(
-                    div()
-                        .w(px(6.))
-                        .h(px(6.))
-                        .rounded_full()
-                        .bg(if app.reachable { t.success } else { t.danger }),
-                )
-                .child(if app.reachable {
-                    "Connected"
-                } else {
-                    "Unreachable"
-                }),
-        )
+        .child(connection_row(app.reachable, t))
         .child(line("Token", token, t))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .child(div().w(px(120.)).text_color(t.muted_fg).child("Embedded"))
-                .child(
-                    Switch::new("embedded-orchestrator")
-                        .checked(app.embedded)
-                        .label("Run the orchestrator inside this app")
-                        .small()
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.embedded = *checked;
-                            let dir = lgtm_orchestrator::token::data_dir(None);
-                            if let Err(e) = crate::save_embedded(&dir, *checked) {
-                                this.set_error(format!("cannot save the setting: {e}"), cx);
-                            }
-                            cx.notify();
-                        })),
-                ),
-        )
+        .child(embedded_row(app.embedded, t, cx))
         .child(
             div()
                 .pl(px(120. + SPACE[1]))
                 .text_color(t.muted_fg)
                 .child("Takes effect the next time you open the app."),
+        )
+}
+
+fn connection_row(reachable: bool, t: &Tokens) -> Div {
+    let (tone, word) = if reachable {
+        (t.success, "Connected")
+    } else {
+        (t.danger, "Unreachable")
+    };
+    div()
+        .flex()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .child(div().w(px(120.)).text_color(t.muted_fg).child("Connection"))
+        .child(div().w(px(6.)).h(px(6.)).rounded_full().bg(tone))
+        .child(word)
+}
+
+fn embedded_row(embedded: bool, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .child(div().w(px(120.)).text_color(t.muted_fg).child("Embedded"))
+        .child(
+            Switch::new("embedded-orchestrator")
+                .checked(embedded)
+                .label("Run the orchestrator inside this app")
+                .small()
+                .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                    this.embedded = *checked;
+                    let dir = lgtm_orchestrator::token::data_dir(None);
+                    if let Err(e) = crate::save_embedded(&dir, *checked) {
+                        this.set_error(format!("cannot save the setting: {e}"), cx);
+                    }
+                    cx.notify();
+                })),
         )
 }
 
@@ -220,7 +219,6 @@ fn workers(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .join
         .clone()
         .unwrap_or_else(|| join_line(&app.orchestrator, &app.token));
-    let copy = join.clone();
     section("Workers", t)
         .when(app.workers.is_empty(), |this| {
             this.child(div().text_color(t.muted_fg).child("None connected"))
@@ -244,33 +242,37 @@ fn workers(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                 .text_color(t.muted_fg)
                 .child("Add a machine — paste this on it:"),
         )
+        .child(join_row(join, t, cx))
+}
+
+/// The join line in a mono box, with a Copy button beside it.
+fn join_row(join: String, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let copy = join.clone();
+    div()
+        .flex()
+        .items_center()
+        .gap(px(SPACE[1]))
         .child(
             div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .px(px(SPACE[1]))
-                        .py(px(SPACE[0]))
-                        .rounded(px(RADIUS))
-                        .bg(t.muted)
-                        .font_family(MONO_FONT)
-                        .text_size(px(TEXT_MONO))
-                        .child(join),
-                )
-                .child(
-                    Button::new("copy-join")
-                        .label("Copy")
-                        .small()
-                        .outline()
-                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
-                        })),
-                ),
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .px(px(SPACE[1]))
+                .py(px(SPACE[0]))
+                .rounded(px(RADIUS))
+                .bg(t.muted)
+                .font_family(MONO_FONT)
+                .text_size(px(TEXT_MONO))
+                .child(join),
+        )
+        .child(
+            Button::new("copy-join")
+                .label("Copy")
+                .small()
+                .outline()
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+                })),
         )
 }
 
