@@ -164,22 +164,20 @@ parked until the review layer moves over.
 
 - `crates/protocol` — wire types shared by every binary
 - `crates/orchestrator` — task state, worker WebSocket, HTTP API
-- `crates/agent` — `lgtm-agent`, the worker daemon that runs Claude Code in a git worktree
+- `crates/agent` — the worker, library used by `lgtm worker`, runs Claude Code in a git worktree
 - `crates/cli` — `lgtm`, the developer command
 
-Run it locally:
+Quick start:
 
 ```sh
-export LGTM_TOKEN=change-me
-cargo run -p lgtm-cli -- serve                     # orchestrator on 0.0.0.0:4750
-cargo run -p lgtm-agent -- --name laptop           # a worker on the same machine
-cargo run -p lgtm-cli -- run "add a HEALTH.md file"
-cargo run -p lgtm-cli -- tasks
-cargo run -p lgtm-cli -- approve <id>              # pushes lgtm/<id> to origin
+cargo install --path crates/cli
+lgtm serve                          # runs a local worker too; prints a join line for other machines
+lgtm run "add a HEALTH.md file"     # from any repo with an origin
 ```
 
-On a remote worker, point `lgtm-agent --orchestrator ws://<host>:4750` at the
-machine running `lgtm serve`. Checks: `cargo fmt --all --check`,
+To add another machine, paste the printed `lgtm worker …` line on it.
+
+Checks: `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
 
 ### Remote and ephemeral workers
