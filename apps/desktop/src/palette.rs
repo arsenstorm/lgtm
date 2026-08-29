@@ -43,6 +43,8 @@ impl Act {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Kind {
     Task(String),
+    /// A repository slug, as the project page keys them.
+    Project(String),
     Repository(String),
     Action(Act),
 }
@@ -104,6 +106,13 @@ pub fn build_groups(query: &str, tasks: &[Task], repos: &[String]) -> Vec<Group>
             hint,
         )
     });
+    let project_items = project_slugs(repos).into_iter().map(|slug| {
+        (
+            Kind::Project(slug.clone()),
+            format!("Open project {slug}"),
+            String::new(),
+        )
+    });
     let repo_items = repos
         .iter()
         .map(|url| (Kind::Repository(url.clone()), repo_slug(url), String::new()));
@@ -112,12 +121,24 @@ pub fn build_groups(query: &str, tasks: &[Task], repos: &[String]) -> Vec<Group>
         .map(|(act, label)| (Kind::Action(*act), (*label).to_string(), String::new()));
     [
         group("Tasks", task_items, query),
+        group("Projects", project_items, query),
         group("Repositories", repo_items, query),
         group("Actions", action_items, query),
     ]
     .into_iter()
     .filter(|group| !group.items.is_empty())
     .collect()
+}
+
+/// One slug per project, first seen first — two clone URLs can share one.
+fn project_slugs(repos: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for slug in repos.iter().map(|url| repo_slug(url)) {
+        if !out.contains(&slug) {
+            out.push(slug);
+        }
+    }
+    out
 }
 
 /// The entries of `candidates` (kind, label, hint) that match `query`.
@@ -160,6 +181,7 @@ fn activate(app: &mut LgtmApp, kind: Kind, window: &mut Window, cx: &mut Context
     app.close_overlay(window, cx);
     match kind {
         Kind::Task(id) => app.select(id, cx),
+        Kind::Project(slug) => app.open_project(slug, None, cx),
         Kind::Repository(url) => {
             app.composer.project = Some(url);
             app.show_page(Page::Home, cx);
@@ -396,8 +418,10 @@ mod tests {
 
         let all = build_groups("", &tasks, &repos);
         let titles: Vec<&str> = all.iter().map(|group| group.title).collect();
-        assert_eq!(titles, vec!["Tasks", "Repositories", "Actions"]);
-        assert_eq!(all[1].items[0].label, "one");
-        assert_eq!(all[2].items.len(), Act::ALL.len());
+        assert_eq!(titles, vec!["Tasks", "Projects", "Repositories", "Actions"]);
+        assert_eq!(all[1].items[0].kind, Kind::Project("one".into()));
+        assert_eq!(all[1].items[0].label, "Open project one");
+        assert_eq!(all[2].items[0].label, "one");
+        assert_eq!(all[3].items.len(), Act::ALL.len());
     }
 }

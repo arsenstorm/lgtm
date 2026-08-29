@@ -192,7 +192,7 @@ fn age(created_at: u64, t: &Tokens) -> Div {
         .child(format!("{} ago", relative_age(created_at, now_ms())))
 }
 
-fn task_row(
+pub(crate) fn task_row(
     app: &LgtmApp,
     task: &Task,
     t: &Tokens,
@@ -224,7 +224,7 @@ fn task_row(
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)))
 }
 
-fn pill(state: &'static str, count: usize, t: &Tokens) -> Div {
+pub(crate) fn pill(state: &'static str, count: usize, t: &Tokens) -> Div {
     let tone = match state {
         "review" => t.warning,
         "running" => t.info,

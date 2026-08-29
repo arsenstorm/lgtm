@@ -2,6 +2,7 @@
 
 use crate::app::{LgtmApp, Overlay, Page, Pane, ERROR_TTL, STARTING};
 use crate::net::{self, Action, Msg};
+use crate::project::ProjectTab;
 use crate::{home, render, settings};
 use gpui::{Context, Window};
 use lgtm_protocol::Task;
@@ -9,12 +10,16 @@ use lgtm_protocol::Task;
 impl LgtmApp {
     pub(crate) fn apply(&mut self, msg: Msg, window: &mut Window, cx: &mut Context<Self>) {
         match msg {
-            Msg::Lists(Ok((mut tasks, workers, batches))) => {
-                tasks.sort_by_key(|task| std::cmp::Reverse(task.created_at));
-                self.announce(&tasks, cx);
-                self.tasks = tasks;
-                self.workers = workers;
-                self.batches = batches;
+            Msg::Lists(Ok(mut lists)) => {
+                lists
+                    .tasks
+                    .sort_by_key(|task| std::cmp::Reverse(task.created_at));
+                self.announce(&lists.tasks, cx);
+                self.tasks = lists.tasks;
+                self.workers = lists.workers;
+                self.batches = lists.batches;
+                self.goals = lists.goals;
+                self.stats = lists.stats.or_else(|| self.stats.take());
                 self.link.reachable = true;
             }
             Msg::Lists(Err(_)) => self.link.reachable = false,
@@ -188,6 +193,22 @@ impl LgtmApp {
         self.page = page;
         self.ui.overlay = Overlay::None;
         cx.notify();
+    }
+
+    /// Opens a project page. A goal id lands on the Goals tab, scrolled to it.
+    pub fn open_project(&mut self, slug: String, goal: Option<String>, cx: &mut Context<Self>) {
+        self.ui.project_tab = match &goal {
+            Some(_) => ProjectTab::Goals,
+            None => ProjectTab::Overview,
+        };
+        if let Some(id) = goal {
+            let at = crate::project::goals_of(self, &slug)
+                .iter()
+                .position(|summary| summary.goal.id == id)
+                .unwrap_or(0);
+            self.ui.project_scroll.scroll_to_top_of_item(at);
+        }
+        self.show_page(Page::Project(slug), cx);
     }
 
     pub fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -5,7 +5,7 @@
 //! back over an unbounded channel that the GPUI side drains (see `App::pump`).
 
 use lgtm_client::{BatchRequest, BatchResponse, Client, TaskDetail};
-use lgtm_protocol::{Batch, StoredEvent, Task, TaskSpec, WorkerStatus};
+use lgtm_protocol::{Batch, GoalSummary, Stats, StoredEvent, Task, TaskSpec, WorkerStatus};
 use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -13,11 +13,22 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
+/// Stats are computed over every task the orchestrator has, so they ride
+/// along on one poll in ten rather than on all of them.
+const STATS_EVERY: u32 = 10;
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 
 pub type Sender = UnboundedSender<Msg>;
 
-type Lists = (Vec<Task>, Vec<WorkerStatus>, Vec<Batch>);
+/// One refresh of everything the chrome lists.
+pub struct Lists {
+    pub tasks: Vec<Task>,
+    pub workers: Vec<WorkerStatus>,
+    pub batches: Vec<Batch>,
+    pub goals: Vec<GoalSummary>,
+    /// `None` on the polls that skipped stats; the view keeps the last ones.
+    pub stats: Option<Stats>,
+}
 
 pub enum Msg {
     Lists(Result<Lists, String>),
@@ -65,10 +76,13 @@ pub fn reachable(orchestrator: &str, token: &str) -> bool {
 /// Refreshes the task and worker lists every two seconds, forever.
 pub fn poll(client: Client, tx: Sender) {
     runtime().spawn(async move {
+        let mut tick = 0u32;
         loop {
-            if tx.send(Msg::Lists(fetch_lists(&client).await)).is_err() {
+            let lists = fetch_lists(&client, tick.is_multiple_of(STATS_EVERY)).await;
+            if tx.send(Msg::Lists(lists)).is_err() {
                 return;
             }
+            tick = tick.wrapping_add(1);
             tokio::time::sleep(POLL_INTERVAL).await;
         }
     });
@@ -77,16 +91,27 @@ pub fn poll(client: Client, tx: Sender) {
 /// One immediate list refresh, so an action's effect shows before the next poll.
 pub fn refresh(client: Client, tx: Sender) {
     runtime().spawn(async move {
-        let _ = tx.send(Msg::Lists(fetch_lists(&client).await));
+        let _ = tx.send(Msg::Lists(fetch_lists(&client, false).await));
     });
 }
 
-async fn fetch_lists(client: &Client) -> Result<Lists, String> {
+async fn fetch_lists(client: &Client, with_stats: bool) -> Result<Lists, String> {
     let tasks = client.tasks().await.map_err(|e| e.to_string())?;
     let workers = client.workers().await.map_err(|e| e.to_string())?;
-    // A failing batches call must not take down the whole refresh.
+    // A failing secondary call must not take down the whole refresh.
     let batches = client.batches().await.unwrap_or_default();
-    Ok((tasks, workers, batches))
+    let goals = client.goals().await.unwrap_or_default();
+    let stats = match with_stats {
+        true => client.stats(None).await.ok(),
+        false => None,
+    };
+    Ok(Lists {
+        tasks,
+        workers,
+        batches,
+        goals,
+        stats,
+    })
 }
 
 /// Loads the task's stored events, then streams live ones until the task ends.

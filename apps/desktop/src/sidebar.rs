@@ -3,7 +3,8 @@
 
 use crate::app::{LgtmApp, Overlay, Page};
 use crate::labels::prompt_preview;
-use crate::tasks::group_by_repo;
+use crate::project::goals_of;
+use crate::tasks::{goal_color, group_by_repo};
 use crate::theme::{
     icon, icon_button, tokens, Tokens, FOOTER_H, ICON, ROW_H, SPACE, TEXT_BODY, TEXT_ROW,
     TEXT_SECONDARY,
@@ -14,7 +15,7 @@ use gpui::{
     IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
     Window,
 };
-use lgtm_protocol::{Task, TaskStatus};
+use lgtm_protocol::{GoalSummary, Task, TaskStatus};
 
 pub const WIDTH: f32 = 240.;
 const PROMPT_PREVIEW: usize = 34;
@@ -163,33 +164,87 @@ fn repository_groups(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Ve
     }
 
     for (slug, rows) in group_by_repo(&app.tasks) {
-        let key = format!("repo:{slug}");
-        let expanded = app.ui.expanded.contains(&key);
-        let hidden = rows.len().saturating_sub(PER_PROJECT);
-        out.push(repo_header(slug, t));
-        let shown = if expanded { rows.len() } else { PER_PROJECT };
-        for task in rows.into_iter().take(shown) {
-            out.push(task_row(app, task, t, cx).into_any_element());
-        }
-        if hidden > 0 && !expanded {
-            out.push(show_more(key, t, cx));
-        }
+        out.extend(project_group(app, &slug, rows, t, cx));
     }
     out
 }
 
-fn repo_header(slug: String, t: &Tokens) -> AnyElement {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(SPACE[1]))
-        .h(px(ROW_H))
-        .px(px(SPACE[1]))
-        .text_size(px(TEXT_ROW))
+/// A project: its header, then its goals, then the tasks no goal claims.
+fn project_group(
+    app: &LgtmApp,
+    slug: &str,
+    rows: Vec<&Task>,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Vec<AnyElement> {
+    let loose: Vec<&Task> = rows
+        .into_iter()
+        .filter(|task| task.spec.goal.is_none())
+        .collect();
+    let key = format!("repo:{slug}");
+    let shown = match app.ui.expanded.contains(&key) {
+        true => loose.len(),
+        false => PER_PROJECT,
+    };
+    let mut out = vec![repo_header(app, slug, t, cx).into_any_element()];
+    out.extend(
+        goals_of(app, slug)
+            .into_iter()
+            .map(|summary| goal_row(slug, summary, t, cx).into_any_element()),
+    );
+    out.extend(
+        loose
+            .iter()
+            .take(shown)
+            .map(|task| task_row(app, task, t, cx).into_any_element()),
+    );
+    if loose.len() > shown {
+        out.push(show_more(key, t, cx));
+    }
+    out
+}
+
+fn repo_header(
+    app: &LgtmApp,
+    slug: &str,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> gpui::Stateful<Div> {
+    let active = app.page == Page::Project(slug.to_string()) && app.selected.is_none();
+    let open = slug.to_string();
+    row_shell(SharedString::from(format!("repo-{slug}")), active, t)
         .text_color(t.fg)
         .child(icon("folder", ICON, t.muted_fg))
-        .child(div().min_w_0().truncate().child(slug))
-        .into_any_element()
+        .child(div().min_w_0().truncate().child(slug.to_string()))
+        .on_click(
+            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.open_project(open.clone(), None, cx)
+            }),
+        )
+}
+
+/// A goal under its project: the objective, dotted with how it is going.
+fn goal_row(
+    slug: &str,
+    summary: &GoalSummary,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> gpui::Stateful<Div> {
+    let id = summary.goal.id.clone();
+    let open = slug.to_string();
+    row_shell(SharedString::from(format!("goal-{id}")), false, t)
+        .pl(px(NEST))
+        .child(dot(6., goal_color(summary.status, t)))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .child(prompt_preview(&summary.goal.objective, PROMPT_PREVIEW)),
+        )
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.open_project(open.clone(), Some(id.clone()), cx)
+        }))
 }
 
 fn show_more(key: String, t: &Tokens, cx: &mut Context<LgtmApp>) -> AnyElement {
