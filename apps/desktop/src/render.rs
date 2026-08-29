@@ -5,6 +5,7 @@
 //! in as its own events, so raw stdout is only shown when it is not
 //! stream-json, plus the failed `result` line.
 
+use lgtm_agent::codex_error;
 use lgtm_protocol::{OutputStream, TaskEvent};
 use serde_json::Value;
 
@@ -116,6 +117,10 @@ fn render_stdout(line: &str) -> Vec<Line> {
     };
     match value.get("type").and_then(Value::as_str) {
         Some("result") => render_result(&value),
+        Some("item.completed") | Some("turn.failed") => codex_error(&value)
+            .map(|message| Line::new(Kind::Stderr, format!("! {message}")))
+            .into_iter()
+            .collect(),
         _ => Vec::new(),
     }
 }

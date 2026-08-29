@@ -5,6 +5,7 @@
 //! not stream-json, plus the failed `result` line. The rest of that stream is
 //! bookkeeping no human wants to read.
 
+use lgtm_agent::codex_error;
 use lgtm_protocol::{
     Execution, ExecutionStatus, OutputStream, Plan, PlanVersion, Review, Severity, Stats,
     TaskEvent, ValidationResult,
@@ -249,6 +250,10 @@ fn render_stdout(line: &str, out: &mut impl Write) -> std::io::Result<()> {
     };
     match value.get("type").and_then(Value::as_str) {
         Some("result") => render_result(&value, out),
+        Some("item.completed") | Some("turn.failed") => match codex_error(&value) {
+            Some(message) => writeln!(out, "! {message}"),
+            None => Ok(()),
+        },
         _ => Ok(()),
     }
 }
@@ -301,6 +306,16 @@ mod tests {
             stream: OutputStream::Stdout,
             line: line.to_string(),
         })
+    }
+
+    #[test]
+    fn a_codex_error_prints_like_a_failed_result() {
+        let item = r#"{"type":"item.completed","item":{"type":"error","message":"boom"}}"#;
+        assert_eq!(render_line(item), "! boom\n");
+        let turn = r#"{"type":"turn.failed","error":{"message":"usage limit"}}"#;
+        assert_eq!(render_line(turn), "! usage limit\n");
+        let said = r#"{"type":"item.completed","item":{"type":"agent_message","text":"hi"}}"#;
+        assert_eq!(render_line(said), "");
     }
 
     #[test]

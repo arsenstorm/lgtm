@@ -12,6 +12,10 @@ mod runner;
 pub mod sandbox;
 mod validate;
 
+/// Both renderers print a Codex failure the way they print Claude's, so the
+/// one parser lives here rather than twice over.
+pub use proc::codex_error;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
