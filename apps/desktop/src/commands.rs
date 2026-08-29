@@ -5,7 +5,7 @@ use crate::net::{self, Action, Msg};
 use crate::project::ProjectTab;
 use crate::{home, render, settings};
 use gpui::{Context, Window};
-use lgtm_protocol::Task;
+use lgtm_protocol::{Task, TaskStatus};
 
 impl LgtmApp {
     pub(crate) fn apply(&mut self, msg: Msg, window: &mut Window, cx: &mut Context<Self>) {
@@ -32,6 +32,8 @@ impl LgtmApp {
                     .iter()
                     .flat_map(|stored| render::render(&stored.event))
                     .collect();
+                self.events = detail.events;
+                self.overlaps = detail.overlaps;
                 self.ui.content_scroll.scroll_to_bottom();
             }
             Msg::Live { generation, event } => {
@@ -39,6 +41,7 @@ impl LgtmApp {
                     return;
                 }
                 self.lines.extend(render::render(&event.event));
+                self.events.push(event);
                 self.ui.content_scroll.scroll_to_bottom();
             }
             Msg::Action(Ok(created)) => self.created(created, window, cx),
@@ -124,8 +127,14 @@ impl LgtmApp {
             stream.abort();
         }
         self.generation += 1;
-        self.lines.clear();
+        self.clear_detail();
         self.ui.show_follow_up = false;
+        self.pane = default_pane(
+            self.tasks
+                .iter()
+                .find(|task| task.id == id)
+                .map(|task| task.status),
+        );
         self.selected = Some(id.clone());
         self.stream = Some(net::watch(
             self.client.clone(),
@@ -189,7 +198,7 @@ impl LgtmApp {
         }
         self.generation += 1;
         self.selected = None;
-        self.lines.clear();
+        self.clear_detail();
         self.page = page;
         self.ui.overlay = Overlay::None;
         cx.notify();
@@ -330,5 +339,71 @@ impl LgtmApp {
     pub(crate) fn show(&mut self, pane: Pane, cx: &mut Context<Self>) {
         self.pane = pane;
         cx.notify();
+    }
+
+    /// Drops everything that belonged to the task being left.
+    fn clear_detail(&mut self) {
+        self.lines.clear();
+        self.events.clear();
+        self.overlaps.clear();
+        self.ui.editing_notes = false;
+    }
+
+    /// Opens the Changes tab at `file`. The diff is parsed here too, so a
+    /// finding can jump to a file before the tab has ever rendered.
+    pub fn open_changes_at(&mut self, file: &str, cx: &mut Context<Self>) {
+        let diff = self
+            .selected_task()
+            .and_then(|task| Some((task.id.clone(), task.result.as_ref()?.diff.clone())));
+        if let Some((id, diff)) = diff {
+            self.review.load(&id, &diff);
+        }
+        if let Some(at) = self.review.files.iter().position(|f| f.name == file) {
+            self.review.focus_file(at);
+        }
+        self.show(Pane::Changes, cx);
+    }
+
+    /// Puts the task's notes in the editor and focuses it.
+    pub fn edit_notes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let notes = self
+            .selected_task()
+            .map(|task| task.scratchpad.clone())
+            .unwrap_or_default();
+        self.inputs.notes.update(cx, |state, cx| {
+            state.set_value(notes, window, cx);
+            state.focus(window, cx);
+        });
+        self.ui.editing_notes = true;
+        cx.notify();
+    }
+
+    pub fn save_notes(&mut self, cx: &mut Context<Self>) {
+        let notes = self.inputs.notes.read(cx).value().to_string();
+        self.ui.editing_notes = false;
+        self.act(Action::SetScratchpad(notes), cx);
+    }
+}
+
+/// The tab a task opens on: the one its status makes it about.
+pub(crate) fn default_pane(status: Option<TaskStatus>) -> Pane {
+    match status {
+        Some(TaskStatus::AwaitingReview | TaskStatus::Conflicted) => Pane::Review,
+        Some(TaskStatus::Running) => Pane::Activity,
+        _ => Pane::Overview,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_default_tab_follows_what_the_task_needs() {
+        assert!(default_pane(Some(TaskStatus::AwaitingReview)) == Pane::Review);
+        assert!(default_pane(Some(TaskStatus::Conflicted)) == Pane::Review);
+        assert!(default_pane(Some(TaskStatus::Running)) == Pane::Activity);
+        assert!(default_pane(Some(TaskStatus::Merged)) == Pane::Overview);
+        assert!(default_pane(None) == Pane::Overview);
     }
 }

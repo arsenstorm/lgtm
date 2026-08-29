@@ -1,5 +1,8 @@
-//! The task view: header with status and actions, then the four tabs.
+//! The task view: header with status and actions, then its tabs.
 
+mod notes;
+mod overview;
+mod review_tab;
 mod tabs;
 
 use crate::app::{LgtmApp, Pane};
@@ -21,7 +24,7 @@ use gpui_component::tab::{Tab, TabBar};
 use gpui_component::Sizable as _;
 use lgtm_protocol::{CiState, CiStatus, Task, TaskStatus};
 
-use tabs::{activity, checks, plan_pane};
+use tabs::{activity, plan_pane};
 
 /// `h-5`, the reference badge height.
 const BADGE_H: f32 = 20.;
@@ -33,10 +36,10 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
     };
 
     let has_plan = task.result.as_ref().is_some_and(|r| r.plan.is_some());
-    // A task selected while on the Plan tab may not have a plan; fall back to
-    // Activity for that render without losing the user's tab choice.
+    // A task selected while on the Plan tab may not have a plan; fall back for
+    // that render without losing the user's tab choice.
     let pane = if app.pane == Pane::Plan && !has_plan {
-        Pane::Activity
+        Pane::Overview
     } else {
         app.pane
     };
@@ -48,17 +51,30 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
         .child(header(app, &task, &t, cx))
         .children(notices(app, &t))
         .child(div().p(px(SPACE[1])).child(tab_bar(pane, has_plan, cx)))
-        .child(match pane {
-            Pane::Changes => div()
-                .flex_1()
-                .min_h_0()
-                .child(crate::changes::changes_pane(app, window, cx))
-                .into_any_element(),
-            Pane::Checks => scrolling(app, checks(&task, &t)),
-            Pane::Plan => scrolling(app, plan_pane(&task, &t)),
-            Pane::Activity => scrolling(app, activity(app, &t)),
-        })
+        .child(body(app, pane, &task, &t, window, cx))
         .into_any_element()
+}
+
+fn body(
+    app: &mut LgtmApp,
+    pane: Pane,
+    task: &Task,
+    t: &Tokens,
+    window: &mut Window,
+    cx: &mut Context<LgtmApp>,
+) -> AnyElement {
+    match pane {
+        Pane::Changes => div()
+            .flex_1()
+            .min_h_0()
+            .child(crate::changes::changes_pane(app, window, cx))
+            .into_any_element(),
+        Pane::Overview => scrolling(app, overview::overview(app, task, t, cx)),
+        Pane::Review => scrolling(app, review_tab::review(app, task, t, cx)),
+        Pane::Notes => scrolling(app, notes::notes(app, task, t, cx)),
+        Pane::Plan => scrolling(app, plan_pane(task, t)),
+        Pane::Activity => scrolling(app, activity(app, t)),
+    }
 }
 
 /// The follow-up field and the error line, when either is showing.
@@ -85,32 +101,33 @@ fn notices(app: &LgtmApp, t: &Tokens) -> Vec<Div> {
     out
 }
 
-fn tab_bar(pane: Pane, has_plan: bool, cx: &mut Context<LgtmApp>) -> TabBar {
+/// The tabs, in order. Plan is only there for a task that produced one.
+fn tabs_for(has_plan: bool) -> Vec<(Pane, &'static str)> {
     let mut tabs = vec![
-        Tab::new().label("Activity"),
-        Tab::new().label("Changes"),
-        Tab::new().label("Checks"),
+        (Pane::Overview, "Overview"),
+        (Pane::Activity, "Activity"),
+        (Pane::Changes, "Changes"),
+        (Pane::Review, "Review"),
+        (Pane::Notes, "Notes"),
     ];
     if has_plan {
-        tabs.push(Tab::new().label("Plan"));
+        tabs.push((Pane::Plan, "Plan"));
     }
+    tabs
+}
+
+fn tab_bar(pane: Pane, has_plan: bool, cx: &mut Context<LgtmApp>) -> TabBar {
+    let tabs = tabs_for(has_plan);
+    let at = tabs.iter().position(|(one, _)| *one == pane).unwrap_or(0);
     TabBar::new("panes")
         .segmented()
         .text_size(px(TEXT_SECONDARY))
-        .selected_index(match pane {
-            Pane::Activity => 0,
-            Pane::Changes => 1,
-            Pane::Checks => 2,
-            Pane::Plan => 3,
-        })
-        .children(tabs)
-        .on_click(cx.listener(|this, index: &usize, _, cx| {
-            this.pane = match index {
-                0 => Pane::Activity,
-                1 => Pane::Changes,
-                2 => Pane::Checks,
-                _ => Pane::Plan,
-            };
+        .selected_index(at)
+        .children(tabs.iter().map(|(_, label)| Tab::new().label(*label)))
+        .on_click(cx.listener(move |this, index: &usize, _, cx| {
+            if let Some((pane, _)) = tabs_for(has_plan).get(*index) {
+                this.pane = *pane;
+            }
             cx.notify();
         }))
 }
@@ -215,7 +232,7 @@ fn link_chip(
 }
 
 /// A ghost button that reads as destructive: no fill, danger-coloured label.
-fn danger_ghost(t: &Tokens, cx: &App) -> ButtonCustomVariant {
+pub(super) fn danger_ghost(t: &Tokens, cx: &App) -> ButtonCustomVariant {
     ButtonCustomVariant::new(cx)
         .color(Hsla::transparent_black())
         .border(Hsla::transparent_black())
@@ -271,7 +288,7 @@ fn ci_passed(task: &Task) -> bool {
     )
 }
 
-fn review_actions(t: &Tokens, cx: &mut Context<LgtmApp>) -> [Button; 3] {
+pub(super) fn review_actions(t: &Tokens, cx: &mut Context<LgtmApp>) -> [Button; 3] {
     [
         Button::new("approve")
             .label("Approve")
@@ -308,7 +325,7 @@ fn status_tone(status: &str, t: &Tokens) -> Hsla {
 }
 
 /// The shadcn badge: a `bg-muted` pill, `text-xs`, coloured by what it reports.
-fn badge(label: impl Into<SharedString>, tone: Hsla, t: &Tokens) -> Div {
+pub(super) fn badge(label: impl Into<SharedString>, tone: Hsla, t: &Tokens) -> Div {
     div()
         .flex_shrink_0()
         .flex()
@@ -333,5 +350,27 @@ fn ci_mark(ci: Option<&CiStatus>, t: &Tokens) -> (Option<&'static str>, Hsla) {
         Some(CiState::Failure) => (Some("x"), t.danger),
         Some(CiState::Pending) => (Some("ellipsis"), t.muted_fg),
         None => (None, t.muted_fg),
+    }
+}
+
+/// A greyed line standing in for a section with nothing in it.
+pub(super) fn muted(text: &'static str, t: &Tokens) -> AnyElement {
+    div().text_color(t.muted_fg).child(text).into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_plan_tab_is_last_and_only_for_a_task_with_a_plan() {
+        let labels = |has_plan| -> Vec<&'static str> {
+            tabs_for(has_plan).into_iter().map(|(_, l)| l).collect()
+        };
+        assert_eq!(
+            labels(false),
+            vec!["Overview", "Activity", "Changes", "Review", "Notes"]
+        );
+        assert_eq!(labels(true).last(), Some(&"Plan"));
     }
 }

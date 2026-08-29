@@ -4,7 +4,8 @@ use crate::home::Chip;
 use crate::import::ImportForm;
 use crate::keys::{
     CloseOverlay, NewTask, OpenPalette, PaletteNext, PalettePrev, PaletteRun, SelectNext,
-    SelectPrev, ShowActivity, ShowChanges, ShowChecks, ShowPlan, Submit, ToggleSidebar, CONTEXT,
+    SelectPrev, ShowActivity, ShowChanges, ShowNotes, ShowOverview, ShowPlan, ShowReview, Submit,
+    ToggleSidebar, CONTEXT,
 };
 use crate::net::{self, Msg};
 use crate::project::ProjectTab;
@@ -19,7 +20,7 @@ use gpui::{
 };
 use gpui_component::input::{InputEvent, InputState};
 use lgtm_client::Client;
-use lgtm_protocol::{Batch, GoalSummary, Stats, Task, WorkerStatus};
+use lgtm_protocol::{Batch, GoalSummary, Overlap, Stats, StoredEvent, Task, WorkerStatus};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
@@ -31,9 +32,11 @@ pub(crate) const STARTING: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
+    Overview,
     Activity,
     Changes,
-    Checks,
+    Review,
+    Notes,
     Plan,
 }
 
@@ -93,6 +96,7 @@ pub struct Inputs {
     pub base_branch: Entity<InputState>,
     pub follow_up: Entity<InputState>,
     pub query: Entity<InputState>,
+    pub notes: Entity<InputState>,
 }
 
 impl Inputs {
@@ -103,6 +107,11 @@ impl Inputs {
             base_branch: cx.new(|cx| InputState::new(window, cx).default_value("main")),
             follow_up: field("Ask for a change…", window, cx),
             query: field("Search tasks, repositories, actions…", window, cx),
+            notes: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .multi_line(true)
+                    .auto_grow(4, 16)
+            }),
         }
     }
 }
@@ -133,6 +142,8 @@ pub struct UiState {
     pub visited: Vec<String>,
     pub visited_at: usize,
     pub show_follow_up: bool,
+    /// The Notes tab is showing its editor rather than the stored notes.
+    pub editing_notes: bool,
     pub dragging: bool,
     pub task_scroll: ScrollHandle,
     pub content_scroll: ScrollHandle,
@@ -153,6 +164,7 @@ impl Default for UiState {
             visited: Vec::new(),
             visited_at: 0,
             show_follow_up: false,
+            editing_notes: false,
             dragging: false,
             task_scroll: ScrollHandle::new(),
             content_scroll: ScrollHandle::new(),
@@ -184,6 +196,11 @@ pub struct LgtmApp {
     pub generation: u64,
     pub(crate) stream: Option<JoinHandle<()>>,
     pub lines: Vec<Line>,
+    /// The selected task's events, kept beside the rendered lines because the
+    /// Overview and Review tabs read fields the lines have already flattened.
+    pub events: Vec<StoredEvent>,
+    /// Live tasks touching the same files, as the detail call reported them.
+    pub overlaps: Vec<Overlap>,
 
     pub inputs: Inputs,
     pub import: ImportForm,
@@ -214,7 +231,7 @@ impl LgtmApp {
             stats: None,
             selected: None,
             page: Page::Home,
-            pane: Pane::Activity,
+            pane: Pane::Overview,
             review: crate::review::ReviewState::new(),
             link: Connection::new(config),
             error: None,
@@ -222,6 +239,8 @@ impl LgtmApp {
             generation: 0,
             stream: None,
             lines: Vec::new(),
+            events: Vec::new(),
+            overlaps: Vec::new(),
             inputs: Inputs::new(window, cx),
             import: ImportForm::new(window, cx),
             composer: ComposerState::default(),
@@ -311,9 +330,11 @@ fn bind_actions(root: Div, cx: &mut Context<LgtmApp>) -> Div {
         .on_action(cx.listener(|this, _: &PaletteRun, window, cx| palette::run(this, window, cx)))
         .on_action(cx.listener(|this, _: &SelectNext, _, cx| this.move_selection(1, cx)))
         .on_action(cx.listener(|this, _: &SelectPrev, _, cx| this.move_selection(-1, cx)))
+        .on_action(cx.listener(|this, _: &ShowOverview, _, cx| this.show(Pane::Overview, cx)))
         .on_action(cx.listener(|this, _: &ShowActivity, _, cx| this.show(Pane::Activity, cx)))
         .on_action(cx.listener(|this, _: &ShowChanges, _, cx| this.show(Pane::Changes, cx)))
-        .on_action(cx.listener(|this, _: &ShowChecks, _, cx| this.show(Pane::Checks, cx)))
+        .on_action(cx.listener(|this, _: &ShowReview, _, cx| this.show(Pane::Review, cx)))
+        .on_action(cx.listener(|this, _: &ShowNotes, _, cx| this.show(Pane::Notes, cx)))
         .on_action(cx.listener(|this, _: &ShowPlan, _, cx| this.show(Pane::Plan, cx)))
         .on_action(cx.listener(|this, _: &crate::review::MarkViewed, _, cx| {
             this.review.mark_current_viewed();
