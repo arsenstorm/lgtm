@@ -123,7 +123,11 @@ pub fn ca_connector(pem: &[u8]) -> Result<Connector> {
     for cert in certificates(pem)? {
         roots.add(cert).context("add CA certificate")?;
     }
-    let config = rustls::ClientConfig::builder()
+    // Both ring and aws-lc-rs can be linked into one binary; name the
+    // provider so this never depends on a process-wide default.
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()?
         .with_root_certificates(roots)
         .with_no_client_auth();
     Ok(Connector::Rustls(Arc::new(config)))
