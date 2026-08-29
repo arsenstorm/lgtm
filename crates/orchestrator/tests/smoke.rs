@@ -51,6 +51,9 @@ async fn end_to_end() {
         worker: None,
         issue: None,
         linear: None,
+        kind: TaskKind::Run,
+        parent: None,
+        depends_on: Vec::new(),
     };
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -161,6 +164,7 @@ async fn end_to_end() {
         diff: "d".into(),
         changed_files: vec!["a".into()],
         validation: Vec::new(),
+        plan: None,
     };
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {
@@ -409,6 +413,7 @@ async fn end_to_end() {
         diff: "d".into(),
         changed_files: vec!["a".into()],
         validation: Vec::new(),
+        plan: None,
     };
     w2.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {

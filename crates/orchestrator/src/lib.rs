@@ -4,6 +4,7 @@ mod api;
 mod github;
 mod linear;
 mod persist;
+mod plan;
 mod state;
 mod worker_ws;
 

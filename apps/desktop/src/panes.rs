@@ -13,7 +13,7 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::Input;
 use gpui_component::tab::{Tab, TabBar};
 use gpui_component::{ActiveTheme as _, Sizable as _};
-use lgtm_protocol::{CiState, CiStatus, Task, TaskStatus};
+use lgtm_protocol::{CiState, CiStatus, Task, TaskKind, TaskStatus};
 
 const ADD: u32 = 0x1a7f37;
 const DEL: u32 = 0xcf222e;
@@ -29,11 +29,29 @@ pub fn render_main(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<Lgt
             .child("no task selected");
     };
 
-    let pane_index = match app.pane {
+    let has_plan = task.result.as_ref().is_some_and(|r| r.plan.is_some());
+    // A task selected while on the Plan tab may not have a plan; fall back
+    // to Activity for that render without losing the user's tab choice.
+    let pane = if app.pane == Pane::Plan && !has_plan {
+        Pane::Activity
+    } else {
+        app.pane
+    };
+    let pane_index = match pane {
         Pane::Activity => 0,
         Pane::Diff => 1,
         Pane::Checks => 2,
+        Pane::Plan => 3,
     };
+
+    let mut tabs = vec![
+        Tab::new().label("Activity"),
+        Tab::new().label("Diff"),
+        Tab::new().label("Checks"),
+    ];
+    if has_plan {
+        tabs.push(Tab::new().label("Plan"));
+    }
 
     div()
         .flex_1()
@@ -44,16 +62,13 @@ pub fn render_main(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<Lgt
         .child(
             TabBar::new("panes")
                 .selected_index(pane_index)
-                .children([
-                    Tab::new().label("Activity"),
-                    Tab::new().label("Diff"),
-                    Tab::new().label("Checks"),
-                ])
+                .children(tabs)
                 .on_click(cx.listener(|this, index: &usize, _, cx| {
                     this.pane = match index {
                         0 => Pane::Activity,
                         1 => Pane::Diff,
-                        _ => Pane::Checks,
+                        2 => Pane::Checks,
+                        _ => Pane::Plan,
                     };
                     cx.notify();
                 })),
@@ -68,17 +83,18 @@ pub fn render_main(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<Lgt
                 .p_2()
                 .font_family(cx.theme().mono_font_family.clone())
                 .text_size(cx.theme().mono_font_size)
-                .child(match app.pane {
+                .child(match pane {
                     Pane::Activity => activity(app, cx),
                     Pane::Diff => diff_pane(&task, cx),
                     Pane::Checks => checks(&task, cx),
+                    Pane::Plan => plan_pane(&task, cx),
                 }),
         )
 }
 
 fn header(app: &mut LgtmApp, task: &Task, cx: &mut Context<LgtmApp>) -> Div {
     let worker = task.worker.clone().unwrap_or_else(|| "unassigned".into());
-    let rest = format!(" · {} · {worker}", status_label(task.status));
+    let rest = format!(" · {} · {worker}", status_label(task, &app.tasks));
     div()
         .flex()
         .flex_col()
@@ -232,6 +248,9 @@ fn activity(app: &LgtmApp, cx: &Context<LgtmApp>) -> AnyElement {
 }
 
 fn diff_pane(task: &Task, cx: &Context<LgtmApp>) -> AnyElement {
+    if task.spec.kind == TaskKind::Plan {
+        return muted("plan tasks have no diff", cx);
+    }
     let files = task
         .result
         .as_ref()
@@ -304,6 +323,40 @@ fn checks(task: &Task, cx: &Context<LgtmApp>) -> AnyElement {
                                     .child(line.to_string())
                             })
                             .collect::<Vec<_>>(),
+                    )
+                })
+        }))
+        .into_any_element()
+}
+
+fn plan_pane(task: &Task, cx: &Context<LgtmApp>) -> AnyElement {
+    let Some(plan) = task.result.as_ref().and_then(|r| r.plan.as_ref()) else {
+        return muted("no plan", cx);
+    };
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .children(plan.steps.iter().enumerate().map(|(i, step)| {
+            div()
+                .flex()
+                .flex_col()
+                .child(div().font_weight(FontWeight::BOLD).child(format!(
+                    "{}. {}  {}",
+                    i + 1,
+                    step.key,
+                    step.title
+                )))
+                .child(
+                    div()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(step.prompt.clone()),
+                )
+                .when(!step.depends_on.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("after: {}", step.depends_on.join(", "))),
                     )
                 })
         }))

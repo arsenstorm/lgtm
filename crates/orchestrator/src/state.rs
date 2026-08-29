@@ -164,7 +164,7 @@ pub fn now_ms() -> u64 {
 }
 
 impl State {
-    fn new_id(&self) -> TaskId {
+    pub(crate) fn new_id(&self) -> TaskId {
         loop {
             let id = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
             if !self.tasks.contains_key(&id) {
@@ -176,6 +176,11 @@ impl State {
     /// Whether a task could ever run, so one that cannot is refused instead of
     /// queued forever. `Err` holds the 409 message.
     pub fn check_eligible(&self, spec: &TaskSpec) -> Result<(), String> {
+        for id in &spec.depends_on {
+            if !self.tasks.contains_key(id) {
+                return Err(format!("unknown dependency {id}"));
+            }
+        }
         if let Some(name) = &spec.worker {
             let worker = self
                 .workers
@@ -223,7 +228,11 @@ impl State {
         let mut queued: Vec<(u64, TaskId)> = self
             .tasks
             .values()
-            .filter(|rec| rec.task.status == TaskStatus::Queued && rec.task.worker.is_none())
+            .filter(|rec| {
+                rec.task.status == TaskStatus::Queued
+                    && rec.task.worker.is_none()
+                    && self.deps_met(&rec.task.spec)
+            })
             .map(|rec| (rec.task.created_at, rec.task.id.clone()))
             .collect();
         queued.sort();
@@ -430,6 +439,16 @@ impl State {
         if freed {
             changed.extend(self.schedule());
         }
+        // Only the transition itself, never a late event repeating it.
+        if !terminal {
+            match status {
+                TaskStatus::Failed | TaskStatus::Cancelled | TaskStatus::Rejected => {
+                    changed.extend(self.fail_dependents(task_id));
+                }
+                TaskStatus::Approved => changed.extend(self.schedule()),
+                _ => {}
+            }
+        }
         changed
     }
 
@@ -491,14 +510,19 @@ impl State {
         })
     }
 
-    pub fn mark_merged(&mut self, task_id: &str) -> Result<Task, CmdError> {
+    /// Returns the merged task and the ids to persist; merging can release
+    /// tasks that were waiting on it.
+    pub fn mark_merged(&mut self, task_id: &str) -> Result<(Task, Vec<TaskId>), CmdError> {
         let rec = self.tasks.get_mut(task_id).ok_or(CmdError::NotFound)?;
         if rec.task.status != TaskStatus::Approved {
             return Err(CmdError::Conflict("task is not approved".into()));
         }
         rec.task.status = TaskStatus::Merged;
+        let task = rec.task.clone();
         tracing::info!(task = %task_id, "task merged");
-        Ok(rec.task.clone())
+        let mut changed = vec![task_id.to_string()];
+        changed.extend(self.schedule());
+        Ok((task, changed))
     }
 
     pub fn cancel(&mut self, task_id: &str) -> Result<Task, CmdError> {

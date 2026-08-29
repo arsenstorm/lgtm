@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+use lgtm_protocol::TaskResult;
 use tokio::process::Command;
 
 /// Identity for commits made on behalf of the agent; the worker machine has no
@@ -92,6 +93,95 @@ pub fn task_path(data_dir: &Path, task_id: &str) -> PathBuf {
 
 pub fn branch_name(task_id: &str) -> String {
     format!("lgtm/{task_id}")
+}
+
+/// Fetches into `refs/remotes/origin/*`: a mirror's `refs/heads/*` may be
+/// checked out by a live worktree, which git refuses to fetch into.
+pub async fn fetch(mirror: &Path) -> Result<()> {
+    git(
+        &[
+            "-C",
+            &mirror.display().to_string(),
+            "fetch",
+            "--prune",
+            "origin",
+            "+refs/heads/*:refs/remotes/origin/*",
+        ],
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Creates the task's worktree on a fresh branch, replacing any leftover from
+/// an earlier run of the same task.
+pub async fn add_worktree(
+    mirror: &Path,
+    worktree: &Path,
+    branch: &str,
+    base_branch: &str,
+) -> Result<()> {
+    let mirror_s = mirror.display().to_string();
+    let worktree_s = worktree.display().to_string();
+    if worktree.exists() {
+        let _ = git(
+            &[
+                "-C",
+                &mirror_s,
+                "worktree",
+                "remove",
+                "--force",
+                &worktree_s,
+            ],
+            None,
+        )
+        .await;
+        let _ = git(&["-C", &mirror_s, "branch", "-D", branch], None).await;
+        // `worktree remove` fails on a directory git never registered.
+        let _ = tokio::fs::remove_dir_all(worktree).await;
+    }
+    git(
+        &[
+            "-C",
+            &mirror_s,
+            "worktree",
+            "add",
+            "-b",
+            branch,
+            &worktree_s,
+            &format!("origin/{base_branch}"),
+        ],
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Commits whatever the agent left in the worktree and describes the change.
+pub async fn commit(
+    prompt: &str,
+    base_branch: &str,
+    branch: &str,
+    worktree: &Path,
+) -> Result<TaskResult> {
+    let cwd = Some(worktree);
+    git(&["add", "-A"], cwd).await?;
+    if has_staged_changes(worktree).await? {
+        let message = commit_message(prompt);
+        let mut args = IDENTITY.to_vec();
+        args.extend_from_slice(&["commit", "-q", "-m", &message]);
+        git(&args, cwd).await?;
+    }
+    let range = format!("origin/{base_branch}...{branch}");
+    let diff = git(&["diff", &range], cwd).await?;
+    let names = git(&["diff", "--name-only", &range], cwd).await?;
+    Ok(TaskResult {
+        branch: branch.to_string(),
+        diff,
+        changed_files: names.lines().map(str::to_string).collect(),
+        validation: Vec::new(),
+        plan: None,
+    })
 }
 
 pub fn commit_message(prompt: &str) -> String {

@@ -3,7 +3,7 @@
 use crate::http::Client;
 use crate::render;
 use futures_util::StreamExt;
-use lgtm_protocol::{Executor, StoredEvent, Task, TaskEvent, TaskSpec};
+use lgtm_protocol::{Executor, StoredEvent, Task, TaskEvent, TaskKind, TaskSpec};
 use serde::Serialize;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -38,6 +38,7 @@ pub async fn run(
     prompt: String,
     executor: Executor,
     worker: Option<String>,
+    kind: TaskKind,
 ) -> anyhow::Result<i32> {
     let spec = TaskSpec {
         repository,
@@ -47,6 +48,9 @@ pub async fn run(
         worker,
         issue: None,
         linear: None,
+        kind,
+        parent: None,
+        depends_on: vec![],
     };
     let task: Task = client.post("/api/tasks", Some(&spec)).await?;
     announce_and_stream(orchestrator, token, task).await
@@ -127,12 +131,19 @@ pub async fn stream(
         let stored: StoredEvent = serde_json::from_str(&text)?;
         render::render(&stored.event, &mut stdout)?;
         match stored.event {
-            TaskEvent::Completed { result } => {
-                println!("\n{} files changed", result.changed_files.len());
-                println!("{}", result.diff);
-                render::print_validation(&result.validation, &mut stdout)?;
-                return Ok(if result.validation_failed() { 3 } else { 0 });
-            }
+            TaskEvent::Completed { result } => match &result.plan {
+                Some(plan) => {
+                    println!();
+                    render::print_plan(plan, &mut stdout)?;
+                    return Ok(0);
+                }
+                None => {
+                    println!("\n{} files changed", result.changed_files.len());
+                    println!("{}", result.diff);
+                    render::print_validation(&result.validation, &mut stdout)?;
+                    return Ok(if result.validation_failed() { 3 } else { 0 });
+                }
+            },
             TaskEvent::Failed { error } => {
                 eprintln!("error: {error}");
                 return Ok(1);

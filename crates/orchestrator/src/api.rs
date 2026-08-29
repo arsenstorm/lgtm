@@ -12,7 +12,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
     CiState, Executor, IssueRef, LinearRef, OrchestratorMessage, StoredEvent, Task, TaskEvent,
-    TaskSpec, TaskStatus, WorkerStatus,
+    TaskKind, TaskSpec, TaskStatus, WorkerStatus,
 };
 use serde::Deserialize;
 use tokio::sync::broadcast;
@@ -150,6 +150,9 @@ async fn create_task_from_issue(
                 number,
             }),
             linear: None,
+            kind: TaskKind::Run,
+            parent: None,
+            depends_on: Vec::new(),
         },
     )
 }
@@ -204,6 +207,9 @@ async fn create_task_from_linear(
                 identifier: issue.identifier,
                 url: issue.url,
             }),
+            kind: TaskKind::Run,
+            parent: None,
+            depends_on: Vec::new(),
         },
     )
 }
@@ -252,8 +258,8 @@ async fn merge(
         .map_err(bad_gateway)?;
     let task = {
         let mut state = app.state.lock().unwrap();
-        let task = state.mark_merged(&id)?;
-        app.persist_ids(&state, std::slice::from_ref(&id));
+        let (task, changed) = state.mark_merged(&id)?;
+        app.persist_ids(&state, &changed);
         task
     };
     crate::linear::after_transition(&app, &id, TaskStatus::Approved, false);
@@ -313,6 +319,19 @@ async fn approve(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
 ) -> Result<Json<Task>, ApiError> {
+    {
+        // Approving a plan creates its steps here; there is nothing to push.
+        let mut state = app.state.lock().unwrap();
+        let is_plan = state
+            .tasks
+            .get(&id)
+            .is_some_and(|rec| rec.task.spec.kind == TaskKind::Plan);
+        if is_plan {
+            let (task, changed) = state.approve_plan(&id)?;
+            app.persist_ids(&state, &changed);
+            return Ok(Json(task));
+        }
+    }
     command(
         &app,
         &id,
