@@ -133,7 +133,7 @@ fn group(
 }
 
 fn items(app: &LgtmApp, cx: &Context<LgtmApp>) -> Vec<Item> {
-    let query = app.query.read(cx).value().to_string();
+    let query = app.inputs.query.read(cx).value().to_string();
     build_groups(&query, &app.tasks, &app.known_repositories())
         .into_iter()
         .flat_map(|group| group.items)
@@ -145,12 +145,12 @@ pub fn step(app: &mut LgtmApp, delta: isize, cx: &mut Context<LgtmApp>) {
     if count == 0 {
         return;
     }
-    app.palette_at = (app.palette_at as isize + delta).rem_euclid(count) as usize;
+    app.ui.palette_at = (app.ui.palette_at as isize + delta).rem_euclid(count) as usize;
     cx.notify();
 }
 
 pub fn run(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmApp>) {
-    let Some(item) = items(app, cx).into_iter().nth(app.palette_at) else {
+    let Some(item) = items(app, cx).into_iter().nth(app.ui.palette_at) else {
         return;
     };
     activate(app, item.kind, window, cx);
@@ -161,7 +161,7 @@ fn activate(app: &mut LgtmApp, kind: Kind, window: &mut Window, cx: &mut Context
     match kind {
         Kind::Task(id) => app.select(id, cx),
         Kind::Repository(url) => {
-            app.project = Some(url);
+            app.composer.project = Some(url);
             app.show_page(Page::Home, cx);
         }
         Kind::Action(Act::NewTask) => app.go_home(window, cx),
@@ -181,8 +181,8 @@ fn activate(app: &mut LgtmApp, kind: Kind, window: &mut Window, cx: &mut Context
 
 pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
     let t = tokens(cx);
-    let at = app.palette_at;
-    let query = app.query.read(cx).value().to_string();
+    let at = app.ui.palette_at;
+    let query = app.inputs.query.read(cx).value().to_string();
     let groups = build_groups(&query, &app.tasks, &app.known_repositories());
 
     let rows = rows(groups, at, &t, cx);
@@ -218,7 +218,7 @@ fn search_box(app: &LgtmApp, t: &Tokens) -> Div {
         .py(px(SPACE[0]))
         .border_b_1()
         .border_color(t.border)
-        .child(Input::new(&app.query).appearance(false).large())
+        .child(Input::new(&app.inputs.query).appearance(false).large())
 }
 
 fn footer(t: &Tokens) -> Div {

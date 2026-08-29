@@ -68,14 +68,19 @@ pub fn compose(prompt: &str, project: Option<&str>, chips: &[Chip]) -> Option<Ta
 impl LgtmApp {
     /// Adds a chip, replacing one of the same kind. Plan toggles off.
     pub fn set_chip(&mut self, chip: Chip, cx: &mut Context<Self>) {
-        if let Some(at) = self.chips.iter().position(|held| held.same_kind(&chip)) {
-            let held = self.chips.remove(at);
+        if let Some(at) = self
+            .composer
+            .chips
+            .iter()
+            .position(|held| held.same_kind(&chip))
+        {
+            let held = self.composer.chips.remove(at);
             if held == chip {
                 cx.notify();
                 return;
             }
         }
-        self.chips.push(chip);
+        self.composer.chips.push(chip);
         cx.notify();
     }
 
@@ -89,11 +94,11 @@ impl LgtmApp {
 
     /// Closes every composer menu. Esc and a click outside land here.
     pub fn close_menus(&mut self, cx: &mut Context<Self>) {
-        self.project_menu = false;
-        self.add_repo = false;
-        self.plus_menu = false;
-        self.branch_edit = false;
-        self.worker_menu = false;
+        self.composer.project_menu = false;
+        self.composer.add_repo = false;
+        self.composer.plus_menu = false;
+        self.composer.branch_edit = false;
+        self.composer.worker_menu = false;
         cx.notify();
     }
 }

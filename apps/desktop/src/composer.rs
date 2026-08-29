@@ -63,7 +63,7 @@ const FOLDER: f32 = 15.;
 
 /// The panel, the card, and whichever menu is open, pinned to the bottom.
 pub fn composer(app: &LgtmApp, t: &Tokens, _window: &mut Window, cx: &mut Context<LgtmApp>) -> Div {
-    let open = app.project_menu || app.plus_menu || app.worker_menu;
+    let open = app.composer.project_menu || app.composer.plus_menu || app.composer.worker_menu;
     div()
         .flex()
         .flex_shrink_0()
@@ -90,11 +90,15 @@ pub fn composer(app: &LgtmApp, t: &Tokens, _window: &mut Window, cx: &mut Contex
                 .child(project_panel(app, t, cx))
                 .child(card(app, t, cx))
                 .when(open, |this| this.child(dismiss(cx)))
-                .when(app.project_menu, |this| {
+                .when(app.composer.project_menu, |this| {
                     this.child(project_menu(app, t, cx))
                 })
-                .when(app.plus_menu, |this| this.child(plus_menu(app, t, cx)))
-                .when(app.worker_menu, |this| this.child(worker_menu(app, t, cx))),
+                .when(app.composer.plus_menu, |this| {
+                    this.child(plus_menu(app, t, cx))
+                })
+                .when(app.composer.worker_menu, |this| {
+                    this.child(worker_menu(app, t, cx))
+                }),
         )
 }
 
@@ -116,7 +120,7 @@ fn dismiss(cx: &mut Context<LgtmApp>) -> impl IntoElement {
 /// The darker panel behind the card. Only its top 38 px are ever seen; the rest
 /// is there so the card's rounded corners have something to sit on.
 fn project_panel(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
-    let chosen = app.project.as_deref().map(repo_slug);
+    let chosen = app.composer.project.as_deref().map(repo_slug);
     div()
         .id("project-panel")
         .flex()
@@ -129,11 +133,11 @@ fn project_panel(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl I
         .pr(px(SPACE[2]))
         .rounded_tl(px(CARD_RADIUS))
         .rounded_tr(px(CARD_RADIUS))
-        .bg(t.composer_rear)
+        .bg(t.composer.rear)
         .text_size(px(TEXT_BODY))
-        .text_color(t.composer_secondary)
+        .text_color(t.composer.secondary)
         .cursor_pointer()
-        .child(icon("folder", FOLDER, t.composer_secondary))
+        .child(icon("folder", FOLDER, t.composer.secondary))
         .child(
             div()
                 .min_w_0()
@@ -141,7 +145,7 @@ fn project_panel(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl I
                 .child(chosen.unwrap_or_else(|| "Choose project".to_string())),
         )
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.toggle_menu(|app| &mut app.project_menu, cx)
+            this.toggle_menu(|app| &mut app.composer.project_menu, cx)
         }))
 }
 
@@ -155,21 +159,21 @@ fn card(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .pt(px(17.))
         .pb(px(7.))
         .rounded(px(CARD_RADIUS))
-        .bg(t.composer)
+        .bg(t.composer.card)
         .border_1()
-        .border_color(t.composer_edge)
+        .border_color(t.composer.edge)
         .child(prompt(app, t, cx))
         .child(controls(app, t, cx))
 }
 
 /// The prompt, with our own placeholder laid over its empty first line.
 fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let empty = app.prompt.read(cx).value().is_empty();
+    let empty = app.inputs.prompt.read(cx).value().is_empty();
     div()
         .relative()
         .px(px(TEXT_INSET))
         .text_size(px(TEXT_BODY))
-        .child(Input::new(&app.prompt).appearance(false).p_0())
+        .child(Input::new(&app.inputs.prompt).appearance(false).p_0())
         .when(empty, |this| {
             this.child(
                 div()
@@ -180,7 +184,7 @@ fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                     // where the first typed line will.
                     .line_height(rems(1.25))
                     .text_size(px(TEXT_BODY))
-                    .text_color(t.composer_placeholder)
+                    .text_color(t.composer.placeholder)
                     .child("Describe your task..."),
             )
         })
@@ -188,9 +192,10 @@ fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
 
 /// The card's bottom row: `+`, the divider, Plan, the worker, send.
 fn controls(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let ready = !app.prompt.read(cx).value().trim().is_empty() && app.project.is_some();
-    let planning = app.chips.contains(&Chip::Plan);
-    let branch = app.chips.iter().find_map(|chip| match chip {
+    let ready =
+        !app.inputs.prompt.read(cx).value().trim().is_empty() && app.composer.project.is_some();
+    let planning = app.composer.chips.contains(&Chip::Plan);
+    let branch = app.composer.chips.iter().find_map(|chip| match chip {
         Chip::Branch(name) if name.trim() != "main" && !name.trim().is_empty() => {
             Some(name.clone())
         }
@@ -210,7 +215,7 @@ fn controls(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                 .w(px(1.))
                 .h(px(16.))
                 .flex_shrink_0()
-                .bg(t.composer_divider),
+                .bg(t.composer.divider),
         )
         .child(plan_control(planning, t, cx))
         .when_some(branch, |this, branch| {
@@ -219,7 +224,7 @@ fn controls(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                     .ml(px(SPACE[1]))
                     .flex_shrink_0()
                     .text_size(px(TEXT_SECONDARY))
-                    .text_color(t.composer_secondary)
+                    .text_color(t.composer.secondary)
                     .child(branch),
             )
         })
@@ -239,19 +244,17 @@ fn plus_button(t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
         .w(px(PLUS_BOX))
         .h(px(PLUS_BOX))
         .cursor_pointer()
-        .child(icon("plus", PLUS_ICON, t.composer_secondary))
-        .on_click(
-            cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.toggle_menu(|app| &mut app.plus_menu, cx)
-            }),
-        )
+        .child(icon("plus", PLUS_ICON, t.composer.secondary))
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.toggle_menu(|app| &mut app.composer.plus_menu, cx)
+        }))
 }
 
 fn plan_control(planning: bool, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
     let tone = if planning {
-        t.composer_primary
+        t.composer.primary
     } else {
-        t.composer_secondary
+        t.composer.secondary
     };
     control("plan", planning, t)
         .ml(px(CLEAR))
@@ -265,6 +268,7 @@ fn plan_control(planning: bool, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl I
 /// `<worker> <what it costs>`: Auto is `any`, a named worker its busy slots.
 fn worker_control(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
     let name = app
+        .composer
         .chips
         .iter()
         .find_map(|chip| match chip {
@@ -283,15 +287,15 @@ fn worker_control(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl 
     control("worker", true, t)
         .child(name)
         .when_some(slots, |this, slots| {
-            this.child(div().text_color(t.composer_secondary).child(slots))
+            this.child(div().text_color(t.composer.secondary).child(slots))
         })
         .child(
             div()
                 .ml(px(1.))
-                .child(icon("chevron-down", CHEVRON, t.composer_secondary)),
+                .child(icon("chevron-down", CHEVRON, t.composer.secondary)),
         )
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.toggle_menu(|app| &mut app.worker_menu, cx)
+            this.toggle_menu(|app| &mut app.composer.worker_menu, cx)
         }))
 }
 
@@ -308,11 +312,11 @@ fn control(id: &'static str, active: bool, t: &Tokens) -> gpui::Stateful<Div> {
         .cursor_pointer()
         .text_size(px(TEXT_BODY))
         .text_color(if active {
-            t.composer_primary
+            t.composer.primary
         } else {
-            t.composer_secondary
+            t.composer.secondary
         })
-        .hover(|this| this.text_color(t.composer_primary))
+        .hover(|this| this.text_color(t.composer.primary))
 }
 
 fn send_button(enabled: bool, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
@@ -327,18 +331,18 @@ fn send_button(enabled: bool, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl Int
         .h(px(ROW_H))
         .rounded(px(ROW_H / 2.))
         .bg(if enabled {
-            t.send_bg
+            t.composer.send_bg
         } else {
-            t.send_disabled_bg
+            t.composer.send_disabled_bg
         })
         .when(enabled, |this| this.cursor_pointer())
         .child(icon(
             "arrow-up",
             ARROW,
             if enabled {
-                t.send_fg
+                t.composer.send_fg
             } else {
-                t.send_disabled_fg
+                t.composer.send_disabled_fg
             },
         ))
         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {

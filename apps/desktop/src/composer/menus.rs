@@ -54,7 +54,7 @@ fn separator(t: &Tokens) -> Div {
 
 /// Opens downward, over the card, from the panel's left edge.
 pub(super) fn project_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let chosen = app.project.clone();
+    let chosen = app.composer.project.clone();
     let top = app.error.as_ref().map_or(REAR_H, |_| REAR_H + 24.);
     menu(MENU_W, t)
         .top(px(top))
@@ -65,13 +65,13 @@ pub(super) fn project_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>)
                 .map(|url| repo_row(url, chosen.as_deref(), t, cx)),
         )
         .child(separator(t))
-        .child(if app.add_repo {
-            inline_field(&app.repo_url, "add-repo-ok", cx, |this, cx| {
-                let url = this.repo_url.read(cx).value().trim().to_string();
+        .child(if app.composer.add_repo {
+            inline_field(&app.inputs.repo_url, "add-repo-ok", cx, |this, cx| {
+                let url = this.inputs.repo_url.read(cx).value().trim().to_string();
                 if url.is_empty() {
                     return;
                 }
-                this.project = Some(url);
+                this.composer.project = Some(url);
                 this.close_menus(cx);
                 cx.notify();
             })
@@ -81,8 +81,9 @@ pub(super) fn project_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>)
                 .child(icon("plus", ICON, t.muted_fg))
                 .child("Add repository…")
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.add_repo = true;
-                    this.repo_url
+                    this.composer.add_repo = true;
+                    this.inputs
+                        .repo_url
                         .update(cx, |state, cx| state.focus(window, cx));
                     cx.notify();
                 }))
@@ -111,7 +112,7 @@ fn repo_row(
                 .child(url),
         )
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.project = Some(value.clone());
+            this.composer.project = Some(value.clone());
             this.close_menus(cx);
             cx.notify();
         }))
@@ -122,9 +123,9 @@ pub(super) fn plus_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) ->
     menu(SMALL_MENU_W, t)
         .bottom(px(ABOVE_ROW))
         .left(px(CARD_INSET))
-        .child(if app.branch_edit {
-            inline_field(&app.base_branch, "branch-ok", cx, |this, cx| {
-                let branch = this.base_branch.read(cx).value().trim().to_string();
+        .child(if app.composer.branch_edit {
+            inline_field(&app.inputs.base_branch, "branch-ok", cx, |this, cx| {
+                let branch = this.inputs.base_branch.read(cx).value().trim().to_string();
                 this.set_chip(Chip::Branch(branch), cx);
                 this.close_menus(cx);
                 cx.notify();
@@ -135,8 +136,9 @@ pub(super) fn plus_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) ->
                 .child(icon("git-branch", ICON, t.muted_fg))
                 .child("Base branch…")
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.branch_edit = true;
-                    this.base_branch
+                    this.composer.branch_edit = true;
+                    this.inputs
+                        .base_branch
                         .update(cx, |state, cx| state.focus(window, cx));
                     cx.notify();
                 }))
@@ -147,7 +149,7 @@ pub(super) fn plus_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) ->
 pub(super) fn worker_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let mut names: Vec<String> = vec![AUTO_WORKER.to_string()];
     names.extend(app.workers.iter().map(|worker| worker.info.name.clone()));
-    let current = app.chips.iter().find_map(|chip| match chip {
+    let current = app.composer.chips.iter().find_map(|chip| match chip {
         Chip::Worker(name) => Some(name.clone()),
         _ => None,
     });

@@ -55,7 +55,7 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                         .gap(px(SPACE[3]))
                         .max_h(px(MAX_BODY_H))
                         .overflow_y_scroll()
-                        .track_scroll(&app.settings_scroll)
+                        .track_scroll(&app.ui.settings_scroll)
                         .p(px(SPACE[2]))
                         .child(orchestrator(app, &t, cx))
                         .child(appearance(app, &t, cx))
@@ -84,24 +84,24 @@ fn line(label: &'static str, value: impl Into<SharedString>, t: &Tokens) -> Div 
 }
 
 fn orchestrator(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let token = match app.token_source {
+    let token = match app.link.token_source {
         "LGTM_TOKEN" => "environment (LGTM_TOKEN)".to_string(),
         other => other.to_string(),
     };
     section("Orchestrator", t)
-        .child(line("URL", app.orchestrator.clone(), t))
+        .child(line("URL", app.link.orchestrator.clone(), t))
         .child(line(
             "Mode",
-            if app.hosted {
+            if app.link.hosted {
                 "hosted by this app"
             } else {
                 "external"
             },
             t,
         ))
-        .child(connection_row(app.reachable, t))
+        .child(connection_row(app.link.reachable, t))
         .child(line("Token", token, t))
-        .child(embedded_row(app.embedded, t, cx))
+        .child(embedded_row(app.link.embedded, t, cx))
         .child(
             div()
                 .pl(px(120. + SPACE[1]))
@@ -137,7 +137,7 @@ fn embedded_row(embedded: bool, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                 .label("Run the orchestrator inside this app")
                 .small()
                 .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                    this.embedded = *checked;
+                    this.link.embedded = *checked;
                     let dir = lgtm_orchestrator::token::data_dir(None);
                     if let Err(e) = crate::save_embedded(&dir, *checked) {
                         this.set_error(format!("cannot save the setting: {e}"), cx);
@@ -194,9 +194,10 @@ fn workers(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     // When this app hosts the orchestrator its own URL is loopback, so the
     // startup-computed line (advertised address) is the one to hand out.
     let join = app
+        .link
         .join
         .clone()
-        .unwrap_or_else(|| join_line(&app.orchestrator, &app.token));
+        .unwrap_or_else(|| join_line(&app.link.orchestrator, &app.link.token));
     section("Workers", t)
         .when(app.workers.is_empty(), |this| {
             this.child(div().text_color(t.muted_fg).child("None connected"))

@@ -14,9 +14,9 @@ impl LgtmApp {
                 self.tasks = tasks;
                 self.workers = workers;
                 self.batches = batches;
-                self.reachable = true;
+                self.link.reachable = true;
             }
-            Msg::Lists(Err(_)) => self.reachable = false,
+            Msg::Lists(Err(_)) => self.link.reachable = false,
             Msg::Detail { generation, detail } => {
                 if generation != self.generation {
                     return;
@@ -26,20 +26,20 @@ impl LgtmApp {
                     .iter()
                     .flat_map(|stored| render::render(&stored.event))
                     .collect();
-                self.content_scroll.scroll_to_bottom();
+                self.ui.content_scroll.scroll_to_bottom();
             }
             Msg::Live { generation, event } => {
                 if generation != self.generation {
                     return;
                 }
                 self.lines.extend(render::render(&event.event));
-                self.content_scroll.scroll_to_bottom();
+                self.ui.content_scroll.scroll_to_bottom();
             }
             Msg::Action(Ok(created)) => self.created(created, window, cx),
             Msg::Batch(Ok(response)) => {
                 self.import.issues = response.issues;
                 if response.batch.is_some() {
-                    self.overlay = Overlay::None;
+                    self.ui.overlay = Overlay::None;
                     net::refresh(self.client.clone(), self.tx.clone());
                 }
             }
@@ -51,7 +51,8 @@ impl LgtmApp {
     /// An action went through; a new task also clears the prompt and opens.
     fn created(&mut self, created: Option<Task>, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(task) = created {
-            self.prompt
+            self.inputs
+                .prompt
                 .update(cx, |state, cx| state.set_value("", window, cx));
             self.tasks.insert(0, task.clone());
             self.select(task.id, cx);
@@ -61,10 +62,10 @@ impl LgtmApp {
 
     /// What the strip says while the orchestrator is not answering.
     pub(crate) fn banner(&self) -> String {
-        if self.hosted && self.started.elapsed() < STARTING {
+        if self.link.hosted && self.link.started.elapsed() < STARTING {
             "Starting the orchestrator…".to_string()
         } else {
-            format!("Orchestrator unreachable at {}", self.orchestrator)
+            format!("Orchestrator unreachable at {}", self.link.orchestrator)
         }
     }
 
@@ -84,9 +85,9 @@ impl LgtmApp {
     /// Selects a task and remembers it, dropping any forward history.
     pub fn select(&mut self, id: String, cx: &mut Context<Self>) {
         if self.open(id.clone(), cx) {
-            self.visited.truncate(self.visited_at);
-            self.visited.push(id);
-            self.visited_at = self.visited.len();
+            self.ui.visited.truncate(self.ui.visited_at);
+            self.ui.visited.push(id);
+            self.ui.visited_at = self.ui.visited.len();
         }
     }
 
@@ -101,7 +102,7 @@ impl LgtmApp {
         }
         self.generation += 1;
         self.lines.clear();
-        self.show_follow_up = false;
+        self.ui.show_follow_up = false;
         self.selected = Some(id.clone());
         self.stream = Some(net::watch(
             self.client.clone(),
@@ -114,19 +115,19 @@ impl LgtmApp {
     }
 
     pub fn can_go_back(&self) -> bool {
-        self.visited_at > 1
+        self.ui.visited_at > 1
     }
 
     pub fn can_go_forward(&self) -> bool {
-        self.visited_at < self.visited.len()
+        self.ui.visited_at < self.ui.visited.len()
     }
 
     pub fn go_back(&mut self, cx: &mut Context<Self>) {
         if !self.can_go_back() {
             return;
         }
-        self.visited_at -= 1;
-        let id = self.visited[self.visited_at - 1].clone();
+        self.ui.visited_at -= 1;
+        let id = self.ui.visited[self.ui.visited_at - 1].clone();
         self.open(id, cx);
     }
 
@@ -134,8 +135,8 @@ impl LgtmApp {
         if !self.can_go_forward() {
             return;
         }
-        let id = self.visited[self.visited_at].clone();
-        self.visited_at += 1;
+        let id = self.ui.visited[self.ui.visited_at].clone();
+        self.ui.visited_at += 1;
         self.open(id, cx);
     }
 
@@ -154,7 +155,9 @@ impl LgtmApp {
 
     pub fn go_home(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_page(Page::Home, cx);
-        self.prompt.update(cx, |state, cx| state.focus(window, cx));
+        self.inputs
+            .prompt
+            .update(cx, |state, cx| state.focus(window, cx));
     }
 
     pub fn show_page(&mut self, page: Page, cx: &mut Context<Self>) {
@@ -165,40 +168,44 @@ impl LgtmApp {
         self.selected = None;
         self.lines.clear();
         self.page = page;
-        self.overlay = Overlay::None;
+        self.ui.overlay = Overlay::None;
         cx.notify();
     }
 
     pub fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.overlay = Overlay::Palette;
-        self.palette_at = 0;
-        self.query
+        self.ui.overlay = Overlay::Palette;
+        self.ui.palette_at = 0;
+        self.inputs
+            .query
             .update(cx, |state, cx| state.set_value("", window, cx));
-        self.query.update(cx, |state, cx| state.focus(window, cx));
+        self.inputs
+            .query
+            .update(cx, |state, cx| state.focus(window, cx));
         cx.notify();
     }
 
     pub fn open_settings(&mut self, cx: &mut Context<Self>) {
-        self.overlay = Overlay::Settings;
+        self.ui.overlay = Overlay::Settings;
         cx.notify();
     }
 
     /// Opens Settings scrolled to the Workers section.
     pub fn open_worker_settings(&mut self, cx: &mut Context<Self>) {
-        self.settings_scroll
+        self.ui
+            .settings_scroll
             .scroll_to_top_of_item(settings::WORKERS_SECTION);
         self.open_settings(cx);
     }
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.overlay = Overlay::None;
+        self.ui.overlay = Overlay::None;
         self.close_menus(cx);
         window.focus(&self.focus);
         cx.notify();
     }
 
     pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
-        self.sidebar_open = !self.sidebar_open;
+        self.ui.sidebar_open = !self.ui.sidebar_open;
         cx.notify();
     }
 
@@ -209,7 +216,7 @@ impl LgtmApp {
             .tasks
             .iter()
             .map(|task| task.spec.repository.clone())
-            .chain(self.project.clone())
+            .chain(self.composer.project.clone())
         {
             if !out.contains(&url) {
                 out.push(url);
@@ -220,26 +227,32 @@ impl LgtmApp {
 
     /// Opens the follow-up field under the task header and focuses it.
     pub fn open_follow_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.show_follow_up = true;
-        self.follow_up
+        self.ui.show_follow_up = true;
+        self.inputs
+            .follow_up
             .update(cx, |state, cx| state.focus(window, cx));
         cx.notify();
     }
 
     pub fn send_follow_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.follow_up.read(cx).value().to_string();
+        let text = self.inputs.follow_up.read(cx).value().to_string();
         if text.trim().is_empty() {
             return;
         }
-        self.follow_up
+        self.inputs
+            .follow_up
             .update(cx, |state, cx| state.set_value("", window, cx));
-        self.show_follow_up = false;
+        self.ui.show_follow_up = false;
         self.act(Action::Tell(text), cx);
     }
 
     pub fn submit(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let prompt = self.prompt.read(cx).value().to_string();
-        let Some(spec) = home::compose(&prompt, self.project.as_deref(), &self.chips) else {
+        let prompt = self.inputs.prompt.read(cx).value().to_string();
+        let Some(spec) = home::compose(
+            &prompt,
+            self.composer.project.as_deref(),
+            &self.composer.chips,
+        ) else {
             self.set_error("A prompt and a project are required.".into(), cx);
             return;
         };
@@ -254,7 +267,7 @@ impl LgtmApp {
 
     /// ⌘↩ sends the follow-up when one is open, otherwise starts a task.
     pub(crate) fn submit_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected.is_some() && self.show_follow_up {
+        if self.selected.is_some() && self.ui.show_follow_up {
             self.send_follow_up(window, cx);
         } else if self.selected.is_none() {
             self.submit(window, cx);

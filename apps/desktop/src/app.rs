@@ -6,7 +6,7 @@ use crate::keys::{
     CloseOverlay, NewTask, OpenPalette, PaletteNext, PalettePrev, PaletteRun, SelectNext,
     SelectPrev, ShowActivity, ShowChanges, ShowChecks, ShowPlan, Submit, ToggleSidebar, CONTEXT,
 };
-use crate::net;
+use crate::net::{self, Msg};
 use crate::render::Line;
 use crate::theme::{tokens, SPACE, STATUS_H, TEXT_BODY, TEXT_SECONDARY, UI_FONT};
 use crate::{batches, home, import, palette, panes, settings, sidebar, titlebar};
@@ -52,17 +52,8 @@ pub enum Overlay {
     Import,
 }
 
-pub struct LgtmApp {
-    pub client: Client,
-    pub tx: net::Sender,
-    pub tasks: Vec<Task>,
-    pub workers: Vec<WorkerStatus>,
-    pub batches: Vec<Batch>,
-    pub selected: Option<String>,
-    pub page: Page,
-    pub pane: Pane,
-    pub review: crate::review::ReviewState,
-
+/// The orchestrator this window talks to, and how the talking is going.
+pub struct Connection {
     pub orchestrator: String,
     pub token: String,
     pub token_source: &'static str,
@@ -73,22 +64,49 @@ pub struct LgtmApp {
     /// Join line for other machines when hosted.
     pub join: Option<String>,
     /// When the window opened, for the "starting" grace period on the banner.
-    pub(crate) started: Instant,
+    pub started: Instant,
     pub reachable: bool,
-    pub error: Option<String>,
-    pub focus: FocusHandle,
-    /// Bumped on every selection so events from the previous stream are dropped.
-    pub generation: u64,
-    pub(crate) stream: Option<JoinHandle<()>>,
-    pub lines: Vec<Line>,
+}
 
+impl Connection {
+    fn new(config: crate::Config) -> Self {
+        Connection {
+            orchestrator: config.orchestrator,
+            token: config.token,
+            token_source: config.token_source,
+            embedded: config.embedded,
+            hosted: config.hosted,
+            join: config.join,
+            started: Instant::now(),
+            reachable: false,
+        }
+    }
+}
+
+/// Every text field the window owns.
+pub struct Inputs {
     pub prompt: Entity<InputState>,
     pub repo_url: Entity<InputState>,
     pub base_branch: Entity<InputState>,
     pub follow_up: Entity<InputState>,
     pub query: Entity<InputState>,
-    pub import: ImportForm,
+}
 
+impl Inputs {
+    fn new(window: &mut Window, cx: &mut Context<LgtmApp>) -> Self {
+        Inputs {
+            prompt: cx.new(|cx| InputState::new(window, cx).multi_line(true).auto_grow(2, 8)),
+            repo_url: field("https://github.com/you/repo.git", window, cx),
+            base_branch: cx.new(|cx| InputState::new(window, cx).default_value("main")),
+            follow_up: field("Ask for a change…", window, cx),
+            query: field("Search tasks, repositories, actions…", window, cx),
+        }
+    }
+}
+
+/// What the composer holds and which of its menus is open.
+#[derive(Default)]
+pub struct ComposerState {
     /// The repository the composer will use, as a clone URL.
     pub project: Option<String>,
     pub chips: Vec<Chip>,
@@ -98,7 +116,10 @@ pub struct LgtmApp {
     /// The `+` menu is showing its base-branch field.
     pub branch_edit: bool,
     pub worker_menu: bool,
+}
 
+/// The chrome's own state: what is open, unfolded, scrolled, or remembered.
+pub struct UiState {
     pub overlay: Overlay,
     pub palette_at: usize,
     /// Batches whose task rows are unfolded.
@@ -112,6 +133,50 @@ pub struct LgtmApp {
     pub dragging: bool,
     pub task_scroll: ScrollHandle,
     pub content_scroll: ScrollHandle,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        UiState {
+            overlay: Overlay::None,
+            palette_at: 0,
+            expanded: HashSet::new(),
+            settings_scroll: ScrollHandle::new(),
+            sidebar_open: true,
+            visited: Vec::new(),
+            visited_at: 0,
+            show_follow_up: false,
+            dragging: false,
+            task_scroll: ScrollHandle::new(),
+            content_scroll: ScrollHandle::new(),
+        }
+    }
+}
+
+pub struct LgtmApp {
+    pub client: Client,
+    pub tx: net::Sender,
+    pub tasks: Vec<Task>,
+    pub workers: Vec<WorkerStatus>,
+    pub batches: Vec<Batch>,
+    pub selected: Option<String>,
+    pub page: Page,
+    pub pane: Pane,
+    pub review: crate::review::ReviewState,
+
+    pub link: Connection,
+    pub error: Option<String>,
+    pub focus: FocusHandle,
+    /// Bumped on every selection so events from the previous stream are dropped.
+    pub generation: u64,
+    pub(crate) stream: Option<JoinHandle<()>>,
+    pub lines: Vec<Line>,
+
+    pub inputs: Inputs,
+    pub import: ImportForm,
+    pub composer: ComposerState,
+
+    pub ui: UiState,
     _subscriptions: Vec<Subscription>,
     _pump: GpuiTask<()>,
 }
@@ -119,26 +184,10 @@ pub struct LgtmApp {
 impl LgtmApp {
     pub fn new(config: crate::Config, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let client = Client::new(config.orchestrator.clone(), config.token.clone());
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         net::poll(client.clone(), tx.clone());
 
-        let prompt = cx.new(|cx| InputState::new(window, cx).multi_line(true).auto_grow(2, 8));
-        let repo_url = field("https://github.com/you/repo.git", window, cx);
-        let base_branch = cx.new(|cx| InputState::new(window, cx).default_value("main"));
-        let follow_up = field("Ask for a change…", window, cx);
-        let query = field("Search tasks, repositories, actions…", window, cx);
-        let import = ImportForm::new(window, cx);
-
-        let pump = cx.spawn_in(window, async move |this, cx| {
-            while let Some(msg) = rx.recv().await {
-                if this
-                    .update_in(cx, |this, window, cx| this.apply(msg, window, cx))
-                    .is_err()
-                {
-                    return;
-                }
-            }
-        });
+        let pump = pump(rx, window, cx);
 
         let focus = cx.focus_handle();
         window.focus(&focus);
@@ -152,43 +201,16 @@ impl LgtmApp {
             page: Page::Home,
             pane: Pane::Activity,
             review: crate::review::ReviewState::new(),
-            orchestrator: config.orchestrator,
-            token: config.token,
-            token_source: config.token_source,
-            embedded: config.embedded,
-            hosted: config.hosted,
-            join: config.join,
-            started: Instant::now(),
-            reachable: false,
+            link: Connection::new(config),
             error: None,
             focus,
             generation: 0,
             stream: None,
             lines: Vec::new(),
-            prompt,
-            repo_url,
-            base_branch,
-            follow_up,
-            query,
-            import,
-            project: None,
-            chips: Vec::new(),
-            project_menu: false,
-            add_repo: false,
-            plus_menu: false,
-            branch_edit: false,
-            worker_menu: false,
-            overlay: Overlay::None,
-            palette_at: 0,
-            expanded: HashSet::new(),
-            settings_scroll: ScrollHandle::new(),
-            sidebar_open: true,
-            visited: Vec::new(),
-            visited_at: 0,
-            show_follow_up: false,
-            dragging: false,
-            task_scroll: ScrollHandle::new(),
-            content_scroll: ScrollHandle::new(),
+            inputs: Inputs::new(window, cx),
+            import: ImportForm::new(window, cx),
+            composer: ComposerState::default(),
+            ui: UiState::default(),
             _subscriptions: Vec::new(),
             _pump: pump,
         };
@@ -199,7 +221,7 @@ impl LgtmApp {
     fn subscribe(&self, window: &mut Window, cx: &mut Context<Self>) -> Vec<Subscription> {
         vec![
             cx.subscribe_in(
-                &self.follow_up,
+                &self.inputs.follow_up,
                 window,
                 |this, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. }) {
@@ -210,7 +232,7 @@ impl LgtmApp {
             // ⌘↩ inside the prompt is the input's own binding, so the composer
             // hears about it as an event rather than as the Submit action.
             cx.subscribe_in(
-                &self.prompt,
+                &self.inputs.prompt,
                 window,
                 |this, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { secondary: true }) {
@@ -218,18 +240,40 @@ impl LgtmApp {
                     }
                 },
             ),
-            cx.subscribe_in(&self.query, window, |this, _, event: &InputEvent, _, cx| {
-                if matches!(event, InputEvent::Change) {
-                    this.palette_at = 0;
-                    cx.notify();
-                }
-            }),
+            cx.subscribe_in(
+                &self.inputs.query,
+                window,
+                |this, _, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.ui.palette_at = 0;
+                        cx.notify();
+                    }
+                },
+            ),
             cx.observe_window_appearance(window, |_, window, cx| {
                 crate::theme::apply(Some(window), cx);
                 cx.notify();
             }),
         ]
     }
+}
+
+/// Feeds network messages into the view until it is gone.
+fn pump(
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<Msg>,
+    window: &mut Window,
+    cx: &mut Context<LgtmApp>,
+) -> GpuiTask<()> {
+    cx.spawn_in(window, async move |this, cx| {
+        while let Some(msg) = rx.recv().await {
+            if this
+                .update_in(cx, |this, window, cx| this.apply(msg, window, cx))
+                .is_err()
+            {
+                return;
+            }
+        }
+    })
 }
 
 fn field(
@@ -283,7 +327,7 @@ impl LgtmApp {
             .flex()
             .flex_1()
             .min_h_0()
-            .when(self.sidebar_open, |this| {
+            .when(self.ui.sidebar_open, |this| {
                 this.child(sidebar::render_sidebar(self, window, cx))
             })
             .child(if self.selected.is_some() {
@@ -324,8 +368,8 @@ impl Focusable for LgtmApp {
 impl Render for LgtmApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = tokens(cx);
-        let unreachable = !self.reachable;
-        let overlay = self.overlay;
+        let unreachable = !self.link.reachable;
+        let overlay = self.ui.overlay;
         bind_actions(div(), cx)
             .key_context(CONTEXT)
             .track_focus(&self.focus)

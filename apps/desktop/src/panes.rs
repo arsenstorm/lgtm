@@ -64,12 +64,12 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
 /// The follow-up field and the error line, when either is showing.
 fn notices(app: &LgtmApp, t: &Tokens) -> Vec<Div> {
     let mut out = Vec::new();
-    if app.show_follow_up {
+    if app.ui.show_follow_up {
         out.push(
             div()
                 .px(px(SPACE[1]))
                 .pt(px(SPACE[1]))
-                .child(field(&app.follow_up, t)),
+                .child(field(&app.inputs.follow_up, t)),
         );
     }
     if let Some(error) = app.error.clone() {
@@ -122,7 +122,7 @@ fn scrolling(app: &LgtmApp, body: impl IntoElement) -> AnyElement {
         .flex_1()
         .min_h_0()
         .overflow_y_scroll()
-        .track_scroll(&app.content_scroll)
+        .track_scroll(&app.ui.content_scroll)
         .px(px(SPACE[2]))
         .pb(px(SPACE[2]))
         .font_family(MONO_FONT)

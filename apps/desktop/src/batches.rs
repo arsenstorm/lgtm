@@ -107,13 +107,13 @@ fn import_button(id: &'static str, cx: &mut Context<LgtmApp>) -> Button {
         .outline()
         .small()
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.overlay = Overlay::Import;
+            this.ui.overlay = Overlay::Import;
             cx.notify();
         }))
 }
 
 fn card(app: &LgtmApp, batch: &Batch, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let open = app.expanded.contains(&batch.id);
+    let open = app.ui.expanded.contains(&batch.id);
     let rows: Vec<&Task> = app
         .tasks
         .iter()
@@ -147,7 +147,7 @@ fn card_header(
     cx: &mut Context<LgtmApp>,
 ) -> gpui::Stateful<Div> {
     let id = batch.id.clone();
-    let open = app.expanded.contains(&id);
+    let open = app.ui.expanded.contains(&id);
     let chevron = if open {
         "chevron-down"
     } else {
@@ -177,8 +177,8 @@ fn card_header(
         )
         .child(age(batch.created_at, t))
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            if !this.expanded.remove(&id) {
-                this.expanded.insert(id.clone());
+            if !this.ui.expanded.remove(&id) {
+                this.ui.expanded.insert(id.clone());
             }
             cx.notify();
         }))

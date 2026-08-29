@@ -13,7 +13,7 @@ use gpui_component::InteractiveElementExt as _;
 
 pub fn bar(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
     let t = tokens(cx);
-    let open = app.sidebar_open;
+    let open = app.ui.sidebar_open;
     draggable(div().id("window-bar"), cx)
         .flex()
         .flex_shrink_0()
@@ -58,15 +58,15 @@ fn draggable(bar: Stateful<Div>, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
         .on_double_click(|_, window, _| window.titlebar_double_click())
         .on_mouse_down(
             MouseButton::Left,
-            cx.listener(|this, _, _, _| this.dragging = true),
+            cx.listener(|this, _, _, _| this.ui.dragging = true),
         )
         .on_mouse_up(
             MouseButton::Left,
-            cx.listener(|this, _, _, _| this.dragging = false),
+            cx.listener(|this, _, _, _| this.ui.dragging = false),
         )
         .on_mouse_move(cx.listener(|this, _, window, _| {
-            if this.dragging {
-                this.dragging = false;
+            if this.ui.dragging {
+                this.ui.dragging = false;
                 window.start_window_move();
             }
         }))
