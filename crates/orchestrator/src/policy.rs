@@ -153,6 +153,13 @@ mod tests {
         let mut no_result = task(TaskStatus::AwaitingReview, auto_approve());
         no_result.result = None;
         assert_eq!(auto_action(&no_result), None);
+
+        let followed_up = task(TaskStatus::ChangesRequested, auto_approve());
+        assert_eq!(
+            auto_action(&followed_up),
+            None,
+            "a follow-up is pending, not a clean run to wave through"
+        );
     }
 
     /// An approved task with `auto_merge` on, a pull request and CI in `state`.

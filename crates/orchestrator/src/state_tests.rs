@@ -441,7 +441,7 @@ fn message_requires_awaiting_review() {
     );
 
     let (task, changed) = state.message(&id, "keep going".into()).unwrap();
-    assert_eq!(task.status, TaskStatus::AwaitingReview);
+    assert_eq!(task.status, TaskStatus::ChangesRequested);
     assert!(changed.contains(&id));
     match &state.tasks[&id].events.last().unwrap().event {
         TaskEvent::Message { text } => assert_eq!(text.as_str(), "keep going"),
