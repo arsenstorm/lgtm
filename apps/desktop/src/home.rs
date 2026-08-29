@@ -79,6 +79,14 @@ impl LgtmApp {
         cx.notify();
     }
 
+    /// Opens one composer menu, or closes it when it was the open one.
+    pub fn toggle_menu(&mut self, menu: fn(&mut Self) -> &mut bool, cx: &mut Context<Self>) {
+        let open = !*menu(self);
+        self.close_menus(cx);
+        *menu(self) = open;
+        cx.notify();
+    }
+
     /// Closes every composer menu. Esc and a click outside land here.
     pub fn close_menus(&mut self, cx: &mut Context<Self>) {
         self.project_menu = false;

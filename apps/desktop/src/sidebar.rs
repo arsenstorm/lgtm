@@ -186,11 +186,11 @@ fn nav(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .px(px(SPACE[1]))
         .gap(px(2.))
         .child(
-            nav_row("new-task", "square-pen", "New task", home, t)
+            nav_row(&NEW_TASK, home, t)
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.go_home(window, cx))),
         )
         .child(
-            nav_row("batches", "list-checks", "Batches", batches, t).on_click(
+            nav_row(&BATCHES, batches, t).on_click(
                 cx.listener(|this, _: &ClickEvent, _, cx| this.show_page(Page::Batches, cx)),
             ),
         )
@@ -214,16 +214,27 @@ fn row_shell(id: impl Into<SharedString>, active: bool, t: &Tokens) -> gpui::Sta
         .hover(|this| this.bg(t.muted))
 }
 
-fn nav_row(
+struct NavItem {
     id: &'static str,
-    name: &'static str,
+    icon: &'static str,
     label: &'static str,
-    active: bool,
-    t: &Tokens,
-) -> gpui::Stateful<Div> {
-    row_shell(id, active, t)
-        .child(icon(name, ICON, t.muted_fg))
-        .child(div().flex_1().min_w_0().truncate().child(label))
+}
+
+const NEW_TASK: NavItem = NavItem {
+    id: "new-task",
+    icon: "square-pen",
+    label: "New task",
+};
+const BATCHES: NavItem = NavItem {
+    id: "batches",
+    icon: "list-checks",
+    label: "Batches",
+};
+
+fn nav_row(item: &NavItem, active: bool, t: &Tokens) -> gpui::Stateful<Div> {
+    row_shell(item.id, active, t)
+        .child(icon(item.icon, ICON, t.muted_fg))
+        .child(div().flex_1().min_w_0().truncate().child(item.label))
 }
 
 fn repository_groups(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
@@ -255,37 +266,41 @@ fn repository_groups(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Ve
         let key = format!("repo:{slug}");
         let expanded = app.expanded.contains(&key);
         let hidden = rows.len().saturating_sub(PER_PROJECT);
-        out.push(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .h(px(ROW_H))
-                .px(px(SPACE[1]))
-                .text_size(px(TEXT_ROW))
-                .text_color(t.fg)
-                .child(icon("folder", ICON, t.muted_fg))
-                .child(div().min_w_0().truncate().child(slug))
-                .into_any_element(),
-        );
+        out.push(repo_header(slug, t));
         let shown = if expanded { rows.len() } else { PER_PROJECT };
         for task in rows.into_iter().take(shown) {
             out.push(task_row(app, task, t, cx).into_any_element());
         }
         if hidden > 0 && !expanded {
-            out.push(
-                row_shell(SharedString::from(format!("more-{key}")), false, t)
-                    .pl(px(NEST))
-                    .child("Show more")
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.expanded.insert(key.clone());
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            );
+            out.push(show_more(key, t, cx));
         }
     }
     out
+}
+
+fn repo_header(slug: String, t: &Tokens) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .h(px(ROW_H))
+        .px(px(SPACE[1]))
+        .text_size(px(TEXT_ROW))
+        .text_color(t.fg)
+        .child(icon("folder", ICON, t.muted_fg))
+        .child(div().min_w_0().truncate().child(slug))
+        .into_any_element()
+}
+
+fn show_more(key: String, t: &Tokens, cx: &mut Context<LgtmApp>) -> AnyElement {
+    row_shell(SharedString::from(format!("more-{key}")), false, t)
+        .pl(px(NEST))
+        .child("Show more")
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.expanded.insert(key.clone());
+            cx.notify();
+        }))
+        .into_any_element()
 }
 
 fn task_row(
