@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use lgtm_protocol::{Task, TaskEvent, TaskId, TaskKind, TaskSpec, TaskStatus};
+use lgtm_protocol::{PlanStep, Task, TaskEvent, TaskId, TaskKind, TaskSpec, TaskStatus};
 
 use crate::state::{now_ms, CmdError, State, TaskRecord};
 
@@ -75,15 +75,7 @@ impl State {
 
         // Nothing is created until every key resolves, so a bad plan leaves no
         // half-built graph behind.
-        let mut seen: HashSet<&str> = HashSet::new();
-        for step in &plan.steps {
-            for key in &step.depends_on {
-                if !seen.contains(key.as_str()) {
-                    return Err(CmdError::Conflict(format!("unknown step key {key}")));
-                }
-            }
-            seen.insert(step.key.as_str());
-        }
+        check_step_keys(&plan.steps)?;
 
         let created_at = now_ms();
         let mut ids: HashMap<&str, TaskId> = HashMap::new();
@@ -94,30 +86,9 @@ impl State {
                 .iter()
                 .filter_map(|key| ids.get(key.as_str()).cloned())
                 .collect();
-            let base_branch = match depends_on.as_slice() {
-                // A single dependency's branch is the only base that has its
-                // change; more than one has no branch holding all of them.
-                [only] => format!("lgtm/{only}"),
-                _ => spec.base_branch.clone(),
-            };
             let child = Task {
                 id: self.new_id(),
-                spec: TaskSpec {
-                    repository: spec.repository.clone(),
-                    base_branch,
-                    prompt: format!("{}\n\n{}", step.title, step.prompt),
-                    executor: spec.executor,
-                    worker: spec.worker.clone(),
-                    issue: None,
-                    // The plan task keeps the Linear link; several children
-                    // syncing the same issue would move it back and forth.
-                    linear: None,
-                    kind: TaskKind::Run,
-                    parent: Some(id.to_string()),
-                    depends_on,
-                    // A batch counts its plans' children as its own work.
-                    batch: spec.batch.clone(),
-                },
+                spec: child_spec(&spec, step, depends_on, id),
                 status: TaskStatus::Queued,
                 worker: None,
                 created_at: created_at + index as u64,
@@ -143,7 +114,50 @@ impl State {
             .map(|rec| (rec.task.clone(), changed))
             .ok_or(CmdError::NotFound)
     }
+}
 
+/// Every key a step depends on must be one that came before it.
+fn check_step_keys(steps: &[PlanStep]) -> Result<(), CmdError> {
+    let mut seen: HashSet<&str> = HashSet::new();
+    for step in steps {
+        if let Some(key) = step
+            .depends_on
+            .iter()
+            .find(|key| !seen.contains(key.as_str()))
+        {
+            return Err(CmdError::Conflict(format!("unknown step key {key}")));
+        }
+        seen.insert(step.key.as_str());
+    }
+    Ok(())
+}
+
+fn child_spec(spec: &TaskSpec, step: &PlanStep, depends_on: Vec<TaskId>, parent: &str) -> TaskSpec {
+    let base_branch = match depends_on.as_slice() {
+        // A single dependency's branch is the only base that has its
+        // change; more than one has no branch holding all of them.
+        [only] => format!("lgtm/{only}"),
+        _ => spec.base_branch.clone(),
+    };
+    TaskSpec {
+        repository: spec.repository.clone(),
+        base_branch,
+        prompt: format!("{}\n\n{}", step.title, step.prompt),
+        executor: spec.executor,
+        worker: spec.worker.clone(),
+        issue: None,
+        // The plan task keeps the Linear link; several children syncing the
+        // same issue would move it back and forth.
+        linear: None,
+        kind: TaskKind::Run,
+        parent: Some(parent.to_string()),
+        depends_on,
+        // A batch counts its plans' children as its own work.
+        batch: spec.batch.clone(),
+    }
+}
+
+impl State {
     /// Approves a plan its batch said needs no one to look at it. A no-op for
     /// anything else. Returns the ids to persist.
     pub fn auto_approve_plan(&mut self, task_id: &str) -> Vec<TaskId> {
