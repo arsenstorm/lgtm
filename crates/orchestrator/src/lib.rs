@@ -87,12 +87,15 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
     listen(router, opts.bind, opts.tls).await
 }
 
-/// Reads every stored task and batch back, repairing what the restart broke.
+/// Reads every stored task, batch and memory back, repairing what the restart
+/// broke.
 fn load_state(data_dir: &std::path::Path, queue_without_workers: bool) -> anyhow::Result<State> {
     let tasks_dir = data_dir.join("tasks");
     let batches_dir = data_dir.join("batches");
+    let memories_dir = data_dir.join("memories");
     std::fs::create_dir_all(&tasks_dir)?;
     std::fs::create_dir_all(&batches_dir)?;
+    std::fs::create_dir_all(&memories_dir)?;
     let mut state = State {
         queue_without_workers,
         ..State::default()
@@ -108,9 +111,13 @@ fn load_state(data_dir: &std::path::Path, queue_without_workers: bool) -> anyhow
     for batch in persist::load_all_batches(&batches_dir) {
         state.batches.insert(batch.id.clone(), batch);
     }
+    for memory in persist::load_all_memories(&memories_dir) {
+        state.memories.insert(memory.id.clone(), memory);
+    }
     tracing::info!(
         tasks = state.tasks.len(),
         batches = state.batches.len(),
+        memories = state.memories.len(),
         "loaded tasks",
     );
     Ok(state)

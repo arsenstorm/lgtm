@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Task, TaskId, TaskResult, WorkerInfo};
+use crate::{Memory, Task, TaskId, TaskResult, WorkerInfo};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -105,6 +105,10 @@ pub enum OrchestratorMessage {
     },
     Start {
         task: Box<Task>,
+        /// What the runner prepends to the prompt; resolved by the
+        /// orchestrator so a runner never needs the store.
+        #[serde(default)]
+        memories: Vec<Memory>,
     },
     Cancel {
         task_id: TaskId,
@@ -113,6 +117,10 @@ pub enum OrchestratorMessage {
     Message {
         task_id: TaskId,
         text: String,
+        /// What the runner prepends to the prompt; resolved by the
+        /// orchestrator so a runner never needs the store.
+        #[serde(default)]
+        memories: Vec<Memory>,
     },
     /// Push `lgtm/<task-id>` to origin.
     Push {

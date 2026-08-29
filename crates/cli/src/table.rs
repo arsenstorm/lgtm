@@ -1,6 +1,6 @@
 //! The `tasks` table and the cells in it.
 
-use lgtm_protocol::{CiState, Review, Task, TaskStatus};
+use lgtm_protocol::{CiState, Memory, Review, Task, TaskStatus};
 
 /// The wire form ("awaiting_review") rather than Rust's Debug form, so it
 /// matches the JSON everywhere else in the CLI's output.
@@ -106,6 +106,24 @@ pub fn print_task_table(tasks: Vec<Task>) {
     }
 }
 
+/// One row of the `memory list` table. A memory with no repository shows `*`,
+/// since it applies to all of them.
+pub fn memory_row(memory: &Memory) -> String {
+    format!(
+        "{:<10}{:<48}{}",
+        memory.id,
+        memory.repository.as_deref().unwrap_or("*"),
+        first_line_truncated(&memory.content, 80)
+    )
+}
+
+pub fn print_memory_table(memories: &[Memory]) {
+    println!("{:<10}{:<48}CONTENT", "ID", "REPOSITORY");
+    for memory in memories {
+        println!("{}", memory_row(memory));
+    }
+}
+
 pub fn first_line_truncated(s: &str, max: usize) -> String {
     let first = s.lines().next().unwrap_or("");
     if first.chars().count() > max {
@@ -164,6 +182,30 @@ mod tests {
         t.spec.parent = parent.map(String::from);
         t.spec.depends_on = depends_on.iter().map(|s| s.to_string()).collect();
         t
+    }
+
+    fn memory(repository: Option<&str>, content: &str) -> Memory {
+        Memory {
+            id: "0123abcd".into(),
+            repository: repository.map(String::from),
+            content: content.into(),
+            created_at: 1,
+        }
+    }
+
+    #[test]
+    fn memory_row_stars_every_repository_and_truncates() {
+        let row = memory_row(&memory(None, &"x".repeat(100)));
+        assert!(row.starts_with("0123abcd  *         "));
+        assert!(row.ends_with(&"x".repeat(80)));
+        assert_eq!(row.len(), 10 + 48 + 80);
+    }
+
+    #[test]
+    fn memory_row_shows_its_repository() {
+        let row = memory_row(&memory(Some("https://example.com/r.git"), "no yarn"));
+        assert!(row.contains("https://example.com/r.git"));
+        assert!(row.ends_with("no yarn"));
     }
 
     #[test]

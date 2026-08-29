@@ -141,7 +141,7 @@ fn queued_task_assigned_on_connect() {
     );
     assert!(matches!(
         b.try_recv().unwrap(),
-        OrchestratorMessage::Start { task } if task.id == queued.id
+        OrchestratorMessage::Start { task, .. } if task.id == queued.id
     ));
 }
 
@@ -460,6 +460,35 @@ fn message_requires_awaiting_review() {
         state.workers["a"].running.is_empty(),
         "slot freed again after the follow-up run"
     );
+}
+
+#[test]
+fn a_follow_up_carries_the_memories() {
+    let mut state = State::default();
+    let mut a = connect(&mut state, "a", 1, 1);
+    let memory = state.create_memory(
+        Some(spec(Executor::Claude, None).repository),
+        "no yarn".into(),
+    );
+    let id = create(&mut state, Executor::Claude).id;
+    let result = TaskResult {
+        branch: format!("lgtm/{id}"),
+        diff: "diff".into(),
+        changed_files: vec!["a.rs".into()],
+        validation: Vec::new(),
+        plan: None,
+        review: None,
+        policy: None,
+        cost_usd: 0.0,
+    };
+    state.apply_event(&id, TaskEvent::Completed { result });
+    state.message(&id, "keep going".into()).unwrap();
+
+    let frames: Vec<OrchestratorMessage> = std::iter::from_fn(|| a.try_recv().ok()).collect();
+    assert!(frames.iter().any(|frame| matches!(
+        frame,
+        OrchestratorMessage::Message { memories, .. } if memories.as_slice() == [memory.clone()]
+    )));
 }
 
 /// A bare task in `status`, from a Linear issue or not, with no worker or

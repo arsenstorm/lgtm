@@ -38,6 +38,8 @@ to add it to the fleet.
 - `lgtm backlog github` and `lgtm backlog linear` import a whole labelled
   backlog as one batch of tasks.
 - `lgtm tell <id> "…"` sends a follow-up to a task that is awaiting review.
+- `lgtm memory add "…"` records a fact every agent run in the repository is
+  told.
 - Repository checks run after the agent finishes; a second agent pass
   reviews the diff and reports findings.
 - `lgtm approve`, `reject`, `cancel`, and `merge` drive a task to a pull

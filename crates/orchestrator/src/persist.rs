@@ -1,9 +1,9 @@
 //! One JSON file per task under `<data_dir>/tasks`, one per batch under
-//! `<data_dir>/batches`.
+//! `<data_dir>/batches`, and one per memory under `<data_dir>/memories`.
 
 use std::path::{Path, PathBuf};
 
-use lgtm_protocol::{Batch, StoredEvent, Task};
+use lgtm_protocol::{Batch, Memory, StoredEvent, Task};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -17,10 +17,12 @@ pub struct Stored {
     pub events: Vec<StoredEvent>,
 }
 
-/// One thing to write. The writer owns both directories.
+/// One thing to write. The writer owns every directory it writes into.
 pub enum Persist {
     Task(Box<Stored>),
     Batch(Batch),
+    Memory(Memory),
+    RemoveMemory(String),
 }
 
 impl From<&TaskRecord> for Stored {
@@ -34,14 +36,17 @@ impl From<&TaskRecord> for Stored {
 
 /// Owns the data directory so no request handler ever holds it, and keeps
 /// writes for a task in the order its events arrived. `dir` is the data
-/// directory; `tasks` and `batches` under it must already exist.
+/// directory; `tasks`, `batches` and `memories` under it must already exist.
 pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
     let tasks = dir.join("tasks");
     let batches = dir.join("batches");
+    let memories = dir.join("memories");
     while let Some(item) = rx.recv().await {
         match item {
             Persist::Task(stored) => save(&tasks, &stored),
             Persist::Batch(batch) => save_batch(&batches, &batch),
+            Persist::Memory(memory) => save_memory(&memories, &memory),
+            Persist::RemoveMemory(id) => remove_memory(&memories, &id),
         }
     }
 }
@@ -87,6 +92,28 @@ pub fn save_batch(dir: &Path, batch: &Batch) {
     }
 }
 
+pub fn save_memory(dir: &Path, memory: &Memory) {
+    let Some(stem) = file_stem(&memory.id) else {
+        tracing::error!(memory = %memory.id, "refusing to persist memory with unsafe id");
+        return;
+    };
+    if let Err(err) = write_json(dir, &stem, memory) {
+        tracing::error!(memory = %memory.id, %err, "failed to persist memory");
+    }
+}
+
+pub fn remove_memory(dir: &Path, id: &str) {
+    let Some(stem) = file_stem(id) else {
+        tracing::error!(memory = %id, "refusing to remove memory with unsafe id");
+        return;
+    };
+    match std::fs::remove_file(dir.join(format!("{stem}.json"))) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => tracing::error!(memory = %id, %err, "failed to remove memory"),
+    }
+}
+
 /// Every `<dir>/*.json` that parses as a `T` and whose id is a safe file name.
 fn load_dir<T: DeserializeOwned>(dir: &Path, id: impl Fn(&T) -> &str) -> Vec<T> {
     let mut out = Vec::new();
@@ -122,6 +149,10 @@ pub fn load_all(dir: &Path) -> Vec<Stored> {
 
 pub fn load_all_batches(dir: &Path) -> Vec<Batch> {
     load_dir(dir, |batch: &Batch| batch.id.as_str())
+}
+
+pub fn load_all_memories(dir: &Path) -> Vec<Memory> {
+    load_dir(dir, |memory: &Memory| memory.id.as_str())
 }
 
 #[cfg(test)]

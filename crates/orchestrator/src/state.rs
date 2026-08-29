@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
-    Batch, OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskId, TaskSpec, TaskStatus,
+    Batch, Memory, OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskId, TaskSpec, TaskStatus,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -42,6 +42,14 @@ impl App {
     pub fn persist_batch(&self, batch: &Batch) {
         let _ = self.persist.send(Persist::Batch(batch.clone()));
     }
+
+    pub fn persist_memory(&self, memory: &Memory) {
+        let _ = self.persist.send(Persist::Memory(memory.clone()));
+    }
+
+    pub fn forget_memory(&self, id: &str) {
+        let _ = self.persist.send(Persist::RemoveMemory(id.to_string()));
+    }
 }
 
 #[derive(Default)]
@@ -50,6 +58,8 @@ pub struct State {
     pub tasks: HashMap<TaskId, TaskRecord>,
     /// Backlog imports, by id. A task points back with `spec.batch`.
     pub batches: HashMap<String, Batch>,
+    /// Durable facts every run in a repository is told, by id.
+    pub memories: HashMap<String, Memory>,
     /// Accept tasks no connected worker can run, because provisioning is on
     /// and a worker for them is a queue away.
     pub queue_without_workers: bool,
@@ -153,6 +163,39 @@ impl State {
             .unwrap_or_default()
     }
 
+    fn new_memory_id(&self) -> String {
+        std::iter::repeat_with(random_id)
+            .find(|id| !self.memories.contains_key(id))
+            .unwrap_or_default()
+    }
+
+    pub fn create_memory(&mut self, repository: Option<String>, content: String) -> Memory {
+        let memory = Memory {
+            id: self.new_memory_id(),
+            repository,
+            content,
+            created_at: now_ms(),
+        };
+        self.memories.insert(memory.id.clone(), memory.clone());
+        memory
+    }
+
+    pub fn remove_memory(&mut self, id: &str) -> bool {
+        self.memories.remove(id).is_some()
+    }
+
+    /// What a run in `repository` is told, oldest first.
+    pub(crate) fn memories_for(&self, repository: &str) -> Vec<Memory> {
+        let mut out: Vec<Memory> = self
+            .memories
+            .values()
+            .filter(|memory| memory.applies_to(repository))
+            .cloned()
+            .collect();
+        out.sort_by_key(|memory| memory.created_at);
+        out
+    }
+
     /// Whether a task could ever run, so one that cannot is refused instead of
     /// queued forever. `Err` holds the 409 message.
     pub fn check_eligible(&self, spec: &TaskSpec) -> Result<(), String> {
@@ -223,10 +266,12 @@ impl State {
             };
             rec.task.worker = Some(name.clone());
             let task = rec.task.clone();
+            let memories = self.memories_for(&task.spec.repository);
             if let Some(worker) = self.workers.get_mut(&name) {
                 worker.running.insert(id.clone());
                 worker.send(OrchestratorMessage::Start {
                     task: Box::new(task),
+                    memories,
                 });
             }
             tracing::info!(task = %id, worker = %name, "task assigned");

@@ -19,7 +19,7 @@ use tokio_tungstenite::Connector;
 pub use types::{
     BatchDetail, BatchRequest, BatchResponse, EventStream, FromLinear, IssuePreview, TaskDetail,
 };
-use types::{ErrorBody, FollowUp, FromIssue};
+use types::{ErrorBody, FollowUp, FromIssue, NewMemory};
 
 #[derive(Clone)]
 pub struct Client {
@@ -111,15 +111,19 @@ impl Client {
     }
 
     async fn handle<T: DeserializeOwned>(resp: reqwest::Response) -> anyhow::Result<T> {
-        let status = resp.status();
-        if status.is_success() {
+        if resp.status().is_success() {
             return Ok(resp.json().await?);
         }
+        Err(Self::failure(resp).await)
+    }
+
+    async fn failure(resp: reqwest::Response) -> anyhow::Error {
+        let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        if let Ok(err) = serde_json::from_str::<ErrorBody>(&body) {
-            anyhow::bail!("{status}: {}", err.error);
+        match serde_json::from_str::<ErrorBody>(&body) {
+            Ok(err) => anyhow::anyhow!("{status}: {}", err.error),
+            Err(_) => anyhow::anyhow!("{status}: {body}"),
         }
-        anyhow::bail!("{status}: {body}");
     }
 
     pub async fn workers(&self) -> anyhow::Result<Vec<lgtm_protocol::WorkerStatus>> {
@@ -207,6 +211,51 @@ impl Client {
 
     pub async fn batch(&self, id: &str) -> anyhow::Result<BatchDetail> {
         self.get(&format!("/api/batches/{id}")).await
+    }
+
+    /// Memories that apply to `repository`, or every one when it is `None`.
+    pub async fn memories(
+        &self,
+        repository: Option<&str>,
+    ) -> anyhow::Result<Vec<lgtm_protocol::Memory>> {
+        let mut req = self
+            .http
+            .get(format!("{}/api/memories", self.base))
+            .bearer_auth(&self.token);
+        // A git URL needs escaping, which reqwest's query builder does.
+        if let Some(repository) = repository {
+            req = req.query(&[("repository", repository)]);
+        }
+        Self::handle(req.send().await?).await
+    }
+
+    pub async fn create_memory(
+        &self,
+        repository: Option<&str>,
+        content: &str,
+    ) -> anyhow::Result<lgtm_protocol::Memory> {
+        self.post(
+            "/api/memories",
+            Some(&NewMemory {
+                repository,
+                content,
+            }),
+        )
+        .await
+    }
+
+    /// The 204 carries no body, so nothing is deserialized here.
+    pub async fn delete_memory(&self, id: &str) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .delete(format!("{}/api/memories/{id}", self.base))
+            .bearer_auth(&self.token)
+            .send()
+            .await?;
+        if resp.status().is_success() {
+            return Ok(());
+        }
+        Err(Self::failure(resp).await)
     }
 
     /// Opens the events socket from event index `from` and returns a stream

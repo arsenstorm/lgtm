@@ -224,6 +224,39 @@ pub struct BatchSummary {
     pub rejected: u32,
 }
 
+/// A fact, constraint, or decision every run in a repository should know.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Memory {
+    pub id: String,
+    /// `None` applies to every repository the orchestrator sees.
+    pub repository: Option<String>,
+    pub content: String,
+    /// Unix milliseconds.
+    pub created_at: u64,
+}
+
+impl Memory {
+    /// Whether a run in `repository` should be told this.
+    pub fn applies_to(&self, repository: &str) -> bool {
+        self.repository.as_deref().is_none_or(|r| r == repository)
+    }
+}
+
+/// The block prepended to an agent prompt, or empty when there is nothing.
+pub fn knowledge_block(memories: &[Memory]) -> String {
+    if memories.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("Project knowledge (from the team, treat as fact):\n");
+    for memory in memories {
+        out.push_str("- ");
+        out.push_str(&memory.content);
+        out.push('\n');
+    }
+    out.push('\n');
+    out
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CiState {

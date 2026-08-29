@@ -77,6 +77,11 @@ pub enum Command {
         #[command(subcommand)]
         command: BacklogCommand,
     },
+    /// Record, list, and forget facts every agent run is told.
+    Memory {
+        #[command(subcommand)]
+        command: MemoryCommand,
+    },
     /// Replace this binary with the latest release
     Upgrade {
         /// Install a specific release tag instead of the latest.
@@ -180,6 +185,24 @@ pub enum BacklogCommand {
     List,
     /// Show one batch's summary and its tasks.
     Status { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum MemoryCommand {
+    /// Record a fact every agent run in the repository is told.
+    Add {
+        /// Git URL; omit for every repository.
+        #[arg(long)]
+        repo: Option<String>,
+        content: String,
+    },
+    /// List recorded memories.
+    List {
+        #[arg(long)]
+        repo: Option<String>,
+    },
+    /// Forget one memory.
+    Rm { id: String },
 }
 
 /// How a batch is imported, whichever source it comes from.
