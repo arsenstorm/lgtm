@@ -5,7 +5,7 @@ mod rows;
 use crate::app::LgtmApp;
 use crate::net::Action;
 use crate::review::{MarkViewed, NextFile, PrevFile, ToggleDiffStyle};
-use crate::theme::{self, Tokens};
+use crate::theme::{self, Tokens, TEXT_COUNT};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, Hsla, InteractiveElement as _, IntoElement,
@@ -83,7 +83,7 @@ fn sidebar(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .flex_none()
         .flex()
         .flex_col()
-        .bg(t.surface)
+        .bg(t.bg)
         .border_r_1()
         .border_color(t.border)
         .child(summary(app, t, cx))
@@ -93,7 +93,7 @@ fn sidebar(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
-                .py(px(theme::SPACE[1]))
+                .py(px(theme::SPACE[0]))
                 .children(tree_rows(app, t, cx)),
         )
         .child(footer(app, t, cx))
@@ -108,19 +108,20 @@ fn summary(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .flex()
         .flex_col()
         .gap(px(theme::SPACE[1]))
-        .p(px(theme::SPACE[2]))
+        .px(px(theme::SPACE[2]))
+        .py(px(theme::SPACE[1]))
         .border_b_1()
         .border_color(t.border)
         .child(
             div()
                 .text_size(px(theme::TEXT_SECONDARY))
-                .text_color(t.text_muted)
+                .text_color(t.muted_fg)
                 .child(format!("{} files · +{adds} −{dels}", files.len())),
         )
         .child(
             div()
                 .flex()
-                .gap(px(theme::SPACE[1]))
+                .gap(px(theme::SPACE[0]))
                 .child(style_button("unified", "Unified", !split, cx))
                 .child(style_button("split", "Split", split, cx)),
         )
@@ -141,6 +142,7 @@ fn style_button(
         .label(label)
         .xsmall()
         .when(selected, |button| button.primary())
+        .when(!selected, |button| button.ghost())
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.review.set_style(style);
             cx.notify();
@@ -155,14 +157,16 @@ fn tree_rows(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyEle
         .into_iter()
         .map(|node| {
             let pad = px(theme::SPACE[2] + node.depth as f32 * INDENT);
+            // `px-3 py-1.5`, mono: the reference changed-file row.
             let row = div()
                 .flex()
                 .items_center()
                 .gap(px(theme::SPACE[1]))
                 .pl(pad)
-                .pr(px(theme::SPACE[2]))
-                .h(px(rows::ROW_HEIGHT))
-                .text_size(px(theme::TEXT_SECONDARY));
+                .pr(px(theme::SPACE[1]))
+                .py(px(6.))
+                .font_family(theme::MONO_FONT)
+                .text_size(px(theme::TEXT_MONO));
             if node.is_dir {
                 dir_row(row, node, t, cx)
             } else {
@@ -182,8 +186,8 @@ fn dir_row(
     let chevron = if node.expanded { "▾" } else { "▸" };
     row.id(SharedString::from(format!("dir:{}", node.path)))
         .cursor_pointer()
-        .text_color(t.text_muted)
-        .hover(|style| style.bg(t.surface_raised))
+        .text_color(t.muted_fg)
+        .hover(|style| style.bg(t.muted))
         .child(chevron)
         .child(node.name.clone())
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -207,19 +211,26 @@ fn file_row(
     };
     let file = &app.review.files[index];
     let (mark, color) = status_glyph(file.status, t);
-    let counts = format!("+{} −{}", file.additions, file.deletions);
     let viewed = app.review.viewed.contains(&file.name);
     let name = file.name.clone();
     let current = index == app.review.current_file;
 
     row.id(SharedString::from(format!("file:{}", node.path)))
         .cursor_pointer()
-        .text_color(t.text)
-        .when(current, |this| this.bg(t.selection))
-        .hover(|style| style.bg(t.surface_raised))
-        .child(div().w(px(12.)).text_color(color).child(mark))
+        .text_color(t.fg)
+        .when(current, |this| this.bg(t.muted))
+        .when(viewed, |this| this.opacity(0.55))
+        .hover(|style| style.bg(t.muted))
+        .child(
+            div()
+                .w(px(12.))
+                .flex_none()
+                .text_color(color)
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .child(mark),
+        )
         .child(div().flex_1().min_w_0().truncate().child(node.name.clone()))
-        .child(div().text_color(t.text_muted).child(counts))
+        .child(counts(file.additions, file.deletions, t))
         .child(
             Checkbox::new(SharedString::from(format!("viewed:{}", node.path)))
                 .checked(viewed)
@@ -238,6 +249,18 @@ fn file_row(
         .into_any_element()
 }
 
+/// `+n` in the addition colour, `−n` in the deletion colour, 11px and mono so
+/// the digits line up column to column.
+pub(crate) fn counts(additions: usize, deletions: usize, t: &Tokens) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .gap(px(theme::SPACE[0]))
+        .text_size(px(TEXT_COUNT))
+        .child(div().text_color(t.success).child(format!("+{additions}")))
+        .child(div().text_color(t.danger).child(format!("−{deletions}")))
+}
+
 fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let count = app.review.comment_count();
     div()
@@ -245,13 +268,14 @@ fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .items_center()
         .justify_between()
         .gap(px(theme::SPACE[1]))
-        .p(px(theme::SPACE[2]))
+        .px(px(theme::SPACE[2]))
+        .py(px(theme::SPACE[1]))
         .border_t_1()
         .border_color(t.border)
         .child(
             div()
                 .text_size(px(theme::TEXT_SECONDARY))
-                .text_color(t.text_muted)
+                .text_color(t.muted_fg)
                 .child(format!("{count} comments")),
         )
         .when(count > 0, |this| {
@@ -273,8 +297,8 @@ pub(crate) fn status_glyph(status: FileStatus, t: &Tokens) -> (&'static str, Hsl
         FileStatus::Added => ("A", t.success),
         FileStatus::Modified => ("M", t.warning),
         FileStatus::Deleted => ("D", t.danger),
-        FileStatus::Renamed => ("R", t.accent),
-        FileStatus::Binary => ("B", t.text_muted),
+        FileStatus::Renamed => ("R", t.info),
+        FileStatus::Binary => ("B", t.muted_fg),
     }
 }
 
@@ -284,7 +308,7 @@ fn muted(text: &'static str, t: &Tokens) -> AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .text_color(t.text_muted)
+        .text_color(t.muted_fg)
         .child(text)
         .into_any_element()
 }

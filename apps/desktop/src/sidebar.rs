@@ -2,7 +2,10 @@
 //! then workers and the orchestrator's reachability.
 
 use crate::app::{prompt_preview, status_label, LgtmApp};
-use crate::theme::{tokens, Tokens, SPACE, TEXT_SECONDARY};
+use crate::theme::{
+    field, section_label, tokens, Tokens, MONO_FONT, RADIUS, ROW_H, SPACE, STATUS_H, TEXT_MONO,
+    TEXT_SECONDARY,
+};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement as _,
@@ -10,7 +13,6 @@ use gpui::{
     Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::Input;
 use gpui_component::{Selectable as _, Sizable as _};
 use lgtm_protocol::{Batch, BatchSource, Task};
 use std::collections::HashSet;
@@ -18,6 +20,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const WIDTH: f32 = 240.;
 const PROMPT_PREVIEW: usize = 32;
+/// Sidebar rows are the one place that keeps `rounded-md`; a pill this short
+/// would read as a lozenge, not a list.
+const ROW_RADIUS: f32 = 8.;
 
 pub fn now_ms() -> u64 {
     SystemTime::now()
@@ -103,10 +108,10 @@ pub fn relative_age(created_at: u64, now: u64) -> String {
 pub fn status_color(task: &Task, tasks: &[Task], t: &Tokens) -> Hsla {
     match status_label(task, tasks) {
         "awaiting_review" => t.warning,
-        "running" => t.accent,
+        "running" => t.info,
         "approved" | "merged" => t.success,
         "failed" | "rejected" | "cancelled" => t.danger,
-        _ => t.text_muted,
+        _ => t.muted_fg,
     }
 }
 
@@ -125,9 +130,9 @@ pub fn render_sidebar(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<L
         .flex_shrink_0()
         .flex()
         .flex_col()
-        .bg(t.surface)
+        .bg(t.sidebar)
         .border_r_1()
-        .border_color(t.border)
+        .border_color(t.sidebar_border)
         .child(quick_actions(app, &t, cx))
         .when(app.show_settings, |this| {
             this.child(settings_panel(app, &t, window, cx))
@@ -136,8 +141,8 @@ pub fn render_sidebar(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<L
             this.child(
                 div()
                     .px(px(SPACE[1]))
-                    .pb(px(SPACE[0]))
-                    .child(Input::new(&app.search).small()),
+                    .pb(px(SPACE[1]))
+                    .child(field(&app.search, &t).small()),
             )
         })
         .child(
@@ -147,6 +152,7 @@ pub fn render_sidebar(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<L
                 .min_h_0()
                 .overflow_y_scroll()
                 .track_scroll(&app.task_scroll)
+                .px(px(SPACE[1]))
                 .pb(px(SPACE[1]))
                 .children(repository_groups(app, &t, cx)),
         )
@@ -161,7 +167,7 @@ fn quick_actions(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .p(px(SPACE[1]))
         .gap(px(2.))
         .border_b_1()
-        .border_color(t.border)
+        .border_color(t.sidebar_border)
         .child(
             action_row(
                 "new-task",
@@ -196,6 +202,24 @@ fn quick_actions(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         )
 }
 
+/// The shared sidebar row: 28px tall, `text-xs`, `accent` on hover, `accent`
+/// plus full-strength text when it is the current one.
+fn row_shell(id: impl Into<SharedString>, active: bool, t: &Tokens) -> gpui::Stateful<Div> {
+    div()
+        .id(id.into())
+        .flex()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .h(px(ROW_H))
+        .px(px(SPACE[1]))
+        .rounded(px(ROW_RADIUS))
+        .cursor_pointer()
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(if active { t.fg } else { t.muted_fg })
+        .when(active, |this| this.bg(t.muted))
+        .hover(|this| this.bg(t.muted))
+}
+
 fn action_row(
     id: &'static str,
     glyph: &'static str,
@@ -204,26 +228,10 @@ fn action_row(
     active: bool,
     t: &Tokens,
 ) -> gpui::Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .gap(px(SPACE[1]))
-        .px(px(SPACE[1]))
-        .py(px(SPACE[0]))
-        .rounded(px(6.))
-        .cursor_pointer()
-        .text_color(t.text)
-        .when(active, |this| this.bg(t.selection))
-        .hover(|this| this.bg(t.surface_raised))
-        .child(div().w(px(14.)).text_color(t.text_muted).child(glyph))
+    row_shell(id, active, t)
+        .child(div().w(px(14.)).text_color(t.muted_fg).child(glyph))
         .child(div().flex_1().child(label))
-        .child(
-            div()
-                .text_size(px(TEXT_SECONDARY))
-                .text_color(t.text_muted)
-                .child(key),
-        )
+        .child(div().text_color(t.muted_fg).child(key))
 }
 
 fn settings_panel(
@@ -238,9 +246,9 @@ fn settings_panel(
         .flex_col()
         .gap(px(SPACE[0]))
         .m(px(SPACE[1]))
-        .p(px(SPACE[1]))
-        .rounded(px(8.))
-        .bg(t.surface_raised)
+        .p(px(SPACE[2]))
+        .rounded(px(RADIUS))
+        .bg(t.card)
         .border_1()
         .border_color(t.border)
         .text_size(px(TEXT_SECONDARY))
@@ -269,7 +277,7 @@ fn labelled(label: &'static str, value: impl Into<SharedString>, t: &Tokens) -> 
         .flex()
         .justify_between()
         .gap(px(SPACE[1]))
-        .child(div().text_color(t.text_muted).child(label))
+        .child(div().text_color(t.muted_fg).child(label))
         .child(div().flex_1().text_right().truncate().child(value.into()))
 }
 
@@ -291,10 +299,10 @@ fn repository_groups(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Ve
 
     if visible.is_empty() {
         return vec![div()
-            .px(px(SPACE[2]))
-            .py(px(SPACE[1]))
+            .px(px(SPACE[1]))
+            .py(px(SPACE[2]))
             .text_size(px(TEXT_SECONDARY))
-            .text_color(t.text_muted)
+            .text_color(t.muted_fg)
             .child("No tasks yet")
             .into_any_element()];
     }
@@ -307,12 +315,12 @@ fn repository_groups(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Ve
                 .flex()
                 .items_center()
                 .gap(px(SPACE[0]))
+                .h(px(ROW_H))
                 .px(px(SPACE[1]))
-                .pt(px(SPACE[2]))
-                .pb(px(SPACE[0]))
+                .pt(px(SPACE[1]))
                 .text_size(px(TEXT_SECONDARY))
-                .text_color(t.text_muted)
-                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(t.muted_fg)
+                .font_weight(FontWeight::MEDIUM)
                 .child("🗀")
                 .child(slug)
                 .into_any_element(),
@@ -336,8 +344,9 @@ fn batch_header(batch: &Batch, t: &Tokens) -> Div {
     div()
         .px(px(SPACE[2]))
         .py(px(2.))
-        .text_size(px(TEXT_SECONDARY))
-        .text_color(t.text_muted)
+        .font_family(MONO_FONT)
+        .text_size(px(TEXT_MONO))
+        .text_color(t.muted_fg)
         .child(format!("▣ {}", batch_label(&batch.source)))
 }
 
@@ -354,19 +363,10 @@ fn task_row(
     let prompt = prompt_preview(&task.spec.prompt, PROMPT_PREVIEW);
     let dot = status_color(task, &app.tasks, t);
 
-    div()
-        .id(SharedString::from(format!("task-{id}")))
-        .flex()
-        .items_center()
-        .gap(px(SPACE[1]))
-        .pr(px(SPACE[1]))
-        .pl(px(if child { SPACE[3] } else { SPACE[2] }))
-        .py(px(5.))
-        .cursor_pointer()
-        .border_l_2()
-        .border_color(if active { t.accent } else { t.surface })
-        .when(active, |this| this.bg(t.selection))
-        .hover(|this| this.bg(t.surface_raised))
+    row_shell(SharedString::from(format!("task-{id}")), active, t)
+        .pl(px(if child { SPACE[2] } else { SPACE[1] }))
+        .font_family(MONO_FONT)
+        .text_size(px(TEXT_MONO))
         .child(
             div()
                 .flex_shrink_0()
@@ -375,23 +375,15 @@ fn task_row(
                 .rounded_full()
                 .bg(dot),
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_color(t.text)
-                .child(if child {
-                    format!("↳ {prompt}")
-                } else {
-                    prompt
-                }),
-        )
+        .child(div().flex_1().min_w_0().truncate().child(if child {
+            format!("↳ {prompt}")
+        } else {
+            prompt
+        }))
         .child(
             div()
                 .flex_shrink_0()
-                .text_size(px(TEXT_SECONDARY))
-                .text_color(t.text_muted)
+                .text_color(t.muted_fg)
                 .child(relative_age(task.created_at, now)),
         )
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)))
@@ -402,44 +394,48 @@ fn workers(app: &LgtmApp, t: &Tokens) -> Div {
         .flex()
         .flex_col()
         .gap(px(2.))
-        .px(px(SPACE[1]))
-        .py(px(SPACE[1]))
+        .p(px(SPACE[1]))
         .border_t_1()
-        .border_color(t.border)
+        .border_color(t.sidebar_border)
         .text_size(px(TEXT_SECONDARY))
         .child(
-            div()
-                .text_color(t.text_muted)
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("Workers"),
+            section_label("Workers", t)
+                .px(px(SPACE[1]))
+                .pb(px(SPACE[0])),
         )
         .when(app.workers.is_empty(), |this| {
-            this.child(div().text_color(t.text_muted).child("none connected"))
+            this.child(
+                div()
+                    .px(px(SPACE[1]))
+                    .text_color(t.muted_fg)
+                    .child("none connected"),
+            )
         })
         .children(app.workers.iter().map(|worker| {
             div()
                 .flex()
                 .items_center()
                 .gap(px(SPACE[0]))
+                .h(px(ROW_H))
+                .px(px(SPACE[1]))
                 .child(
                     div()
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_color(t.text)
                         .child(SharedString::from(worker.info.name.clone())),
                 )
                 .when(worker.info.ephemeral, |this| {
                     this.child(
                         div()
-                            .px(px(4.))
-                            .rounded(px(4.))
-                            .bg(t.surface_raised)
-                            .text_color(t.text_muted)
+                            .px(px(SPACE[1]))
+                            .rounded(px(crate::theme::RADIUS_PILL))
+                            .bg(t.muted)
+                            .text_color(t.muted_fg)
                             .child("ephemeral"),
                     )
                 })
-                .child(div().text_color(t.text_muted).child(format!(
+                .child(div().text_color(t.muted_fg).child(format!(
                     "{}/{}",
                     worker.running.len(),
                     worker.info.slots
@@ -447,17 +443,19 @@ fn workers(app: &LgtmApp, t: &Tokens) -> Div {
         }))
 }
 
+/// The status bar from the reference app: `h-6`, a top border, `text-xs`.
 fn footer(app: &LgtmApp, t: &Tokens) -> Div {
     div()
         .flex()
+        .flex_shrink_0()
         .items_center()
-        .gap(px(SPACE[0]))
-        .px(px(SPACE[1]))
-        .py(px(SPACE[1]))
+        .gap(px(SPACE[1]))
+        .h(px(STATUS_H))
+        .px(px(SPACE[2]))
         .border_t_1()
-        .border_color(t.border)
+        .border_color(t.sidebar_border)
         .text_size(px(TEXT_SECONDARY))
-        .text_color(t.text_muted)
+        .text_color(t.muted_fg)
         .child(
             div()
                 .flex_shrink_0()

@@ -2,7 +2,7 @@
 
 use crate::net::{self, Action, Msg};
 use crate::render::{self, Line};
-use crate::theme::{tokens, SPACE, TEXT_BODY, TEXT_SECONDARY, UI_FONT};
+use crate::theme::{tokens, SPACE, STATUS_H, TEXT_BODY, TEXT_SECONDARY, UI_FONT};
 use crate::{home, panes, sidebar};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -123,7 +123,7 @@ impl LgtmApp {
         let prompt = cx.new(|cx| {
             InputState::new(window, cx)
                 .multi_line(true)
-                .auto_grow(3, 8)
+                .auto_grow(1, 8)
                 .placeholder("Describe the change…")
         });
         let repo_url = field("https://github.com/you/repo.git", window, cx);
@@ -575,17 +575,25 @@ impl Render for LgtmApp {
             .flex()
             .flex_col()
             .bg(t.bg)
-            .text_color(t.text)
+            .text_color(t.fg)
             .font_family(UI_FONT)
             .text_size(px(TEXT_BODY))
             .when(unreachable, |this| {
                 this.child(
                     div()
                         .w_full()
+                        .flex()
+                        .flex_shrink_0()
+                        .items_center()
+                        .h(px(STATUS_H))
                         .px(px(SPACE[2]))
-                        .py(px(SPACE[0]))
-                        .bg(t.danger)
-                        .text_color(t.accent_fg)
+                        // `bg-destructive/10 text-destructive`, the reference's
+                        // destructive fill — a loud strip would own the window.
+                        .bg(gpui::Hsla {
+                            a: 0.12,
+                            ..t.danger
+                        })
+                        .text_color(t.danger)
                         .text_size(px(TEXT_SECONDARY))
                         .child(format!("Orchestrator unreachable at {}", self.orchestrator)),
                 )

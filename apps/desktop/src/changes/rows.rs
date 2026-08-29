@@ -5,17 +5,19 @@ use crate::review::Comment;
 use crate::theme::{self, Tokens};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, AppContext as _, ClickEvent, Context, Div, Entity, Hsla,
+    div, px, AnyElement, AppContext as _, ClickEvent, Context, Div, Entity, FontWeight, Hsla,
     InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
     StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::checkbox::Checkbox;
-use gpui_component::input::{Input, InputState};
+use gpui_component::input::InputState;
 use gpui_component::Sizable as _;
 use lgtm_diff::{Anchor, FileDiff, FileStatus, Line, LineKind, Row};
 
-pub(super) const ROW_HEIGHT: f32 = 20.;
+pub(super) const ROW_HEIGHT: f32 = theme::LINE_MONO;
+/// The sticky bar naming the file, `h-8` like the reference.
+const FILE_HEADER_H: f32 = 32.;
 /// 4ch each for the old/new line numbers, plus a 1ch sign column.
 const GUTTER: f32 = 32.;
 const SIGN: f32 = 10.;
@@ -34,7 +36,7 @@ pub(super) fn file_column(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) 
         .font_family(theme::MONO_FONT)
         .text_size(px(theme::TEXT_MONO))
         .line_height(px(ROW_HEIGHT))
-        .text_color(t.text)
+        .text_color(t.fg)
         .children(
             app.review
                 .files
@@ -63,7 +65,7 @@ fn file_block(
             this.child(
                 div()
                     .px(px(theme::SPACE[2]))
-                    .text_color(t.text_muted)
+                    .text_color(t.muted_fg)
                     .child("binary file"),
             )
         })
@@ -95,21 +97,24 @@ fn file_header(
     div()
         .flex()
         .items_center()
-        .gap(px(theme::SPACE[2]))
+        .gap(px(theme::SPACE[1]))
         .min_w_full()
+        .h(px(FILE_HEADER_H))
         .px(px(theme::SPACE[2]))
-        .py(px(theme::SPACE[1]))
-        .bg(t.surface_raised)
+        .bg(t.card)
         .border_b_1()
         .border_color(t.border)
-        .text_size(px(theme::TEXT_BODY))
-        .child(div().text_color(color).child(mark))
+        .child(
+            div()
+                .text_color(color)
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(mark),
+        )
         .child(div().child(path))
         .child(
             div()
                 .flex_1()
-                .text_color(t.text_muted)
-                .child(format!("+{} −{}", file.additions, file.deletions)),
+                .child(super::counts(file.additions, file.deletions, t)),
         )
         .child(
             Checkbox::new(SharedString::from(format!("viewed-head:{index}")))
@@ -136,7 +141,7 @@ fn diff_row(
             .h(px(ROW_HEIGHT))
             .px(px(theme::SPACE[1]))
             .bg(t.hunk_bg)
-            .text_color(t.text_muted)
+            .text_color(t.muted_fg)
             .whitespace_nowrap()
             .child(hunk.header.clone()),
         Row::Unified(line) => {
@@ -212,7 +217,7 @@ fn half(
     let cell = div().flex_1().min_w_0();
     match line {
         Some(line) => cell.child(code_line(line, key, anchor, t, cx)),
-        None => cell.h(px(ROW_HEIGHT)),
+        None => cell.h(px(ROW_HEIGHT)).bg(t.gutter),
     }
 }
 
@@ -225,10 +230,11 @@ fn code_line(
 ) -> Div {
     let (tint, emph) = colours(line.kind, t);
     let group = SharedString::from(format!("row:{key}"));
-    let sign = match line.kind {
-        LineKind::Addition => "+",
-        LineKind::Deletion => "−",
-        LineKind::Context => " ",
+    let context = matches!(line.kind, LineKind::Context);
+    let (sign, sign_color) = match line.kind {
+        LineKind::Addition => ("+", t.diff_add),
+        LineKind::Deletion => ("−", t.diff_del),
+        LineKind::Context => (" ", t.muted_fg),
     };
     div()
         .group(group.clone())
@@ -237,26 +243,29 @@ fn code_line(
         .min_w_full()
         .h(px(ROW_HEIGHT))
         .when_some(tint, |this, colour| this.bg(colour))
+        .hover(|this| this.bg(theme::lighten(tint.unwrap_or(t.bg))))
         .child(plus_button(&group, key, anchor, t, cx))
-        .child(number(line.old_no, t))
-        .child(number(line.new_no, t))
+        // Only context rows need the gutter fill; a changed row is already tinted.
+        .child(number(line.old_no, context, t))
+        .child(number(line.new_no, context, t))
         .child(
             div()
                 .w(px(SIGN))
                 .flex_none()
-                .text_color(t.text_muted)
+                .text_color(sign_color)
                 .child(sign),
         )
         .child(text_cell(line, emph))
 }
 
-fn number(no: Option<u32>, t: &Tokens) -> Div {
+fn number(no: Option<u32>, context: bool, t: &Tokens) -> Div {
     div()
         .w(px(GUTTER))
         .flex_none()
         .pr(px(4.))
         .text_right()
-        .text_color(t.text_muted)
+        .when(context, |this| this.bg(t.gutter))
+        .text_color(t.muted_fg)
         .child(no.map(|n| n.to_string()).unwrap_or_default())
 }
 
@@ -294,8 +303,8 @@ fn plus_button(
         .cursor_pointer()
         .opacity(0.)
         .group_hover(group.clone(), |style| style.opacity(1.))
-        .bg(t.accent)
-        .text_color(t.accent_fg)
+        .bg(t.primary)
+        .text_color(t.primary_fg)
         .child("+")
         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
             let anchor = anchor.clone();
@@ -340,29 +349,62 @@ fn attach(
     block.children(cards).children(draft)
 }
 
+/// `file:line`, with the leading directories dropped — the caption the
+/// reference comment card carries.
+fn caption(anchor: &Anchor) -> String {
+    let name = anchor.file.rsplit('/').next().unwrap_or(&anchor.file);
+    format!("{name}:{}", anchor.line)
+}
+
 fn card(index: usize, comment: &Comment, key: &str, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     shell(t)
-        .child(div().flex_1().min_w_0().child(comment.text.clone()))
         .child(
             div()
-                .id(SharedString::from(format!("drop:{key}:{index}")))
-                .cursor_pointer()
-                .text_color(t.text_muted)
-                .child("✕")
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if index < this.review.comments.len() {
-                        this.review.comments.remove(index);
-                    }
-                    cx.notify();
-                })),
+                .flex()
+                .items_center()
+                .gap(px(theme::SPACE[1]))
+                .font_family(theme::MONO_FONT)
+                .text_size(px(theme::TEXT_MONO))
+                .text_color(t.muted_fg)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(caption(&comment.anchor)),
+                )
+                .child(
+                    div()
+                        .id(SharedString::from(format!("drop:{key}:{index}")))
+                        .cursor_pointer()
+                        .child("✕")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            if index < this.review.comments.len() {
+                                this.review.comments.remove(index);
+                            }
+                            cx.notify();
+                        })),
+                ),
         )
+        .child(div().child(comment.text.clone()))
 }
 
 fn draft_card(input: &Entity<InputState>, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    shell(t).flex_col().child(Input::new(input).small()).child(
+    shell(t).child(theme::field(input, t)).child(
         div()
             .flex()
+            .justify_end()
             .gap(px(theme::SPACE[1]))
+            .child(
+                Button::new("comment-cancel")
+                    .label("Cancel")
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.review.draft = None;
+                        cx.notify();
+                    })),
+            )
             .child(
                 Button::new("comment-save")
                     .label("Comment")
@@ -378,15 +420,6 @@ fn draft_card(input: &Entity<InputState>, t: &Tokens, cx: &mut Context<LgtmApp>)
                         }
                         cx.notify();
                     })),
-            )
-            .child(
-                Button::new("comment-cancel")
-                    .label("Cancel")
-                    .small()
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.review.draft = None;
-                        cx.notify();
-                    })),
             ),
     )
 }
@@ -394,18 +427,20 @@ fn draft_card(input: &Entity<InputState>, t: &Tokens, cx: &mut Context<LgtmApp>)
 fn shell(t: &Tokens) -> Div {
     div()
         .flex()
-        .items_start()
+        .flex_col()
         .gap(px(theme::SPACE[1]))
         .my(px(theme::SPACE[1]))
         .ml(px(PLUS + GUTTER * 2.))
         .mr(px(theme::SPACE[2]))
         .p(px(theme::SPACE[2]))
-        .bg(t.surface)
+        .bg(t.card)
         .border_1()
         .border_color(t.border)
-        .rounded(px(4.))
+        .rounded(px(theme::RADIUS))
+        .font_family(theme::UI_FONT)
         .text_size(px(theme::TEXT_BODY))
-        .text_color(t.text)
+        .line_height(px(20.))
+        .text_color(t.fg)
 }
 
 fn colours(kind: LineKind, t: &Tokens) -> (Option<Hsla>, Option<Hsla>) {

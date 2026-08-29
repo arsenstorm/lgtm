@@ -4,7 +4,10 @@ use crate::app::{header_preview, status_label, LgtmApp, Pane};
 use crate::net::Action;
 use crate::render::Kind;
 use crate::sidebar::repo_slug;
-use crate::theme::{tokens, Tokens, MONO_FONT, SPACE, TEXT_MONO, TEXT_SECONDARY, TEXT_TITLE};
+use crate::theme::{
+    field, tokens, Tokens, HEADER_H, LINE_MONO, MONO_FONT, RADIUS_PILL, SPACE, TEXT_MONO,
+    TEXT_SECONDARY,
+};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement as _,
@@ -12,12 +15,12 @@ use gpui::{
     Window,
 };
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
-use gpui_component::input::Input;
 use gpui_component::tab::{Tab, TabBar};
 use gpui_component::Sizable as _;
 use lgtm_protocol::{CiState, CiStatus, Severity, Task, TaskStatus};
 
-const HEADER_HEIGHT: f32 = 64.;
+/// `h-5`, the reference badge height.
+const BADGE_H: f32 = 20.;
 
 pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmApp>) -> AnyElement {
     let t = tokens(cx);
@@ -51,24 +54,26 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
         .when(app.show_follow_up, |this| {
             this.child(
                 div()
-                    .px(px(SPACE[3]))
-                    .pb(px(SPACE[1]))
-                    .child(Input::new(&app.follow_up)),
+                    .px(px(SPACE[1]))
+                    .pt(px(SPACE[1]))
+                    .child(field(&app.follow_up, &t)),
             )
         })
         .when_some(app.error.clone(), |this, error| {
             this.child(
                 div()
-                    .px(px(SPACE[3]))
-                    .pb(px(SPACE[1]))
+                    .px(px(SPACE[2]))
+                    .pt(px(SPACE[1]))
                     .text_size(px(TEXT_SECONDARY))
                     .text_color(t.danger)
                     .child(error),
             )
         })
         .child(
-            div().px(px(SPACE[2])).child(
+            div().p(px(SPACE[1])).child(
                 TabBar::new("panes")
+                    .segmented()
+                    .text_size(px(TEXT_SECONDARY))
                     .selected_index(match pane {
                         Pane::Activity => 0,
                         Pane::Changes => 1,
@@ -99,9 +104,11 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
                 .min_h_0()
                 .overflow_y_scroll()
                 .track_scroll(&app.content_scroll)
-                .p(px(SPACE[3]))
+                .px(px(SPACE[2]))
+                .pb(px(SPACE[2]))
                 .font_family(MONO_FONT)
                 .text_size(px(TEXT_MONO))
+                .line_height(px(LINE_MONO))
                 .child(match pane {
                     Pane::Checks => checks(&task, &t),
                     Pane::Plan => plan_pane(&task, &t),
@@ -116,14 +123,22 @@ fn header(app: &mut LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>)
     let status = status_label(task, &app.tasks);
     let worker = task.worker.clone().unwrap_or_else(|| "unassigned".into());
     let cost = task.result.as_ref().map(|r| r.cost_usd).unwrap_or(0.0);
+    let mut meta = format!(
+        "{} · {} · {worker}",
+        repo_slug(&task.spec.repository),
+        task.spec.base_branch
+    );
+    if cost > 0.0 {
+        meta.push_str(&format!(" · ${cost:.2}"));
+    }
 
     div()
-        .h(px(HEADER_HEIGHT))
+        .h(px(HEADER_H))
         .flex_shrink_0()
         .flex()
         .items_center()
-        .gap(px(SPACE[2]))
-        .px(px(SPACE[3]))
+        .gap(px(SPACE[1]))
+        .px(px(SPACE[1]))
         .border_b_1()
         .border_color(t.border)
         .child(
@@ -131,61 +146,45 @@ fn header(app: &mut LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>)
                 .flex_1()
                 .min_w_0()
                 .flex()
-                .flex_col()
-                .gap(px(2.))
+                .items_center()
+                .gap(px(SPACE[1]))
                 .child(
                     div()
+                        .flex_shrink()
+                        .min_w_0()
                         .truncate()
-                        .text_size(px(TEXT_TITLE))
-                        .font_weight(FontWeight::BOLD)
+                        .font_weight(FontWeight::MEDIUM)
                         .child(header_preview(&task.spec.prompt)),
                 )
+                .child(badge(status, status_tone(status, t), t))
                 .child(
                     div()
-                        .flex()
-                        .items_center()
-                        .gap(px(SPACE[1]))
+                        .flex_shrink_0()
                         .text_size(px(TEXT_SECONDARY))
-                        .text_color(t.text_muted)
-                        .child(pill(status, status_tone(status, t), t))
-                        .child(format!(
-                            "{} · {} · {worker}",
-                            repo_slug(&task.spec.repository),
-                            task.spec.base_branch
-                        ))
-                        .when(cost > 0.0, |this| this.child(format!("${cost:.2}")))
-                        .when_some(task.pull_request.clone(), |this, pr| {
-                            let (mark, tone) = ci_mark(task.ci.as_ref(), t);
-                            this.child(
-                                div()
-                                    .id("pr-chip")
-                                    .cursor_pointer()
-                                    .px(px(SPACE[0]))
-                                    .rounded(px(4.))
-                                    .bg(t.surface)
-                                    .text_color(tone)
-                                    .child(format!("#{} {mark}", pr.number))
-                                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                                        cx.open_url(&pr.url)
-                                    })),
-                            )
-                        })
-                        .when_some(task.spec.linear.clone(), |this, linear| {
-                            this.child(
-                                div()
-                                    .id("linear-chip")
-                                    .cursor_pointer()
-                                    .px(px(SPACE[0]))
-                                    .rounded(px(4.))
-                                    .bg(t.surface)
-                                    .text_color(t.text)
-                                    .child(linear.identifier.clone())
-                                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                                        cx.open_url(&linear.url)
-                                    })),
-                            )
-                        }),
-                ),
+                        .text_color(t.muted_fg)
+                        .child(meta),
+                )
+                .when_some(task.pull_request.clone(), |this, pr| {
+                    let (mark, tone) = ci_mark(task.ci.as_ref(), t);
+                    this.child(
+                        badge(format!("#{} {mark}", pr.number), tone, t)
+                            .id("pr-chip")
+                            .cursor_pointer()
+                            .on_click(
+                                cx.listener(move |_, _: &ClickEvent, _, cx| cx.open_url(&pr.url)),
+                            ),
+                    )
+                })
+                .when_some(task.spec.linear.clone(), |this, linear| {
+                    this.child(
+                        badge(linear.identifier.clone(), t.fg, t)
+                            .id("linear-chip")
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                                cx.open_url(&linear.url)
+                            })),
+                    )
+                }),
         )
         .child(actions(task, t, cx))
 }
@@ -196,8 +195,8 @@ fn danger_ghost(t: &Tokens, cx: &App) -> ButtonCustomVariant {
         .color(Hsla::transparent_black())
         .border(Hsla::transparent_black())
         .foreground(t.danger)
-        .hover(t.surface)
-        .active(t.surface)
+        .hover(t.muted)
+        .active(t.muted)
         .shadow(false)
 }
 
@@ -273,18 +272,25 @@ fn actions(task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
 fn status_tone(status: &str, t: &Tokens) -> Hsla {
     match status {
         "awaiting_review" => t.warning,
-        "running" => t.accent,
+        "running" => t.info,
         "approved" | "merged" => t.success,
         "failed" | "rejected" | "cancelled" => t.danger,
-        _ => t.text_muted,
+        _ => t.muted_fg,
     }
 }
 
-fn pill(label: impl Into<SharedString>, tone: Hsla, t: &Tokens) -> Div {
+/// The shadcn badge: a `bg-muted` pill, `text-xs`, coloured by what it reports.
+fn badge(label: impl Into<SharedString>, tone: Hsla, t: &Tokens) -> Div {
     div()
-        .px(px(SPACE[0]))
-        .rounded(px(4.))
-        .bg(t.surface)
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .h(px(BADGE_H))
+        .px(px(SPACE[1]))
+        .rounded(px(RADIUS_PILL))
+        .bg(t.muted)
+        .text_size(px(TEXT_SECONDARY))
+        .font_weight(FontWeight::MEDIUM)
         .text_color(tone)
         .child(label.into())
 }
@@ -293,8 +299,8 @@ fn ci_mark(ci: Option<&CiStatus>, t: &Tokens) -> (&'static str, Hsla) {
     match ci.map(|ci| ci.state) {
         Some(CiState::Success) => ("✓", t.success),
         Some(CiState::Failure) => ("✗", t.danger),
-        Some(CiState::Pending) => ("…", t.text_muted),
-        None => ("", t.text_muted),
+        Some(CiState::Pending) => ("…", t.muted_fg),
+        None => ("", t.muted_fg),
     }
 }
 
@@ -307,11 +313,11 @@ fn activity(app: &LgtmApp, t: &Tokens) -> AnyElement {
         .flex_col()
         .children(app.lines.iter().map(|line| {
             let color = match line.kind {
-                Kind::Text => t.text,
-                Kind::Tool => t.accent,
+                Kind::Text => t.fg,
+                Kind::Tool => t.info,
                 Kind::Stderr => t.danger,
                 Kind::Message => t.warning,
-                Kind::Status => t.text_muted,
+                Kind::Status => t.muted_fg,
             };
             div().text_color(color).child(line.text.clone())
         }))
@@ -352,8 +358,8 @@ fn checks(task: &Task, t: &Tokens) -> AnyElement {
                             .lines()
                             .map(|line| {
                                 div()
-                                    .pl(px(SPACE[3]))
-                                    .text_color(t.text_muted)
+                                    .pl(px(SPACE[2]))
+                                    .text_color(t.muted_fg)
                                     .child(line.to_string())
                             })
                             .collect::<Vec<_>>(),
@@ -364,7 +370,7 @@ fn checks(task: &Task, t: &Tokens) -> AnyElement {
             this.child(
                 div()
                     .pt(px(SPACE[1]))
-                    .text_color(t.text_muted)
+                    .text_color(t.muted_fg)
                     .font_weight(FontWeight::BOLD)
                     .child("Review"),
             )
@@ -381,7 +387,7 @@ fn checks(task: &Task, t: &Tokens) -> AnyElement {
                     .flex()
                     .gap(px(SPACE[1]))
                     .child(div().text_color(tone).child(mark))
-                    .child(div().text_color(t.text_muted).child(location))
+                    .child(div().text_color(t.muted_fg).child(location))
                     .child(div().child(finding.message.clone()))
             }))
         })
@@ -406,11 +412,11 @@ fn plan_pane(task: &Task, t: &Tokens) -> AnyElement {
                     step.key,
                     step.title
                 )))
-                .child(div().text_color(t.text_muted).child(step.prompt.clone()))
+                .child(div().text_color(t.muted_fg).child(step.prompt.clone()))
                 .when(!step.depends_on.is_empty(), |this| {
                     this.child(
                         div()
-                            .text_color(t.text_muted)
+                            .text_color(t.muted_fg)
                             .child(format!("after: {}", step.depends_on.join(", "))),
                     )
                 })
@@ -419,8 +425,5 @@ fn plan_pane(task: &Task, t: &Tokens) -> AnyElement {
 }
 
 fn muted(text: &'static str, t: &Tokens) -> AnyElement {
-    div()
-        .text_color(t.text_muted)
-        .child(text)
-        .into_any_element()
+    div().text_color(t.muted_fg).child(text).into_any_element()
 }
