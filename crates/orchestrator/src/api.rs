@@ -11,14 +11,15 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
-    Executor, IssueRef, LinearRef, OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskKind,
-    TaskSpec, TaskStatus, WorkerStatus,
+    Batch, BatchSource, BatchSummary, Executor, IssueRef, LinearRef, OrchestratorMessage,
+    StoredEvent, Task, TaskEvent, TaskId, TaskKind, TaskSpec, TaskStatus, WorkerStatus,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
+use crate::backlog::{self, Candidate};
 use crate::persist::Stored;
-use crate::state::{App, CmdError};
+use crate::state::{now_ms, App, CmdError};
 
 struct ApiError(StatusCode, String);
 
@@ -63,6 +64,8 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/tasks/:id/cancel", post(cancel))
         .route("/tasks/:id/approve", post(approve))
         .route("/tasks/:id/reject", post(reject))
+        .route("/batches", get(list_batches).post(create_batch))
+        .route("/batches/:id", get(get_batch))
         .layer(middleware::from_fn_with_state(app, auth))
 }
 
@@ -162,6 +165,7 @@ async fn create_task_from_issue(
             kind: TaskKind::Run,
             parent: None,
             depends_on: Vec::new(),
+            batch: None,
         },
     )
 }
@@ -170,6 +174,10 @@ fn linear(app: &App) -> Result<lgtm_linear::Linear, ApiError> {
     app.linear
         .clone()
         .ok_or_else(|| conflict("LINEAR_API_KEY is not configured".into()))
+}
+
+fn bad_linear(err: anyhow::Error) -> ApiError {
+    ApiError(StatusCode::BAD_GATEWAY, format!("linear: {err:#}"))
 }
 
 #[derive(Deserialize)]
@@ -195,10 +203,7 @@ async fn create_task_from_linear(
             format!("unrecognised linear issue: {}", body.issue),
         )
     })?;
-    let issue = linear
-        .issue(&identifier)
-        .await
-        .map_err(|err| ApiError(StatusCode::BAD_GATEWAY, format!("linear: {err:#}")))?;
+    let issue = linear.issue(&identifier).await.map_err(bad_linear)?;
     queue(
         &app,
         TaskSpec {
@@ -219,8 +224,244 @@ async fn create_task_from_linear(
             kind: TaskKind::Run,
             parent: None,
             depends_on: Vec::new(),
+            batch: None,
         },
     )
+}
+
+fn twenty() -> u32 {
+    20
+}
+
+/// Body of `POST /api/batches`.
+#[derive(Deserialize)]
+struct BatchRequest {
+    source: BatchSource,
+    /// Git URL the tasks clone from. Optional for GitHub, where the label's
+    /// repository is the obvious default; required for Linear.
+    #[serde(default)]
+    repository: Option<String>,
+    base_branch: String,
+    executor: Executor,
+    #[serde(default)]
+    worker: Option<String>,
+    /// Import each issue as a plan task instead of a run.
+    #[serde(default)]
+    plan: bool,
+    /// Approve this batch's plans without a person.
+    #[serde(default)]
+    approve_plans: bool,
+    #[serde(default = "twenty")]
+    max: u32,
+    /// Report what would be imported and create nothing.
+    #[serde(default)]
+    dry_run: bool,
+}
+
+#[derive(Serialize)]
+struct IssuePreview {
+    key: String,
+    title: String,
+    url: String,
+}
+
+#[derive(Serialize)]
+struct BatchResponse {
+    batch: Option<Batch>,
+    issues: Vec<IssuePreview>,
+}
+
+#[derive(Serialize)]
+struct BatchDetail {
+    batch: Batch,
+    summary: BatchSummary,
+    tasks: Vec<Task>,
+}
+
+/// The issues a source returned, still to be turned into candidates: the batch
+/// id they carry is only known once the lock is held.
+enum Fetched {
+    Github(lgtm_github::Repo, Vec<lgtm_github::Issue>),
+    Linear(Vec<lgtm_linear::Issue>),
+}
+
+/// Talks to the issue tracker, off the state lock. Returns the repository the
+/// tasks will clone from alongside what it found.
+async fn fetch_batch(app: &App, body: &BatchRequest) -> Result<(String, Fetched), ApiError> {
+    match &body.source {
+        BatchSource::GithubLabel { owner, repo, label } => {
+            let github = github(app)?;
+            let repo = lgtm_github::Repo {
+                owner: owner.clone(),
+                repo: repo.clone(),
+            };
+            let issues = github
+                .issues_with_label(&repo, label)
+                .await
+                .map_err(bad_gateway)?;
+            let repository = body
+                .repository
+                .clone()
+                .unwrap_or_else(|| format!("https://github.com/{}/{}.git", repo.owner, repo.repo));
+            Ok((repository, Fetched::Github(repo, issues)))
+        }
+        BatchSource::Linear { team, state } => {
+            let linear = linear(app)?;
+            let repository = body.repository.clone().ok_or_else(|| {
+                ApiError(
+                    StatusCode::BAD_REQUEST,
+                    "repository is required for a linear batch".into(),
+                )
+            })?;
+            let issues = linear
+                .issues_in_state(team, state)
+                .await
+                .map_err(bad_linear)?;
+            Ok((repository, Fetched::Linear(issues)))
+        }
+    }
+}
+
+async fn create_batch(
+    State(app): State<Arc<App>>,
+    body: Result<Json<BatchRequest>, JsonRejection>,
+) -> Result<(StatusCode, Json<BatchResponse>), ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let (repository, fetched) = fetch_batch(&app, &body).await?;
+
+    let mut state = app.state.lock().unwrap();
+    let id = state.new_batch_id();
+    let candidates: Vec<Candidate> = match &fetched {
+        Fetched::Github(repo, issues) => issues
+            .iter()
+            .map(|issue| {
+                backlog::github_candidate(
+                    issue,
+                    repo,
+                    &body.base_branch,
+                    body.executor,
+                    body.worker.clone(),
+                    body.plan,
+                    &id,
+                )
+            })
+            .collect(),
+        Fetched::Linear(issues) => issues
+            .iter()
+            .map(|issue| {
+                backlog::linear_candidate(
+                    issue,
+                    &repository,
+                    &body.base_branch,
+                    body.executor,
+                    body.worker.clone(),
+                    body.plan,
+                    &id,
+                )
+            })
+            .collect(),
+    };
+    // ponytail: copies every task to compare against; an index by issue
+    // reference is the upgrade if this ever shows up in a profile.
+    let existing: Vec<Task> = state.tasks.values().map(|rec| rec.task.clone()).collect();
+    let selected = backlog::select(&existing, candidates, body.max);
+    let issues: Vec<IssuePreview> = selected
+        .iter()
+        .map(|candidate| IssuePreview {
+            key: candidate.key.clone(),
+            title: candidate.title.clone(),
+            url: candidate.url.clone(),
+        })
+        .collect();
+    if body.dry_run {
+        return Ok((
+            StatusCode::OK,
+            Json(BatchResponse {
+                batch: None,
+                issues,
+            }),
+        ));
+    }
+
+    // Every candidate shares executor and worker, so one refusal would hold
+    // for all of them; check once before anything is created.
+    if let Some(first) = selected.first() {
+        state.check_eligible(&first.spec).map_err(conflict)?;
+    }
+    let mut task_ids: Vec<TaskId> = Vec::new();
+    let mut changed: Vec<TaskId> = Vec::new();
+    let mut refused = None;
+    for candidate in selected {
+        match state.create_task(candidate.spec) {
+            Ok((task, ids)) => {
+                task_ids.push(task.id);
+                changed.extend(ids);
+            }
+            // Whatever made this one ineligible holds for the rest, so stop
+            // here. The tasks already created keep their place in the queue.
+            Err(err) => {
+                refused = Some(err);
+                break;
+            }
+        }
+    }
+    if let Some(err) = refused {
+        app.persist_ids(&state, &changed);
+        return Err(conflict(err));
+    }
+    let batch = Batch {
+        id: id.clone(),
+        created_at: now_ms(),
+        source: body.source,
+        repository,
+        task_ids,
+        approve_plans: body.approve_plans,
+    };
+    tracing::info!(batch = %id, tasks = batch.task_ids.len(), "batch imported");
+    state.batches.insert(id, batch.clone());
+    app.persist_batch(&batch);
+    app.persist_ids(&state, &changed);
+    Ok((
+        StatusCode::CREATED,
+        Json(BatchResponse {
+            batch: Some(batch),
+            issues,
+        }),
+    ))
+}
+
+async fn list_batches(State(app): State<Arc<App>>) -> Json<Vec<Batch>> {
+    let state = app.state.lock().unwrap();
+    let mut batches: Vec<Batch> = state.batches.values().cloned().collect();
+    batches.sort_by_key(|batch| batch.created_at);
+    Json(batches)
+}
+
+async fn get_batch(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+) -> Result<Json<BatchDetail>, ApiError> {
+    let state = app.state.lock().unwrap();
+    let batch = state
+        .batches
+        .get(&id)
+        .cloned()
+        .ok_or(ApiError(StatusCode::NOT_FOUND, "batch not found".into()))?;
+    // The batch's own ids are the plan tasks; the children a plan created
+    // carry the same batch, so membership is what the task says it is.
+    let mut tasks: Vec<&Task> = state
+        .tasks
+        .values()
+        .map(|rec| &rec.task)
+        .filter(|task| task.spec.batch.as_deref() == Some(id.as_str()))
+        .collect();
+    tasks.sort_by_key(|task| task.created_at);
+    let summary = backlog::summary(&tasks, &state);
+    Ok(Json(BatchDetail {
+        batch,
+        summary,
+        tasks: tasks.into_iter().cloned().collect(),
+    }))
 }
 
 async fn merge(

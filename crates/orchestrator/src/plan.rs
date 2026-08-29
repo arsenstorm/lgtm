@@ -115,6 +115,8 @@ impl State {
                     kind: TaskKind::Run,
                     parent: Some(id.to_string()),
                     depends_on,
+                    // A batch counts its plans' children as its own work.
+                    batch: spec.batch.clone(),
                 },
                 status: TaskStatus::Queued,
                 worker: None,
@@ -140,5 +142,35 @@ impl State {
             .get(id)
             .map(|rec| (rec.task.clone(), changed))
             .ok_or(CmdError::NotFound)
+    }
+
+    /// Approves a plan its batch said needs no one to look at it. A no-op for
+    /// anything else. Returns the ids to persist.
+    pub fn auto_approve_plan(&mut self, task_id: &str) -> Vec<TaskId> {
+        let wanted = self.tasks.get(task_id).is_some_and(|rec| {
+            rec.task.spec.kind == TaskKind::Plan
+                && rec.task.status == TaskStatus::AwaitingReview
+                && rec
+                    .task
+                    .spec
+                    .batch
+                    .as_ref()
+                    .and_then(|batch| self.batches.get(batch))
+                    .is_some_and(|batch| batch.approve_plans)
+        });
+        if !wanted {
+            return Vec::new();
+        }
+        match self.approve_plan(task_id) {
+            Ok((_, mut changed)) => {
+                tracing::info!(task = %task_id, "plan auto-approved by its batch");
+                changed.extend(self.apply_event(task_id, TaskEvent::AutoApproved));
+                changed
+            }
+            Err(err) => {
+                tracing::warn!(task = %task_id, ?err, "batch auto-approve skipped");
+                Vec::new()
+            }
+        }
     }
 }

@@ -1,8 +1,10 @@
-//! One JSON file per task under `<data_dir>/tasks`.
+//! One JSON file per task under `<data_dir>/tasks`, one per batch under
+//! `<data_dir>/batches`.
 
 use std::path::{Path, PathBuf};
 
-use lgtm_protocol::{StoredEvent, Task};
+use lgtm_protocol::{Batch, StoredEvent, Task};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
@@ -15,6 +17,12 @@ pub struct Stored {
     pub events: Vec<StoredEvent>,
 }
 
+/// One thing to write. The writer owns both directories.
+pub enum Persist {
+    Task(Box<Stored>),
+    Batch(Batch),
+}
+
 impl From<&TaskRecord> for Stored {
     fn from(rec: &TaskRecord) -> Self {
         Self {
@@ -24,11 +32,17 @@ impl From<&TaskRecord> for Stored {
     }
 }
 
-/// Owns the tasks directory so no request handler ever holds it, and keeps
-/// writes for a task in the order its events arrived.
-pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Stored>) {
-    while let Some(stored) = rx.recv().await {
-        save(&dir, &stored);
+/// Owns the data directory so no request handler ever holds it, and keeps
+/// writes for a task in the order its events arrived. `dir` is the data
+/// directory; `tasks` and `batches` under it must already exist.
+pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
+    let tasks = dir.join("tasks");
+    let batches = dir.join("batches");
+    while let Some(item) = rx.recv().await {
+        match item {
+            Persist::Task(stored) => save(&tasks, &stored),
+            Persist::Batch(batch) => save_batch(&batches, &batch),
+        }
     }
 }
 
@@ -42,28 +56,44 @@ fn file_stem(id: &str) -> Option<String> {
     u32::from_str_radix(id, 16).ok().map(|n| format!("{n:08x}"))
 }
 
+/// Writes `value` to `<dir>/<stem>.json`, through a temporary file so a reader
+/// never sees a half-written record.
+fn write_json<T: Serialize>(dir: &Path, stem: &str, value: &T) -> std::io::Result<()> {
+    let final_path = dir.join(format!("{stem}.json"));
+    let tmp_path = dir.join(format!("{stem}.json.tmp"));
+    serde_json::to_vec_pretty(value)
+        .map_err(std::io::Error::other)
+        .and_then(|bytes| std::fs::write(&tmp_path, bytes))
+        .and_then(|()| std::fs::rename(&tmp_path, &final_path))
+}
+
 pub fn save(dir: &Path, stored: &Stored) {
     let Some(stem) = file_stem(&stored.task.id) else {
         tracing::error!(task = %stored.task.id, "refusing to persist task with unsafe id");
         return;
     };
-    let final_path = dir.join(format!("{stem}.json"));
-    let tmp_path = dir.join(format!("{stem}.json.tmp"));
-    let write = serde_json::to_vec_pretty(stored)
-        .map_err(std::io::Error::other)
-        .and_then(|bytes| std::fs::write(&tmp_path, bytes))
-        .and_then(|()| std::fs::rename(&tmp_path, &final_path));
-    if let Err(err) = write {
+    if let Err(err) = write_json(dir, &stem, stored) {
         tracing::error!(task = %stored.task.id, %err, "failed to persist task");
     }
 }
 
-pub fn load_all(dir: &Path) -> Vec<Stored> {
+pub fn save_batch(dir: &Path, batch: &Batch) {
+    let Some(stem) = file_stem(&batch.id) else {
+        tracing::error!(batch = %batch.id, "refusing to persist batch with unsafe id");
+        return;
+    };
+    if let Err(err) = write_json(dir, &stem, batch) {
+        tracing::error!(batch = %batch.id, %err, "failed to persist batch");
+    }
+}
+
+/// Every `<dir>/*.json` that parses as a `T` and whose id is a safe file name.
+fn load_dir<T: DeserializeOwned>(dir: &Path, id: impl Fn(&T) -> &str) -> Vec<T> {
     let mut out = Vec::new();
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(err) => {
-            tracing::error!(%err, "failed to read tasks directory");
+            tracing::error!(dir = %dir.display(), %err, "failed to read directory");
             return out;
         }
     };
@@ -74,17 +104,24 @@ pub fn load_all(dir: &Path) -> Vec<Stored> {
         }
         match std::fs::read(&path)
             .map_err(std::io::Error::other)
-            .and_then(|bytes| {
-                serde_json::from_slice::<Stored>(&bytes).map_err(std::io::Error::other)
-            }) {
-            Ok(stored) if file_stem(&stored.task.id).is_none() => {
-                tracing::error!(task = %stored.task.id, "refusing to load task with unsafe id");
+            .and_then(|bytes| serde_json::from_slice::<T>(&bytes).map_err(std::io::Error::other))
+        {
+            Ok(value) if file_stem(id(&value)).is_none() => {
+                tracing::error!(id = %id(&value), "refusing to load record with unsafe id");
             }
-            Ok(stored) => out.push(stored),
-            Err(err) => tracing::error!(path = %path.display(), %err, "failed to load task"),
+            Ok(value) => out.push(value),
+            Err(err) => tracing::error!(path = %path.display(), %err, "failed to load record"),
         }
     }
     out
+}
+
+pub fn load_all(dir: &Path) -> Vec<Stored> {
+    load_dir(dir, |stored: &Stored| stored.task.id.as_str())
+}
+
+pub fn load_all_batches(dir: &Path) -> Vec<Batch> {
+    load_dir(dir, |batch: &Batch| batch.id.as_str())
 }
 
 #[cfg(test)]
