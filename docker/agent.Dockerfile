@@ -38,7 +38,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/claude-code@2.1.251
+COPY docker/package.json docker/package-lock.json /opt/claude-code/
+RUN cd /opt/claude-code && npm ci --ignore-scripts \
+    && ln -s /opt/claude-code/node_modules/.bin/claude /usr/local/bin/claude
 
 COPY --from=builder /build/target/release/lgtm /usr/local/bin/lgtm
 
