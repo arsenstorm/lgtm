@@ -126,6 +126,13 @@ pub struct TaskSpec {
     pub batch: Option<String>,
 }
 
+impl TaskSpec {
+    /// Whether the spec lets `worker` run it: it names that worker, or none.
+    pub fn pins(&self, worker: &str) -> bool {
+        self.worker.as_deref().is_none_or(|name| name == worker)
+    }
+}
+
 /// Where a batch's issues came from.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]

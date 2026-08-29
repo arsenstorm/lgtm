@@ -84,6 +84,11 @@ impl WorkerConn {
         self.info.slots.saturating_sub(running)
     }
 
+    /// Connected, with a free slot and the executor `spec` asks for.
+    pub(crate) fn can_run(&self, spec: &TaskSpec) -> bool {
+        self.is_connected() && self.free_slots() > 0 && self.info.executors.contains(&spec.executor)
+    }
+
     fn send(&self, msg: OrchestratorMessage) {
         if let Some(conn) = &self.conn {
             let _ = conn.tx.send(msg);
@@ -221,15 +226,7 @@ impl State {
     fn candidate(&self, spec: &TaskSpec) -> Option<String> {
         self.workers
             .values()
-            .filter(|worker| {
-                worker.is_connected()
-                    && worker.free_slots() > 0
-                    && worker.info.executors.contains(&spec.executor)
-                    && spec
-                        .worker
-                        .as_ref()
-                        .is_none_or(|name| *name == worker.info.name)
-            })
+            .filter(|worker| worker.can_run(spec) && spec.pins(&worker.info.name))
             .max_by(|a, b| {
                 a.free_slots()
                     .cmp(&b.free_slots())
@@ -240,15 +237,16 @@ impl State {
 
     /// Assigns unassigned queued tasks, oldest first, and starts them.
     /// Returns the ids it assigned.
+    /// Queued, unassigned, and not waiting on any dependency.
+    pub fn is_ready(&self, task: &Task) -> bool {
+        task.status == TaskStatus::Queued && task.worker.is_none() && self.deps_met(&task.spec)
+    }
+
     pub fn schedule(&mut self) -> Vec<TaskId> {
         let mut queued: Vec<(u64, TaskId)> = self
             .tasks
             .values()
-            .filter(|rec| {
-                rec.task.status == TaskStatus::Queued
-                    && rec.task.worker.is_none()
-                    && self.deps_met(&rec.task.spec)
-            })
+            .filter(|rec| self.is_ready(&rec.task))
             .map(|rec| (rec.task.created_at, rec.task.id.clone()))
             .collect();
         queued.sort();
@@ -312,13 +310,7 @@ impl State {
         let name = info.name.clone();
         let restored: HashSet<TaskId> = running
             .into_iter()
-            .filter(|id| {
-                self.tasks.get(id).is_some_and(|rec| {
-                    rec.task.status == TaskStatus::Running
-                        || (rec.task.status == TaskStatus::Queued
-                            && rec.task.worker.as_ref() == Some(&name))
-                })
-            })
+            .filter(|id| self.still_running(id, &name))
             .collect();
         let previous = match self.workers.get_mut(&name) {
             Some(worker) => {
@@ -347,6 +339,15 @@ impl State {
         }
         changed.extend(self.schedule());
         changed
+    }
+
+    /// Whether a task a reconnecting worker reports is still its to run.
+    fn still_running(&self, id: &str, worker: &str) -> bool {
+        self.tasks.get(id).is_some_and(|rec| {
+            rec.task.status == TaskStatus::Running
+                || (rec.task.status == TaskStatus::Queued
+                    && rec.task.worker.as_deref() == Some(worker))
+        })
     }
 
     /// Drops the socket but keeps the worker's tasks. Returns the generation
@@ -431,45 +432,8 @@ impl State {
             event,
         };
         rec.events.push(stored.clone());
-        // A worker that reconnects may keep reporting on a task we already
-        // failed; keep the event but leave a terminal status alone.
         let terminal = rec.task.status.is_terminal();
-        let mut finished = false;
-        match &stored.event {
-            TaskEvent::Started if !terminal => rec.task.status = TaskStatus::Running,
-            TaskEvent::Completed { result } => {
-                finished = true;
-                if !terminal {
-                    rec.task.status = TaskStatus::AwaitingReview;
-                    rec.task.result = Some(result.clone());
-                }
-            }
-            TaskEvent::Failed { error } => {
-                finished = true;
-                if !terminal {
-                    rec.task.status = TaskStatus::Failed;
-                    rec.task.error = Some(error.clone());
-                }
-            }
-            TaskEvent::Cancelled => {
-                finished = true;
-                if !terminal {
-                    rec.task.status = TaskStatus::Cancelled;
-                }
-            }
-            TaskEvent::Pushed { .. } if !terminal => rec.task.status = TaskStatus::Approved,
-            TaskEvent::Discarded if !terminal => rec.task.status = TaskStatus::Rejected,
-            // Retry and the two policy notes are for the reader, not the
-            // status; a run in progress stays exactly where it was.
-            TaskEvent::Started
-            | TaskEvent::Output { .. }
-            | TaskEvent::Message { .. }
-            | TaskEvent::Retry { .. }
-            | TaskEvent::AutoApproved
-            | TaskEvent::AutoMerged
-            | TaskEvent::Pushed { .. }
-            | TaskEvent::Discarded => {}
-        }
+        let finished = transition(&mut rec.task, &stored.event);
         let status = rec.task.status;
         let worker = rec.task.worker.clone();
         let _ = rec.live.send(stored);
@@ -494,7 +458,45 @@ impl State {
         }
         changed
     }
+}
 
+/// Moves the task's status for `event` and says whether the run ended. A
+/// worker that reconnects may keep reporting on a task we already failed;
+/// the event is kept but a terminal status is left alone.
+fn transition(task: &mut Task, event: &TaskEvent) -> bool {
+    let terminal = task.status.is_terminal();
+    let (status, finished) = match event {
+        TaskEvent::Started => (Some(TaskStatus::Running), false),
+        TaskEvent::Completed { result } => {
+            if !terminal {
+                task.result = Some(result.clone());
+            }
+            (Some(TaskStatus::AwaitingReview), true)
+        }
+        TaskEvent::Failed { error } => {
+            if !terminal {
+                task.error = Some(error.clone());
+            }
+            (Some(TaskStatus::Failed), true)
+        }
+        TaskEvent::Cancelled => (Some(TaskStatus::Cancelled), true),
+        TaskEvent::Pushed { .. } => (Some(TaskStatus::Approved), false),
+        TaskEvent::Discarded => (Some(TaskStatus::Rejected), false),
+        // Retry and the two policy notes are for the reader, not the
+        // status; a run in progress stays exactly where it was.
+        TaskEvent::Output { .. }
+        | TaskEvent::Message { .. }
+        | TaskEvent::Retry { .. }
+        | TaskEvent::AutoApproved
+        | TaskEvent::AutoMerged => (None, false),
+    };
+    if let (Some(status), false) = (status, terminal) {
+        task.status = status;
+    }
+    finished
+}
+
+impl State {
     /// Shared guard for cancel/approve/reject: the task must exist, be in one
     /// of `allowed`, and its worker must still be connected.
     pub fn command(

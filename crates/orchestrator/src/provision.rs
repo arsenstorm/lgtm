@@ -40,15 +40,11 @@ pub fn needs_provision(state: &State, max: u32, in_flight: bool) -> bool {
         return false;
     }
     state.tasks.values().any(|rec| {
-        let spec = &rec.task.spec;
-        rec.task.status == TaskStatus::Queued
-            && rec.task.worker.is_none()
-            && state.deps_met(spec)
-            && !state.workers.values().any(|worker| {
-                worker.is_connected()
-                    && worker.free_slots() > 0
-                    && worker.info.executors.contains(&spec.executor)
-            })
+        state.is_ready(&rec.task)
+            && !state
+                .workers
+                .values()
+                .any(|worker| worker.can_run(&rec.task.spec))
     })
 }
 
