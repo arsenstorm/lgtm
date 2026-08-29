@@ -54,6 +54,13 @@ impl App {
         }
     }
 
+    /// A bearer token for a one-time push, or `None` to leave it to the
+    /// worker's own git credentials: no `GITHUB_TOKEN`, or a repository
+    /// that isn't on GitHub over https.
+    pub fn push_token(&self, task: &Task) -> Option<String> {
+        push_token(self.github.as_ref(), task)
+    }
+
     pub fn persist_batch(&self, batch: &Batch) {
         let _ = self.persist.send(Persist::Batch(batch.clone()));
     }
@@ -77,6 +84,16 @@ impl App {
     pub fn forget_todo(&self, id: &str) {
         let _ = self.persist.send(Persist::RemoveTodo(id.to_string()));
     }
+}
+
+/// Shared by `App::push_token` and `orchestrate::approve`, which only holds
+/// the state lock and not `App` itself.
+// ponytail: whole-token-per-push; scope to the one repo with a GitHub App
+// installation token if a stolen orchestrator token becomes a risk.
+pub(crate) fn push_token(github: Option<&lgtm_github::GitHub>, task: &Task) -> Option<String> {
+    let github = github?;
+    lgtm_github::parse_repo(&task.spec.repository)?;
+    Some(github.token().to_string())
 }
 
 #[derive(Default)]

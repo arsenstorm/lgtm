@@ -332,8 +332,8 @@ fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
                 let _ = sender.send(());
             }
         }
-        OrchestratorMessage::Push { task_id } => {
-            tokio::spawn(runner::push_task(task_id, ctx.clone()));
+        OrchestratorMessage::Push { task_id, token } => {
+            tokio::spawn(runner::push_task(task_id, token, ctx.clone()));
         }
         OrchestratorMessage::Discard { task_id } => {
             tokio::spawn(runner::discard_task(task_id, ctx.clone()));

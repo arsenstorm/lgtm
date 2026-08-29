@@ -153,6 +153,7 @@ fn will_not_approve_a_task_whose_checks_failed() {
         &Decision::Approve {
             reason: "looks fine".into(),
         },
+        None,
     )
     .unwrap_err();
     assert_eq!(refused, "checks failed");
@@ -169,7 +170,8 @@ fn will_not_approve_a_task_whose_checks_failed() {
         &id,
         &Decision::Approve {
             reason: "clean".into()
-        }
+        },
+        None,
     )
     .is_ok());
 }
@@ -192,6 +194,7 @@ fn retries_a_failed_task() {
         &Decision::Retry {
             reason: "crashed".into(),
         },
+        None,
     )
     .unwrap();
     assert_eq!(state.tasks[&id].task.status, TaskStatus::Queued);
@@ -211,10 +214,10 @@ fn will_not_depend_a_new_task_on_a_task_outside_the_goal() {
         depends_on,
         reason: "the goal needs docs".into(),
     };
-    let refused = apply(&mut state, &id, &decision(vec![outside.id.clone()])).unwrap_err();
+    let refused = apply(&mut state, &id, &decision(vec![outside.id.clone()]), None).unwrap_err();
     assert!(refused.contains("not a task under this goal"), "{refused}");
 
-    apply(&mut state, &id, &decision(vec![id.clone()])).unwrap();
+    apply(&mut state, &id, &decision(vec![id.clone()]), None).unwrap();
     let created = state
         .tasks
         .values()
@@ -237,6 +240,7 @@ fn waiting_changes_nothing() {
         &Decision::Wait {
             reason: "a person should look".into(),
         },
+        None,
     )
     .unwrap();
     assert!(changed.is_empty());

@@ -70,6 +70,10 @@ impl GitHub {
         }
     }
 
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
     /// `GITHUB_TOKEN`, else the stdout of `gh auth token`, else `None`.
     pub fn from_env() -> Option<Self> {
         if let Ok(token) = std::env::var("GITHUB_TOKEN") {

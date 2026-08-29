@@ -407,11 +407,15 @@ async fn approve(
         app.persist_ids(&mut state, &changed);
         return Ok(Json(task));
     }
+    let token = state
+        .tasks
+        .get(&id)
+        .and_then(|rec| app.push_token(&rec.task));
     let task = state.command(
         &id,
         &[TaskStatus::AwaitingReview],
         "task is not awaiting review",
-        |task_id| OrchestratorMessage::Push { task_id },
+        |task_id| OrchestratorMessage::Push { task_id, token },
     )?;
     Ok(Json(task))
 }

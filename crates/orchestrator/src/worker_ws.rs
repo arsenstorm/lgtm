@@ -186,11 +186,12 @@ fn auto_approve(app: &App, state: &mut crate::state::State, task_id: &str) {
     }
     // Asking the worker first, so a task is not marked auto-approved by an
     // event no one can act on.
+    let token = app.push_token(&task);
     if let Err(err) = state.command(
         task_id,
         &[TaskStatus::AwaitingReview],
         "task is not awaiting review",
-        |task_id| OrchestratorMessage::Push { task_id },
+        |task_id| OrchestratorMessage::Push { task_id, token },
     ) {
         tracing::warn!(task = %task_id, ?err, "auto-approve skipped");
         return;

@@ -10,8 +10,8 @@ use tokio::sync::oneshot;
 use crate::automation::{execute, recorded_session, restore_notes, with_notes, Run};
 use crate::connection::Ctx;
 use crate::git::{
-    add_worktree, branch_name, fetch, git, mirror_path, rebase_onto, remove_worktree, session_path,
-    task_path, worktree_path,
+    add_worktree, auth_args, branch_name, fetch, git, mirror_path, rebase_onto, remove_worktree,
+    session_path, task_path, worktree_path,
 };
 use crate::plan::{planning_prompt, revision_prompt};
 
@@ -138,13 +138,13 @@ async fn prepare_repo(task: &Task, ctx: &Arc<Ctx>) -> Result<PathBuf> {
     Ok(mirror)
 }
 
-pub async fn push_task(task_id: TaskId, ctx: Arc<Ctx>) {
+pub async fn push_task(task_id: TaskId, token: Option<String>, ctx: Arc<Ctx>) {
     let worktree = worktree_path(&ctx.data_dir, &task_id);
     // ponytail: a clean rebase is not re-validated, so the branch is only
     // proven to apply, not to still pass; running the repository's checks
     // again here is the upgrade once a rebase starts breaking tasks.
-    match rebase_for_push(&task_id, &worktree, &ctx).await {
-        Ok(true) => push(task_id, &worktree, &ctx).await,
+    match rebase_for_push(&task_id, &worktree, token.as_deref(), &ctx).await {
+        Ok(true) => push(task_id, &worktree, token.as_deref(), &ctx).await,
         Ok(false) => {}
         Err(err) => ctx.fail(&task_id, err),
     }
@@ -152,13 +152,18 @@ pub async fn push_task(task_id: TaskId, ctx: Arc<Ctx>) {
 
 /// Rebases the task's branch onto its base before the push. `false` means the
 /// branch conflicts, which is work for the agent instead of a push.
-async fn rebase_for_push(task_id: &str, worktree: &Path, ctx: &Arc<Ctx>) -> Result<bool> {
+async fn rebase_for_push(
+    task_id: &str,
+    worktree: &Path,
+    token: Option<&str>,
+    ctx: &Arc<Ctx>,
+) -> Result<bool> {
     let Some(task) = stored_task(ctx, task_id).await else {
         tracing::warn!("no task file for {task_id} (restarted?), pushing without a rebase");
         return Ok(true);
     };
     let base = task.spec.base_branch;
-    match rebase_onto(worktree, &base).await? {
+    match rebase_onto(worktree, &base, token).await? {
         Ok(()) => Ok(true),
         Err(files) => {
             ctx.emit(task_id, TaskEvent::Conflicted { base, files });
@@ -167,10 +172,13 @@ async fn rebase_for_push(task_id: &str, worktree: &Path, ctx: &Arc<Ctx>) -> Resu
     }
 }
 
-async fn push(task_id: TaskId, worktree: &Path, ctx: &Arc<Ctx>) {
+async fn push(task_id: TaskId, worktree: &Path, token: Option<&str>, ctx: &Arc<Ctx>) {
     let worktree = worktree.display().to_string();
     let branch = branch_name(&task_id);
-    match git(&["-C", &worktree, "push", "-u", "origin", &branch], None).await {
+    let auth = auth_args(token);
+    let mut args: Vec<&str> = auth.iter().map(String::as_str).collect();
+    args.extend_from_slice(&["-C", &worktree, "push", "-u", "origin", &branch]);
+    match git(&args, None).await {
         Ok(_) => {
             let sha = match git(&["-C", &worktree, "rev-parse", "HEAD"], None).await {
                 Ok(sha) => sha.trim().to_string(),

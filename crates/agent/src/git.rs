@@ -23,16 +23,80 @@ pub async fn git(args: &[&str], cwd: Option<&Path>) -> Result<String> {
     let out = cmd
         .output()
         .await
-        .with_context(|| format!("git {}", args.join(" ")))?;
+        .with_context(|| format!("git {}", redact(args)))?;
     if !out.status.success() {
         bail!(
             "git {} failed ({}): {}",
-            args.join(" "),
+            redact(args),
             out.status,
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The push token rides in a `-c http.extraheader=...` argument; an error
+/// naming the failed command must not repeat it.
+fn redact(args: &[&str]) -> String {
+    args.iter()
+        .map(|arg| {
+            if arg.starts_with("http.extraheader=") {
+                "http.extraheader=REDACTED"
+            } else {
+                arg
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A `-c http.extraheader=...` pair authorizing one push or fetch, or empty
+/// to leave it to git's own credential helper.
+pub fn auth_args(token: Option<&str>) -> Vec<String> {
+    let Some(token) = token else {
+        return Vec::new();
+    };
+    let basic = base64_encode(format!("x-access-token:{token}").as_bytes());
+    vec![
+        "-c".to_string(),
+        format!("http.extraheader=AUTHORIZATION: basic {basic}"),
+    ]
+}
+
+const BASE64_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// No crate in the workspace speaks base64; the alphabet is small enough to
+/// spell out here.
+fn base64_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+        let chars = [
+            BASE64_ALPHABET[(n >> 18 & 0x3f) as usize],
+            BASE64_ALPHABET[(n >> 12 & 0x3f) as usize],
+            BASE64_ALPHABET[(n >> 6 & 0x3f) as usize],
+            BASE64_ALPHABET[(n & 0x3f) as usize],
+        ];
+        out.push(chars[0] as char);
+        out.push(chars[1] as char);
+        out.push(if chunk.len() > 1 {
+            chars[2] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            chars[3] as char
+        } else {
+            '='
+        });
+    }
+    out
 }
 
 /// `git diff --cached --quiet` exits 1 when something is staged.
@@ -118,13 +182,21 @@ pub async fn fetch(mirror: &Path) -> Result<()> {
 
 /// Brings the worktree's branch up to date with `base`. The outer `Err` is
 /// git itself failing; `Ok(Err(files))` is a conflict, already aborted, with
-/// the paths that stopped the rebase.
-pub async fn rebase_onto(worktree: &Path, base: &str) -> Result<Result<(), Vec<String>>> {
+/// the paths that stopped the rebase. `token` authorizes the fetch on a
+/// private repository.
+pub async fn rebase_onto(
+    worktree: &Path,
+    base: &str,
+    token: Option<&str>,
+) -> Result<Result<(), Vec<String>>> {
     let worktree_s = worktree.display().to_string();
     // The mirror is a bare clone with no fetch refspec of its own, so
     // `origin/<base>` only moves when the refspec is spelled out.
     let refspec = format!("+refs/heads/{base}:refs/remotes/origin/{base}");
-    git(&["-C", &worktree_s, "fetch", "origin", &refspec], None).await?;
+    let auth = auth_args(token);
+    let mut fetch_args: Vec<&str> = auth.iter().map(String::as_str).collect();
+    fetch_args.extend_from_slice(&["-C", &worktree_s, "fetch", "origin", &refspec]);
+    git(&fetch_args, None).await?;
     let onto = format!("origin/{base}");
     let mut args = IDENTITY.to_vec();
     args.extend_from_slice(&["-C", &worktree_s, "rebase", &onto]);
@@ -312,6 +384,30 @@ mod tests {
         );
         assert!(conflicted_files("").is_empty());
         assert!(conflicted_files("\n \n").is_empty());
+    }
+
+    #[test]
+    fn base64_matches_known_vectors() {
+        assert_eq!(base64_encode(b"Man"), "TWFu");
+        assert_eq!(base64_encode(b"Ma"), "TWE=");
+        assert_eq!(base64_encode(b"M"), "TQ==");
+    }
+
+    #[test]
+    fn auth_args_are_empty_without_a_token() {
+        assert!(auth_args(None).is_empty());
+        let args = auth_args(Some("t"));
+        assert_eq!(args[0], "-c");
+        assert!(args[1].starts_with("http.extraheader=AUTHORIZATION: basic "));
+    }
+
+    #[test]
+    fn redact_hides_the_auth_header() {
+        let header = "http.extraheader=AUTHORIZATION: basic secret".to_string();
+        let args = ["-c", &header, "push"];
+        let out = redact(&args);
+        assert!(!out.contains("secret"), "{out}");
+        assert!(out.contains("http.extraheader=REDACTED"));
     }
 
     #[test]
