@@ -20,10 +20,13 @@ use gpui_component::input::{InputEvent, InputState};
 use lgtm_client::Client;
 use lgtm_protocol::{Batch, Task, TaskStatus, WorkerStatus};
 use std::collections::HashSet;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
 const ERROR_TTL: Duration = Duration::from_secs(5);
+/// How long a hosted orchestrator is given to come up before the banner stops
+/// saying it is starting and starts complaining.
+const STARTING: Duration = Duration::from_secs(5);
 const HEADER_PREVIEW: usize = 80;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -64,6 +67,14 @@ pub struct LgtmApp {
     pub orchestrator: String,
     pub token: String,
     pub token_source: &'static str,
+    /// The `embedded_orchestrator` preference; the toggle in Settings writes it.
+    pub embedded: bool,
+    /// This process is running the orchestrator.
+    pub hosted: bool,
+    /// Join line for other machines when hosted.
+    pub join: Option<String>,
+    /// When the window opened, for the "starting" grace period on the banner.
+    started: Instant,
     pub reachable: bool,
     pub error: Option<String>,
     pub focus: FocusHandle,
@@ -107,14 +118,8 @@ pub struct LgtmApp {
 }
 
 impl LgtmApp {
-    pub fn new(
-        client: Client,
-        orchestrator: String,
-        token: String,
-        token_source: &'static str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(config: crate::Config, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let client = Client::new(config.orchestrator.clone(), config.token.clone());
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         net::poll(client.clone(), tx.clone());
 
@@ -186,9 +191,13 @@ impl LgtmApp {
             page: Page::Home,
             pane: Pane::Activity,
             review: crate::review::ReviewState::new(),
-            orchestrator,
-            token,
-            token_source,
+            orchestrator: config.orchestrator,
+            token: config.token,
+            token_source: config.token_source,
+            embedded: config.embedded,
+            hosted: config.hosted,
+            join: config.join,
+            started: Instant::now(),
             reachable: false,
             error: None,
             focus,
@@ -274,7 +283,16 @@ impl LgtmApp {
         cx.notify();
     }
 
-    fn set_error(&mut self, err: String, cx: &mut Context<Self>) {
+    /// What the strip says while the orchestrator is not answering.
+    fn banner(&self) -> String {
+        if self.hosted && self.started.elapsed() < STARTING {
+            "Starting the orchestrator…".to_string()
+        } else {
+            format!("Orchestrator unreachable at {}", self.orchestrator)
+        }
+    }
+
+    pub fn set_error(&mut self, err: String, cx: &mut Context<Self>) {
         self.error = Some(err);
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(ERROR_TTL).await;
@@ -615,7 +633,7 @@ impl Render for LgtmApp {
                         })
                         .text_color(t.danger)
                         .text_size(px(TEXT_SECONDARY))
-                        .child(format!("Orchestrator unreachable at {}", self.orchestrator)),
+                        .child(self.banner()),
                 )
             })
             .child(

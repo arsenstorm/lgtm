@@ -13,6 +13,7 @@ use gpui::{
     StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::switch::Switch;
 use gpui_component::{Selectable as _, Sizable as _};
 use lgtm_diff::DiffStyle;
 
@@ -75,7 +76,7 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                         .overflow_y_scroll()
                         .track_scroll(&app.settings_scroll)
                         .p(px(SPACE[2]))
-                        .child(orchestrator(app, &t))
+                        .child(orchestrator(app, &t, cx))
                         .child(appearance(app, &t, cx))
                         .child(workers(app, &t, cx))
                         .child(about(&t)),
@@ -101,13 +102,22 @@ fn line(label: &'static str, value: impl Into<SharedString>, t: &Tokens) -> Div 
         .child(div().flex_1().min_w_0().truncate().child(value.into()))
 }
 
-fn orchestrator(app: &LgtmApp, t: &Tokens) -> Div {
+fn orchestrator(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let token = match app.token_source {
         "LGTM_TOKEN" => "environment (LGTM_TOKEN)".to_string(),
         other => other.to_string(),
     };
     section("Orchestrator", t)
         .child(line("URL", app.orchestrator.clone(), t))
+        .child(line(
+            "Mode",
+            if app.hosted {
+                "hosted by this app"
+            } else {
+                "external"
+            },
+            t,
+        ))
         .child(
             div()
                 .flex()
@@ -128,6 +138,33 @@ fn orchestrator(app: &LgtmApp, t: &Tokens) -> Div {
                 }),
         )
         .child(line("Token", token, t))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(SPACE[1]))
+                .child(div().w(px(120.)).text_color(t.muted_fg).child("Embedded"))
+                .child(
+                    Switch::new("embedded-orchestrator")
+                        .checked(app.embedded)
+                        .label("Run the orchestrator inside this app")
+                        .small()
+                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.embedded = *checked;
+                            let dir = lgtm_orchestrator::token::data_dir(None);
+                            if let Err(e) = crate::save_embedded(&dir, *checked) {
+                                this.set_error(format!("cannot save the setting: {e}"), cx);
+                            }
+                            cx.notify();
+                        })),
+                ),
+        )
+        .child(
+            div()
+                .pl(px(120. + SPACE[1]))
+                .text_color(t.muted_fg)
+                .child("Takes effect the next time you open the app."),
+        )
 }
 
 fn appearance(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
@@ -177,7 +214,12 @@ fn appearance(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
 }
 
 fn workers(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let join = join_line(&app.orchestrator, &app.token);
+    // When this app hosts the orchestrator its own URL is loopback, so the
+    // startup-computed line (advertised address) is the one to hand out.
+    let join = app
+        .join
+        .clone()
+        .unwrap_or_else(|| join_line(&app.orchestrator, &app.token));
     let copy = join.clone();
     section("Workers", t)
         .when(app.workers.is_empty(), |this| {

@@ -13,6 +13,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
+const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 
 pub type Sender = UnboundedSender<Msg>;
 
@@ -43,9 +44,21 @@ pub enum Action {
     Tell(String),
 }
 
-fn runtime() -> &'static Runtime {
+pub fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| Runtime::new().expect("tokio runtime"))
+}
+
+/// Startup probe, before the window: is an orchestrator already answering
+/// here? Blocks for at most [`PROBE_TIMEOUT`].
+pub fn reachable(orchestrator: &str, token: &str) -> bool {
+    let client = Client::new(orchestrator, token);
+    runtime().block_on(async move {
+        matches!(
+            tokio::time::timeout(PROBE_TIMEOUT, client.workers()).await,
+            Ok(Ok(_))
+        )
+    })
 }
 
 /// Refreshes the task and worker lists every two seconds, forever.
