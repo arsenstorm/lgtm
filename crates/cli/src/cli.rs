@@ -126,6 +126,9 @@ pub enum Command {
         #[command(subcommand)]
         command: TodoCommand,
     },
+    /// Serve this task's memories, todos, and scratchpad to an agent over
+    /// MCP on stdio. Started by the runner, not by a person.
+    Mcp,
     /// Replace this binary with the latest release
     Upgrade {
         /// Install a specific release tag instead of the latest.

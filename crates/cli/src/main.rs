@@ -1,5 +1,6 @@
 mod backlog;
 mod cli;
+mod mcp;
 mod render;
 mod run;
 mod serve;
@@ -108,6 +109,7 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
             unreachable!("handled by dispatch")
         }
         Command::Workers => workers(client).await,
+        Command::Mcp => mcp::serve(client).await,
         Command::Run {
             target,
             issue,

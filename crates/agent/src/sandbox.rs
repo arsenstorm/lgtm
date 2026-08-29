@@ -57,10 +57,12 @@ const EXACT: &[&str] = &[
 ];
 
 /// Variables kept by prefix: locale, desktop paths, the agent harnesses' own
-/// settings, and proxy configuration in both spellings.
+/// settings, what `lgtm mcp` needs to answer for the run, and proxy
+/// configuration in both spellings.
 const PREFIXES: &[&str] = &[
     "LC_",
     "XDG_",
+    "LGTM_",
     "ANTHROPIC_",
     "CLAUDE_",
     "OPENAI_",
