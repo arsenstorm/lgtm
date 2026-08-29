@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use lgtm_protocol::{
@@ -43,10 +44,25 @@ struct RunOpts<'a> {
     session: Option<PathBuf>,
 }
 
-/// A finished run. `None` from a run means the task was cancelled.
+/// A finished run.
 struct Finish {
     status: ExitStatus,
     stderr_tail: String,
+}
+
+/// How waiting on the executor ended.
+enum Waited {
+    Exited(ExitStatus),
+    Cancelled,
+    TimedOut,
+}
+
+/// `Waited` once the run's output has been collected. Both stop the task:
+/// a cancel still needs its event, a timeout has already sent one.
+enum Ran {
+    Finished(Finish),
+    Cancelled,
+    TimedOut,
 }
 
 /// One task's worktree, cancel receiver, and cost total, shared by every run
@@ -57,6 +73,8 @@ pub struct Run<'a> {
     ctx: &'a Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
     cost: Cost,
+    /// The repository's `timeout_secs`, known only once `execute` has read it.
+    timeout: Duration,
 }
 
 impl<'a> Run<'a> {
@@ -72,6 +90,7 @@ impl<'a> Run<'a> {
             ctx,
             cancel,
             cost: cost_buffer(),
+            timeout: Duration::from_secs(3600),
         }
     }
 }
@@ -79,23 +98,26 @@ impl<'a> Run<'a> {
 /// The agent run for a task, and everything the repository's policy adds to it.
 pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> Result<()> {
     let policy = load_policy(run.worktree);
+    run.timeout = Duration::from_secs(policy.timeout_secs);
     if run.task.spec.kind == TaskKind::Plan {
         return run.plan(prompt, policy).await;
     }
-    let Some(finish) = run.attempts(prompt, resume, policy.retry).await? else {
-        return run.cancelled();
+    let finish = match run.attempts(prompt, resume, policy.retry).await? {
+        Ran::Finished(finish) => finish,
+        stop => return run.stopped(stop),
     };
     if !finish.status.success() {
         return run.failed(&finish);
     }
-    let Some(mut result) = run.commit_and_fix(prompt, policy.fix_checks).await? else {
-        return run.cancelled();
+    let mut result = match run.commit_and_fix(prompt, policy.fix_checks).await? {
+        Ok(result) => result,
+        Err(stop) => return run.stopped(stop),
     };
     if policy.review && !result.diff.is_empty() {
-        let Some(review) = run.review(&result.diff).await? else {
-            return run.cancelled();
-        };
-        result.review = Some(review);
+        match run.review(&result.diff).await? {
+            Ok(review) => result.review = Some(review),
+            Err(stop) => return run.stopped(stop),
+        }
     }
     result.policy = Some(policy_of(policy));
     result.cost_usd = cost_total(&run.cost);
@@ -104,8 +126,11 @@ pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> 
 }
 
 impl Run<'_> {
-    fn cancelled(&self) -> Result<()> {
-        self.ctx.emit(&self.task.id, TaskEvent::Cancelled);
+    /// Ends the task after a run that produced no exit status.
+    fn stopped(&self, stop: Ran) -> Result<()> {
+        if matches!(stop, Ran::Cancelled) {
+            self.ctx.emit(&self.task.id, TaskEvent::Cancelled);
+        }
         Ok(())
     }
 
@@ -142,8 +167,9 @@ impl Run<'_> {
             answer: Some(answer.clone()),
             session: Some(self.session_path()),
         };
-        let Some(finish) = self.agent_run(opts).await? else {
-            return self.cancelled();
+        let finish = match self.agent_run(opts).await? {
+            Ran::Finished(finish) => finish,
+            stop => return self.stopped(stop),
         };
         if !finish.status.success() {
             return self.failed(&finish);
@@ -163,7 +189,7 @@ impl Run<'_> {
         prompt: &str,
         mut session: Option<String>,
         retries: u32,
-    ) -> Result<Option<Finish>> {
+    ) -> Result<Ran> {
         let mut attempt = 0;
         loop {
             let opts = RunOpts {
@@ -173,11 +199,12 @@ impl Run<'_> {
                 answer: None,
                 session: Some(self.session_path()),
             };
-            let Some(finish) = self.agent_run(opts).await? else {
-                return Ok(None);
+            let finish = match self.agent_run(opts).await? {
+                Ran::Finished(finish) => finish,
+                stop => return Ok(stop),
             };
             if finish.status.success() || attempt >= retries {
-                return Ok(Some(finish));
+                return Ok(Ran::Finished(finish));
             }
             attempt += 1;
             let reason = format!("{} exited with {}", self.binary(), finish.status);
@@ -190,7 +217,7 @@ impl Run<'_> {
         &mut self,
         prompt: &str,
         fix_checks: u32,
-    ) -> Result<Option<TaskResult>> {
+    ) -> Result<Result<TaskResult, Ran>> {
         let base = &self.task.spec.base_branch;
         let branch = self.branch();
         let mut result = commit(prompt, base, &branch, self.worktree).await?;
@@ -217,17 +244,18 @@ impl Run<'_> {
                 answer: None,
                 session: Some(self.session_path()),
             };
-            if self.agent_run(opts).await?.is_none() {
-                return Ok(None);
+            match self.agent_run(opts).await? {
+                Ran::Finished(_) => {}
+                stop => return Ok(Err(stop)),
             }
             // Whatever the fix run exited with, judge it by the checks themselves.
             result = commit(FIX_MESSAGE, base, &branch, self.worktree).await?;
             result.validation = run_validation(self.worktree, &checks).await;
         }
-        Ok(Some(result))
+        Ok(Ok(result))
     }
 
-    async fn review(&mut self, diff: &str) -> Result<Option<Review>> {
+    async fn review(&mut self, diff: &str) -> Result<Result<Review, Ran>> {
         let answer = text_buffer();
         let opts = RunOpts {
             prompt: &review_prompt(&self.task.spec.prompt, diff),
@@ -236,19 +264,20 @@ impl Run<'_> {
             answer: Some(answer.clone()),
             session: None,
         };
-        let Some(finish) = self.agent_run(opts).await? else {
-            return Ok(None);
+        let finish = match self.agent_run(opts).await? {
+            Ran::Finished(finish) => finish,
+            stop => return Ok(Err(stop)),
         };
-        Ok(Some(if finish.status.success() {
+        Ok(Ok(if finish.status.success() {
             parse_review(&final_text(&answer))
         } else {
             review_warning(format!("reviewer exited with {}", finish.status))
         }))
     }
 
-    /// Spawns the executor, forwards its output, and waits. `Ok(None)` means the
-    /// task was cancelled: the child is killed and nothing else has happened.
-    async fn agent_run(&mut self, opts: RunOpts<'_>) -> Result<Option<Finish>> {
+    /// Spawns the executor, forwards its output, and waits. A `Ran` that is not
+    /// `Finished` means the child was killed and nothing else has happened.
+    async fn agent_run(&mut self, opts: RunOpts<'_>) -> Result<Ran> {
         let path = which::which(self.binary())
             .with_context(|| format!("{} not found on PATH", self.binary()))?;
         let mut child = self
@@ -259,11 +288,13 @@ impl Run<'_> {
 
         let stderr_tail = tail_buffer();
         let (pump_out, pump_err) = self.spawn_pumps(&mut child, opts, &stderr_tail)?;
-        let Some(status) = self.wait_or_kill(&mut child).await? else {
-            return Ok(None);
+        let status = match self.wait_or_kill(&mut child).await? {
+            Waited::Exited(status) => status,
+            Waited::Cancelled => return Ok(Ran::Cancelled),
+            Waited::TimedOut => return Ok(Ran::TimedOut),
         };
         let _ = tokio::join!(pump_out, pump_err);
-        Ok(Some(Finish {
+        Ok(Ran::Finished(Finish {
             status,
             stderr_tail: tail(&tail_lines(&stderr_tail)),
         }))
@@ -298,22 +329,21 @@ impl Run<'_> {
         Ok((tokio::spawn(out.run(stdout)), tokio::spawn(err.run(stderr))))
     }
 
-    /// The exit status, or `None` when the task was cancelled first and the
-    /// child killed.
-    async fn wait_or_kill(
-        &mut self,
-        child: &mut tokio::process::Child,
-    ) -> Result<Option<ExitStatus>> {
+    /// The exit status, or why there is none: the task was cancelled, or the
+    /// run outlived the policy's timeout. Either way the child is killed.
+    async fn wait_or_kill(&mut self, child: &mut tokio::process::Child) -> Result<Waited> {
         let waited = tokio::select! {
-            status = child.wait() => Some(status),
-            _ = &mut self.cancel => None,
+            status = child.wait() => return Ok(Waited::Exited(status?)),
+            _ = &mut self.cancel => Waited::Cancelled,
+            _ = tokio::time::sleep(self.timeout) => Waited::TimedOut,
         };
-        let Some(status) = waited else {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            return Ok(None);
-        };
-        Ok(Some(status?))
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+        if matches!(waited, Waited::TimedOut) {
+            let secs = self.timeout.as_secs();
+            self.ctx.emit(&self.task.id, TaskEvent::TimedOut { secs });
+        }
+        Ok(waited)
     }
 
     fn pump(&self, stream: OutputStream, sinks: Sinks) -> Pump {

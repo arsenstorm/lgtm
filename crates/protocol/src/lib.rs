@@ -46,6 +46,8 @@ pub enum TaskStatus {
     Merged,
     Rejected,
     Failed,
+    /// The runner killed the agent at the policy's `timeout_secs`.
+    TimedOut,
     Cancelled,
 }
 
@@ -57,6 +59,7 @@ impl TaskStatus {
                 | TaskStatus::Merged
                 | TaskStatus::Rejected
                 | TaskStatus::Failed
+                | TaskStatus::TimedOut
                 | TaskStatus::Cancelled
         )
     }

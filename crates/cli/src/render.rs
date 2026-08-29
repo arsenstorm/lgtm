@@ -49,6 +49,7 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
         TaskEvent::AutoApproved => writeln!(out, "approved by policy"),
         TaskEvent::AutoMerged => writeln!(out, "merged by policy"),
         TaskEvent::Failed { error } => writeln!(out, "failed: {error}"),
+        TaskEvent::TimedOut { secs } => writeln!(out, "timed out after {secs}s"),
         TaskEvent::Cancelled => writeln!(out, "cancelled"),
         TaskEvent::Pushed { branch, .. } => writeln!(out, "pushed {branch}"),
         TaskEvent::Discarded => writeln!(out, "discarded"),

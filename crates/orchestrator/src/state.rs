@@ -301,7 +301,10 @@ impl State {
         // Only the transition itself, never a late event repeating it.
         if !terminal {
             match status {
-                TaskStatus::Failed | TaskStatus::Cancelled | TaskStatus::Rejected => {
+                TaskStatus::Failed
+                | TaskStatus::TimedOut
+                | TaskStatus::Cancelled
+                | TaskStatus::Rejected => {
                     changed.extend(self.fail_dependents(task_id));
                 }
                 TaskStatus::Approved => changed.extend(self.schedule()),
@@ -331,6 +334,7 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
             }
             (Some(TaskStatus::Failed), true)
         }
+        TaskEvent::TimedOut { .. } => (Some(TaskStatus::TimedOut), true),
         TaskEvent::Cancelled => (Some(TaskStatus::Cancelled), true),
         TaskEvent::Pushed { .. } => (Some(TaskStatus::Approved), false),
         TaskEvent::Discarded => (Some(TaskStatus::Rejected), false),

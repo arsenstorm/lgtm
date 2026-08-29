@@ -776,3 +776,22 @@ fn terminal_status_survives_late_events() {
     assert!(state.tasks[&id].task.error.is_none());
     assert_eq!(state.tasks[&id].events.len(), 2);
 }
+
+#[test]
+fn timeout_ends_the_task_and_frees_the_slot() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let task = create(&mut state, Executor::Claude);
+    state.apply_event(&task.id, TaskEvent::Started);
+    let queued = create(&mut state, Executor::Claude);
+    assert_eq!(queued.worker, None);
+
+    let changed = state.apply_event(&task.id, TaskEvent::TimedOut { secs: 60 });
+    assert_eq!(status(&state, &task.id), TaskStatus::TimedOut);
+    assert!(changed.contains(&queued.id));
+    assert_eq!(
+        state.tasks[&queued.id].task.worker.as_deref(),
+        Some("a"),
+        "the freed slot took the backlog"
+    );
+}
