@@ -112,6 +112,18 @@ fn every_message_round_trips() {
             stream: OutputStream::Stdout,
             line: "{}".into(),
         },
+        TaskEvent::Command {
+            command: "cargo test".into(),
+        },
+        TaskEvent::FileChanged {
+            path: "src/lib.rs".into(),
+        },
+        TaskEvent::Progress {
+            text: "reading the config".into(),
+        },
+        TaskEvent::Validating {
+            names: vec!["test".into(), "lint".into()],
+        },
         TaskEvent::Completed {
             result: result.clone(),
         },

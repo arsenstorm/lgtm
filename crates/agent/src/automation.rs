@@ -226,7 +226,7 @@ impl Run<'_> {
         let branch = self.branch();
         let mut result = commit(prompt, base, &branch, self.worktree).await?;
         let checks = load_validation(self.worktree);
-        result.validation = run_validation(self.worktree, &checks).await;
+        result.validation = self.validate(&checks).await;
 
         let mut fixes = 0;
         while fixes < fix_checks && result.validation_failed() {
@@ -254,9 +254,20 @@ impl Run<'_> {
             }
             // Whatever the fix run exited with, judge it by the checks themselves.
             result = commit(FIX_MESSAGE, base, &branch, self.worktree).await?;
-            result.validation = run_validation(self.worktree, &checks).await;
+            result.validation = self.validate(&checks).await;
         }
         Ok(Ok(result))
+    }
+
+    /// Announces the checks before running them, so a reader knows why the
+    /// task went quiet. Silent when the repository declares none.
+    async fn validate(&self, checks: &[(String, String)]) -> Vec<ValidationResult> {
+        let names: Vec<String> = checks.iter().map(|(name, _)| name.clone()).collect();
+        if !names.is_empty() {
+            self.ctx
+                .emit(&self.task.id, TaskEvent::Validating { names });
+        }
+        run_validation(self.worktree, checks).await
     }
 
     async fn review(&mut self, diff: &str) -> Result<Result<Review, Ran>> {

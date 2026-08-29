@@ -28,6 +28,24 @@ pub enum TaskEvent {
         stream: OutputStream,
         line: String,
     },
+    /// The agent ran a shell command.
+    Command {
+        command: String,
+    },
+    /// The agent wrote or edited a file, path relative to the worktree when
+    /// it can be.
+    FileChanged {
+        path: String,
+    },
+    /// Text the agent addressed to the reader, as it works.
+    Progress {
+        text: String,
+    },
+    /// The repository's checks are about to run; results arrive in
+    /// `Completed`.
+    Validating {
+        names: Vec<String>,
+    },
     /// Agent exited 0 and the change is committed on the task branch.
     Completed {
         result: TaskResult,

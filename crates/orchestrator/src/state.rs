@@ -440,6 +440,10 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
         // Retry and the two policy notes are for the reader, not the
         // status; a run in progress stays exactly where it was.
         TaskEvent::Output { .. }
+        | TaskEvent::Command { .. }
+        | TaskEvent::FileChanged { .. }
+        | TaskEvent::Progress { .. }
+        | TaskEvent::Validating { .. }
         | TaskEvent::Message { .. }
         | TaskEvent::Retry { .. }
         | TaskEvent::AutoApproved
