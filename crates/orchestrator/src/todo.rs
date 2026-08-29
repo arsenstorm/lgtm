@@ -57,6 +57,7 @@ impl State {
             batch: None,
             sandbox: None,
             goal: None,
+            requirements: Vec::new(),
         };
         let (task, changed) = self.create_task(spec)?;
         let todo = self

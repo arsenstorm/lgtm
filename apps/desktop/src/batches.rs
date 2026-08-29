@@ -263,6 +263,7 @@ mod tests {
                 depends_on: vec![],
                 batch: batch.map(String::from),
                 sandbox: None,
+                requirements: vec![],
                 goal: None,
             },
             status,

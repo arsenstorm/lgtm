@@ -186,6 +186,7 @@ impl Client {
         executor: lgtm_protocol::Executor,
         worker: Option<&str>,
         sandbox: Option<lgtm_protocol::SandboxProfile>,
+        requirements: Vec<String>,
     ) -> anyhow::Result<lgtm_protocol::Task> {
         self.post(
             "/api/tasks/from-issue",
@@ -195,6 +196,7 @@ impl Client {
                 executor,
                 worker,
                 sandbox,
+                requirements,
             }),
         )
         .await

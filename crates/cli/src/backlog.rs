@@ -53,6 +53,7 @@ pub async fn create(
         max: flags.max,
         dry_run: flags.dry_run,
         sandbox: flags.sandbox,
+        requirements: flags.requirements,
     };
     let resp = client.create_batch(&body).await?;
     match &resp.batch {

@@ -58,6 +58,35 @@ pub fn default_slots() -> u32 {
     (cpus / 4).max(1)
 }
 
+/// What this machine can run a task with: its os and arch, and every
+/// toolchain binary a task might require that is on PATH.
+pub fn detect_capabilities() -> Vec<String> {
+    let toolchains = [
+        "node",
+        "bun",
+        "npm",
+        "pnpm",
+        "cargo",
+        "python3",
+        "go",
+        "docker",
+        "gh",
+        "java",
+        "xcodebuild",
+    ];
+    let mut tags = vec![
+        format!("os:{}", std::env::consts::OS),
+        format!("arch:{}", std::env::consts::ARCH),
+    ];
+    tags.extend(
+        toolchains
+            .into_iter()
+            .filter(|bin| which::which(bin).is_ok())
+            .map(String::from),
+    );
+    tags
+}
+
 /// Runs the worker until it exits on purpose (ephemeral done -> `Ok(())`) or
 /// the connector/CA fails to build (`Err`).
 pub async fn run(opts: WorkerOptions) -> Result<()> {
@@ -68,8 +97,9 @@ pub async fn run(opts: WorkerOptions) -> Result<()> {
         .into_iter()
         .filter(|e| which::which(e.binary()).is_ok())
         .collect();
+    let capabilities = detect_capabilities();
     tracing::info!(
-        "worker {} in {} executors {executors:?} slots {}",
+        "worker {} in {} executors {executors:?} slots {} capabilities {capabilities:?}",
         opts.name,
         opts.data_dir.display(),
         opts.slots
@@ -82,6 +112,7 @@ pub async fn run(opts: WorkerOptions) -> Result<()> {
         executors,
         slots: opts.slots,
         ephemeral: opts.ephemeral,
+        capabilities,
     };
 
     let link = connection::Link {
@@ -146,4 +177,16 @@ async fn terminated() {
 #[cfg(not(unix))]
 async fn terminated() {
     let _ = tokio::signal::ctrl_c().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_capabilities_starts_with_os_and_arch() {
+        let tags = detect_capabilities();
+        assert_eq!(tags[0], format!("os:{}", std::env::consts::OS));
+        assert_eq!(tags[1], format!("arch:{}", std::env::consts::ARCH));
+    }
 }

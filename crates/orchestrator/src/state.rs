@@ -316,11 +316,20 @@ impl State {
                 let executor = spec.executor.binary();
                 return Err(format!("worker {name} does not have {executor}"));
             }
+            if let Some(missing) = spec
+                .requirements
+                .iter()
+                .find(|r| !worker.info.capabilities.contains(r))
+            {
+                return Err(format!("worker {name} lacks {missing}"));
+            }
             return Ok(());
         }
         let any = self.queue_without_workers
             || self.workers.values().any(|worker| {
-                worker.is_connected() && worker.info.executors.contains(&spec.executor)
+                worker.is_connected()
+                    && worker.info.executors.contains(&spec.executor)
+                    && worker.info.has_all(&spec.requirements)
             });
         any.then_some(()).ok_or_else(|| "no eligible worker".into())
     }
