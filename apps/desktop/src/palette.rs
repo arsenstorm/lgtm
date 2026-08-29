@@ -92,61 +92,44 @@ fn item(kind: Kind, label: String, hint: String, query: &str) -> Option<Item> {
 }
 
 pub fn build_groups(query: &str, tasks: &[Task], repos: &[String]) -> Vec<Group> {
-    let task_items = tasks
-        .iter()
-        .filter_map(|task| {
-            item(
-                Kind::Task(task.id.clone()),
-                prompt_preview(&task.spec.prompt, PROMPT_PREVIEW),
-                format!(
-                    "{} · {}",
-                    repo_slug(&task.spec.repository),
-                    status_label(task, tasks)
-                ),
-                query,
-            )
-        })
-        .collect();
+    let task_items = tasks.iter().map(|task| {
+        let hint = format!(
+            "{} · {}",
+            repo_slug(&task.spec.repository),
+            status_label(task, tasks)
+        );
+        (
+            Kind::Task(task.id.clone()),
+            prompt_preview(&task.spec.prompt, PROMPT_PREVIEW),
+            hint,
+        )
+    });
     let repo_items = repos
         .iter()
-        .filter_map(|url| {
-            item(
-                Kind::Repository(url.clone()),
-                repo_slug(url),
-                String::new(),
-                query,
-            )
-        })
-        .collect();
+        .map(|url| (Kind::Repository(url.clone()), repo_slug(url), String::new()));
     let action_items = Act::ALL
         .iter()
-        .filter_map(|(act, label)| {
-            item(
-                Kind::Action(*act),
-                (*label).to_string(),
-                String::new(),
-                query,
-            )
-        })
-        .collect();
-
+        .map(|(act, label)| (Kind::Action(*act), (*label).to_string(), String::new()));
     [
-        Group {
-            title: "Tasks",
-            items: task_items,
-        },
-        Group {
-            title: "Repositories",
-            items: repo_items,
-        },
-        Group {
-            title: "Actions",
-            items: action_items,
-        },
+        group("Tasks", task_items, query),
+        group("Repositories", repo_items, query),
+        group("Actions", action_items, query),
     ]
     .into_iter()
     .filter(|group| !group.items.is_empty())
     .collect()
+}
+
+/// The entries of `candidates` (kind, label, hint) that match `query`.
+fn group(
+    title: &'static str,
+    candidates: impl Iterator<Item = (Kind, String, String)>,
+    query: &str,
+) -> Group {
+    let items = candidates
+        .filter_map(|(kind, label, hint)| item(kind, label, hint, query))
+        .collect();
+    Group { title, items }
 }
 
 fn items(app: &LgtmApp, cx: &Context<LgtmApp>) -> Vec<Item> {
@@ -202,31 +185,7 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
     let query = app.query.read(cx).value().to_string();
     let groups = build_groups(&query, &app.tasks, &app.known_repositories());
 
-    let mut index = 0;
-    let mut rows: Vec<AnyElement> = Vec::new();
-    for group in groups {
-        rows.push(
-            section_label(group.title, &t)
-                .px(px(SPACE[2]))
-                .pt(px(SPACE[1]))
-                .pb(px(SPACE[0]))
-                .into_any_element(),
-        );
-        for item in group.items {
-            rows.push(row(item, index, index == at, &t, cx).into_any_element());
-            index += 1;
-        }
-    }
-    if rows.is_empty() {
-        rows.push(
-            div()
-                .px(px(SPACE[2]))
-                .py(px(SPACE[2]))
-                .text_color(t.muted_fg)
-                .child("No matches")
-                .into_any_element(),
-        );
-    }
+    let rows = rows(groups, at, &t, cx);
 
     scrim("palette-scrim", &t)
         .pt(relative(0.2))
@@ -271,10 +230,39 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
         .into_any_element()
 }
 
+/// Every group's label and rows, or "No matches" when there are none.
+fn rows(groups: Vec<Group>, at: usize, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
+    let mut index = 0;
+    let mut rows: Vec<AnyElement> = Vec::new();
+    for group in groups {
+        rows.push(
+            section_label(group.title, t)
+                .px(px(SPACE[2]))
+                .pt(px(SPACE[1]))
+                .pb(px(SPACE[0]))
+                .into_any_element(),
+        );
+        for item in group.items {
+            rows.push(row(item, (index, index == at), t, cx).into_any_element());
+            index += 1;
+        }
+    }
+    if rows.is_empty() {
+        rows.push(
+            div()
+                .px(px(SPACE[2]))
+                .py(px(SPACE[2]))
+                .text_color(t.muted_fg)
+                .child("No matches")
+                .into_any_element(),
+        );
+    }
+    rows
+}
+
 fn row(
     item: Item,
-    index: usize,
-    active: bool,
+    (index, active): (usize, bool),
     t: &Tokens,
     cx: &mut Context<LgtmApp>,
 ) -> gpui::Stateful<Div> {
