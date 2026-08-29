@@ -133,6 +133,13 @@ pub fn ca_connector(pem: &[u8]) -> Result<Connector> {
     Ok(Connector::Rustls(Arc::new(config)))
 }
 
+/// Whether a session ended because the orchestrator dropped it (retry) or
+/// because the worker said goodbye on purpose (the caller should exit).
+enum Ended {
+    Disconnected,
+    Done,
+}
+
 pub async fn run(
     orchestrator: &str,
     token: &str,
@@ -140,11 +147,12 @@ pub async fn run(
     connector: Option<Connector>,
     ctx: Arc<Ctx>,
     mut rx: mpsc::UnboundedReceiver<WorkerMessage>,
-) {
+) -> Result<()> {
     let url = format!("{orchestrator}{WORKER_WS_PATH}");
     loop {
         match session(&url, token, info, connector.clone(), &ctx, &mut rx).await {
-            Ok(()) => tracing::warn!("disconnected"),
+            Ok(Ended::Done) => return Ok(()),
+            Ok(Ended::Disconnected) => tracing::warn!("disconnected"),
             Err(err) => tracing::warn!("connection failed: {err:#}"),
         }
         tokio::time::sleep(RETRY).await;
@@ -158,7 +166,7 @@ async fn session(
     connector: Option<Connector>,
     ctx: &Arc<Ctx>,
     rx: &mut mpsc::UnboundedReceiver<WorkerMessage>,
-) -> Result<()> {
+) -> Result<Ended> {
     let (ws, _) = tokio_tungstenite::connect_async_tls_with_config(url, None, false, connector)
         .await
         .with_context(|| format!("connect {url}"))?;
@@ -191,14 +199,14 @@ async fn session(
     loop {
         tokio::select! {
             outbound = rx.recv() => {
-                let Some(msg) = outbound else { return Ok(()) };
+                let Some(msg) = outbound else { return Ok(Ended::Disconnected) };
                 let goodbye = matches!(msg, WorkerMessage::Goodbye);
                 sink.send(Message::Text(serde_json::to_string(&msg)?)).await?;
                 if goodbye {
                     let _ = sink.close().await;
                     tokio::time::sleep(FLUSH).await;
                     tracing::info!("goodbye sent, exiting");
-                    std::process::exit(0);
+                    return Ok(Ended::Done);
                 }
             }
             inbound = stream.next() => {
@@ -207,7 +215,7 @@ async fn session(
                         Ok(msg) => dispatch(msg, ctx),
                         Err(err) => tracing::warn!("bad frame: {err} ({text})"),
                     },
-                    Some(Ok(Message::Close(_))) | None => return Ok(()),
+                    Some(Ok(Message::Close(_))) | None => return Ok(Ended::Disconnected),
                     Some(Ok(_)) => {}
                     Some(Err(err)) => return Err(err.into()),
                 }

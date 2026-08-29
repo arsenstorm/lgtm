@@ -15,7 +15,8 @@ use lgtm_client::Client;
 use serde::Deserialize;
 
 const DEFAULT_ORCHESTRATOR: &str = "http://127.0.0.1:4750";
-const MISSING_CONFIG: &str = "Set LGTM_TOKEN (and LGTM_ORCHESTRATOR) or write ~/.lgtm/desktop.toml";
+const MISSING_CONFIG: &str =
+    "Set LGTM_TOKEN, run `lgtm serve` on this machine, or write ~/.lgtm/desktop.toml";
 
 #[derive(Default, Deserialize)]
 struct FileConfig {
@@ -29,13 +30,23 @@ struct Config {
     token: String,
 }
 
+fn stored_token() -> Option<String> {
+    let path = dirs::home_dir()?.join(".lgtm/token");
+    let token = std::fs::read_to_string(path).ok()?;
+    let token = token.trim();
+    (!token.is_empty()).then(|| token.to_string())
+}
+
 fn load_config() -> Option<Config> {
     let file: FileConfig = dirs::home_dir()
         .map(|home| home.join(".lgtm/desktop.toml"))
         .and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| toml::from_str(&text).ok())
         .unwrap_or_default();
-    let token = std::env::var("LGTM_TOKEN").ok().or(file.token)?;
+    let token = std::env::var("LGTM_TOKEN")
+        .ok()
+        .or(file.token)
+        .or_else(stored_token)?;
     let orchestrator = std::env::var("LGTM_ORCHESTRATOR")
         .ok()
         .or(file.orchestrator)

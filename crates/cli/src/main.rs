@@ -1,4 +1,5 @@
 mod backlog;
+mod config;
 mod http;
 mod render;
 mod run;
@@ -35,6 +36,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Run the orchestrator (and a local worker) on this machine
     Serve {
         #[arg(long, default_value = "0.0.0.0:4750")]
         bind: String,
@@ -58,8 +60,34 @@ enum Command {
         /// this orchestrator's bind address.
         #[arg(long, env = "LGTM_PUBLIC_URL")]
         public_url: Option<String>,
+        /// Don't run a worker inside this process. Tasks then only run on
+        /// machines that joined with `lgtm worker`.
+        #[arg(long)]
+        no_worker: bool,
     },
+    /// Join this machine to an orchestrator as a worker.
+    Worker {
+        /// Orchestrator WebSocket base, ws:// or wss://. An http(s) URL is
+        /// accepted and converted.
+        url: String,
+        #[arg(long, env = "LGTM_WORKER_NAME")]
+        name: Option<String>,
+        /// Maximum tasks to run at once.
+        #[arg(long, env = "LGTM_SLOTS")]
+        slots: Option<u32>,
+        /// Exit once `--max-tasks` runs have ended; for disposable machines.
+        #[arg(long, env = "LGTM_EPHEMERAL")]
+        ephemeral: bool,
+        /// Runs to accept before exiting. Only read with `--ephemeral`.
+        #[arg(long, env = "LGTM_MAX_TASKS", default_value_t = 1)]
+        max_tasks: u32,
+        /// Where mirrors and worktrees live.
+        #[arg(long, env = "LGTM_DATA_DIR")]
+        data_dir: Option<PathBuf>,
+    },
+    /// List connected workers
     Workers,
+    /// Run a prompt as a task and stream its output
     Run {
         #[arg(long)]
         on: Option<String>,
@@ -90,33 +118,24 @@ enum Command {
         agent: Executor,
         goal: String,
     },
+    /// List tasks
     Tasks,
-    Show {
-        id: String,
-    },
-    Logs {
-        id: String,
-    },
-    Diff {
-        id: String,
-    },
-    Approve {
-        id: String,
-    },
-    Reject {
-        id: String,
-    },
-    Cancel {
-        id: String,
-    },
-    Merge {
-        id: String,
-    },
+    /// Print a task, its events, checks, and review
+    Show { id: String },
+    /// Print a task's rendered output
+    Logs { id: String },
+    /// Print a task's diff
+    Diff { id: String },
+    /// Approve a task: push its branch, or create a plan's tasks
+    Approve { id: String },
+    /// Reject a task and discard its branch
+    Reject { id: String },
+    /// Cancel a queued or running task
+    Cancel { id: String },
+    /// Merge a task's pull request
+    Merge { id: String },
     /// Send a follow-up to a task awaiting review, then resume streaming.
-    Tell {
-        id: String,
-        message: String,
-    },
+    Tell { id: String, message: String },
     /// Import a backlog of issues as tasks, or inspect a past import.
     Backlog {
         #[command(subcommand)]
@@ -322,18 +341,57 @@ pub(crate) fn first_line_truncated(s: &str, max: usize) -> String {
 
 /// Best-guess URL a provisioned worker can reach this orchestrator at, when
 /// `--public-url` isn't given: `bind`'s scheme plus host, with `0.0.0.0`
-/// (which a worker on another machine can't dial) swapped for `127.0.0.1`.
-fn default_public_url(bind: &str, tls: bool) -> String {
+/// (which a worker on another machine can't dial) swapped for the address
+/// this machine advertises in its join line.
+fn default_public_url(bind: &str, tls: bool, ip: &str) -> String {
     let scheme = if tls { "https" } else { "http" };
-    let host = bind.replacen("0.0.0.0", "127.0.0.1", 1);
+    let host = bind.replacen("0.0.0.0", ip, 1);
     format!("{scheme}://{host}")
 }
 
-fn default_data_dir() -> PathBuf {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .expect("HOME or USERPROFILE must be set");
-    PathBuf::from(home).join(".lgtm")
+/// `lgtm worker` takes the same URL a person would paste from a browser, so
+/// an http(s) one becomes its ws(s) equivalent.
+fn ws_url(url: &str) -> String {
+    match url.split_once("://") {
+        Some(("http", rest)) => format!("ws://{rest}"),
+        Some(("https", rest)) => format!("wss://{rest}"),
+        _ => url.to_string(),
+    }
+}
+
+/// Runs a worker inside `serve`'s process, so one machine is useful on its
+/// own. It always dials loopback (the bind host may be `0.0.0.0`, which is
+/// not an address you connect to) and trusts the orchestrator's own
+/// certificate under TLS.
+fn spawn_local_worker(port: u16, tls_cert: Option<PathBuf>, token: String, data_dir: PathBuf) {
+    let scheme = if tls_cert.is_some() { "wss" } else { "ws" };
+    let opts = lgtm_agent::WorkerOptions {
+        orchestrator: format!("{scheme}://127.0.0.1:{port}"),
+        token,
+        name: lgtm_agent::default_name(),
+        data_dir,
+        slots: lgtm_agent::default_slots(),
+        ephemeral: false,
+        max_tasks: 1,
+        ca: tls_cert,
+    };
+    tokio::spawn(async move {
+        // Long enough for the listener above to be accepting connections;
+        // the worker's own reconnect loop covers the rest.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        match lgtm_agent::run(opts).await {
+            Ok(()) => tracing::warn!("local worker stopped"),
+            Err(e) => tracing::warn!("local worker stopped: {e:#}"),
+        }
+    });
+}
+
+fn init_tracing() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .init();
 }
 
 fn default_repo() -> anyhow::Result<String> {
@@ -348,11 +406,11 @@ fn default_repo() -> anyhow::Result<String> {
     }
 }
 
-fn require_token(token: Option<String>) -> String {
-    match token {
+fn require_token(token: Option<String>, data_dir: &std::path::Path) -> String {
+    match config::resolve_token(token, data_dir) {
         Some(t) => t,
         None => {
-            eprintln!("set LGTM_TOKEN or pass --token");
+            eprintln!("no token: run `lgtm serve` on this machine, or pass --token");
             std::process::exit(2);
         }
     }
@@ -390,27 +448,55 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         provision,
         provision_max,
         public_url,
+        no_worker,
     } = command
     {
-        let token = require_token(token);
-        tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| "info".into()),
-            )
-            .init();
+        init_tracing();
         let bind_addr: std::net::SocketAddr = bind.parse()?;
-        let data_dir = data_dir.unwrap_or_else(default_data_dir);
+        let data_dir = config::data_dir(data_dir);
+        // Unlike every other subcommand, `serve` mints a token rather than
+        // demanding one: it is the machine everyone else joins.
+        let token = match config::resolve_token(token, &data_dir) {
+            Some(t) => t,
+            None => {
+                let t = config::generate_token();
+                config::store_token(&data_dir, &t)?;
+                tracing::info!(
+                    "generated token {t} (saved to {})",
+                    config::stored_token_path(&data_dir).display()
+                );
+                t
+            }
+        };
         let tls = match (tls_cert, tls_key) {
             (Some(cert), Some(key)) => Some((cert, key)),
             (None, None) => None,
             _ => anyhow::bail!("pass both --tls-cert and --tls-key"),
         };
+        // A specific bind address is the only one workers can dial.
+        let ip = if bind_addr.ip().is_unspecified() {
+            config::advertised_ip()
+        } else {
+            bind_addr.ip().to_string()
+        };
         let provision = provision.map(|command| lgtm_orchestrator::ProvisionOptions {
             command,
             max: provision_max,
-            public_url: public_url.unwrap_or_else(|| default_public_url(&bind, tls.is_some())),
+            public_url: public_url.unwrap_or_else(|| default_public_url(&bind, tls.is_some(), &ip)),
         });
+        if !no_worker {
+            spawn_local_worker(
+                bind_addr.port(),
+                tls.as_ref().map(|(cert, _)| cert.clone()),
+                token.clone(),
+                data_dir.clone(),
+            );
+        }
+        let scheme = if tls.is_some() { "https" } else { "http" };
+        eprintln!(
+            "{}",
+            config::join_line(scheme, &ip, bind_addr.port(), &token)
+        );
         lgtm_orchestrator::serve(lgtm_orchestrator::ServeOptions {
             bind: bind_addr,
             token,
@@ -422,11 +508,37 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         return Ok(0);
     }
 
-    let token = require_token(token);
+    if let Command::Worker {
+        url,
+        name,
+        slots,
+        ephemeral,
+        max_tasks,
+        data_dir,
+    } = command
+    {
+        init_tracing();
+        let data_dir = config::data_dir(data_dir);
+        let token = require_token(token, &data_dir);
+        lgtm_agent::run(lgtm_agent::WorkerOptions {
+            orchestrator: ws_url(&url),
+            token,
+            name: name.unwrap_or_else(lgtm_agent::default_name),
+            data_dir,
+            slots: slots.unwrap_or_else(lgtm_agent::default_slots),
+            ephemeral,
+            max_tasks,
+            ca,
+        })
+        .await?;
+        return Ok(0);
+    }
+
+    let token = require_token(token, &config::data_dir(None));
     let client = Client::new(orchestrator.clone(), token.clone(), ca.as_deref())?;
 
     match command {
-        Command::Serve { .. } => unreachable!("handled above"),
+        Command::Serve { .. } | Command::Worker { .. } => unreachable!("handled above"),
         Command::Workers => {
             let workers: Vec<WorkerStatus> = client.get("/api/workers").await?;
             println!(
@@ -724,7 +836,7 @@ mod tests {
     #[test]
     fn default_public_url_swaps_unreachable_bind_host() {
         assert_eq!(
-            default_public_url("0.0.0.0:4750", false),
+            default_public_url("0.0.0.0:4750", false, "127.0.0.1"),
             "http://127.0.0.1:4750"
         );
     }
@@ -732,7 +844,7 @@ mod tests {
     #[test]
     fn default_public_url_uses_https_scheme_under_tls() {
         assert_eq!(
-            default_public_url("0.0.0.0:4750", true),
+            default_public_url("0.0.0.0:4750", true, "127.0.0.1"),
             "https://127.0.0.1:4750"
         );
     }
@@ -740,7 +852,7 @@ mod tests {
     #[test]
     fn default_public_url_keeps_a_reachable_host() {
         assert_eq!(
-            default_public_url("10.0.0.5:4750", false),
+            default_public_url("10.0.0.5:4750", false, "100.64.0.1"),
             "http://10.0.0.5:4750"
         );
     }
