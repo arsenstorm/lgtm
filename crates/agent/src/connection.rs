@@ -8,9 +8,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
-use lgtm_protocol::{
-    OrchestratorMessage, TaskEvent, TaskId, WorkerInfo, WorkerMessage, WORKER_WS_PATH,
-};
+use lgtm_protocol::{OrchestratorMessage, TaskEvent, TaskId, WorkerInfo, WorkerMessage};
 use rustls_pki_types::{pem::PemObject, CertificateDer};
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
@@ -149,17 +147,24 @@ enum Ended {
     Done,
 }
 
+/// How to reach the orchestrator and who this worker says it is.
+pub struct Link {
+    pub url: String,
+    pub token: String,
+    pub info: WorkerInfo,
+    pub connector: Option<Connector>,
+}
+
+type Socket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
 pub async fn run(
-    orchestrator: &str,
-    token: &str,
-    info: &WorkerInfo,
-    connector: Option<Connector>,
+    link: Link,
     ctx: Arc<Ctx>,
     mut rx: mpsc::UnboundedReceiver<WorkerMessage>,
 ) -> Result<()> {
-    let url = format!("{orchestrator}{WORKER_WS_PATH}");
     loop {
-        match session(&url, token, info, connector.clone(), &ctx, &mut rx).await {
+        match session(&link, &ctx, &mut rx).await {
             Ok(Ended::Done) => return Ok(()),
             Ok(Ended::Disconnected) => tracing::warn!("disconnected"),
             Err(err) => tracing::warn!("connection failed: {err:#}"),
@@ -169,18 +174,35 @@ pub async fn run(
 }
 
 async fn session(
-    url: &str,
-    token: &str,
-    info: &WorkerInfo,
-    connector: Option<Connector>,
+    link: &Link,
     ctx: &Arc<Ctx>,
     rx: &mut mpsc::UnboundedReceiver<WorkerMessage>,
 ) -> Result<Ended> {
-    let (ws, _) = tokio_tungstenite::connect_async_tls_with_config(url, None, false, connector)
-        .await
-        .with_context(|| format!("connect {url}"))?;
-    let (mut sink, mut stream) = ws.split();
+    let (mut sink, mut stream) = handshake(link, ctx).await?.split();
+    loop {
+        tokio::select! {
+            outbound = rx.recv() => {
+                let Some(msg) = outbound else { return Ok(Ended::Disconnected) };
+                if let Some(ended) = send(&mut sink, msg).await? {
+                    return Ok(ended);
+                }
+            }
+            inbound = stream.next() => {
+                if let Some(ended) = receive(inbound, ctx)? {
+                    return Ok(ended);
+                }
+            }
+        }
+    }
+}
 
+/// Connects and exchanges hello for hello_ack.
+async fn handshake(link: &Link, ctx: &Arc<Ctx>) -> Result<Socket> {
+    let url = &link.url;
+    let (mut ws, _) =
+        tokio_tungstenite::connect_async_tls_with_config(url, None, false, link.connector.clone())
+            .await
+            .with_context(|| format!("connect {url}"))?;
     let running = ctx
         .running
         .lock()
@@ -189,14 +211,13 @@ async fn session(
         .cloned()
         .collect();
     let hello = WorkerMessage::Hello {
-        token: token.to_string(),
-        info: info.clone(),
+        token: link.token.clone(),
+        info: link.info.clone(),
         running,
     };
-    sink.send(Message::Text(serde_json::to_string(&hello)?.into()))
+    ws.send(Message::Text(serde_json::to_string(&hello)?.into()))
         .await?;
-
-    match stream.next().await {
+    match ws.next().await {
         Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
             Ok(OrchestratorMessage::HelloAck) => {}
             _ => bail!("expected hello_ack, got {text}"),
@@ -204,33 +225,39 @@ async fn session(
         other => bail!("expected hello_ack, got {other:?}"),
     }
     tracing::info!("connected to {url}");
+    Ok(ws)
+}
 
-    loop {
-        tokio::select! {
-            outbound = rx.recv() => {
-                let Some(msg) = outbound else { return Ok(Ended::Disconnected) };
-                let goodbye = matches!(msg, WorkerMessage::Goodbye);
-                sink.send(Message::Text(serde_json::to_string(&msg)?.into())).await?;
-                if goodbye {
-                    let _ = sink.close().await;
-                    tokio::time::sleep(FLUSH).await;
-                    tracing::info!("goodbye sent, exiting");
-                    return Ok(Ended::Done);
-                }
-            }
-            inbound = stream.next() => {
-                match inbound {
-                    Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
-                        Ok(msg) => dispatch(msg, ctx),
-                        Err(err) => tracing::warn!("bad frame: {err} ({text})"),
-                    },
-                    Some(Ok(Message::Close(_))) | None => return Ok(Ended::Disconnected),
-                    Some(Ok(_)) => {}
-                    Some(Err(err)) => return Err(err.into()),
-                }
-            }
-        }
+async fn send<S>(sink: &mut S, msg: WorkerMessage) -> Result<Option<Ended>>
+where
+    S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    let goodbye = matches!(msg, WorkerMessage::Goodbye);
+    sink.send(Message::Text(serde_json::to_string(&msg)?.into()))
+        .await?;
+    if !goodbye {
+        return Ok(None);
     }
+    let _ = sink.close().await;
+    tokio::time::sleep(FLUSH).await;
+    tracing::info!("goodbye sent, exiting");
+    Ok(Some(Ended::Done))
+}
+
+fn receive(
+    inbound: Option<Result<Message, tokio_tungstenite::tungstenite::Error>>,
+    ctx: &Arc<Ctx>,
+) -> Result<Option<Ended>> {
+    match inbound {
+        Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
+            Ok(msg) => dispatch(msg, ctx),
+            Err(err) => tracing::warn!("bad frame: {err} ({text})"),
+        },
+        Some(Ok(Message::Close(_))) | None => return Ok(Some(Ended::Disconnected)),
+        Some(Ok(_)) => {}
+        Some(Err(err)) => return Err(err.into()),
+    }
+    Ok(None)
 }
 
 fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
