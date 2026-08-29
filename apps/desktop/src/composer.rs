@@ -176,7 +176,6 @@ fn card(app: &LgtmApp, t: &Tokens, _window: &mut Window, cx: &mut Context<LgtmAp
                             this.set_chip(Chip::Plan, cx);
                         })),
                 )
-                .child(div().w(px(1.)).h(px(ICON)).bg(t.border))
                 .child(div().flex_1())
                 .when_some(branch, |this, branch| {
                     this.child(
