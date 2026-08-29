@@ -1,8 +1,8 @@
-//! The three menus that open off the composer: project, `+`, and worker.
+//! The three menus that open off the composer: project, `+`, and runner.
 
 use super::{ABOVE_ROW, CARD_INSET, MENU_W, REAR_H, REAR_INSET, ROW_H, SMALL_MENU_W};
 use crate::app::LgtmApp;
-use crate::home::{Chip, AUTO_WORKER};
+use crate::home::{Chip, AUTO_RUNNER};
 use crate::tasks::repo_slug;
 use crate::theme::{
     field, icon, lighten, tokens, Tokens, ICON, RADIUS, SPACE, TEXT_ROW, TEXT_SECONDARY,
@@ -146,25 +146,25 @@ pub(super) fn plus_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) ->
         })
 }
 
-pub(super) fn worker_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let mut names: Vec<String> = vec![AUTO_WORKER.to_string()];
-    names.extend(app.workers.iter().map(|worker| worker.info.name.clone()));
+pub(super) fn runner_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let mut names: Vec<String> = vec![AUTO_RUNNER.to_string()];
+    names.extend(app.runners.iter().map(|runner| runner.info.name.clone()));
     let current = app.composer.chips.iter().find_map(|chip| match chip {
-        Chip::Worker(name) => Some(name.clone()),
+        Chip::Runner(name) => Some(name.clone()),
         _ => None,
     });
     menu(SMALL_MENU_W, t)
         .bottom(px(ABOVE_ROW))
         .right(px(CARD_INSET))
         .children(names.into_iter().map(|name| {
-            let picked = current.as_deref().unwrap_or(AUTO_WORKER) == name;
+            let picked = current.as_deref().unwrap_or(AUTO_RUNNER) == name;
             let chosen = name.clone();
-            menu_row(SharedString::from(format!("worker-{name}")), picked, t)
+            menu_row(SharedString::from(format!("runner-{name}")), picked, t)
                 .child(icon("cpu", ICON, t.muted_fg))
                 .child(div().flex_1().min_w_0().truncate().child(name))
                 .when(picked, |this| this.child(icon("check", 14., t.fg)))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.set_chip(Chip::Worker(chosen.clone()), cx);
+                    this.set_chip(Chip::Runner(chosen.clone()), cx);
                     this.close_menus(cx);
                     cx.notify();
                 }))

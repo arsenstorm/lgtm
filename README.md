@@ -1,9 +1,9 @@
 # LGTM
 
 LGTM is an orchestrator for AI coding agents. You give it a prompt and a
-repository; it runs an agent on a worker in a git worktree, streams the
+repository; it runs an agent on a runner in a git worktree, streams the
 output back, runs the repository's checks, reviews the diff, and then lets
-you approve it, open a pull request, and merge. Workers can be this machine,
+you approve it, open a pull request, and merge. Runners can be this machine,
 another machine, or a container that exits when it is done. There is a CLI
 and a native desktop app.
 
@@ -23,12 +23,12 @@ source: `cargo install --path crates/cli`.
 ## Quick start
 
 ```sh
-lgtm serve                          # orchestrator plus a local worker
+lgtm serve                          # orchestrator plus a local runner
 lgtm run "add a HEALTH.md file"     # from any repo with an origin remote
 ```
 
 `lgtm serve` generates a token, stores it at `~/.lgtm/token`, and prints a
-join line. Paste that `lgtm worker ws://… --token …` line on another machine
+join line. Paste that `lgtm runner ws://… --token …` line on another machine
 to add it to the fleet.
 
 ## What you can do
@@ -56,7 +56,7 @@ to add it to the fleet.
   repository's checks are not run again after a clean rebase.
 - `lgtm terminal <id>` opens a shell in the task's worktree on its runner; it
   stays open when you detach.
-- `lgtm tasks`, `show`, `logs`, `diff`, and `workers` show what is going on.
+- `lgtm tasks`, `show`, `logs`, `diff`, and `runners` show what is going on.
 - Policy in the repository can retry, fix failing checks, and auto-approve
   or auto-merge.
 - The desktop app (`apps/desktop`) lists tasks and shows activity, a
@@ -90,7 +90,7 @@ with tools instead of file conventions:
 | `scratchpad_read` | The working notes kept for this task. |
 | `scratchpad_write` | Replace those notes. |
 
-The worker registers the server (`lgtm mcp`, this same binary, over stdio)
+The runner registers the server (`lgtm mcp`, this same binary, over stdio)
 with claude and codex for every run; there is nothing to configure.
 
 An agent cannot write a memory directly: `memory_propose` files a todo
@@ -100,7 +100,7 @@ a memory every later run is told.
 ## Repository config
 
 A repository can declare its checks and its policy in `.lgtm/config.toml`.
-Workers read it from the worktree they just built.
+Runners read it from the worktree they just built.
 
 ```toml
 [validation]
@@ -112,7 +112,7 @@ test = "cargo test --workspace"
 retry = 1          # extra agent runs after a crash
 fix_checks = 2     # follow-up runs that try to fix failing checks
 review = true      # review the finished diff with a second agent run
-review_executor = "auto"  # auto picks the other harness when the worker has both
+review_executor = "auto"  # auto picks the other harness when the runner has both
 timeout_secs = 3600  # kill an agent run after this long
 auto_approve = false
 auto_merge = false
@@ -127,10 +127,10 @@ allowed_hosts = ["github.com", "api.anthropic.com", "crates.io"]  # what allowli
 ```
 
 `standard` runs the agent with only the variables it needs — a token in the
-worker's shell never reaches it — and confines its writes to the worktree, the
+runner's shell never reaches it — and confines its writes to the worktree, the
 repository mirror, the tool caches, and the temporary directories. macOS uses
 `sandbox-exec`, Linux uses `bubblewrap`; where `bwrap` is missing, and on other
-systems, the environment allowlist is all that applies and the worker says so.
+systems, the environment allowlist is all that applies and the runner says so.
 `HOME` stays the real home, so claude and codex keep their own config and
 login; the host's secrets (`.ssh`, `.aws`, `.gnupg`, `.config/gh`, `.netrc`,
 `.docker/config.json`) are unreadable instead. The macOS login keychain stays
@@ -139,7 +139,7 @@ logs the agent out. `strict` runs as `standard` until the container boundary
 lands.
 
 `network` decides where a run may go: `unrestricted` (the default), `none`, or
-`allowlist`. Under `allowlist` the worker starts an HTTP proxy on the loopback
+`allowlist`. Under `allowlist` the runner starts an HTTP proxy on the loopback
 for the length of the run, points the agent at it, and refuses any host
 `allowed_hosts` does not name — exactly, or as a suffix when the entry starts
 with a dot (`.github.com` covers `api.github.com`). Naming no hosts means the
@@ -164,8 +164,8 @@ the defaults stay.
 ## Workspace
 
 - `crates/protocol` — wire types shared by every binary
-- `crates/orchestrator` — task state, worker WebSocket, HTTP API, policy
-- `crates/agent` — the worker: git worktrees, agent runs, checks, review
+- `crates/orchestrator` — task state, runner WebSocket, HTTP API, policy
+- `crates/agent` — the runner: git worktrees, agent runs, checks, review
 - `crates/client` — HTTP/WebSocket client for the orchestrator API
 - `crates/diff` — patch parsing, unified/split layouts, and the file tree for the review pane
 - `crates/github` — pull requests, issues, CI status
@@ -177,14 +177,14 @@ Checks: `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`,
 `cargo test --workspace`.
 
-## Remote and ephemeral workers
+## Remote and ephemeral runners
 
-Workers connect out, so they can run anywhere: another machine, a
-container, a spot instance. `docker/agent.Dockerfile` builds a worker image
+Runners connect out, so they can run anywhere: another machine, a
+container, a spot instance. `docker/agent.Dockerfile` builds a runner image
 (`lgtm-agent` plus the Claude Code CLI). See
-[docs/remote-workers.md](docs/remote-workers.md) for TLS with a self-signed
-certificate, `--ephemeral`/`--max-tasks` workers that clean themselves up,
-having the orchestrator provision workers on demand, and running over
+[docs/remote-runners.md](docs/remote-runners.md) for TLS with a self-signed
+certificate, `--ephemeral`/`--max-tasks` runners that clean themselves up,
+having the orchestrator provision runners on demand, and running over
 Tailscale with no TLS at all.
 
 ## Notifications
@@ -209,18 +209,18 @@ Delivery is best effort: a webhook nobody answers is logged and dropped.
 
 ## Security
 
-Every orchestrator API call and worker connection carries a shared token.
+Every orchestrator API call and runner connection carries a shared token.
 `lgtm serve --tls-cert/--tls-key` serves over TLS; see
-[docs/remote-workers.md](docs/remote-workers.md). With a `GITHUB_TOKEN` set
-on the orchestrator, workers push with a per-push token handed over for
+[docs/remote-runners.md](docs/remote-runners.md). With a `GITHUB_TOKEN` set
+on the orchestrator, runners push with a per-push token handed over for
 that one push and need no GitHub credentials of their own — the agent
 process never receives it — though the mirror clone at the start of a run
-still uses the worker's own credentials.
+still uses the runner's own credentials.
 
 ## Docs
 
-- [docs/remote-workers.md](docs/remote-workers.md) — TLS, ephemeral
-  workers, provisioning, Tailscale
+- [docs/remote-runners.md](docs/remote-runners.md) — TLS, ephemeral
+  runners, provisioning, Tailscale
 - [docs/release.md](docs/release.md) — cutting a release, installing,
   upgrading
 

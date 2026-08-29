@@ -1,16 +1,16 @@
-# Remote and ephemeral workers
+# Remote and ephemeral runners
 
 ## Why
 
-`lgtm worker` connects out to `lgtm serve` over a WebSocket. It does not need
+`lgtm runner` connects out to `lgtm serve` over a WebSocket. It does not need
 an inbound port, so it can run on a laptop, a spare box, a cloud VM, or in a
 container next to your CI. This doc covers three things: securing that
-connection with TLS, running workers that exit on their own, and having the
-orchestrator start workers for you when the queue needs them.
+connection with TLS, running runners that exit on their own, and having the
+orchestrator start runners for you when the queue needs them.
 
 `lgtm serve` generates a token on first run and stores it at
 `~/.lgtm/token`, so every `lgtm` command on that machine picks it up
-automatically. It also prints a ready-to-paste join line, e.g. `lgtm worker
+automatically. It also prints a ready-to-paste join line, e.g. `lgtm runner
 ws://<ip>:4750 --token <token>`, for adding another machine.
 
 ## TLS with a self-signed certificate
@@ -20,21 +20,21 @@ refuses a certificate that is both the trust anchor and the server's own
 certificate, so make a small CA and sign a server certificate with it:
 
 ```sh
-# 1. A CA the workers will trust.
+# 1. A CA the runners will trust.
 openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -keyout ca-key.pem -out ca.pem -subj "/CN=lgtm-ca" \
   -addext "basicConstraints=critical,CA:TRUE"
 
-# 2. A server certificate for the host the workers connect to.
+# 2. A server certificate for the host the runners connect to.
 openssl req -newkey rsa:2048 -nodes -keyout key.pem -out server.csr -subj "/CN=host"
 printf 'subjectAltName=DNS:host,IP:203.0.113.10\n' > san.cnf
 openssl x509 -req -in server.csr -CA ca.pem -CAkey ca-key.pem -CAcreateserial \
   -days 825 -extfile san.cnf -out cert.pem
 ```
 
-Replace `host` and the SAN entries with the real hostname or IP the workers
+Replace `host` and the SAN entries with the real hostname or IP the runners
 will use to reach the orchestrator. Keep `ca-key.pem` on the orchestrator
-host only; `ca.pem` is what you copy to workers.
+host only; `ca.pem` is what you copy to runners.
 
 Start the orchestrator with the server certificate:
 
@@ -42,58 +42,58 @@ Start the orchestrator with the server certificate:
 lgtm serve --tls-cert cert.pem --tls-key key.pem
 ```
 
-A worker on another machine connects with `wss://` and trusts the CA:
+A runner on another machine connects with `wss://` and trusts the CA:
 
 ```sh
-lgtm worker wss://host:4750 --token <token> --ca ca.pem
+lgtm runner wss://host:4750 --token <token> --ca ca.pem
 ```
 
 The `lgtm` CLI does the same over `https://`:
 
 ```sh
-LGTM_CA=ca.pem lgtm --orchestrator https://host:4750 workers
+LGTM_CA=ca.pem lgtm --orchestrator https://host:4750 runners
 ```
 
-## Ephemeral workers
+## Ephemeral runners
 
-`lgtm worker <url> --ephemeral` marks the worker as one that is expected to
+`lgtm runner <url> --ephemeral` marks the runner as one that is expected to
 go away. It still connects and runs tasks normally, but:
 
 - `--max-tasks N` makes it exit cleanly after finishing `N` tasks, instead
   of running forever.
 - On exit it sends a `Goodbye` message before closing the connection. The
-  orchestrator removes the worker immediately, rather than waiting for a
+  orchestrator removes the runner immediately, rather than waiting for a
   connection timeout, so the slot is free right away and nothing lingers in
-  `lgtm workers`.
+  `lgtm runners`.
 
-Use `--ephemeral` for any worker whose process (or container, or VM) you
+Use `--ephemeral` for any runner whose process (or container, or VM) you
 intend to throw away after it finishes: a `docker run --rm`, a spot
 instance, a CI runner.
 
 ## Provisioning
 
-`lgtm serve --provision <cmd>` lets the orchestrator start workers itself,
+`lgtm serve --provision <cmd>` lets the orchestrator start runners itself,
 instead of you starting them by hand. Every 30 seconds it checks whether any
-queued task has nowhere to run — no connected worker with a free slot and
+queued task has nowhere to run — no connected runner with a free slot and
 the right executor — and if so, and the number of connected ephemeral
-workers is under `--provision-max`, it runs `<cmd>` through `sh -c`.
+runners is under `--provision-max`, it runs `<cmd>` through `sh -c`.
 
-To avoid launching a pile of workers for one queued task, only one
+To avoid launching a pile of runners for one queued task, only one
 provision command is in flight at a time: once launched, the orchestrator
-waits for the ephemeral worker count to go up (the new worker connected) or
+waits for the ephemeral runner count to go up (the new runner connected) or
 for five minutes to pass, before it will provision again.
 
 The command runs with three environment variables set:
 
 - `LGTM_ORCHESTRATOR_URL` — the value of `--public-url`, i.e. the address a
-  newly started worker should connect back to.
+  newly started runner should connect back to.
 - `LGTM_TOKEN` — the orchestrator's token (the one stored at `~/.lgtm/token`
-  and printed in the `lgtm worker …` join line).
+  and printed in the `lgtm runner …` join line).
 - `LGTM_QUEUED` — how many tasks are currently queued, in case the command
   wants to size what it starts.
 
 `--public-url` is required whenever `--provision` is set, since it's what
-the orchestrator tells new workers to dial.
+the orchestrator tells new runners to dial.
 
 Examples. Start a container:
 
@@ -107,26 +107,26 @@ Start one over SSH on a box that's already up:
 
 ```sh
 lgtm serve --provision \
-  "ssh box 'LGTM_TOKEN=$LGTM_TOKEN nohup lgtm worker $LGTM_ORCHESTRATOR_URL --ephemeral >/dev/null 2>&1 &'" \
+  "ssh box 'LGTM_TOKEN=$LGTM_TOKEN nohup lgtm runner $LGTM_ORCHESTRATOR_URL --ephemeral >/dev/null 2>&1 &'" \
   --provision-max 3 --public-url wss://host:4750
 ```
 
 Or try it locally without any of that, just to see it fire:
 
 ```sh
-lgtm worker ws://127.0.0.1:4750 --token <token> --ephemeral --name pod-$$ &
+lgtm runner ws://127.0.0.1:4750 --token <token> --ephemeral --name pod-$$ &
 ```
 
 ## Tailscale
 
-If the orchestrator and its workers are all on the same tailnet, skip TLS.
+If the orchestrator and its runners are all on the same tailnet, skip TLS.
 Tailscale already encrypts the connection between them at the network
 layer, so plain `ws://` is fine:
 
 ```sh
 lgtm serve --bind 0.0.0.0:4750
-lgtm worker ws://orchestrator.tailnet-name.ts.net:4750 --token <token>
+lgtm runner ws://orchestrator.tailnet-name.ts.net:4750 --token <token>
 ```
 
-This is the easiest setup for a personal fleet of workers and avoids
+This is the easiest setup for a personal fleet of runners and avoids
 managing a certificate at all.

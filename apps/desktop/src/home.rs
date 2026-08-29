@@ -12,13 +12,13 @@ use lgtm_protocol::{Executor, TaskKind, TaskSpec};
 const MARK: f32 = 44.;
 /// `text-[22px]`: the greeting.
 const GREETING: f32 = 22.;
-pub const AUTO_WORKER: &str = "Auto";
+pub const AUTO_RUNNER: &str = "Auto";
 
 /// One choice made in the composer's controls.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Chip {
     Plan,
-    Worker(String),
+    Runner(String),
     Branch(String),
 }
 
@@ -37,13 +37,13 @@ pub fn compose(prompt: &str, project: Option<&str>, chips: &[Chip]) -> Option<Ta
         return None;
     }
     let mut base_branch = "main".to_string();
-    let mut worker = None;
+    let mut runner = None;
     let mut kind = TaskKind::Run;
     for chip in chips {
         match chip {
             Chip::Plan => kind = TaskKind::Plan,
-            Chip::Worker(name) if name != AUTO_WORKER => worker = Some(name.clone()),
-            Chip::Worker(_) => worker = None,
+            Chip::Runner(name) if name != AUTO_RUNNER => runner = Some(name.clone()),
+            Chip::Runner(_) => runner = None,
             Chip::Branch(branch) if !branch.trim().is_empty() => {
                 base_branch = branch.trim().to_string()
             }
@@ -55,7 +55,7 @@ pub fn compose(prompt: &str, project: Option<&str>, chips: &[Chip]) -> Option<Ta
         base_branch,
         prompt: prompt.to_string(),
         executor: Executor::Claude,
-        worker,
+        runner,
         issue: None,
         linear: None,
         kind,
@@ -106,7 +106,7 @@ impl LgtmApp {
         self.composer.add_repo = false;
         self.composer.plus_menu = false;
         self.composer.branch_edit = false;
-        self.composer.worker_menu = false;
+        self.composer.runner_menu = false;
         cx.notify();
     }
 }
@@ -174,34 +174,34 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_main_no_worker_and_a_run() {
+    fn defaults_are_main_no_runner_and_a_run() {
         let spec = compose("do it", Some(URL), &[]).unwrap();
         assert_eq!(spec.repository, URL);
         assert_eq!(spec.base_branch, "main");
         assert_eq!(spec.prompt, "do it");
-        assert!(spec.worker.is_none());
+        assert!(spec.runner.is_none());
         assert_eq!(spec.kind, TaskKind::Run);
     }
 
     #[test]
-    fn chips_choose_the_kind_the_worker_and_the_branch() {
+    fn chips_choose_the_kind_the_runner_and_the_branch() {
         let chips = vec![
             Chip::Plan,
-            Chip::Worker("MacBook".into()),
+            Chip::Runner("MacBook".into()),
             Chip::Branch("develop".into()),
         ];
         let spec = compose("do it", Some(URL), &chips).unwrap();
         assert_eq!(spec.kind, TaskKind::Plan);
-        assert_eq!(spec.worker.as_deref(), Some("MacBook"));
+        assert_eq!(spec.runner.as_deref(), Some("MacBook"));
         assert_eq!(spec.base_branch, "develop");
     }
 
     #[test]
-    fn the_auto_worker_leaves_the_choice_to_the_orchestrator() {
-        let chips = vec![Chip::Worker(AUTO_WORKER.into())];
+    fn the_auto_runner_leaves_the_choice_to_the_orchestrator() {
+        let chips = vec![Chip::Runner(AUTO_RUNNER.into())];
         assert!(compose("do it", Some(URL), &chips)
             .unwrap()
-            .worker
+            .runner
             .is_none());
     }
 }

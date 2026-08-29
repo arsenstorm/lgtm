@@ -94,7 +94,7 @@ fn client(orchestrator: &str, token: String, ca: Option<&Path>) -> anyhow::Resul
 async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
     let command = match cli.command {
         Command::Serve(args) => return serve::serve(args, cli.token).await,
-        Command::Worker(args) => return serve::worker(args, cli.token, cli.ca).await,
+        Command::Runner(args) => return serve::runner(args, cli.token, cli.ca).await,
         Command::Upgrade { version } => return upgrade::run(version).await,
         command => command,
     };
@@ -106,10 +106,10 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
 /// Every command that talks to a running orchestrator.
 async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
     match command {
-        Command::Serve(_) | Command::Worker(_) | Command::Upgrade { .. } => {
+        Command::Serve(_) | Command::Runner(_) | Command::Upgrade { .. } => {
             unreachable!("handled by dispatch")
         }
-        Command::Workers => workers(client).await,
+        Command::Runners => runners(client).await,
         Command::Mcp => mcp::serve(client).await,
         Command::Run {
             target,
@@ -184,7 +184,7 @@ async fn task_command(client: &Client, command: Command) -> anyhow::Result<i32> 
             // replaying it would end the stream before the new run started.
             let from = client.task(&id).await?.events.len();
             let into = lgtm_client::Retry {
-                worker: on,
+                runner: on,
                 executor: agent,
             };
             client.retry(&id, &into).await?;
@@ -232,12 +232,12 @@ fn print_json(value: impl serde::Serialize) -> anyhow::Result<i32> {
     Ok(0)
 }
 
-async fn workers(client: &Client) -> anyhow::Result<i32> {
+async fn runners(client: &Client) -> anyhow::Result<i32> {
     println!(
         "{:<16}{:<8}{:<8}{:<16}{:<10}{:<8}CAPABILITIES",
         "NAME", "OS", "ARCH", "EXECUTORS", "KIND", "SLOTS"
     );
-    for w in client.workers().await? {
+    for w in client.runners().await? {
         let executors = w
             .info
             .executors
@@ -267,7 +267,7 @@ impl Target {
             base_branch: self.base,
             prompt,
             executor: self.agent,
-            worker: self.on,
+            runner: self.on,
             issue: None,
             linear: None,
             kind,
@@ -304,7 +304,7 @@ async fn run(
             issue: &issue,
             base_branch: &target.base,
             executor: target.agent,
-            worker: target.on.as_deref(),
+            runner: target.on.as_deref(),
             sandbox: target.sandbox,
             requirements: target.requirements,
             review_executor: target.review_with,
@@ -318,7 +318,7 @@ async fn run(
             repository: &repo,
             base_branch: &target.base,
             executor: target.agent,
-            worker: target.on.as_deref(),
+            runner: target.on.as_deref(),
             sandbox: target.sandbox,
             requirements: target.requirements,
             review_executor: target.review_with,
@@ -347,7 +347,7 @@ async fn goal(
         repository: target.repo.map_or_else(default_repo, Ok)?,
         base_branch: target.base,
         executor: target.agent,
-        worker: target.on,
+        runner: target.on,
         plan,
     };
     let id = client.create_goal(&body).await?.goal.id;
@@ -470,7 +470,7 @@ async fn todo_command(client: &Client, command: TodoCommand) -> anyhow::Result<i
             let body = PromoteTodo {
                 base_branch: target.base,
                 executor: target.agent,
-                worker: target.on,
+                runner: target.on,
             };
             let task = client.promote_todo(&id, &body).await?;
             eprintln!("task {} created from todo {id}", task.id);

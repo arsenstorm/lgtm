@@ -11,7 +11,7 @@ use gpui::{
     ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_component::tab::{Tab, TabBar};
-use lgtm_protocol::{GoalSummary, Task, TaskStatus, WorkerStatus};
+use lgtm_protocol::{GoalSummary, RunnerStatus, Task, TaskStatus};
 
 /// Which section of the project page is showing.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -172,18 +172,18 @@ fn task_rows(app: &LgtmApp, slug: &str, t: &Tokens, cx: &mut Context<LgtmApp>) -
 }
 
 fn runner_rows(app: &LgtmApp, t: &Tokens) -> Vec<AnyElement> {
-    if app.workers.is_empty() {
+    if app.runners.is_empty() {
         return vec![muted("No runners connected.", t)];
     }
-    app.workers
+    app.runners
         .iter()
-        .map(|worker| runner_row(worker, t).into_any_element())
+        .map(|runner| runner_row(runner, t).into_any_element())
         .collect()
 }
 
 /// Name, platform, slots, and what the machine can run.
-fn runner_row(worker: &WorkerStatus, t: &Tokens) -> Div {
-    let info = &worker.info;
+fn runner_row(runner: &RunnerStatus, t: &Tokens) -> Div {
+    let info = &runner.info;
     let cell = |text: String| {
         div()
             .w(px(120.))
@@ -211,7 +211,7 @@ fn runner_row(worker: &WorkerStatus, t: &Tokens) -> Div {
         .child(cell(format!("{}/{}", info.os, info.arch)))
         .child(cell(format!(
             "{}/{} slots",
-            worker.running.len(),
+            runner.running.len(),
             info.slots
         )))
         .child(

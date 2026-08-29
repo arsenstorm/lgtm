@@ -1,4 +1,4 @@
-//! A shell in a task's worktree, owned by this worker so it outlives whoever
+//! A shell in a task's worktree, owned by this runner so it outlives whoever
 //! attached to it.
 //
 // ponytail: this is a shell of its own, not the agent's session — the agent
@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
 
-use lgtm_protocol::{TaskId, WorkerMessage};
+use lgtm_protocol::{RunnerMessage, TaskId};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
 
@@ -52,14 +52,14 @@ pub async fn open(task_id: TaskId, ctx: Arc<Ctx>) {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     let Some(argv) = script_command(&shell) else {
         tracing::warn!(task = %task_id, "unsupported: no pty on this platform");
-        let _ = ctx.tx.send(WorkerMessage::TerminalClosed { task_id });
+        let _ = ctx.tx.send(RunnerMessage::TerminalClosed { task_id });
         return;
     };
     match spawn(&argv, &worktree_path(&ctx.data_dir, &task_id)) {
         Ok(child) => attach(task_id, child, ctx).await,
         Err(err) => {
             tracing::warn!(task = %task_id, "terminal: {err}");
-            let _ = ctx.tx.send(WorkerMessage::TerminalClosed { task_id });
+            let _ = ctx.tx.send(RunnerMessage::TerminalClosed { task_id });
         }
     }
 }
@@ -100,7 +100,7 @@ async fn pump<R: AsyncRead + Unpin>(task_id: TaskId, mut out: R, ctx: Arc<Ctx>) 
         if read == 0 {
             return;
         }
-        let _ = ctx.tx.send(WorkerMessage::Terminal {
+        let _ = ctx.tx.send(RunnerMessage::Terminal {
             task_id: task_id.clone(),
             data: String::from_utf8_lossy(&buf[..read]).into_owned(),
         });
@@ -110,7 +110,7 @@ async fn pump<R: AsyncRead + Unpin>(task_id: TaskId, mut out: R, ctx: Arc<Ctx>) 
 async fn until_eof<R: AsyncRead + Unpin>(task_id: TaskId, out: R, ctx: Arc<Ctx>) {
     pump(task_id.clone(), out, ctx.clone()).await;
     close(&task_id, &ctx).await;
-    let _ = ctx.tx.send(WorkerMessage::TerminalClosed { task_id });
+    let _ = ctx.tx.send(RunnerMessage::TerminalClosed { task_id });
 }
 
 /// Types `data` into the task's shell; a task with no shell ignores it.

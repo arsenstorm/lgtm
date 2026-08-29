@@ -1,4 +1,4 @@
-//! Running the orchestrator and a worker for it in the same process, so one
+//! Running the orchestrator and a runner for it in the same process, so one
 //! machine is useful on its own. Shared by `lgtm serve` and, eventually, the
 //! desktop app.
 
@@ -44,7 +44,7 @@ pub fn join_line(scheme: &str, ip: &str, port: u16, token: &str) -> String {
     let ws = if scheme == "https" { "wss" } else { "ws" };
     format!(
         "lgtm is listening on {scheme}://127.0.0.1:{port}\n\
-         join another machine:  lgtm worker {ws}://{ip}:{port} --token {token}"
+         join another machine:  lgtm runner {ws}://{ip}:{port} --token {token}"
     )
 }
 
@@ -62,39 +62,39 @@ pub fn join_line_for(opts: &ServeOptions) -> String {
 
 pub struct LocalOptions {
     pub serve: ServeOptions,
-    pub worker: bool,
-    pub worker_name: String,
-    pub worker_slots: u32,
+    pub runner: bool,
+    pub runner_name: String,
+    pub runner_slots: u32,
 }
 
-/// Starts the orchestrator and, when `worker`, a local worker connecting to
+/// Starts the orchestrator and, when `runner`, a local runner connecting to
 /// 127.0.0.1:<port> (wss + the served cert as CA when tls). Returns when the
 /// server stops.
 pub async fn serve_local(opts: LocalOptions) -> anyhow::Result<()> {
-    if opts.worker {
+    if opts.runner {
         let scheme = if opts.serve.tls.is_some() {
             "wss"
         } else {
             "ws"
         };
         let port = opts.serve.bind.port();
-        let worker_opts = lgtm_agent::WorkerOptions {
+        let runner_opts = lgtm_agent::RunnerOptions {
             orchestrator: format!("{scheme}://127.0.0.1:{port}"),
             token: opts.serve.token.clone(),
-            name: opts.worker_name,
+            name: opts.runner_name,
             data_dir: opts.serve.data_dir.clone(),
-            slots: opts.worker_slots,
+            slots: opts.runner_slots,
             ephemeral: false,
             max_tasks: 1,
             ca: opts.serve.tls.as_ref().map(|(cert, _)| cert.clone()),
         };
         tokio::spawn(async move {
             // Long enough for the listener below to be accepting connections;
-            // the worker's own reconnect loop covers the rest.
+            // the runner's own reconnect loop covers the rest.
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            match lgtm_agent::run(worker_opts).await {
-                Ok(()) => tracing::warn!("local worker stopped"),
-                Err(e) => tracing::warn!("local worker stopped: {e:#}"),
+            match lgtm_agent::run(runner_opts).await {
+                Ok(()) => tracing::warn!("local runner stopped"),
+                Err(e) => tracing::warn!("local runner stopped: {e:#}"),
             }
         });
     }
@@ -110,14 +110,14 @@ mod tests {
         assert_eq!(
             join_line("http", "100.64.0.1", 4750, "abc"),
             "lgtm is listening on http://127.0.0.1:4750\n\
-             join another machine:  lgtm worker ws://100.64.0.1:4750 --token abc"
+             join another machine:  lgtm runner ws://100.64.0.1:4750 --token abc"
         );
     }
 
     #[test]
     fn join_line_uses_wss_under_tls() {
         assert!(join_line("https", "100.64.0.1", 4750, "abc")
-            .contains("lgtm worker wss://100.64.0.1:4750 --token abc"));
+            .contains("lgtm runner wss://100.64.0.1:4750 --token abc"));
     }
 
     #[test]

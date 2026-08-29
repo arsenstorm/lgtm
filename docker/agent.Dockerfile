@@ -1,9 +1,9 @@
-# lgtm-agent worker image: a Rust-built binary plus the Claude Code CLI it
+# lgtm-agent runner image: a Rust-built binary plus the Claude Code CLI it
 # shells out to. Build from the repo root:
 #
 #   docker build -f docker/agent.Dockerfile -t lgtm-agent .
 #
-# Run it (see docs/remote-workers.md for the full picture):
+# Run it (see docs/remote-runners.md for the full picture):
 #
 #   docker run --rm \
 #     -e ANTHROPIC_API_KEY \
@@ -49,8 +49,8 @@ ENV HOME=/home/lgtm
 USER lgtm
 WORKDIR /home/lgtm
 
-# The worker exits after finishing its work, expecting whatever started it
+# The runner exits after finishing its work, expecting whatever started it
 # (provisioning script, orchestrator) to clean up the container.
 ENV LGTM_EPHEMERAL=1
 
-ENTRYPOINT ["lgtm", "worker"]
+ENTRYPOINT ["lgtm", "runner"]

@@ -3,7 +3,7 @@ name: lgtm
 icon: null
 processes:
   Serve:
-    # Orchestrator plus a local worker; prints the token and the join line.
+    # Orchestrator plus a local runner; prints the token and the join line.
     command: export PATH="$HOME/.cargo/bin:$PATH" && cargo run -p lgtm-cli -- serve
     working_dir: null
     auto_start: true
@@ -18,9 +18,9 @@ processes:
     auto_restart: false
     restart_when_changed: []
     env: {}
-  Second worker:
-    # A second worker on this machine, to watch queueing and slots.
-    command: export PATH="$HOME/.cargo/bin:$PATH" && cargo run -p lgtm-cli -- worker ws://127.0.0.1:4750 --name laptop-2 --slots 1
+  Second runner:
+    # A second runner on this machine, to watch queueing and slots.
+    command: export PATH="$HOME/.cargo/bin:$PATH" && cargo run -p lgtm-cli -- runner ws://127.0.0.1:4750 --name laptop-2 --slots 1
     working_dir: null
     auto_start: false
     auto_restart: false

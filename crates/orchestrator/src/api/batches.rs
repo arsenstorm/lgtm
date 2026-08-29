@@ -29,8 +29,8 @@ pub(super) struct BatchRequest {
     repository: Option<String>,
     base_branch: String,
     executor: Executor,
-    #[serde(default)]
-    worker: Option<String>,
+    #[serde(default, alias = "worker")]
+    runner: Option<String>,
     /// Import each issue as a plan task instead of a run.
     #[serde(default)]
     plan: bool,
@@ -184,7 +184,7 @@ fn candidates(
     let input = SpecInput {
         base_branch: body.base_branch.clone(),
         executor: body.executor,
-        worker: body.worker.clone(),
+        runner: body.runner.clone(),
         kind: if body.plan {
             TaskKind::Plan
         } else {
@@ -230,7 +230,7 @@ struct Created {
 
 fn create_tasks(state: &mut TaskState, selected: Vec<Candidate>) -> Created {
     let mut created = Created::default();
-    // Every candidate shares executor and worker, so one refusal would hold
+    // Every candidate shares executor and runner, so one refusal would hold
     // for all of them; check once before anything is created.
     if let Some(first) = selected.first() {
         if let Err(err) = state.check_eligible(&first.spec) {

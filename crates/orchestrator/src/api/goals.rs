@@ -19,8 +19,8 @@ pub(super) struct GoalRequest {
     repository: String,
     base_branch: String,
     executor: Executor,
-    #[serde(default)]
-    worker: Option<String>,
+    #[serde(default, alias = "worker")]
+    runner: Option<String>,
     /// Propose a plan first instead of running the objective as one task.
     #[serde(default)]
     plan: bool,
@@ -43,7 +43,7 @@ fn first_spec(body: GoalRequest, goal: String) -> TaskSpec {
         base_branch: body.base_branch,
         prompt: body.objective,
         executor: body.executor,
-        worker: body.worker,
+        runner: body.runner,
         issue: None,
         linear: None,
         kind: if body.plan {

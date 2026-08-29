@@ -11,7 +11,7 @@ const TASK_ID: &str = "0000abcd";
 const REPOSITORY: &str = "https://example.com/r.git";
 
 /// A task the orchestrator loads at startup, so the round trip needs no
-/// worker to have ever connected. The id must be 8 hex digits or the
+/// runner to have ever connected. The id must be 8 hex digits or the
 /// orchestrator refuses to load the record.
 fn seed(dir: &std::path::Path) {
     let task = Task {
@@ -21,7 +21,7 @@ fn seed(dir: &std::path::Path) {
             base_branch: "main".to_string(),
             prompt: "p".to_string(),
             executor: Executor::Claude,
-            worker: None,
+            runner: None,
             issue: None,
             linear: None,
             kind: TaskKind::Run,
@@ -37,7 +37,7 @@ fn seed(dir: &std::path::Path) {
             allowed_hosts: Vec::new(),
         },
         status: TaskStatus::AwaitingReview,
-        worker: None,
+        runner: None,
         created_at: 0,
         result: None,
         error: None,

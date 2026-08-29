@@ -1,9 +1,9 @@
-//! The messages themselves: task events and the two directions of the worker
+//! The messages themselves: task events and the two directions of the runner
 //! socket.
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Executor, Memory, Task, TaskId, TaskResult, WorkerInfo};
+use crate::{Executor, Memory, RunnerInfo, Task, TaskId, TaskResult};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -12,7 +12,7 @@ pub enum OutputStream {
     Stderr,
 }
 
-/// Something that happened to one task on a worker.
+/// Something that happened to one task on a runner.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TaskEvent {
@@ -73,7 +73,7 @@ pub enum TaskEvent {
     Completed {
         result: TaskResult,
     },
-    /// The worker is running the agent again: a crash with retries left, or
+    /// The runner is running the agent again: a crash with retries left, or
     /// failing checks it was told to fix.
     Retry {
         attempt: u32,
@@ -82,7 +82,8 @@ pub enum TaskEvent {
     /// A retry: the task goes back to the queue as a new attempt, possibly
     /// elsewhere.
     Requeued {
-        worker: Option<String>,
+        #[serde(alias = "worker")]
+        runner: Option<String>,
         executor: Executor,
     },
     /// What policy decided on its own and why, so an automatic approval is
@@ -111,7 +112,7 @@ pub enum TaskEvent {
     TimedOut {
         secs: u64,
     },
-    /// The worker's socket expired with this task still running.
+    /// The runner's socket expired with this task still running.
     RunnerLost,
     Cancelled,
     /// Rebasing onto `base` before the push stopped on these files.
@@ -136,18 +137,18 @@ pub struct StoredEvent {
     pub event: TaskEvent,
 }
 
-/// Worker → orchestrator, over the worker WebSocket.
+/// Runner → orchestrator, over the runner WebSocket.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum WorkerMessage {
-    /// First frame on every connection. `running` lists tasks the worker
+pub enum RunnerMessage {
+    /// First frame on every connection. `running` lists tasks the runner
     /// still has processes for, so a reconnect does not lose them.
     Hello {
         token: String,
-        info: WorkerInfo,
+        info: RunnerInfo,
         #[serde(default)]
         running: Vec<TaskId>,
-        /// `PROTOCOL_VERSION` of the worker; 0 from workers that predate it.
+        /// `PROTOCOL_VERSION` of the runner; 0 from runners that predate it.
         #[serde(default)]
         version: u32,
     },
@@ -167,16 +168,16 @@ pub enum WorkerMessage {
     TerminalClosed {
         task_id: TaskId,
     },
-    /// The worker is exiting on purpose and runs nothing.
+    /// The runner is exiting on purpose and runs nothing.
     Goodbye,
 }
 
-/// Orchestrator → worker, over the worker WebSocket.
+/// Orchestrator → runner, over the runner WebSocket.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OrchestratorMessage {
     HelloAck,
-    /// Sent instead of `HelloAck` and followed by a close; the worker must
+    /// Sent instead of `HelloAck` and followed by a close; the runner must
     /// not retry.
     Rejected {
         reason: String,
@@ -200,7 +201,7 @@ pub enum OrchestratorMessage {
         #[serde(default)]
         memories: Vec<Memory>,
         /// The task as the orchestrator has it now, so a follow-up carries a
-        /// spec change (e.g. an allowed host) the worker's own stored copy
+        /// spec change (e.g. an allowed host) the runner's own stored copy
         /// predates.
         #[serde(default)]
         task: Option<Box<Task>>,
@@ -208,7 +209,7 @@ pub enum OrchestratorMessage {
     /// Push `lgtm/<task-id>` to origin.
     Push {
         task_id: TaskId,
-        /// Bearer token for this push; `None` leaves it to the worker's own
+        /// Bearer token for this push; `None` leaves it to the runner's own
         /// git credentials.
         #[serde(default)]
         token: Option<String>,

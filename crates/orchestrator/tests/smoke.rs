@@ -38,7 +38,7 @@ async fn end_to_end() {
     let http = reqwest::Client::new();
 
     let r = http
-        .get(format!("{base}/api/workers"))
+        .get(format!("{base}/api/runners"))
         .send()
         .await
         .unwrap();
@@ -50,7 +50,7 @@ async fn end_to_end() {
         base_branch: "main".into(),
         prompt: "p".into(),
         executor: Executor::Claude,
-        worker: None,
+        runner: None,
         issue: None,
         linear: None,
         kind: TaskKind::Run,
@@ -73,7 +73,7 @@ async fn end_to_end() {
         .await
         .unwrap();
     assert_eq!(r.status(), 409);
-    assert_eq!(r.text().await.unwrap(), r#"{"error":"no eligible worker"}"#);
+    assert_eq!(r.text().await.unwrap(), r#"{"error":"no eligible runner"}"#);
 
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -85,8 +85,8 @@ async fn end_to_end() {
         .unwrap();
     assert_eq!(r.status(), 400);
 
-    let mut w = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
-    let info = WorkerInfo {
+    let mut w = ws(&format!("ws://{addr}{RUNNER_WS_PATH}"), false).await;
+    let info = RunnerInfo {
         name: "w1".into(),
         os: "linux".into(),
         arch: "x86_64".into(),
@@ -96,7 +96,7 @@ async fn end_to_end() {
         capabilities: vec![],
     };
     w.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Hello {
+        serde_json::to_string(&RunnerMessage::Hello {
             token: "tok".into(),
             info,
             running: Vec::new(),
@@ -113,8 +113,8 @@ async fn end_to_end() {
         OrchestratorMessage::HelloAck
     ));
 
-    let workers: Vec<WorkerStatus> = http
-        .get(format!("{base}/api/workers"))
+    let runners: Vec<RunnerStatus> = http
+        .get(format!("{base}/api/runners"))
         .bearer_auth("tok")
         .send()
         .await
@@ -122,7 +122,7 @@ async fn end_to_end() {
         .json()
         .await
         .unwrap();
-    assert_eq!(workers.len(), 1);
+    assert_eq!(runners.len(), 1);
 
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -140,7 +140,7 @@ async fn end_to_end() {
         panic!()
     };
     assert_eq!(started.id, task.id);
-    assert_eq!(started.worker.as_deref(), Some("w1"));
+    assert_eq!(started.runner.as_deref(), Some("w1"));
 
     let r = http
         .post(format!("{base}/api/tasks/{}/approve", task.id))
@@ -156,7 +156,7 @@ async fn end_to_end() {
 
     let mut ev = ws(&format!("ws://{addr}/api/tasks/{}/events", task.id), true).await;
     w.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Event {
+        serde_json::to_string(&RunnerMessage::Event {
             task_id: task.id.clone(),
             event: TaskEvent::Started { model: None },
         })
@@ -180,7 +180,7 @@ async fn end_to_end() {
         cost_usd: 0.0,
     };
     w.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Event {
+        serde_json::to_string(&RunnerMessage::Event {
             task_id: task.id.clone(),
             event: TaskEvent::Completed { result },
         })
@@ -223,7 +223,7 @@ async fn end_to_end() {
     ));
 
     w.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Event {
+        serde_json::to_string(&RunnerMessage::Event {
             task_id: task.id.clone(),
             event: TaskEvent::Pushed {
                 branch: "b".into(),
@@ -261,7 +261,7 @@ async fn end_to_end() {
     };
     assert!(closed, "terminal task must close even with from={count}");
 
-    // second task, started, then the worker drops: the grace period keeps it
+    // second task, started, then the runner drops: the grace period keeps it
     let r = http
         .post(format!("{base}/api/tasks"))
         .bearer_auth("tok")
@@ -271,7 +271,7 @@ async fn end_to_end() {
         .unwrap();
     let task2: Task = r.json().await.unwrap();
     w.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Event {
+        serde_json::to_string(&RunnerMessage::Event {
             task_id: task2.id.clone(),
             event: TaskEvent::Started { model: None },
         })
@@ -303,8 +303,8 @@ async fn end_to_end() {
         .unwrap();
     assert_eq!(r.status(), 409);
 
-    let workers: Vec<WorkerStatus> = http
-        .get(format!("{base}/api/workers"))
+    let runners: Vec<RunnerStatus> = http
+        .get(format!("{base}/api/runners"))
         .bearer_auth("tok")
         .send()
         .await
@@ -313,8 +313,8 @@ async fn end_to_end() {
         .await
         .unwrap();
     assert!(
-        workers.is_empty(),
-        "a worker inside its grace period is not connected"
+        runners.is_empty(),
+        "a runner inside its grace period is not connected"
     );
 
     // Writes land from a background task, so give it a moment.
@@ -333,8 +333,8 @@ async fn end_to_end() {
     assert!(tasks[0].created_at <= tasks[1].created_at);
 
     // reconnect under the same name: the old socket's cleanup must not evict the new one
-    let mut w1 = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
-    let info = WorkerInfo {
+    let mut w1 = ws(&format!("ws://{addr}{RUNNER_WS_PATH}"), false).await;
+    let info = RunnerInfo {
         name: "w2".into(),
         os: "linux".into(),
         arch: "x86_64".into(),
@@ -344,7 +344,7 @@ async fn end_to_end() {
         capabilities: vec![],
     };
     w1.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Hello {
+        serde_json::to_string(&RunnerMessage::Hello {
             token: "tok".into(),
             info: info.clone(),
             running: Vec::new(),
@@ -356,9 +356,9 @@ async fn end_to_end() {
     .await
     .unwrap();
     w1.next().await.unwrap().unwrap();
-    let mut w2 = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
+    let mut w2 = ws(&format!("ws://{addr}{RUNNER_WS_PATH}"), false).await;
     w2.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Hello {
+        serde_json::to_string(&RunnerMessage::Hello {
             token: "tok".into(),
             info,
             running: Vec::new(),
@@ -372,8 +372,8 @@ async fn end_to_end() {
     w2.next().await.unwrap().unwrap();
     drop(w1);
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    let workers: Vec<WorkerStatus> = http
-        .get(format!("{base}/api/workers"))
+    let runners: Vec<RunnerStatus> = http
+        .get(format!("{base}/api/runners"))
         .bearer_auth("tok")
         .send()
         .await
@@ -382,7 +382,7 @@ async fn end_to_end() {
         .await
         .unwrap();
     assert_eq!(
-        workers.len(),
+        runners.len(),
         1,
         "new registration survives the old socket's cleanup"
     );
@@ -403,7 +403,7 @@ async fn end_to_end() {
     };
     assert_eq!(started.id, task_a.id);
 
-    // the worker's one slot is taken, so the next task queues instead of 409
+    // the runner's one slot is taken, so the next task queues instead of 409
     let r = http
         .post(format!("{base}/api/tasks"))
         .bearer_auth("tok")
@@ -413,7 +413,7 @@ async fn end_to_end() {
         .unwrap();
     assert_eq!(r.status(), 201);
     let task_b: Task = r.json().await.unwrap();
-    assert_eq!(task_b.worker, None);
+    assert_eq!(task_b.runner, None);
     let detail: serde_json::Value = http
         .get(format!("{base}/api/tasks/{}", task_b.id))
         .bearer_auth("tok")
@@ -424,7 +424,7 @@ async fn end_to_end() {
         .await
         .unwrap();
     assert_eq!(detail["task"]["status"], "queued");
-    assert!(detail["task"]["worker"].is_null());
+    assert!(detail["task"]["runner"].is_null());
 
     let result = TaskResult {
         branch: format!("lgtm/{}", task_a.id),
@@ -437,7 +437,7 @@ async fn end_to_end() {
         cost_usd: 0.0,
     };
     w2.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Event {
+        serde_json::to_string(&RunnerMessage::Event {
             task_id: task_a.id.clone(),
             event: TaskEvent::Completed { result },
         })
@@ -453,10 +453,10 @@ async fn end_to_end() {
         panic!()
     };
     assert_eq!(started.id, task_b.id);
-    assert_eq!(started.worker.as_deref(), Some("w2"));
+    assert_eq!(started.runner.as_deref(), Some("w2"));
 
-    let mut bad = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
-    let info = WorkerInfo {
+    let mut bad = ws(&format!("ws://{addr}{RUNNER_WS_PATH}"), false).await;
+    let info = RunnerInfo {
         name: "evil".into(),
         os: "linux".into(),
         arch: "x86_64".into(),
@@ -466,7 +466,7 @@ async fn end_to_end() {
         capabilities: vec![],
     };
     bad.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Hello {
+        serde_json::to_string(&RunnerMessage::Hello {
             token: "nope".into(),
             info,
             running: Vec::new(),
@@ -479,8 +479,8 @@ async fn end_to_end() {
     .unwrap();
     assert!(matches!(bad.next().await, Some(Ok(TMsg::Close(_))) | None));
 
-    let mut stale = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
-    let info = WorkerInfo {
+    let mut stale = ws(&format!("ws://{addr}{RUNNER_WS_PATH}"), false).await;
+    let info = RunnerInfo {
         name: "stale".into(),
         os: "linux".into(),
         arch: "x86_64".into(),
@@ -491,7 +491,7 @@ async fn end_to_end() {
     };
     stale
         .send(TMsg::Text(
-            serde_json::to_string(&WorkerMessage::Hello {
+            serde_json::to_string(&RunnerMessage::Hello {
                 token: "tok".into(),
                 info,
                 running: Vec::new(),
@@ -519,7 +519,7 @@ async fn end_to_end() {
             "issue": "arsenstorm/lgtm#7",
             "base_branch": "main",
             "executor": "claude",
-            "worker": null,
+            "runner": null,
         }))
         .send()
         .await
@@ -538,7 +538,7 @@ async fn end_to_end() {
             "repository": "https://github.com/arsenstorm/lgtm.git",
             "base_branch": "main",
             "executor": "claude",
-            "worker": null,
+            "runner": null,
         }))
         .send()
         .await
@@ -634,7 +634,7 @@ async fn end_to_end() {
         .unwrap();
     assert_eq!(goals.len(), 1);
     assert_eq!(goals[0].goal.id, created.goal.id);
-    // a worker is connected, so the goal's only task is queued or running
+    // a runner is connected, so the goal's only task is queued or running
     assert_eq!(goals[0].status, GoalStatus::Running);
     let detail: serde_json::Value = http
         .get(format!("{base}/api/goals/{}", created.goal.id))
@@ -675,7 +675,7 @@ async fn end_to_end() {
     assert_eq!(
         by_id(&task_b.id).status,
         TaskStatus::Queued,
-        "a queued task waits for a worker instead of failing"
+        "a queued task waits for a runner instead of failing"
     );
     let goals: Vec<GoalSummary> = http
         .get(format!("http://{addr2}/api/goals"))
@@ -702,7 +702,7 @@ async fn end_to_end() {
 }
 
 #[tokio::test]
-async fn a_memory_reaches_the_worker() {
+async fn a_memory_reaches_the_runner() {
     let dir = std::env::temp_dir().join(format!("lgtm-memories-{}", std::process::id()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -726,11 +726,11 @@ async fn a_memory_reaches_the_worker() {
     assert_eq!(r.status(), 201);
     let memory: Memory = r.json().await.unwrap();
 
-    let mut w = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
+    let mut w = ws(&format!("ws://{addr}{RUNNER_WS_PATH}"), false).await;
     w.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Hello {
+        serde_json::to_string(&RunnerMessage::Hello {
             token: "tok".into(),
-            info: WorkerInfo {
+            info: RunnerInfo {
                 name: "w1".into(),
                 os: "linux".into(),
                 arch: "x86_64".into(),
@@ -754,7 +754,7 @@ async fn a_memory_reaches_the_worker() {
         base_branch: "main".into(),
         prompt: "p".into(),
         executor: Executor::Claude,
-        worker: None,
+        runner: None,
         issue: None,
         linear: None,
         kind: TaskKind::Run,
@@ -802,11 +802,11 @@ async fn a_goals_plan_is_listed_once_the_agent_completes_it() {
     let base = format!("http://{addr}");
     let http = reqwest::Client::new();
 
-    let mut w = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
+    let mut w = ws(&format!("ws://{addr}{RUNNER_WS_PATH}"), false).await;
     w.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Hello {
+        serde_json::to_string(&RunnerMessage::Hello {
             token: "tok".into(),
-            info: WorkerInfo {
+            info: RunnerInfo {
                 name: "w1".into(),
                 os: "linux".into(),
                 arch: "x86_64".into(),
@@ -868,7 +868,7 @@ async fn a_goals_plan_is_listed_once_the_agent_completes_it() {
         cost_usd: 0.0,
     };
     w.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Event {
+        serde_json::to_string(&RunnerMessage::Event {
             task_id: task.id.clone(),
             event: TaskEvent::Completed { result },
         })
@@ -918,7 +918,7 @@ async fn a_goals_plan_is_listed_once_the_agent_completes_it() {
 }
 
 #[tokio::test]
-async fn a_terminal_reaches_the_worker_and_its_output_comes_back() {
+async fn a_terminal_reaches_the_runner_and_its_output_comes_back() {
     let dir = std::env::temp_dir().join(format!("lgtm-terminal-{}", std::process::id()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -931,7 +931,7 @@ async fn a_terminal_reaches_the_worker_and_its_output_comes_back() {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let http = reqwest::Client::new();
 
-    let mut w = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
+    let mut w = ws(&format!("ws://{addr}{RUNNER_WS_PATH}"), false).await;
     let hello = serde_json::json!({
         "type": "hello",
         "token": "tok",
@@ -949,7 +949,7 @@ async fn a_terminal_reaches_the_worker_and_its_output_comes_back() {
             "base_branch": "main",
             "prompt": "p",
             "executor": "claude",
-            "worker": null,
+            "runner": null,
         }))
         .send()
         .await
@@ -967,7 +967,7 @@ async fn a_terminal_reaches_the_worker_and_its_output_comes_back() {
     ));
 
     w.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Terminal {
+        serde_json::to_string(&RunnerMessage::Terminal {
             task_id: task.id.clone(),
             data: "$ ".into(),
         })
@@ -978,5 +978,47 @@ async fn a_terminal_reaches_the_worker_and_its_output_comes_back() {
     .unwrap();
     let output = attached.next().await.unwrap().unwrap();
     assert_eq!(output.to_text().unwrap(), "$ ");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A pre-rename runner still dials `LEGACY_WORKER_WS_PATH` and lists itself
+/// through `/api/workers`; both are kept for one release.
+#[tokio::test]
+async fn a_pre_rename_runner_still_connects_and_lists() {
+    let dir = std::env::temp_dir().join(format!("lgtm-legacy-ws-{}", std::process::id()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    tokio::spawn(lgtm_orchestrator::serve_plain(
+        addr,
+        "tok".into(),
+        dir.clone(),
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    let mut w = ws(&format!("ws://{addr}{LEGACY_WORKER_WS_PATH}"), false).await;
+    let hello = serde_json::json!({
+        "type": "hello",
+        "token": "tok",
+        "info": { "name": "old", "os": "linux", "arch": "x86_64", "executors": ["claude"] },
+        "version": PROTOCOL_VERSION,
+    });
+    w.send(TMsg::Text(hello.to_string().into())).await.unwrap();
+    let ack = w.next().await.unwrap().unwrap();
+    assert!(matches!(
+        serde_json::from_str::<OrchestratorMessage>(ack.to_text().unwrap()).unwrap(),
+        OrchestratorMessage::HelloAck
+    ));
+
+    let runners: Vec<RunnerStatus> = reqwest::Client::new()
+        .get(format!("http://{addr}/api/workers"))
+        .bearer_auth("tok")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(runners.len(), 1);
     std::fs::remove_dir_all(&dir).ok();
 }

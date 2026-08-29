@@ -44,7 +44,7 @@ pub fn select(existing: &[Task], candidates: Vec<Candidate>, max: u32) -> Vec<Ca
 pub struct SpecInput {
     pub base_branch: String,
     pub executor: Executor,
-    pub worker: Option<String>,
+    pub runner: Option<String>,
     pub kind: TaskKind,
     pub batch: Option<String>,
     pub sandbox: Option<SandboxProfile>,
@@ -60,7 +60,7 @@ impl SpecInput {
             base_branch: self.base_branch,
             prompt,
             executor: self.executor,
-            worker: self.worker,
+            runner: self.runner,
             issue: None,
             linear: None,
             kind: self.kind,
@@ -134,7 +134,7 @@ pub fn summary(tasks: &[&Task], state: &State) -> BatchSummary {
     let mut out = BatchSummary::default();
     for task in tasks {
         let counter = match task.status {
-            TaskStatus::Queued if task.worker.is_none() && !state.deps_met(&task.spec) => {
+            TaskStatus::Queued if task.runner.is_none() && !state.deps_met(&task.spec) => {
                 &mut out.blocked
             }
             TaskStatus::Queued => &mut out.queued,

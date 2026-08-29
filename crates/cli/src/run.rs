@@ -6,9 +6,9 @@ use lgtm_protocol::{Review, Task, TaskEvent, TaskResult};
 use crate::render;
 
 pub async fn announce_and_stream(client: &Client, task: Task) -> anyhow::Result<i32> {
-    match task.worker.as_deref() {
-        Some(worker) => eprintln!("task {} → {worker}", task.id),
-        None => eprintln!("task {} queued, waiting for a worker", task.id),
+    match task.runner.as_deref() {
+        Some(runner) => eprintln!("task {} → {runner}", task.id),
+        None => eprintln!("task {} queued, waiting for a runner", task.id),
     }
     stream(client, &task.id, 0).await
 }

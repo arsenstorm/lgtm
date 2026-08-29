@@ -36,8 +36,8 @@ pub(super) struct TodoRequest {
 pub(super) struct PromoteRequest {
     base_branch: String,
     executor: Executor,
-    #[serde(default)]
-    worker: Option<String>,
+    #[serde(default, alias = "worker")]
+    runner: Option<String>,
 }
 
 pub(super) async fn list_todos(
@@ -100,7 +100,7 @@ pub(super) async fn promote_todo(
     let into = PromoteInto {
         base_branch: body.base_branch,
         executor: body.executor,
-        worker: body.worker,
+        runner: body.runner,
     };
     let (task, changed) = state.promote_todo(&id, into).map_err(conflict)?;
     app.persist_ids(&mut state, &changed);

@@ -74,22 +74,22 @@ pub fn display_status(task: &Task, all: &[Task]) -> String {
                 &t.id == dep_id && matches!(t.status, TaskStatus::Approved | TaskStatus::Merged)
             })
         });
-    if task.status == TaskStatus::Queued && task.worker.is_none() && has_unmet_deps {
+    if task.status == TaskStatus::Queued && task.runner.is_none() && has_unmet_deps {
         "blocked".to_string()
     } else {
         status_str(task.status)
     }
 }
 
-/// Prints the `tasks`-style table: `ID STATUS WORKER PR PROMPT`, children
+/// Prints the `tasks`-style table: `ID STATUS RUNNER PR PROMPT`, children
 /// ordered after their parent. Shared by `tasks` and `backlog status`.
 pub fn print_task_table(tasks: Vec<Task>) {
     println!(
         "{:<10}{:<16}{:<16}{:<10}PROMPT",
-        "ID", "STATUS", "WORKER", "PR"
+        "ID", "STATUS", "RUNNER", "PR"
     );
     for t in order_tasks(tasks.clone()) {
-        let worker = t.worker.as_deref().unwrap_or("-");
+        let runner = t.runner.as_deref().unwrap_or("-");
         let prefix = if t.spec.parent.is_some() { "↳ " } else { "" };
         let prompt = format!("{prefix}{}", first_line_truncated(&t.spec.prompt, 60));
         let failed = t.result.as_ref().is_some_and(|r| {
@@ -100,7 +100,7 @@ pub fn print_task_table(tasks: Vec<Task>) {
         let pr = pr_cell(&t);
         println!(
             "{:<10}{:<16}{:<16}{:<10}{}",
-            t.id, status, worker, pr, prompt
+            t.id, status, runner, pr, prompt
         );
     }
 }
@@ -181,7 +181,7 @@ mod tests {
                 base_branch: "main".into(),
                 prompt: "add a /health endpoint".into(),
                 executor: Executor::Claude,
-                worker: None,
+                runner: None,
                 issue: None,
                 linear: None,
                 kind: TaskKind::Run,
@@ -197,7 +197,7 @@ mod tests {
                 allowed_hosts: Vec::new(),
             },
             status: TaskStatus::Approved,
-            worker: None,
+            runner: None,
             created_at: 1,
             result: None,
             error: None,
@@ -209,18 +209,18 @@ mod tests {
     }
 
     /// A minimal task for `order_tasks`/`display_status` tests, where only
-    /// id, status, worker, parent, and dependencies matter.
+    /// id, status, runner, parent, and dependencies matter.
     fn task(
         id: &str,
         status: TaskStatus,
-        worker: Option<&str>,
+        runner: Option<&str>,
         parent: Option<&str>,
         depends_on: &[&str],
     ) -> Task {
         let mut t = sample_task(None, None);
         t.id = id.into();
         t.status = status;
-        t.worker = worker.map(String::from);
+        t.runner = runner.map(String::from);
         t.spec.parent = parent.map(String::from);
         t.spec.depends_on = depends_on.iter().map(|s| s.to_string()).collect();
         t

@@ -9,7 +9,7 @@ mod menus;
 
 use crate::app::LgtmApp;
 use crate::home::Chip;
-use crate::home::AUTO_WORKER;
+use crate::home::AUTO_RUNNER;
 use crate::tasks::repo_slug;
 use crate::theme::{icon, Tokens, ICON, SPACE, TEXT_BODY, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
@@ -19,7 +19,7 @@ use gpui::{
 };
 use gpui_component::input::Input;
 
-use menus::{plus_menu, project_menu, worker_menu};
+use menus::{plus_menu, project_menu, runner_menu};
 
 /// The canvas the whole composer group is laid out on.
 const CANVAS: f32 = 752.;
@@ -63,7 +63,7 @@ const FOLDER: f32 = 15.;
 
 /// The panel, the card, and whichever menu is open, pinned to the bottom.
 pub fn composer(app: &LgtmApp, t: &Tokens, _window: &mut Window, cx: &mut Context<LgtmApp>) -> Div {
-    let open = app.composer.project_menu || app.composer.plus_menu || app.composer.worker_menu;
+    let open = app.composer.project_menu || app.composer.plus_menu || app.composer.runner_menu;
     div()
         .flex()
         .flex_shrink_0()
@@ -96,8 +96,8 @@ pub fn composer(app: &LgtmApp, t: &Tokens, _window: &mut Window, cx: &mut Contex
                 .when(app.composer.plus_menu, |this| {
                     this.child(plus_menu(app, t, cx))
                 })
-                .when(app.composer.worker_menu, |this| {
-                    this.child(worker_menu(app, t, cx))
+                .when(app.composer.runner_menu, |this| {
+                    this.child(runner_menu(app, t, cx))
                 }),
         )
 }
@@ -190,7 +190,7 @@ fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         })
 }
 
-/// The card's bottom row: `+`, the divider, Plan, the worker, send.
+/// The card's bottom row: `+`, the divider, Plan, the runner, send.
 fn controls(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let ready =
         !app.inputs.prompt.read(cx).value().trim().is_empty() && app.composer.project.is_some();
@@ -229,7 +229,7 @@ fn controls(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
             )
         })
         .child(div().flex_1())
-        .child(worker_control(app, t, cx))
+        .child(runner_control(app, t, cx))
         .child(send_button(ready, t, cx))
 }
 
@@ -265,26 +265,26 @@ fn plan_control(planning: bool, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl I
         }))
 }
 
-/// `<worker> <what it costs>`: Auto is `any`, a named worker its busy slots.
-fn worker_control(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
+/// `<runner> <what it costs>`: Auto is `any`, a named runner its busy slots.
+fn runner_control(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
     let name = app
         .composer
         .chips
         .iter()
         .find_map(|chip| match chip {
-            Chip::Worker(name) => Some(name.clone()),
+            Chip::Runner(name) => Some(name.clone()),
             _ => None,
         })
-        .unwrap_or_else(|| AUTO_WORKER.to_string());
-    let slots = if name == AUTO_WORKER {
+        .unwrap_or_else(|| AUTO_RUNNER.to_string());
+    let slots = if name == AUTO_RUNNER {
         Some("any".to_string())
     } else {
-        app.workers
+        app.runners
             .iter()
-            .find(|worker| worker.info.name == name)
-            .map(|worker| format!("{}/{}", worker.running.len(), worker.info.slots))
+            .find(|runner| runner.info.name == name)
+            .map(|runner| format!("{}/{}", runner.running.len(), runner.info.slots))
     };
-    control("worker", true, t)
+    control("runner", true, t)
         .child(name)
         .when_some(slots, |this, slots| {
             this.child(div().text_color(t.composer.secondary).child(slots))
@@ -295,11 +295,11 @@ fn worker_control(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl 
                 .child(icon("chevron-down", CHEVRON, t.composer.secondary)),
         )
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.toggle_menu(|app| &mut app.composer.worker_menu, cx)
+            this.toggle_menu(|app| &mut app.composer.runner_menu, cx)
         }))
 }
 
-/// A text control in the card's bottom row: `Plan`, the worker picker. No
+/// A text control in the card's bottom row: `Plan`, the runner picker. No
 /// surface of its own — active means the label goes from grey to white.
 fn control(id: &'static str, active: bool, t: &Tokens) -> gpui::Stateful<Div> {
     div()

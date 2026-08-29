@@ -11,7 +11,7 @@ fn running() -> Task {
             base_branch: "main".into(),
             prompt: "do the thing".into(),
             executor: Executor::Claude,
-            worker: None,
+            runner: None,
             issue: None,
             linear: None,
             kind: TaskKind::Run,
@@ -27,7 +27,7 @@ fn running() -> Task {
             allowed_hosts: Vec::new(),
         },
         status: TaskStatus::Running,
-        worker: Some("w1".into()),
+        runner: Some("w1".into()),
         created_at: 1,
         result: None,
         error: None,
@@ -70,7 +70,7 @@ fn started_opens_the_first_attempt() {
     record(&mut task, &started(None), 10);
     let exec = &task.executions[0];
     assert_eq!(exec.attempt, 1);
-    assert_eq!(exec.worker, "w1");
+    assert_eq!(exec.runner, "w1");
     assert_eq!(exec.executor, Executor::Claude);
     assert_eq!(exec.started_at, 10);
     assert_eq!(exec.status, ExecutionStatus::Running);

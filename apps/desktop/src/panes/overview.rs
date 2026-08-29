@@ -87,13 +87,13 @@ fn pairs(
         Some(profile) => profile.as_str().to_string(),
         None => "repository default".to_string(),
     };
-    let worker = task.worker.clone().unwrap_or_else(|| "unassigned".into());
+    let runner = task.runner.clone().unwrap_or_else(|| "unassigned".into());
     let mut out = vec![
         ("Status", text(status_label(task, &app.tasks), t)),
         ("Repository", text(repo_slug(&spec.repository), t)),
         ("Base branch", text(spec.base_branch.clone(), t)),
         ("Executor", text(spec.executor.binary(), t)),
-        ("Worker", text(worker, t)),
+        ("Runner", text(runner, t)),
         ("Sandbox", text(sandbox, t)),
     ];
     if !spec.requirements.is_empty() {
@@ -168,7 +168,7 @@ fn attempts(task: &Task, t: &Tokens) -> Vec<AnyElement> {
         .collect()
 }
 
-/// `#n · status · worker · executor[ · model] · duration`.
+/// `#n · status · runner · executor[ · model] · duration`.
 fn attempt_line(execution: &Execution, now: u64) -> String {
     let ended = execution.finished_at.unwrap_or(now);
     let model = execution
@@ -179,7 +179,7 @@ fn attempt_line(execution: &Execution, now: u64) -> String {
         "#{} · {} · {} · {}{model} · {}",
         execution.attempt,
         execution_status(execution.status),
-        execution.worker,
+        execution.runner,
         execution.executor.binary(),
         duration(ended.saturating_sub(execution.started_at))
     )
@@ -260,7 +260,7 @@ mod tests {
     fn execution(finished_at: Option<u64>) -> Execution {
         Execution {
             attempt: 2,
-            worker: "compute".into(),
+            runner: "compute".into(),
             executor: Executor::Codex,
             started_at: 1_000,
             finished_at,

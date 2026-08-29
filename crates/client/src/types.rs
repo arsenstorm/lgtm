@@ -40,7 +40,7 @@ pub(crate) struct PermissionRequest<'a> {
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Retry {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub worker: Option<String>,
+    pub runner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub executor: Option<lgtm_protocol::Executor>,
 }
@@ -64,7 +64,7 @@ pub struct FromIssue<'a> {
     pub issue: &'a str,
     pub base_branch: &'a str,
     pub executor: lgtm_protocol::Executor,
-    pub worker: Option<&'a str>,
+    pub runner: Option<&'a str>,
     pub sandbox: Option<lgtm_protocol::SandboxProfile>,
     pub requirements: Vec<String>,
     pub review_executor: Option<lgtm_protocol::Executor>,
@@ -78,7 +78,7 @@ pub struct BatchRequest {
     pub repository: Option<String>,
     pub base_branch: String,
     pub executor: lgtm_protocol::Executor,
-    pub worker: Option<String>,
+    pub runner: Option<String>,
     pub plan: bool,
     pub approve_plans: bool,
     pub max: u32,
@@ -119,7 +119,7 @@ pub struct NewGoal {
     pub repository: String,
     pub base_branch: String,
     pub executor: lgtm_protocol::Executor,
-    pub worker: Option<String>,
+    pub runner: Option<String>,
     pub plan: bool,
 }
 
@@ -137,7 +137,7 @@ pub struct FromLinear<'a> {
     pub repository: &'a str,
     pub base_branch: &'a str,
     pub executor: lgtm_protocol::Executor,
-    pub worker: Option<&'a str>,
+    pub runner: Option<&'a str>,
     pub sandbox: Option<lgtm_protocol::SandboxProfile>,
     pub requirements: Vec<String>,
     pub review_executor: Option<lgtm_protocol::Executor>,
@@ -168,5 +168,5 @@ pub(crate) struct NewTodo<'a> {
 pub struct PromoteTodo {
     pub base_branch: String,
     pub executor: lgtm_protocol::Executor,
-    pub worker: Option<String>,
+    pub runner: Option<String>,
 }

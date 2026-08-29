@@ -2,15 +2,15 @@
 //! and will not do with one. No model and no sockets.
 
 use super::*;
-use lgtm_protocol::{TaskResult, ValidationResult, WorkerInfo};
+use lgtm_protocol::{RunnerInfo, TaskResult, ValidationResult};
 use tokio::sync::mpsc;
 
 use crate::state::{Conn, TaskRecord};
 
 fn connect(state: &mut State) -> mpsc::UnboundedReceiver<OrchestratorMessage> {
     let (tx, rx) = mpsc::unbounded_channel();
-    state.worker_hello(
-        WorkerInfo {
+    state.runner_hello(
+        RunnerInfo {
             name: "w".into(),
             os: "linux".into(),
             arch: "x86_64".into(),
@@ -31,7 +31,7 @@ fn spec(goal: Option<String>) -> TaskSpec {
         base_branch: "main".into(),
         prompt: "do the thing\nin detail".into(),
         executor: Executor::Claude,
-        worker: None,
+        runner: None,
         issue: None,
         linear: None,
         kind: TaskKind::Run,
@@ -48,7 +48,7 @@ fn spec(goal: Option<String>) -> TaskSpec {
     }
 }
 
-/// A connected worker, a goal, and one task under it.
+/// A connected runner, a goal, and one task under it.
 fn goal_task(state: &mut State) -> (String, TaskId) {
     let goal = state.create_goal(
         "ship the thing".into(),
@@ -139,7 +139,7 @@ fn refuses_an_answer_that_is_not_a_decision() {
 #[test]
 fn will_not_approve_a_task_whose_checks_failed() {
     let mut state = State::default();
-    let _worker = connect(&mut state);
+    let _runner = connect(&mut state);
     let (_goal, id) = goal_task(&mut state);
     state.apply_event(&id, TaskEvent::Started { model: None });
     state.apply_event(
@@ -181,7 +181,7 @@ fn will_not_approve_a_task_whose_checks_failed() {
 #[test]
 fn retries_a_failed_task() {
     let mut state = State::default();
-    let _worker = connect(&mut state);
+    let _runner = connect(&mut state);
     let (_goal, id) = goal_task(&mut state);
     state.apply_event(
         &id,
@@ -206,7 +206,7 @@ fn retries_a_failed_task() {
 #[test]
 fn will_not_depend_a_new_task_on_a_task_outside_the_goal() {
     let mut state = State::default();
-    let _worker = connect(&mut state);
+    let _runner = connect(&mut state);
     let (_goal, id) = goal_task(&mut state);
     let outside = state.create_task(spec(None)).unwrap().0;
 
@@ -232,7 +232,7 @@ fn will_not_depend_a_new_task_on_a_task_outside_the_goal() {
 #[test]
 fn waiting_changes_nothing() {
     let mut state = State::default();
-    let _worker = connect(&mut state);
+    let _runner = connect(&mut state);
     let (_goal, id) = goal_task(&mut state);
     let before = state.tasks[&id].task.status;
 
@@ -252,7 +252,7 @@ fn waiting_changes_nothing() {
 #[test]
 fn the_prompt_carries_the_goal_the_subject_and_the_shapes() {
     let mut state = State::default();
-    let _worker = connect(&mut state);
+    let _runner = connect(&mut state);
     let (_goal, id) = goal_task(&mut state);
     state.apply_event(&id, TaskEvent::Started { model: None });
     state.apply_event(
@@ -300,7 +300,7 @@ fn the_prompt_carries_the_goal_the_subject_and_the_shapes() {
 #[test]
 fn a_task_without_a_goal_has_no_context() {
     let mut state = State::default();
-    let _worker = connect(&mut state);
+    let _runner = connect(&mut state);
     let task = state.create_task(spec(None)).unwrap().0;
     assert!(build_context(&state, &task.id).is_none());
     assert!(build_context(&state, "nothing").is_none());

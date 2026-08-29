@@ -29,12 +29,14 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Run the orchestrator (and a local worker) on this machine
+    /// Run the orchestrator (and a local runner) on this machine
     Serve(ServeArgs),
-    /// Join this machine to an orchestrator as a worker.
-    Worker(WorkerArgs),
-    /// List connected workers
-    Workers,
+    /// Join this machine to an orchestrator as a runner.
+    #[command(alias = "worker")]
+    Runner(RunnerArgs),
+    /// List connected runners
+    #[command(alias = "workers")]
+    Runners,
     /// Run a prompt as a task and stream its output
     Run {
         #[command(flatten)]
@@ -95,7 +97,7 @@ pub enum Command {
     /// Queue a task that ended badly as a fresh attempt, then stream it
     Retry {
         id: String,
-        /// Worker to run it on this time.
+        /// Runner to run it on this time.
         #[arg(long)]
         on: Option<String>,
         /// Executor to use this time.
@@ -160,21 +162,21 @@ pub struct ServeArgs {
     /// PEM private key; requires `--tls-cert` too.
     #[arg(long)]
     pub tls_key: Option<PathBuf>,
-    /// Command that brings up an ephemeral worker when the queue needs
+    /// Command that brings up an ephemeral runner when the queue needs
     /// one, run through `sh -c`.
     #[arg(long, env = "LGTM_PROVISION")]
     pub provision: Option<String>,
-    /// Ceiling on connected ephemeral workers.
+    /// Ceiling on connected ephemeral runners.
     #[arg(long, default_value_t = 4)]
     pub provision_max: u32,
-    /// Where a provisioned worker should connect back to. Defaults to
+    /// Where a provisioned runner should connect back to. Defaults to
     /// this orchestrator's bind address.
     #[arg(long, env = "LGTM_PUBLIC_URL")]
     pub public_url: Option<String>,
-    /// Don't run a worker inside this process. Tasks then only run on
-    /// machines that joined with `lgtm worker`.
-    #[arg(long)]
-    pub no_worker: bool,
+    /// Don't run a runner inside this process. Tasks then only run on
+    /// machines that joined with `lgtm runner`.
+    #[arg(long, alias = "no-worker")]
+    pub no_runner: bool,
     /// POST every event a person would want to see to this URL.
     #[arg(long, env = "LGTM_WEBHOOK")]
     pub webhook: Option<String>,
@@ -185,11 +187,11 @@ pub struct ServeArgs {
 }
 
 #[derive(Args)]
-pub struct WorkerArgs {
+pub struct RunnerArgs {
     /// Orchestrator WebSocket base, ws:// or wss://. An http(s) URL is
     /// accepted and converted.
     pub url: String,
-    #[arg(long, env = "LGTM_WORKER_NAME")]
+    #[arg(long, env = "LGTM_RUNNER_NAME")]
     pub name: Option<String>,
     /// Maximum tasks to run at once.
     #[arg(long, env = "LGTM_SLOTS")]
@@ -219,7 +221,7 @@ pub struct Target {
     /// off, standard, or strict; defaults to the repository's config.
     #[arg(long, value_parser = parse_sandbox)]
     pub sandbox: Option<SandboxProfile>,
-    /// A capability the worker must have, e.g. docker or os:windows. Repeatable.
+    /// A capability the runner must have, e.g. docker or os:windows. Repeatable.
     #[arg(long = "require")]
     pub requirements: Vec<String>,
     /// Harness for the review pass; defaults to the repository's `[policy]
@@ -338,7 +340,7 @@ pub struct BatchFlags {
     /// off, standard, or strict; defaults to the repository's config.
     #[arg(long, value_parser = parse_sandbox)]
     pub sandbox: Option<SandboxProfile>,
-    /// A capability the worker must have, e.g. docker or os:windows. Repeatable.
+    /// A capability the runner must have, e.g. docker or os:windows. Repeatable.
     #[arg(long = "require")]
     pub requirements: Vec<String>,
     /// Harness for the review pass; defaults to the repository's `[policy]

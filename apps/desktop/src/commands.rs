@@ -16,7 +16,7 @@ impl LgtmApp {
                     .sort_by_key(|task| std::cmp::Reverse(task.created_at));
                 self.announce(&lists.tasks, cx);
                 self.tasks = lists.tasks;
-                self.workers = lists.workers;
+                self.runners = lists.runners;
                 self.batches = lists.batches;
                 self.goals = lists.goals;
                 self.stats = lists.stats.or_else(|| self.stats.take());
@@ -237,11 +237,11 @@ impl LgtmApp {
         cx.notify();
     }
 
-    /// Opens Settings scrolled to the Workers section.
-    pub fn open_worker_settings(&mut self, cx: &mut Context<Self>) {
+    /// Opens Settings scrolled to the Runners section.
+    pub fn open_runner_settings(&mut self, cx: &mut Context<Self>) {
         self.ui
             .settings_scroll
-            .scroll_to_top_of_item(settings::WORKERS_SECTION);
+            .scroll_to_top_of_item(settings::RUNNERS_SECTION);
         self.open_settings(cx);
     }
 

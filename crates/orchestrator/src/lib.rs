@@ -1,4 +1,4 @@
-//! Orchestrator: one HTTP API for developers, one WebSocket per worker agent.
+//! Orchestrator: one HTTP API for developers, one WebSocket per runner agent.
 
 mod api;
 mod backlog;
@@ -13,12 +13,12 @@ mod persist;
 mod plan;
 mod policy;
 mod provision;
+mod runner;
+mod runner_ws;
 mod state;
 mod stats;
 mod todo;
 pub mod token;
-mod worker;
-mod worker_ws;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::routing::get;
 use axum::Router;
-use lgtm_protocol::{Executor, TaskStatus, WORKER_WS_PATH};
+use lgtm_protocol::{Executor, TaskStatus, LEGACY_WORKER_WS_PATH, RUNNER_WS_PATH};
 
 use crate::state::{App, State, TaskRecord};
 
@@ -36,7 +36,7 @@ pub struct ServeOptions {
     pub data_dir: PathBuf,
     /// PEM certificate and key. Plain HTTP when `None`.
     pub tls: Option<(PathBuf, PathBuf)>,
-    /// Command to bring an ephemeral worker up when the queue needs one.
+    /// Command to bring an ephemeral runner up when the queue needs one.
     pub provision: Option<ProvisionOptions>,
     /// URL every event a person would want to see is POSTed to.
     pub webhook: Option<String>,
@@ -48,9 +48,9 @@ pub struct ServeOptions {
 pub struct ProvisionOptions {
     /// Run through `sh -c`.
     pub command: String,
-    /// Ceiling on connected ephemeral workers.
+    /// Ceiling on connected ephemeral runners.
     pub max: u32,
-    /// Where the worker it starts should connect back to.
+    /// Where the runner it starts should connect back to.
     pub public_url: String,
 }
 
@@ -96,7 +96,9 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
     }
     let router = Router::new()
         .nest("/api", api::router(app.clone()))
-        .route(WORKER_WS_PATH, get(worker_ws::handler))
+        .route(RUNNER_WS_PATH, get(runner_ws::handler))
+        // One release's grace so a runner built before the rename still connects.
+        .route(LEGACY_WORKER_WS_PATH, get(runner_ws::handler))
         .with_state(app);
     listen(router, opts.bind, opts.tls).await
 }
@@ -104,7 +106,7 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
 /// Reads every stored task, batch and memory back, repairing what the restart
 /// Reads every stored task, batch and goal back, repairing what the restart
 /// broke.
-fn load_state(data_dir: &std::path::Path, queue_without_workers: bool) -> anyhow::Result<State> {
+fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow::Result<State> {
     let tasks_dir = data_dir.join("tasks");
     let batches_dir = data_dir.join("batches");
     let memories_dir = data_dir.join("memories");
@@ -116,7 +118,7 @@ fn load_state(data_dir: &std::path::Path, queue_without_workers: bool) -> anyhow
     let todos_dir = data_dir.join("todos");
     std::fs::create_dir_all(&todos_dir)?;
     let mut state = State {
-        queue_without_workers,
+        queue_without_runners,
         ..State::default()
     };
     for stored in persist::load_all(&tasks_dir) {
@@ -150,7 +152,7 @@ fn load_state(data_dir: &std::path::Path, queue_without_workers: bool) -> anyhow
     Ok(state)
 }
 
-/// No worker process survived the restart, so anything running is lost.
+/// No runner process survived the restart, so anything running is lost.
 /// Queued tasks are schedulable again once their stale assignment is cleared;
 /// the scheduler only looks at unassigned ones. Returns whether it changed.
 fn restore(mut task: lgtm_protocol::Task) -> (lgtm_protocol::Task, bool) {
@@ -164,8 +166,8 @@ fn restore(mut task: lgtm_protocol::Task) -> (lgtm_protocol::Task, bool) {
         task.error = Some(error);
         return (task, true);
     }
-    if task.status == TaskStatus::Queued && task.worker.is_some() {
-        task.worker = None;
+    if task.status == TaskStatus::Queued && task.runner.is_some() {
+        task.runner = None;
         return (task, true);
     }
     (task, false)

@@ -109,7 +109,7 @@ impl State {
                 id: self.new_id(),
                 spec: child_spec(spec, step, depends_on, id),
                 status: TaskStatus::Queued,
-                worker: None,
+                runner: None,
                 created_at: created_at + index as u64,
                 result: None,
                 error: None,
@@ -159,7 +159,7 @@ fn child_spec(spec: &TaskSpec, step: &PlanStep, depends_on: Vec<TaskId>, parent:
         base_branch,
         prompt: format!("{}\n\n{}", step.title, step.prompt),
         executor: spec.executor,
-        worker: spec.worker.clone(),
+        runner: spec.runner.clone(),
         issue: None,
         // The plan task keeps the Linear link; several children syncing the
         // same issue would move it back and forth.

@@ -2,11 +2,11 @@
 
 use super::*;
 
-/// A worker-free state that still lets `create_task` succeed, as if
+/// A runner-free state that still lets `create_task` succeed, as if
 /// provisioning were on.
 fn state() -> State {
     State {
-        queue_without_workers: true,
+        queue_without_runners: true,
         ..State::default()
     }
 }
@@ -15,7 +15,7 @@ fn into() -> PromoteInto {
     PromoteInto {
         base_branch: "main".into(),
         executor: Executor::Claude,
-        worker: None,
+        runner: None,
     }
 }
 
@@ -37,12 +37,12 @@ fn promote_joins_title_and_description() {
     let todo = state.create_todo(
         Some("https://example.com/repo.git".into()),
         "add a /health endpoint".into(),
-        "should return 200 while workers are connected".into(),
+        "should return 200 while runners are connected".into(),
     );
     let (task, _) = state.promote_todo(&todo.id, into()).unwrap();
     assert_eq!(
         task.spec.prompt,
-        "add a /health endpoint\n\nshould return 200 while workers are connected"
+        "add a /health endpoint\n\nshould return 200 while runners are connected"
     );
 }
 

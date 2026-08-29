@@ -1,4 +1,4 @@
-//! The worker agent's socket: `Hello` authenticates it, then it streams events.
+//! The runner agent's socket: `Hello` authenticates it, then it streams events.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -10,16 +10,16 @@ use axum::response::Response;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use lgtm_protocol::{
-    OrchestratorMessage, TaskEvent, TaskId, TaskStatus, WorkerInfo, WorkerMessage, PROTOCOL_VERSION,
+    OrchestratorMessage, RunnerInfo, RunnerMessage, TaskEvent, TaskId, TaskStatus, PROTOCOL_VERSION,
 };
 use tokio::sync::mpsc;
 
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
-/// How long a worker's tasks survive its socket, so a restarting agent or a
+/// How long a runner's tasks survive its socket, so a restarting agent or a
 /// flaky network does not throw away work that is still running.
 const GRACE: Duration = Duration::from_secs(30);
 /// A ping every `PING`, and a socket that has said nothing for `READ_TIMEOUT`
-/// is gone: three missed pings, so one slow moment does not drop a worker.
+/// is gone: three missed pings, so one slow moment does not drop a runner.
 const PING: Duration = Duration::from_secs(15);
 const READ_TIMEOUT: Duration = Duration::from_secs(45);
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
@@ -41,7 +41,7 @@ async fn run(app: Arc<App>, socket: WebSocket) {
     let _ = tx.send(OrchestratorMessage::HelloAck);
     {
         let mut state = app.state.lock().unwrap();
-        let changed = state.worker_hello(
+        let changed = state.runner_hello(
             info.clone(),
             running,
             Conn {
@@ -55,7 +55,7 @@ async fn run(app: Arc<App>, socket: WebSocket) {
     let writer = tokio::spawn(write_all(sink, rx));
     loop {
         let Ok(frame) = tokio::time::timeout(READ_TIMEOUT, stream.next()).await else {
-            tracing::warn!(worker = %info.name, "no frame in {READ_TIMEOUT:?}, dropping socket");
+            tracing::warn!(runner = %info.name, "no frame in {READ_TIMEOUT:?}, dropping socket");
             break;
         };
         let text = match frame {
@@ -97,22 +97,22 @@ async fn write_all(
     }
 }
 
-/// Applies one frame; `true` when the worker said goodbye and the socket is done.
-fn handle(app: &Arc<App>, info: &WorkerInfo, conn_id: u64, text: &str) -> bool {
-    match serde_json::from_str::<WorkerMessage>(text) {
-        Ok(WorkerMessage::Event { task_id, event }) => apply(app, &task_id, event),
-        // Deliberate exit: forget the worker now. `disconnect` finds nothing
+/// Applies one frame; `true` when the runner said goodbye and the socket is done.
+fn handle(app: &Arc<App>, info: &RunnerInfo, conn_id: u64, text: &str) -> bool {
+    match serde_json::from_str::<RunnerMessage>(text) {
+        Ok(RunnerMessage::Event { task_id, event }) => apply(app, &task_id, event),
+        // Deliberate exit: forget the runner now. `disconnect` finds nothing
         // left and so starts no grace timer.
-        Ok(WorkerMessage::Goodbye) => {
+        Ok(RunnerMessage::Goodbye) => {
             let mut state = app.state.lock().unwrap();
-            let changed = state.worker_goodbye(&info.name, conn_id);
+            let changed = state.runner_goodbye(&info.name, conn_id);
             app.persist_ids(&mut state, &changed);
             return true;
         }
-        Ok(WorkerMessage::Terminal { task_id, data }) => terminal(app, &task_id, Some(data)),
-        Ok(WorkerMessage::TerminalClosed { task_id }) => terminal(app, &task_id, None),
-        Ok(WorkerMessage::Hello { .. }) => {}
-        Err(err) => tracing::warn!(worker = %info.name, %err, "bad worker frame"),
+        Ok(RunnerMessage::Terminal { task_id, data }) => terminal(app, &task_id, Some(data)),
+        Ok(RunnerMessage::TerminalClosed { task_id }) => terminal(app, &task_id, None),
+        Ok(RunnerMessage::Hello { .. }) => {}
+        Err(err) => tracing::warn!(runner = %info.name, %err, "bad runner frame"),
     }
     false
 }
@@ -136,7 +136,7 @@ async fn hello(
     app: &App,
     sink: &mut SplitSink<WebSocket, Message>,
     stream: &mut SplitStream<WebSocket>,
-) -> Option<(WorkerInfo, Vec<TaskId>)> {
+) -> Option<(RunnerInfo, Vec<TaskId>)> {
     let frame = tokio::time::timeout(HELLO_TIMEOUT, stream.next())
         .await
         .ok()??
@@ -144,12 +144,12 @@ async fn hello(
     let Message::Text(text) = frame else {
         return None;
     };
-    let Ok(WorkerMessage::Hello {
+    let Ok(RunnerMessage::Hello {
         token,
         info,
         running,
         version,
-    }) = serde_json::from_str::<WorkerMessage>(&text)
+    }) = serde_json::from_str::<RunnerMessage>(&text)
     else {
         return None;
     };
@@ -157,21 +157,21 @@ async fn hello(
     Some((info, running))
 }
 
-/// `None` when the worker was refused, having already been told why and closed.
+/// `None` when the runner was refused, having already been told why and closed.
 async fn authorize(
     app: &App,
     sink: &mut SplitSink<WebSocket, Message>,
-    info: &WorkerInfo,
+    info: &RunnerInfo,
     token: &str,
     version: u32,
 ) -> Option<()> {
     if token != app.token {
-        tracing::warn!(worker = %info.name, "worker presented a bad token");
+        tracing::warn!(runner = %info.name, "runner presented a bad token");
         let _ = sink.send(Message::Close(None)).await;
         return None;
     }
     if version != PROTOCOL_VERSION {
-        tracing::warn!(worker = %info.name, %version, "worker speaks a different protocol version");
+        tracing::warn!(runner = %info.name, %version, "runner speaks a different protocol version");
         let msg = OrchestratorMessage::Rejected {
             reason: format!(
                 "protocol version {version}, this orchestrator speaks {PROTOCOL_VERSION}"
@@ -187,7 +187,7 @@ async fn authorize(
 }
 
 /// Approves a completed task the policy says needs no one to look at it. The
-/// `Pushed` the worker sends back is what actually moves it to `Approved`.
+/// `Pushed` the runner sends back is what actually moves it to `Approved`.
 fn auto_approve(app: &App, state: &mut crate::state::State, task_id: &str) {
     let Some(task) = state.tasks.get(task_id).map(|rec| rec.task.clone()) else {
         return;
@@ -201,7 +201,7 @@ fn auto_approve(app: &App, state: &mut crate::state::State, task_id: &str) {
         tracing::info!(task = %task_id, reasons = ?decision.reasons, "policy refused auto-approve");
         return;
     }
-    // Asking the worker first, so a task is not marked auto-approved by an
+    // Asking the runner first, so a task is not marked auto-approved by an
     // event no one can act on.
     let token = app.push_token(&task);
     if let Err(err) = state.command(
@@ -286,7 +286,7 @@ fn disconnect(app: &Arc<App>, name: &str, conn_id: u64) {
     tokio::spawn(async move {
         tokio::time::sleep(GRACE).await;
         let mut state = app.state.lock().unwrap();
-        let changed = state.expire_worker(&name, generation);
+        let changed = state.expire_runner(&name, generation);
         app.persist_ids(&mut state, &changed);
     });
 }

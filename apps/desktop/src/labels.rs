@@ -21,7 +21,7 @@ pub fn header_preview(prompt: &str) -> String {
 /// Display status for a task. Queued tasks waiting on unmet dependencies show
 /// as `blocked` instead of `queued` (display only, doesn't affect `status`).
 pub fn status_label(task: &Task, tasks: &[Task]) -> &'static str {
-    if task.status == TaskStatus::Queued && task.worker.is_none() && is_blocked(task, tasks) {
+    if task.status == TaskStatus::Queued && task.runner.is_none() && is_blocked(task, tasks) {
         return "blocked";
     }
     match task.status {
@@ -77,7 +77,7 @@ mod tests {
                 base_branch: "main".into(),
                 prompt: "p".into(),
                 executor: Executor::Claude,
-                worker: None,
+                runner: None,
                 issue: None,
                 linear: None,
                 kind: TaskKind::Run,
@@ -93,7 +93,7 @@ mod tests {
                 allowed_hosts: Vec::new(),
             },
             status,
-            worker: None,
+            runner: None,
             created_at: 0,
             result: None,
             error: None,
@@ -119,10 +119,10 @@ mod tests {
     }
 
     #[test]
-    fn assigned_worker_is_not_blocked_even_with_unmet_dependency() {
+    fn assigned_runner_is_not_blocked_even_with_unmet_dependency() {
         let dep = task("dep", TaskStatus::Running, vec![]);
         let mut queued = task("q", TaskStatus::Queued, vec!["dep"]);
-        queued.worker = Some("compute".into());
+        queued.runner = Some("compute".into());
         assert_eq!(status_label(&queued, &[dep, queued.clone()]), "queued");
     }
 

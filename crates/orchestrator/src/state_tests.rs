@@ -3,12 +3,12 @@
 use super::*;
 use crate::commands::RetryInto;
 use lgtm_protocol::{
-    DependsOn, Executor, IssueRef, LinearRef, Plan, PlanStep, PullRequest, TaskKind, TaskResult,
-    WorkerInfo,
+    DependsOn, Executor, IssueRef, LinearRef, Plan, PlanStep, PullRequest, RunnerInfo, TaskKind,
+    TaskResult,
 };
 
-fn info(name: &str, slots: u32, executors: Vec<Executor>) -> WorkerInfo {
-    WorkerInfo {
+fn info(name: &str, slots: u32, executors: Vec<Executor>) -> RunnerInfo {
+    RunnerInfo {
         name: name.to_string(),
         os: "linux".into(),
         arch: "x86_64".into(),
@@ -19,8 +19,8 @@ fn info(name: &str, slots: u32, executors: Vec<Executor>) -> WorkerInfo {
     }
 }
 
-/// Connects a worker over the same path `Hello` uses. The receiver comes back
-/// so the caller can keep it alive and read what the worker was sent.
+/// Connects a runner over the same path `Hello` uses. The receiver comes back
+/// so the caller can keep it alive and read what the runner was sent.
 fn connect(
     state: &mut State,
     name: &str,
@@ -28,7 +28,7 @@ fn connect(
     conn_id: u64,
 ) -> mpsc::UnboundedReceiver<OrchestratorMessage> {
     let (tx, rx) = mpsc::unbounded_channel();
-    state.worker_hello(
+    state.runner_hello(
         info(name, slots, vec![Executor::Claude]),
         Vec::new(),
         Conn { tx, conn_id },
@@ -36,13 +36,13 @@ fn connect(
     rx
 }
 
-fn spec(executor: Executor, worker: Option<&str>) -> TaskSpec {
+fn spec(executor: Executor, runner: Option<&str>) -> TaskSpec {
     TaskSpec {
         repository: "https://example.com/repo.git".into(),
         base_branch: "main".into(),
         prompt: "do the thing".into(),
         executor,
-        worker: worker.map(str::to_string),
+        runner: runner.map(str::to_string),
         issue: None,
         linear: None,
         kind: TaskKind::Run,
@@ -68,11 +68,11 @@ fn status(state: &State, id: &str) -> TaskStatus {
 }
 
 #[test]
-fn refuses_tasks_no_worker_could_run() {
+fn refuses_tasks_no_runner_could_run() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let (tx, _codex) = mpsc::unbounded_channel();
-    state.worker_hello(
+    state.runner_hello(
         info("codexonly", 1, vec![Executor::Codex]),
         Vec::new(),
         Conn { tx, conn_id: 2 },
@@ -80,7 +80,7 @@ fn refuses_tasks_no_worker_could_run() {
 
     assert!(state.check_eligible(&spec(Executor::Claude, None)).is_ok());
     assert_eq!(state.candidate(&spec(Executor::Claude, None)).unwrap(), "a");
-    // The only Codex worker wins despite the Claude worker being idle.
+    // The only Codex runner wins despite the Claude runner being idle.
     assert_eq!(
         state.candidate(&spec(Executor::Codex, None)).unwrap(),
         "codexonly"
@@ -89,20 +89,20 @@ fn refuses_tasks_no_worker_could_run() {
         state
             .check_eligible(&spec(Executor::Claude, Some("codexonly")))
             .unwrap_err(),
-        "worker codexonly does not have claude"
+        "runner codexonly does not have claude"
     );
     assert_eq!(
         state
             .check_eligible(&spec(Executor::Claude, Some("ghost")))
             .unwrap_err(),
-        "worker ghost is not connected"
+        "runner ghost is not connected"
     );
-    state.workers.clear();
+    state.runners.clear();
     assert_eq!(
         state
             .check_eligible(&spec(Executor::Claude, None))
             .unwrap_err(),
-        "no eligible worker"
+        "no eligible runner"
     );
 }
 
@@ -118,20 +118,20 @@ fn fifo_assignment_respects_slots() {
     let four = create(&mut state, Executor::Claude);
 
     assert_eq!(
-        one.worker.as_deref(),
+        one.runner.as_deref(),
         Some("b"),
         "b has the most free slots"
     );
     assert_eq!(
-        two.worker.as_deref(),
+        two.runner.as_deref(),
         Some("a"),
         "one free each, a sorts first"
     );
-    assert_eq!(three.worker.as_deref(), Some("b"));
-    assert_eq!(four.worker, None);
+    assert_eq!(three.runner.as_deref(), Some("b"));
+    assert_eq!(four.runner, None);
     assert_eq!(status(&state, &four.id), TaskStatus::Queued);
-    assert_eq!(state.workers["a"].running.len(), 1);
-    assert_eq!(state.workers["b"].running.len(), 2);
+    assert_eq!(state.runners["a"].running.len(), 1);
+    assert_eq!(state.runners["b"].running.len(), 2);
 }
 
 #[test]
@@ -140,13 +140,13 @@ fn queued_task_assigned_on_connect() {
     let _a = connect(&mut state, "a", 1, 1);
     create(&mut state, Executor::Claude);
     let queued = create(&mut state, Executor::Claude);
-    assert_eq!(queued.worker, None);
+    assert_eq!(queued.runner, None);
 
     let mut b = connect(&mut state, "b", 2, 2);
     assert_eq!(
-        state.tasks[&queued.id].task.worker.as_deref(),
+        state.tasks[&queued.id].task.runner.as_deref(),
         Some("b"),
-        "the new worker picks up the backlog"
+        "the new runner picks up the backlog"
     );
     assert!(matches!(
         b.try_recv().unwrap(),
@@ -162,20 +162,20 @@ fn reconnect_within_grace_keeps_tasks() {
     state.apply_event(&task.id, TaskEvent::Started { model: None });
 
     let stale = state.disconnect("a", 1).unwrap();
-    assert!(!state.workers["a"].is_connected());
+    assert!(!state.runners["a"].is_connected());
     assert_eq!(status(&state, &task.id), TaskStatus::Running);
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    state.worker_hello(
+    state.runner_hello(
         info("a", 1, vec![Executor::Claude]),
         vec![task.id.clone()],
         Conn { tx, conn_id: 2 },
     );
     assert_eq!(status(&state, &task.id), TaskStatus::Running);
-    assert!(state.workers["a"].running.contains(&task.id));
+    assert!(state.runners["a"].running.contains(&task.id));
 
-    state.expire_worker("a", stale);
-    assert!(state.workers.contains_key("a"), "the old timer is a no-op");
+    state.expire_runner("a", stale);
+    assert!(state.runners.contains_key("a"), "the old timer is a no-op");
     assert_eq!(status(&state, &task.id), TaskStatus::Running);
 }
 
@@ -188,7 +188,7 @@ fn reconnect_missing_task_is_lost() {
     state.disconnect("a", 1).unwrap();
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let changed = state.worker_hello(
+    let changed = state.runner_hello(
         info("a", 1, vec![Executor::Claude]),
         Vec::new(),
         Conn { tx, conn_id: 2 },
@@ -196,7 +196,7 @@ fn reconnect_missing_task_is_lost() {
     assert!(changed.contains(&task.id));
     assert_eq!(status(&state, &task.id), TaskStatus::RunnerLost);
     assert!(state.tasks[&task.id].task.error.is_none());
-    assert!(state.workers["a"].running.is_empty());
+    assert!(state.runners["a"].running.is_empty());
 }
 
 #[test]
@@ -210,7 +210,7 @@ fn grace_expiry_loses_tasks_and_their_dependents() {
     let waiting = state.create_task(waiting).unwrap().0;
 
     let generation = state.disconnect("a", 1).unwrap();
-    let changed = state.expire_worker("a", generation);
+    let changed = state.expire_runner("a", generation);
     assert!(changed.contains(&task.id) && changed.contains(&waiting.id));
     assert_eq!(status(&state, &task.id), TaskStatus::RunnerLost);
     assert!(state.tasks[&task.id].task.error.is_none());
@@ -219,45 +219,45 @@ fn grace_expiry_loses_tasks_and_their_dependents() {
         state.tasks[&waiting.id].task.error.as_deref(),
         Some(format!("dependency {} failed", task.id).as_str())
     );
-    assert!(!state.workers.contains_key("a"));
+    assert!(!state.runners.contains_key("a"));
 }
 
 #[test]
-fn provisioning_queues_tasks_with_no_worker() {
+fn provisioning_queues_tasks_with_no_runner() {
     let mut state = State::default();
     assert_eq!(
         state.create_task(spec(Executor::Claude, None)).unwrap_err(),
-        "no eligible worker"
+        "no eligible runner"
     );
 
-    state.queue_without_workers = true;
+    state.queue_without_runners = true;
     let (task, _) = state.create_task(spec(Executor::Claude, None)).unwrap();
     assert_eq!(task.status, TaskStatus::Queued);
-    assert!(task.worker.is_none());
+    assert!(task.runner.is_none());
     assert!(crate::provision::needs_provision(&state, 1, false));
 
-    // An explicit worker is still refused; provisioning cannot conjure a name.
+    // An explicit runner is still refused; provisioning cannot conjure a name.
     assert_eq!(
         state
             .create_task(spec(Executor::Claude, Some("ghost")))
             .unwrap_err(),
-        "worker ghost is not connected"
+        "runner ghost is not connected"
     );
 }
 
 #[test]
-fn goodbye_removes_worker_at_once() {
+fn goodbye_removes_runner_at_once() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
 
-    assert!(state.worker_goodbye("a", 99).is_empty());
+    assert!(state.runner_goodbye("a", 99).is_empty());
     assert!(
-        state.workers.contains_key("a"),
+        state.runners.contains_key("a"),
         "a stale socket says nothing"
     );
 
-    assert!(state.worker_goodbye("a", 1).is_empty());
-    assert!(!state.workers.contains_key("a"));
+    assert!(state.runner_goodbye("a", 1).is_empty());
+    assert!(!state.runners.contains_key("a"));
     // No grace timer is left to fire for it.
     assert!(state.disconnect("a", 1).is_none());
 }
@@ -279,7 +279,7 @@ fn apply_event_transitions() {
     let mut state = State::default();
     let _idle = connect(&mut state, "idle", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
-    assert!(state.workers["idle"].running.contains(&id));
+    assert!(state.runners["idle"].running.contains(&id));
 
     state.apply_event(&id, TaskEvent::Started { model: None });
     assert_eq!(status(&state, &id), TaskStatus::Running);
@@ -297,7 +297,7 @@ fn apply_event_transitions() {
     state.apply_event(&id, TaskEvent::Completed { result });
     assert_eq!(status(&state, &id), TaskStatus::AwaitingReview);
     assert!(state.tasks[&id].task.result.is_some());
-    assert!(state.workers["idle"].running.is_empty());
+    assert!(state.runners["idle"].running.is_empty());
 
     state.apply_event(
         &id,
@@ -444,7 +444,7 @@ fn message_requires_awaiting_review() {
     );
     assert_eq!(status(&state, &id), TaskStatus::AwaitingReview);
     assert!(
-        state.workers["a"].running.is_empty(),
+        state.runners["a"].running.is_empty(),
         "slot freed on completion"
     );
 
@@ -456,7 +456,7 @@ fn message_requires_awaiting_review() {
         other => panic!("expected a Message event, got {other:?}"),
     }
     assert!(
-        state.workers["a"].running.contains(&id),
+        state.runners["a"].running.contains(&id),
         "slot taken again for the follow-up"
     );
 
@@ -466,7 +466,7 @@ fn message_requires_awaiting_review() {
     state.apply_event(&id, TaskEvent::Completed { result });
     assert_eq!(status(&state, &id), TaskStatus::AwaitingReview);
     assert!(
-        state.workers["a"].running.is_empty(),
+        state.runners["a"].running.is_empty(),
         "slot freed again after the follow-up run"
     );
 }
@@ -492,7 +492,7 @@ fn allow_host_adds_once_and_is_idempotent() {
     assert_eq!(state.tasks[&id].events.len(), before);
 }
 
-/// A follow-up carries the orchestrator's current task, so the worker's
+/// A follow-up carries the orchestrator's current task, so the runner's
 /// stale on-disk copy doesn't shadow a host allowed since the last run.
 #[test]
 fn a_follow_up_carries_the_current_spec() {
@@ -526,7 +526,7 @@ fn a_follow_up_carries_the_current_spec() {
     assert_eq!(sent.spec.allowed_hosts, vec!["registry.internal"]);
 }
 
-/// The last follow-up the worker was sent, ignoring everything else on the
+/// The last follow-up the runner was sent, ignoring everything else on the
 /// socket.
 fn last_message(rx: &mut mpsc::UnboundedReceiver<OrchestratorMessage>) -> Option<String> {
     let mut last = None;
@@ -568,7 +568,7 @@ fn a_conflict_becomes_work_for_the_agent() {
     );
     assert_eq!(status(&state, &id), TaskStatus::Conflicted);
     assert!(
-        state.workers["a"].running.is_empty(),
+        state.runners["a"].running.is_empty(),
         "a push takes no slot to free"
     );
 
@@ -585,7 +585,7 @@ fn a_conflict_becomes_work_for_the_agent() {
 /// A retry that changes nothing about where the task runs.
 fn same_place() -> RetryInto {
     RetryInto {
-        worker: None,
+        runner: None,
         executor: None,
     }
 }
@@ -607,12 +607,12 @@ fn retry_queues_a_failed_task_as_a_second_attempt() {
     let (task, changed) = state.retry(&id, same_place()).unwrap();
     assert!(changed.contains(&id));
     assert_eq!(task.status, TaskStatus::Queued);
-    assert_eq!(task.worker.as_deref(), Some("a"), "scheduled again");
+    assert_eq!(task.runner.as_deref(), Some("a"), "scheduled again");
     assert!(task.error.is_none());
     assert!(matches!(
         state.tasks[&id].events.last().unwrap().event,
         TaskEvent::Requeued {
-            worker: None,
+            runner: None,
             executor: Executor::Claude
         }
     ));
@@ -625,7 +625,7 @@ fn retry_queues_a_failed_task_as_a_second_attempt() {
 }
 
 #[test]
-fn retry_refuses_an_executor_the_worker_does_not_have() {
+fn retry_refuses_an_executor_the_runner_does_not_have() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let id = state
@@ -636,12 +636,12 @@ fn retry_refuses_an_executor_the_worker_does_not_have() {
     state.apply_event(&id, TaskEvent::RunnerLost);
 
     let into = RetryInto {
-        worker: None,
+        runner: None,
         executor: Some(Executor::Codex),
     };
     assert!(matches!(
         state.retry(&id, into),
-        Err(CmdError::Conflict(msg)) if msg == "worker a does not have codex"
+        Err(CmdError::Conflict(msg)) if msg == "runner a does not have codex"
     ));
     assert_eq!(
         status(&state, &id),
@@ -705,7 +705,7 @@ fn a_follow_up_carries_the_memories() {
     )));
 }
 
-/// A bare task in `status`, from a Linear issue or not, with no worker or
+/// A bare task in `status`, from a Linear issue or not, with no runner or
 /// events behind it: `linear_sync_plan` reads nothing else.
 fn linear_task(status: TaskStatus, from_linear: bool) -> Task {
     let mut spec = spec(Executor::Claude, None);
@@ -718,7 +718,7 @@ fn linear_task(status: TaskStatus, from_linear: bool) -> Task {
         id: "0123abcd".into(),
         spec,
         status,
-        worker: None,
+        runner: None,
         created_at: 1,
         result: None,
         error: None,
@@ -841,7 +841,7 @@ fn children(state: &State, parent: &str) -> Vec<Task> {
     out
 }
 
-/// Drives a child task to `Approved` the way a worker and a reviewer would.
+/// Drives a child task to `Approved` the way a runner and a reviewer would.
 fn approve(state: &mut State, id: &str) {
     state.apply_event(id, TaskEvent::Started { model: None });
     state.apply_event(
@@ -904,10 +904,10 @@ fn approve_plan_creates_children() {
         "two dependencies have no shared branch"
     );
 
-    assert_eq!(kids[0].worker.as_deref(), Some("w"));
+    assert_eq!(kids[0].runner.as_deref(), Some("w"));
     for kid in &kids[1..] {
         assert_eq!(status(&state, &kid.id), TaskStatus::Queued);
-        assert_eq!(kid.worker, None, "blocked by its dependencies");
+        assert_eq!(kid.runner, None, "blocked by its dependencies");
     }
 
     // Cancelling a blocked task takes its own dependents with it.
@@ -954,12 +954,12 @@ fn blocked_task_runs_after_dependency_approved() {
     state.approve_plan(&plan).unwrap();
     let kids = children(&state, &plan);
     let (a, b) = (kids[0].id.clone(), kids[1].id.clone());
-    assert_eq!(state.tasks[&b].task.worker, None);
+    assert_eq!(state.tasks[&b].task.runner, None);
 
     approve(&mut state, &a);
     assert_eq!(status(&state, &a), TaskStatus::Approved);
     assert_eq!(
-        state.tasks[&b].task.worker.as_deref(),
+        state.tasks[&b].task.runner.as_deref(),
         Some("w"),
         "approval released the dependent task"
     );
@@ -981,7 +981,7 @@ fn run_result() -> TaskResult {
 }
 
 /// A task depending on `a` with `condition`, scheduled behind it on a
-/// single-slot worker so its release is visible.
+/// single-slot runner so its release is visible.
 fn waiting_on(state: &mut State, a: &str, condition: DependsOn) -> TaskId {
     let mut waiting = spec(Executor::Claude, None);
     waiting.depends_on = vec![a.to_string()];
@@ -1006,7 +1006,7 @@ fn completed_condition_starts_once_the_dependency_finishes_a_run() {
 
     assert_eq!(status(&state, &a), TaskStatus::AwaitingReview);
     assert_eq!(
-        state.tasks[&b].task.worker.as_deref(),
+        state.tasks[&b].task.runner.as_deref(),
         Some("w"),
         "Completed only needs the dependency to finish a run"
     );
@@ -1028,7 +1028,7 @@ fn approved_condition_still_waits_once_the_dependency_finishes_a_run() {
     );
     assert_eq!(status(&state, &a), TaskStatus::AwaitingReview);
     assert_eq!(
-        state.tasks[&b].task.worker, None,
+        state.tasks[&b].task.runner, None,
         "Approved needs more than a finished run"
     );
 
@@ -1040,7 +1040,7 @@ fn approved_condition_still_waits_once_the_dependency_finishes_a_run() {
         },
     );
     assert_eq!(status(&state, &a), TaskStatus::Approved);
-    assert_eq!(state.tasks[&b].task.worker.as_deref(), Some("w"));
+    assert_eq!(state.tasks[&b].task.runner.as_deref(), Some("w"));
 }
 
 #[test]
@@ -1066,12 +1066,12 @@ fn merged_condition_waits_past_approval() {
     );
     assert_eq!(status(&state, &a), TaskStatus::Approved);
     assert_eq!(
-        state.tasks[&b].task.worker, None,
+        state.tasks[&b].task.runner, None,
         "Merged needs the pull request merged, not just approved"
     );
 
     state.mark_merged(&a).unwrap();
-    assert_eq!(state.tasks[&b].task.worker.as_deref(), Some("w"));
+    assert_eq!(state.tasks[&b].task.runner.as_deref(), Some("w"));
 }
 
 #[test]
@@ -1193,7 +1193,7 @@ fn terminal_status_survives_late_events() {
     state.apply_event(
         &id,
         TaskEvent::Failed {
-            error: "worker disconnected".into(),
+            error: "runner disconnected".into(),
         },
     );
     assert_eq!(status(&state, &id), TaskStatus::Cancelled);
@@ -1208,20 +1208,20 @@ fn timeout_ends_the_task_and_frees_the_slot() {
     let task = create(&mut state, Executor::Claude);
     state.apply_event(&task.id, TaskEvent::Started { model: None });
     let queued = create(&mut state, Executor::Claude);
-    assert_eq!(queued.worker, None);
+    assert_eq!(queued.runner, None);
 
     let changed = state.apply_event(&task.id, TaskEvent::TimedOut { secs: 60 });
     assert_eq!(status(&state, &task.id), TaskStatus::TimedOut);
     assert!(changed.contains(&queued.id));
     assert_eq!(
-        state.tasks[&queued.id].task.worker.as_deref(),
+        state.tasks[&queued.id].task.runner.as_deref(),
         Some("a"),
         "the freed slot took the backlog"
     );
 }
 
 #[test]
-fn requirement_restricts_scheduling_to_capable_workers() {
+fn requirement_restricts_scheduling_to_capable_runners() {
     let mut state = State::default();
     let _plain = connect(&mut state, "plain", 1, 1);
 
@@ -1229,21 +1229,21 @@ fn requirement_restricts_scheduling_to_capable_workers() {
     needs_docker.requirements = vec!["docker".into()];
     assert_eq!(
         state.check_eligible(&needs_docker).unwrap_err(),
-        "no eligible worker"
+        "no eligible runner"
     );
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let mut docker_worker = info("docker", 1, vec![Executor::Claude]);
-    docker_worker.capabilities = vec!["docker".into()];
-    state.worker_hello(docker_worker, Vec::new(), Conn { tx, conn_id: 1 });
+    let mut docker_runner = info("docker", 1, vec![Executor::Claude]);
+    docker_runner.capabilities = vec!["docker".into()];
+    state.runner_hello(docker_runner, Vec::new(), Conn { tx, conn_id: 1 });
 
     assert!(state.check_eligible(&needs_docker).is_ok());
     let (task, _) = state.create_task(needs_docker).unwrap();
-    assert_eq!(task.worker.as_deref(), Some("docker"));
+    assert_eq!(task.runner.as_deref(), Some("docker"));
 }
 
 #[test]
-fn pinned_worker_lacking_a_requirement_is_refused() {
+fn pinned_runner_lacking_a_requirement_is_refused() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
 
@@ -1251,7 +1251,7 @@ fn pinned_worker_lacking_a_requirement_is_refused() {
     needs_docker.requirements = vec!["docker".into()];
     assert_eq!(
         state.check_eligible(&needs_docker).unwrap_err(),
-        "worker a lacks docker"
+        "runner a lacks docker"
     );
 }
 

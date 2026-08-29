@@ -26,7 +26,7 @@ async fn end_to_end() {
 
     let client = Client::new(format!("http://{addr}"), "tok");
 
-    assert!(client.workers().await.unwrap().is_empty());
+    assert!(client.runners().await.unwrap().is_empty());
 
     assert!(client.batches().await.unwrap().is_empty());
 
@@ -35,7 +35,7 @@ async fn end_to_end() {
         base_branch: "main".into(),
         prompt: "p".into(),
         executor: Executor::Claude,
-        worker: None,
+        runner: None,
         issue: None,
         linear: None,
         kind: TaskKind::Run,
@@ -51,10 +51,10 @@ async fn end_to_end() {
         allowed_hosts: Vec::new(),
     };
     let err = client.create_task(&spec).await.unwrap_err();
-    assert!(err.to_string().contains("no eligible worker"), "{err}");
+    assert!(err.to_string().contains("no eligible runner"), "{err}");
 
-    let mut w = ws(&format!("ws://{addr}{WORKER_WS_PATH}")).await;
-    let info = WorkerInfo {
+    let mut w = ws(&format!("ws://{addr}{RUNNER_WS_PATH}")).await;
+    let info = RunnerInfo {
         name: "w1".into(),
         os: "linux".into(),
         arch: "x86_64".into(),
@@ -64,7 +64,7 @@ async fn end_to_end() {
         capabilities: vec![],
     };
     w.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Hello {
+        serde_json::to_string(&RunnerMessage::Hello {
             token: "tok".into(),
             info,
             running: Vec::new(),
@@ -93,7 +93,7 @@ async fn end_to_end() {
 
     let mut events = client.events(&task.id, 0).await.unwrap();
     w.send(TMsg::Text(
-        serde_json::to_string(&WorkerMessage::Event {
+        serde_json::to_string(&RunnerMessage::Event {
             task_id: task.id.clone(),
             event: TaskEvent::Started { model: None },
         })

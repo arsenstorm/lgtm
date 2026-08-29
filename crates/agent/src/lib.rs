@@ -1,4 +1,4 @@
-//! lgtm worker agent: connects out to the orchestrator and runs coding tasks.
+//! lgtm runner agent: connects out to the orchestrator and runs coding tasks.
 
 mod automation;
 mod connection;
@@ -23,16 +23,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use lgtm_protocol::{Executor, WorkerInfo, WORKER_WS_PATH};
+use lgtm_protocol::{Executor, RunnerInfo, RUNNER_WS_PATH};
 use tokio::sync::mpsc;
 use tokio_tungstenite::Connector;
 
 use crate::connection::Ctx;
 
-/// Everything needed to start a worker; the caller (a CLI, usually) parses
+/// Everything needed to start a runner; the caller (a CLI, usually) parses
 /// flags and fills in defaults before calling [`run`].
 #[derive(Clone, Debug)]
-pub struct WorkerOptions {
+pub struct RunnerOptions {
     /// `ws://host:port` or `wss://host:port`, no path.
     pub orchestrator: String,
     pub token: String,
@@ -45,8 +45,8 @@ pub struct WorkerOptions {
     pub ca: Option<PathBuf>,
 }
 
-/// The default worker name: `COMPUTERNAME`, else `HOSTNAME`, else the system
-/// hostname via the `hostname` command, else `"worker"`.
+/// The default runner name: `COMPUTERNAME`, else `HOSTNAME`, else the system
+/// hostname via the `hostname` command, else `"runner"`.
 pub fn default_name() -> String {
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
@@ -58,7 +58,7 @@ pub fn default_name() -> String {
             let name = name.trim();
             (!name.is_empty()).then(|| name.to_string())
         })
-        .unwrap_or_else(|| "worker".to_string())
+        .unwrap_or_else(|| "runner".to_string())
 }
 
 /// `available_parallelism / 4`, minimum 1.
@@ -104,22 +104,22 @@ pub fn detect_executors() -> Vec<Executor> {
         .collect()
 }
 
-/// Runs the worker until it exits on purpose (ephemeral done -> `Ok(())`) or
+/// Runs the runner until it exits on purpose (ephemeral done -> `Ok(())`) or
 /// the connector/CA fails to build (`Err`).
-pub async fn run(opts: WorkerOptions) -> Result<()> {
+pub async fn run(opts: RunnerOptions) -> Result<()> {
     // ring and aws-lc-rs can both be linked; rustls will not guess.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let executors = detect_executors();
     let capabilities = detect_capabilities();
     tracing::info!(
-        "worker {} in {} executors {executors:?} slots {} capabilities {capabilities:?}",
+        "runner {} in {} executors {executors:?} slots {} capabilities {capabilities:?}",
         opts.name,
         opts.data_dir.display(),
         opts.slots
     );
 
-    let info = WorkerInfo {
+    let info = RunnerInfo {
         name: opts.name,
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
@@ -130,7 +130,7 @@ pub async fn run(opts: WorkerOptions) -> Result<()> {
     };
 
     let link = connection::Link {
-        url: format!("{}{WORKER_WS_PATH}", opts.orchestrator),
+        url: format!("{}{RUNNER_WS_PATH}", opts.orchestrator),
         token: opts.token.clone(),
         info,
         connector: opts.ca.as_deref().map(load_connector).transpose()?,

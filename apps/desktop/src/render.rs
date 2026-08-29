@@ -86,11 +86,11 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
             Kind::Status,
             format!("retry {attempt}: {reason}"),
         )],
-        TaskEvent::Requeued { worker, executor } => vec![Line::new(
+        TaskEvent::Requeued { runner, executor } => vec![Line::new(
             Kind::Status,
             format!(
                 "requeued on {} ({})",
-                worker.as_deref().unwrap_or("any worker"),
+                runner.as_deref().unwrap_or("any runner"),
                 executor.binary()
             ),
         )],

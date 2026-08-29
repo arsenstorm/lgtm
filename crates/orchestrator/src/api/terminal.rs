@@ -1,4 +1,4 @@
-//! `/api/tasks/{id}/terminal`: a WebSocket onto the shell the task's worker
+//! `/api/tasks/{id}/terminal`: a WebSocket onto the shell the task's runner
 //! keeps in its worktree.
 
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use tokio::sync::broadcast;
 use super::{conflict, ApiError};
 use crate::state::{App, State as TaskState};
 
-/// Attaches to the task's shell, starting one if the worker has none. Any
+/// Attaches to the task's shell, starting one if the runner has none. Any
 /// status is fine: poking at a failed task's worktree is the point.
 pub(super) async fn attach(
     State(app): State<Arc<App>>,
@@ -23,7 +23,7 @@ pub(super) async fn attach(
 ) -> Result<Response, ApiError> {
     let (output, scrollback) = {
         let state = app.state.lock().unwrap();
-        to_worker(
+        to_runner(
             &state,
             &id,
             OrchestratorMessage::TerminalOpen {
@@ -42,7 +42,7 @@ pub(super) async fn close(
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let state = app.state.lock().unwrap();
-    to_worker(
+    to_runner(
         &state,
         &id,
         OrchestratorMessage::TerminalClose {
@@ -56,15 +56,15 @@ fn not_found() -> ApiError {
     ApiError(StatusCode::NOT_FOUND, "task not found".into())
 }
 
-fn to_worker(state: &TaskState, id: &str, msg: OrchestratorMessage) -> Result<(), ApiError> {
+fn to_runner(state: &TaskState, id: &str, msg: OrchestratorMessage) -> Result<(), ApiError> {
     let rec = state.tasks.get(id).ok_or_else(not_found)?;
-    let name = rec.task.worker.clone().unwrap_or_default();
-    let worker = state
-        .workers
+    let name = rec.task.runner.clone().unwrap_or_default();
+    let runner = state
+        .runners
         .get(&name)
-        .filter(|worker| worker.is_connected())
-        .ok_or_else(|| conflict(format!("worker {name} is not connected")))?;
-    worker.send(msg);
+        .filter(|runner| runner.is_connected())
+        .ok_or_else(|| conflict(format!("runner {name} is not connected")))?;
+    runner.send(msg);
     Ok(())
 }
 
@@ -105,7 +105,7 @@ fn input(app: &App, id: &str, data: String) {
         task_id: id.to_string(),
         data,
     };
-    if let Err(err) = to_worker(&state, id, msg) {
+    if let Err(err) = to_runner(&state, id, msg) {
         tracing::warn!(task = %id, "terminal input dropped: {}", err.1);
     }
 }
