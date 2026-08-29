@@ -7,7 +7,7 @@ use anyhow::{bail, Result};
 use lgtm_protocol::{Task, TaskEvent, TaskId, TaskKind};
 use tokio::sync::oneshot;
 
-use crate::automation::{execute, recorded_session};
+use crate::automation::{execute, recorded_session, Run};
 use crate::connection::Ctx;
 use crate::git::{
     add_worktree, branch_name, fetch, git, mirror_path, remove_worktree, session_path, task_path,
@@ -60,7 +60,7 @@ async fn run(task: &Task, ctx: &Arc<Ctx>, cancel: oneshot::Receiver<()>) -> Resu
         TaskKind::Plan => planning_prompt(&task.spec.prompt),
         TaskKind::Run => task.spec.prompt.clone(),
     };
-    execute(task, &prompt, None, &worktree, ctx, cancel).await
+    execute(Run::new(task, &worktree, ctx, cancel), &prompt, None).await
 }
 
 async fn resume(
@@ -82,13 +82,13 @@ async fn resume(
     }
     if task.spec.kind == TaskKind::Plan {
         let prompt = revision_prompt(&task.spec.prompt, text);
-        return execute(&task, &prompt, None, &worktree, ctx, cancel).await;
+        return execute(Run::new(&task, &worktree, ctx, cancel), &prompt, None).await;
     }
     let session = recorded_session(ctx, task_id).await;
     if session.is_none() {
         tracing::warn!("no session id for {task_id}, running the follow-up fresh");
     }
-    execute(&task, text, session, &worktree, ctx, cancel).await
+    execute(Run::new(&task, &worktree, ctx, cancel), text, session).await
 }
 
 /// Clones the bare mirror or refreshes it, and records it for a later discard.
