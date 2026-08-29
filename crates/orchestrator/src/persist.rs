@@ -131,7 +131,6 @@ mod tests {
     #[test]
     fn only_hex_ids_become_file_names() {
         assert_eq!(file_stem("0123abcd"), Some("0123abcd".into()));
-        // Uppercase parses, and comes back out as the lowercase name.
         assert_eq!(file_stem("0123ABCD"), Some("0123abcd".into()));
         assert_eq!(file_stem(""), None);
         assert_eq!(file_stem("../x"), None);

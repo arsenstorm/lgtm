@@ -37,7 +37,6 @@ async fn end_to_end() {
     let base = format!("http://{addr}");
     let http = reqwest::Client::new();
 
-    // unauthorized
     let r = http
         .get(format!("{base}/api/workers"))
         .send()
@@ -46,7 +45,6 @@ async fn end_to_end() {
     assert_eq!(r.status(), 401);
     assert_eq!(r.text().await.unwrap(), r#"{"error":"unauthorized"}"#);
 
-    // no worker yet -> 409
     let spec = TaskSpec {
         repository: "r".into(),
         base_branch: "main".into(),
@@ -70,7 +68,6 @@ async fn end_to_end() {
     assert_eq!(r.status(), 409);
     assert_eq!(r.text().await.unwrap(), r#"{"error":"no eligible worker"}"#);
 
-    // bad json -> 400
     let r = http
         .post(format!("{base}/api/tasks"))
         .bearer_auth("tok")
@@ -81,7 +78,6 @@ async fn end_to_end() {
         .unwrap();
     assert_eq!(r.status(), 400);
 
-    // worker connects
     let mut w = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
     let info = WorkerInfo {
         name: "w1".into(),
@@ -119,7 +115,6 @@ async fn end_to_end() {
         .unwrap();
     assert_eq!(workers.len(), 1);
 
-    // create task -> worker gets Start
     let r = http
         .post(format!("{base}/api/tasks"))
         .bearer_auth("tok")
@@ -138,7 +133,6 @@ async fn end_to_end() {
     assert_eq!(started.id, task.id);
     assert_eq!(started.worker.as_deref(), Some("w1"));
 
-    // approve before review -> 409
     let r = http
         .post(format!("{base}/api/tasks/{}/approve", task.id))
         .bearer_auth("tok")
@@ -151,7 +145,6 @@ async fn end_to_end() {
         r#"{"error":"task is not awaiting review"}"#
     );
 
-    // events socket, live
     let mut ev = ws(&format!("ws://{addr}/api/tasks/{}/events", task.id), true).await;
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {
@@ -190,10 +183,8 @@ async fn end_to_end() {
     let second: StoredEvent =
         serde_json::from_str(ev.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
     assert!(matches!(second.event, TaskEvent::Completed { .. }));
-    // socket closes after a terminal event
     assert!(matches!(ev.next().await, Some(Ok(TMsg::Close(_))) | None));
 
-    // detail endpoint
     let detail: serde_json::Value = http
         .get(format!("{base}/api/tasks/{}", task.id))
         .bearer_auth("tok")
@@ -206,7 +197,6 @@ async fn end_to_end() {
     assert_eq!(detail["task"]["status"], "awaiting_review");
     assert_eq!(detail["events"].as_array().unwrap().len(), 2);
 
-    // approve -> worker gets Push
     let r = http
         .post(format!("{base}/api/tasks/{}/approve", task.id))
         .bearer_auth("tok")
@@ -220,7 +210,6 @@ async fn end_to_end() {
         OrchestratorMessage::Push { .. }
     ));
 
-    // replay on a terminal task closes right away
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {
             task_id: task.id.clone(),
@@ -293,7 +282,6 @@ async fn end_to_end() {
         .unwrap();
     assert_eq!(detail["task"]["status"], "running");
 
-    // message on a task that is not awaiting review -> 409
     let r = http
         .post(format!("{base}/api/tasks/{}/message", task2.id))
         .bearer_auth("tok")
@@ -317,7 +305,7 @@ async fn end_to_end() {
         "a worker inside its grace period is not connected"
     );
 
-    // persisted files, sorted list. Writes go through a background task now.
+    // Writes land from a background task, so give it a moment.
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     assert!(dir.join("tasks").join(format!("{}.json", task.id)).exists());
     let tasks: Vec<Task> = http
@@ -383,7 +371,6 @@ async fn end_to_end() {
         1,
         "new registration survives the old socket's cleanup"
     );
-    // the live connection still works
     let r = http
         .post(format!("{base}/api/tasks"))
         .bearer_auth("tok")
@@ -424,7 +411,6 @@ async fn end_to_end() {
     assert_eq!(detail["task"]["status"], "queued");
     assert!(detail["task"]["worker"].is_null());
 
-    // finishing A frees the slot and B starts on the same socket
     let result = TaskResult {
         branch: format!("lgtm/{}", task_a.id),
         diff: "d".into(),
@@ -454,7 +440,6 @@ async fn end_to_end() {
     assert_eq!(started.id, task_b.id);
     assert_eq!(started.worker.as_deref(), Some("w2"));
 
-    // bad token is rejected
     let mut bad = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
     let info = WorkerInfo {
         name: "evil".into(),
@@ -477,7 +462,6 @@ async fn end_to_end() {
     .unwrap();
     assert!(matches!(bad.next().await, Some(Ok(TMsg::Close(_))) | None));
 
-    // from-issue and merge without a GitHub token
     let r = http
         .post(format!("{base}/api/tasks/from-issue"))
         .bearer_auth("tok")
@@ -496,7 +480,6 @@ async fn end_to_end() {
         r#"{"error":"GITHUB_TOKEN is not configured"}"#
     );
 
-    // from-linear without a Linear key
     let r = http
         .post(format!("{base}/api/tasks/from-linear"))
         .bearer_auth("tok")
@@ -516,7 +499,6 @@ async fn end_to_end() {
         r#"{"error":"LINEAR_API_KEY is not configured"}"#
     );
 
-    // merge on a queued task stops at the status guard
     let r = http
         .post(format!("{base}/api/tasks/{}/merge", task_b.id))
         .bearer_auth("tok")
@@ -529,7 +511,6 @@ async fn end_to_end() {
         r#"{"error":"task is not approved"}"#
     );
 
-    // 404s
     assert_eq!(
         http.get(format!("{base}/api/tasks/nope"))
             .bearer_auth("tok")
@@ -576,7 +557,6 @@ async fn end_to_end() {
         .unwrap();
     assert!(batches.is_empty());
 
-    // restart: running tasks are failed on load, queued ones survive
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr2 = listener.local_addr().unwrap();
     drop(listener);

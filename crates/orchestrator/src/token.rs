@@ -156,7 +156,6 @@ mod tests {
     /// is cleared here because `resolve_token` reads it and tests share a
     /// process; no test in this file sets it.
     fn tempdir() -> PathBuf {
-        // SAFETY-adjacent: single-threaded intent, see the doc comment.
         std::env::remove_var("LGTM_TOKEN");
         let dir = std::env::temp_dir().join(format!("lgtm-orchestrator-test-{}", generate_token()));
         std::fs::create_dir_all(&dir).unwrap();
