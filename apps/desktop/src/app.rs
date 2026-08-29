@@ -39,12 +39,13 @@ const AUTO_WORKER: &str = "Auto";
 const ERROR_TTL: Duration = Duration::from_secs(5);
 const HEADER_PREVIEW: usize = 80;
 
-/// `!Input` keeps the single-letter keys out of the way while a text field has
-/// focus; the ⌘ bindings stay live everywhere.
-pub fn init(cx: &mut App) {
+/// The keymap, built as data so a test can assert the bindings survive a
+/// refactor. `!Input` keeps the single-letter keys out of the way while a text
+/// field has focus; the ⌘ bindings stay live everywhere.
+fn bindings() -> Vec<KeyBinding> {
     let anywhere = Some(CONTEXT);
     let outside_inputs = Some("Lgtm && !Input");
-    cx.bind_keys([
+    vec![
         KeyBinding::new("cmd-n", NewTask, anywhere),
         KeyBinding::new("cmd-k", ToggleSearch, anywhere),
         KeyBinding::new("cmd-enter", Submit, anywhere),
@@ -58,7 +59,11 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("n", crate::review::NextFile, outside_inputs),
         KeyBinding::new("p", crate::review::PrevFile, outside_inputs),
         KeyBinding::new("s", crate::review::ToggleDiffStyle, outside_inputs),
-    ]);
+    ]
+}
+
+pub fn init(cx: &mut App) {
+    cx.bind_keys(bindings());
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -617,6 +622,49 @@ impl Render for LgtmApp {
 mod tests {
     use super::*;
     use lgtm_protocol::TaskSpec;
+
+    /// The pane and review keys are the ones a restyle is most likely to drop,
+    /// because the widgets they drive get swapped out. Assert the keymap still
+    /// resolves them, in the context that excludes focused text fields.
+    fn bound(key: &str) -> KeyBinding {
+        bindings()
+            .into_iter()
+            .find(|binding| match binding.keystrokes() {
+                [only] => only.inner().key == key && !only.inner().modifiers.modified(),
+                _ => false,
+            })
+            .unwrap_or_else(|| panic!("nothing bound to {key}"))
+    }
+
+    #[test]
+    fn digits_one_to_four_switch_panes_outside_inputs() {
+        for (key, action) in [
+            ("1", "ShowActivity"),
+            ("2", "ShowChanges"),
+            ("3", "ShowChecks"),
+            ("4", "ShowPlan"),
+        ] {
+            let binding = bound(key);
+            assert!(
+                binding.action().name().ends_with(action),
+                "{key} runs {} not {action}",
+                binding.action().name()
+            );
+            assert!(format!("{:?}", binding.predicate()).contains("Lgtm"));
+        }
+    }
+
+    #[test]
+    fn review_keys_reach_the_review_actions() {
+        for (key, action) in [
+            ("v", "MarkViewed"),
+            ("n", "NextFile"),
+            ("p", "PrevFile"),
+            ("s", "ToggleDiffStyle"),
+        ] {
+            assert!(bound(key).action().name().ends_with(action));
+        }
+    }
 
     fn task(id: &str, status: TaskStatus, depends_on: Vec<&str>) -> Task {
         Task {
