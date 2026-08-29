@@ -50,6 +50,8 @@ pub enum TaskEvent {
     TimedOut {
         secs: u64,
     },
+    /// The worker's socket expired with this task still running.
+    RunnerLost,
     Cancelled,
     /// Task branch pushed to origin after approval. `sha` is the branch head.
     Pushed {

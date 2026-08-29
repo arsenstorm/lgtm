@@ -132,7 +132,7 @@ pub fn summary(tasks: &[&Task], state: &State) -> BatchSummary {
             TaskStatus::Merged => &mut out.merged,
             // Both are failures a person has to look at; a separate column
             // earns nothing yet.
-            TaskStatus::Failed | TaskStatus::TimedOut => &mut out.failed,
+            TaskStatus::Failed | TaskStatus::TimedOut | TaskStatus::RunnerLost => &mut out.failed,
             TaskStatus::Cancelled => &mut out.cancelled,
             TaskStatus::Rejected => &mut out.rejected,
         };

@@ -69,6 +69,7 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
         TaskEvent::TimedOut { secs } => {
             vec![Line::new(Kind::Status, format!("timed out after {secs}s"))]
         }
+        TaskEvent::RunnerLost => vec![Line::new(Kind::Status, "runner lost")],
         TaskEvent::Cancelled => vec![Line::new(Kind::Status, "cancelled")],
         TaskEvent::Pushed { branch, .. } => {
             vec![Line::new(Kind::Status, format!("pushed {branch}"))]

@@ -21,6 +21,8 @@ use crate::runner;
 const RETRY: Duration = Duration::from_secs(3);
 /// Time the writer gets to put `Goodbye` on the wire before the process exits.
 const FLUSH: Duration = Duration::from_secs(1);
+// The orchestrator pings every 15s; silence this long means it is gone.
+const READ_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// Shared state every task runner needs.
 pub struct Ctx {
@@ -203,7 +205,10 @@ async fn session(
                     return Ok(ended);
                 }
             }
-            inbound = stream.next() => {
+            inbound = tokio::time::timeout(READ_TIMEOUT, stream.next()) => {
+                let Ok(inbound) = inbound else {
+                    return Ok(Ended::Disconnected);
+                };
                 if let Some(ended) = receive(inbound, ctx)? {
                     return Ok(ended);
                 }

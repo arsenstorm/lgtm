@@ -51,6 +51,7 @@ fn is_final(event: &TaskEvent) -> bool {
         TaskEvent::Completed { .. }
             | TaskEvent::Failed { .. }
             | TaskEvent::TimedOut { .. }
+            | TaskEvent::RunnerLost
             | TaskEvent::Cancelled
     )
 }

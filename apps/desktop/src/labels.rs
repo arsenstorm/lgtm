@@ -33,6 +33,7 @@ pub fn status_label(task: &Task, tasks: &[Task]) -> &'static str {
         TaskStatus::Rejected => "rejected",
         TaskStatus::Failed => "failed",
         TaskStatus::TimedOut => "timed_out",
+        TaskStatus::RunnerLost => "runner_lost",
         TaskStatus::Cancelled => "cancelled",
     }
 }

@@ -117,6 +117,7 @@ fn every_message_round_trips() {
             error: "boom".into(),
         },
         TaskEvent::TimedOut { secs: 3600 },
+        TaskEvent::RunnerLost,
         TaskEvent::Cancelled,
         TaskEvent::Retry {
             attempt: 1,

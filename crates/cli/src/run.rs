@@ -32,6 +32,10 @@ pub async fn stream(client: &Client, task_id: &str, from: usize) -> anyhow::Resu
                 eprintln!("error: timed out after {secs}s");
                 return Ok(1);
             }
+            TaskEvent::RunnerLost => {
+                eprintln!("error: runner lost");
+                return Ok(1);
+            }
             TaskEvent::Cancelled => {
                 eprintln!("cancelled");
                 return Ok(130);
