@@ -2,7 +2,7 @@
 
 use super::*;
 use lgtm_protocol::{
-    Executor, IssueRef, LinearRef, Plan, PlanStep, PullRequest, TaskKind, TaskResult,
+    Executor, IssueRef, LinearRef, Plan, PlanStep, PullRequest, TaskKind, TaskResult, WorkerInfo,
 };
 
 fn info(name: &str, slots: u32, executors: Vec<Executor>) -> WorkerInfo {

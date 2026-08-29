@@ -11,6 +11,7 @@ mod policy;
 mod provision;
 mod state;
 pub mod token;
+mod worker;
 mod worker_ws;
 
 use std::net::SocketAddr;
