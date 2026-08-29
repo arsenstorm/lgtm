@@ -166,18 +166,25 @@ fn header(app: &mut LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>)
                         .text_color(t.muted_fg)
                         .child(meta_line(task)),
                 )
-                .when_some(task.pull_request.clone(), |this, pr| {
-                    let (mark, tone) = ci_mark(task.ci.as_ref(), t);
-                    let chip = badge(format!("#{}", pr.number), tone, t)
-                        .when_some(mark, |this, name| this.child(icon(name, MARK, tone)));
-                    this.child(link_chip(chip, "pr-chip", pr.url, cx))
-                })
-                .when_some(task.spec.linear.clone(), |this, linear| {
-                    let chip = badge(linear.identifier, t.fg, t);
-                    this.child(link_chip(chip, "linear-chip", linear.url, cx))
-                }),
+                .children(chips(task, t, cx)),
         )
         .child(actions(task, t, cx))
+}
+
+/// The pull request and Linear chips, for the task that has them.
+fn chips(task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
+    let mut out = Vec::new();
+    if let Some(pr) = task.pull_request.clone() {
+        let (mark, tone) = ci_mark(task.ci.as_ref(), t);
+        let chip = badge(format!("#{}", pr.number), tone, t)
+            .when_some(mark, |this, name| this.child(icon(name, MARK, tone)));
+        out.push(link_chip(chip, "pr-chip", pr.url, cx).into_any_element());
+    }
+    if let Some(linear) = task.spec.linear.clone() {
+        let chip = badge(linear.identifier, t.fg, t);
+        out.push(link_chip(chip, "linear-chip", linear.url, cx).into_any_element());
+    }
+    out
 }
 
 /// `repo · base · worker`, and the cost once there is one.
