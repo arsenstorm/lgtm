@@ -49,7 +49,7 @@ async fn run(app: Arc<App>, socket: WebSocket) {
                 conn_id,
             },
         );
-        app.persist_ids(&state, &changed);
+        app.persist_ids(&mut state, &changed);
     }
 
     let writer = tokio::spawn(write_all(sink, rx));
@@ -106,7 +106,7 @@ fn handle(app: &Arc<App>, info: &WorkerInfo, conn_id: u64, text: &str) -> bool {
         Ok(WorkerMessage::Goodbye) => {
             let mut state = app.state.lock().unwrap();
             let changed = state.worker_goodbye(&info.name, conn_id);
-            app.persist_ids(&state, &changed);
+            app.persist_ids(&mut state, &changed);
             return true;
         }
         Ok(WorkerMessage::Hello { .. }) => {}
@@ -229,11 +229,11 @@ fn apply(app: &Arc<App>, task_id: &str, event: TaskEvent) {
         let mut state = app.state.lock().unwrap();
         let previous = state.tasks.get(task_id).map(|rec| rec.task.status);
         let changed = state.apply_event(task_id, event);
-        app.persist_ids(&state, &changed);
+        app.persist_ids(&mut state, &changed);
         if completed {
             auto_approve(app, &mut state, task_id);
             let changed = state.auto_approve_plan(task_id);
-            app.persist_ids(&state, &changed);
+            app.persist_ids(&mut state, &changed);
         }
         let plan = pushed
             .then(|| state.pull_request_plan(task_id, app.github.is_some()))
@@ -269,6 +269,6 @@ fn disconnect(app: &Arc<App>, name: &str, conn_id: u64) {
         tokio::time::sleep(GRACE).await;
         let mut state = app.state.lock().unwrap();
         let changed = state.expire_worker(&name, generation);
-        app.persist_ids(&state, &changed);
+        app.persist_ids(&mut state, &changed);
     });
 }

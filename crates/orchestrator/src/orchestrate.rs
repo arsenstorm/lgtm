@@ -340,7 +340,7 @@ fn act(app: &App, task_id: &str, decision: &Decision) {
             note,
         },
     ));
-    app.persist_ids(&state, &changed);
+    app.persist_ids(&mut state, &changed);
 }
 
 /// A spawn, timeout or parse failure is a decision that did not happen, and
@@ -357,7 +357,7 @@ fn failed(app: &App, task_id: &str, note: String) {
             note,
         },
     );
-    app.persist_ids(&state, &changed);
+    app.persist_ids(&mut state, &changed);
 }
 
 fn described(decision: &Decision) -> (&'static str, String) {

@@ -157,7 +157,7 @@ async fn create_task(
 fn queue(app: &App, spec: TaskSpec) -> Result<(StatusCode, Json<Task>), ApiError> {
     let mut state = app.state.lock().unwrap();
     let (task, changed) = state.create_task(spec).map_err(conflict)?;
-    app.persist_ids(&state, &changed);
+    app.persist_ids(&mut state, &changed);
     Ok((StatusCode::CREATED, Json(task)))
 }
 
@@ -288,7 +288,7 @@ async fn message(
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
     let mut state = app.state.lock().unwrap();
     let (task, changed) = state.message(&id, body.text)?;
-    app.persist_ids(&state, &changed);
+    app.persist_ids(&mut state, &changed);
     Ok(Json(task))
 }
 
@@ -314,7 +314,7 @@ async fn retry(
             executor: body.executor,
         },
     )?;
-    app.persist_ids(&state, &changed);
+    app.persist_ids(&mut state, &changed);
     Ok(Json(task))
 }
 
@@ -339,7 +339,7 @@ async fn scratchpad(
     };
     let changed = state.apply_event(&id, event);
     let task = state.tasks.get(&id).ok_or(CmdError::NotFound)?.task.clone();
-    app.persist_ids(&state, &changed);
+    app.persist_ids(&mut state, &changed);
     Ok(Json(task))
 }
 
@@ -384,7 +384,7 @@ async fn cancel(
 ) -> Result<Json<Task>, ApiError> {
     let mut state = app.state.lock().unwrap();
     let task = state.cancel(&id)?;
-    app.persist_ids(&state, std::slice::from_ref(&id));
+    app.persist_ids(&mut state, std::slice::from_ref(&id));
     Ok(Json(task))
 }
 
@@ -400,7 +400,7 @@ async fn approve(
     // Approving a plan creates its steps here; there is nothing to push.
     if is_plan {
         let (task, changed) = state.approve_plan(&id)?;
-        app.persist_ids(&state, &changed);
+        app.persist_ids(&mut state, &changed);
         return Ok(Json(task));
     }
     let task = state.command(

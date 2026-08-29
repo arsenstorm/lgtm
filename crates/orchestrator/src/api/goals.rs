@@ -77,7 +77,7 @@ pub(super) async fn create_goal(
             return Err(conflict(err));
         }
     };
-    app.persist_ids(&state, &changed);
+    app.persist_ids(&mut state, &changed);
     let summary = state.goal_summary(&goal.id).ok_or_else(not_found)?;
     app.persist_goal(&summary.goal);
     Ok((StatusCode::CREATED, Json(summary)))
