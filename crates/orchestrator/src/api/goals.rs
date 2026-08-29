@@ -6,7 +6,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
-use lgtm_protocol::{Executor, GoalSummary, Task, TaskKind, TaskSpec};
+use lgtm_protocol::{plan_versions, Executor, GoalSummary, PlanVersion, Task, TaskKind, TaskSpec};
 use serde::{Deserialize, Serialize};
 
 use super::{conflict, ApiError};
@@ -101,4 +101,21 @@ pub(super) async fn get_goal(
     let summary = state.goal_summary(&id).ok_or_else(not_found)?;
     let tasks = state.goal_tasks(&id).into_iter().cloned().collect();
     Ok(Json(GoalDetail { summary, tasks }))
+}
+
+/// Every version every plan task under the goal has produced, oldest task
+/// first, versions within a task in event order.
+pub(super) async fn get_goal_plans(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<PlanVersion>>, ApiError> {
+    let state = app.state.lock().unwrap();
+    state.goals.get(&id).ok_or_else(not_found)?;
+    let versions = state
+        .goal_tasks(&id)
+        .into_iter()
+        .filter(|task| task.spec.kind == TaskKind::Plan)
+        .flat_map(|task| plan_versions(task, &state.tasks[&task.id].events))
+        .collect();
+    Ok(Json(versions))
 }

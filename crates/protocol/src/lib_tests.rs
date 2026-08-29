@@ -380,6 +380,85 @@ fn goal_of(tasks: &[(TaskKind, TaskStatus)]) -> GoalStatus {
     goal_status(&tasks.iter().collect::<Vec<&Task>>())
 }
 
+fn sample_plan() -> Plan {
+    Plan {
+        steps: vec![PlanStep {
+            key: "a".into(),
+            title: "do a".into(),
+            prompt: "do a".into(),
+            depends_on: Vec::new(),
+        }],
+    }
+}
+
+fn completed_event(at: u64, plan: Option<Plan>) -> StoredEvent {
+    StoredEvent {
+        at,
+        event: TaskEvent::Completed {
+            result: TaskResult {
+                branch: "lgtm/0123abcd".into(),
+                diff: String::new(),
+                changed_files: Vec::new(),
+                validation: Vec::new(),
+                plan,
+                review: None,
+                policy: None,
+                cost_usd: 0.0,
+            },
+        },
+    }
+}
+
+#[test]
+fn plan_versions_supersedes_every_version_but_the_last() {
+    let mut task = sample_task();
+    task.status = TaskStatus::AwaitingReview;
+    let events = vec![
+        completed_event(1, Some(sample_plan())),
+        completed_event(2, Some(sample_plan())),
+    ];
+    let versions = plan_versions(&task, &events);
+    assert_eq!(versions.len(), 2);
+    assert_eq!(versions[0].version, 1);
+    assert_eq!(versions[0].status, PlanStatus::Superseded);
+    assert_eq!(versions[0].task, task.id);
+    assert_eq!(versions[0].goal, task.spec.goal);
+    assert_eq!(versions[1].version, 2);
+    assert_eq!(versions[1].status, PlanStatus::AwaitingApproval);
+    assert_eq!(versions[1].created_at, 2);
+}
+
+#[test]
+fn plan_versions_empty_for_a_run_task() {
+    let mut task = sample_task();
+    task.spec.kind = TaskKind::Run;
+    let events = vec![completed_event(1, None)];
+    assert!(plan_versions(&task, &events).is_empty());
+}
+
+#[test]
+fn plan_versions_status_follows_task_status() {
+    use TaskStatus::*;
+    let mapping = [
+        (AwaitingReview, PlanStatus::AwaitingApproval),
+        (Approved, PlanStatus::Approved),
+        (Merged, PlanStatus::Approved),
+        (Rejected, PlanStatus::Rejected),
+        (Running, PlanStatus::Replanning),
+        (Queued, PlanStatus::Replanning),
+        (Failed, PlanStatus::Rejected),
+        (TimedOut, PlanStatus::Rejected),
+        (RunnerLost, PlanStatus::Rejected),
+        (Cancelled, PlanStatus::Rejected),
+    ];
+    for (status, expected) in mapping {
+        let mut task = sample_task();
+        task.status = status;
+        let versions = plan_versions(&task, &[completed_event(1, Some(sample_plan()))]);
+        assert_eq!(versions[0].status, expected, "{status:?}");
+    }
+}
+
 #[test]
 fn goal_status_derives_each_arm() {
     use TaskKind::{Plan as P, Run as R};

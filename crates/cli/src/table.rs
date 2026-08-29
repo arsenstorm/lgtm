@@ -4,7 +4,7 @@ use lgtm_protocol::{CiState, GoalSummary, Memory, Review, Task, TaskStatus, Todo
 
 /// The wire form ("awaiting_review") rather than Rust's Debug form, so a
 /// cell matches the JSON everywhere else in the CLI's output.
-fn wire_str(value: impl serde::Serialize) -> String {
+pub(crate) fn wire_str(value: impl serde::Serialize) -> String {
     serde_json::to_value(value)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))

@@ -338,6 +338,14 @@ impl Client {
         Err(Self::failure(resp).await)
     }
 
+    pub async fn task_plans(&self, id: &str) -> anyhow::Result<Vec<lgtm_protocol::PlanVersion>> {
+        self.get(&format!("/api/tasks/{id}/plans")).await
+    }
+
+    pub async fn goal_plans(&self, id: &str) -> anyhow::Result<Vec<lgtm_protocol::PlanVersion>> {
+        self.get(&format!("/api/goals/{id}/plans")).await
+    }
+
     /// Opens the events socket from event index `from` and returns a stream
     /// of stored events that ends when the server closes it.
     pub async fn events(&self, id: &str, from: usize) -> anyhow::Result<EventStream> {

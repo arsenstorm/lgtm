@@ -515,6 +515,74 @@ pub struct Task {
     pub executions: Vec<Execution>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanStatus {
+    AwaitingApproval,
+    Approved,
+    Rejected,
+    Replanning,
+    Superseded,
+}
+
+/// One version of a plan task's plan, read back out of its events.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PlanVersion {
+    pub task: TaskId,
+    pub goal: Option<String>,
+    /// 1-based, per plan task.
+    pub version: u32,
+    pub status: PlanStatus,
+    /// Unix milliseconds, when the agent produced it.
+    pub created_at: u64,
+    pub plan: Plan,
+}
+
+/// What a plan task's latest version is doing, from its task status. A
+/// status this doesn't otherwise recognize (failed, timed out, lost,
+/// cancelled) leaves the plan as good as rejected: nothing will act on it.
+fn plan_status_for(status: TaskStatus) -> PlanStatus {
+    match status {
+        TaskStatus::AwaitingReview => PlanStatus::AwaitingApproval,
+        TaskStatus::Approved | TaskStatus::Merged => PlanStatus::Approved,
+        TaskStatus::Rejected => PlanStatus::Rejected,
+        TaskStatus::Running | TaskStatus::Queued | TaskStatus::ChangesRequested => {
+            PlanStatus::Replanning
+        }
+        _ => PlanStatus::Rejected,
+    }
+}
+
+fn completed_plan(stored: &StoredEvent) -> Option<(u64, Plan)> {
+    let TaskEvent::Completed { result } = &stored.event else {
+        return None;
+    };
+    result.plan.clone().map(|plan| (stored.at, plan))
+}
+
+/// Every version a plan task has produced, oldest first; empty for a run
+/// task. Nothing new is stored for this: each `Completed` event that carried
+/// a plan already is one version.
+pub fn plan_versions(task: &Task, events: &[StoredEvent]) -> Vec<PlanVersion> {
+    let mut out: Vec<PlanVersion> = events
+        .iter()
+        .filter_map(completed_plan)
+        .enumerate()
+        .map(|(i, (created_at, plan))| PlanVersion {
+            task: task.id.clone(),
+            goal: task.spec.goal.clone(),
+            version: i as u32 + 1,
+            status: PlanStatus::Superseded,
+            created_at,
+            plan,
+        })
+        .collect();
+    if let Some(last) = out.last_mut() {
+        last.status = plan_status_for(task.status);
+    }
+    out
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct WorkerInfo {
     pub name: String,

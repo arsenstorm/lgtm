@@ -6,10 +6,13 @@
 //! bookkeeping no human wants to read.
 
 use lgtm_protocol::{
-    Execution, ExecutionStatus, OutputStream, Plan, Review, Severity, TaskEvent, ValidationResult,
+    Execution, ExecutionStatus, OutputStream, Plan, PlanVersion, Review, Severity, TaskEvent,
+    ValidationResult,
 };
 use serde_json::Value;
 use std::io::Write;
+
+use crate::table::wire_str;
 
 pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
     match event {
@@ -170,6 +173,29 @@ pub fn print_plan(plan: &Plan, out: &mut impl Write) -> std::io::Result<()> {
         writeln!(out, "{}. {}  {}", i + 1, step.key, step.title)?;
         if !step.depends_on.is_empty() {
             writeln!(out, "  (after: {})", step.depends_on.join(", "))?;
+        }
+    }
+    Ok(())
+}
+
+/// Renders each version: a `v{n}  {status}  {created_at}` header, then its
+/// steps (via `print_plan`) indented two spaces, blank line between versions.
+pub fn print_plan_versions(versions: &[PlanVersion], out: &mut impl Write) -> std::io::Result<()> {
+    for (i, version) in versions.iter().enumerate() {
+        if i > 0 {
+            writeln!(out)?;
+        }
+        writeln!(
+            out,
+            "v{}  {}  {}",
+            version.version,
+            wire_str(version.status),
+            version.created_at
+        )?;
+        let mut steps = Vec::new();
+        print_plan(&version.plan, &mut steps)?;
+        for line in String::from_utf8_lossy(&steps).lines() {
+            writeln!(out, "  {line}")?;
         }
     }
     Ok(())
