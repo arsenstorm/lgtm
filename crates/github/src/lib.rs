@@ -1,16 +1,19 @@
 //! Minimal GitHub REST client: issue lookup, pull request creation and
 //! merging, check-run aggregation for CI status, and pull request reviews.
 
+mod app;
 mod checks;
 mod refs;
 mod reviews;
 
 use std::process::Command;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
 use lgtm_protocol::{CiStatus, PrReview, PullRequest};
 use serde::Deserialize;
 
+pub use app::{jwt, GithubApp};
 pub use checks::aggregate_checks;
 pub use refs::{parse_issue, parse_repo, Repo};
 pub use reviews::aggregate_reviews;
@@ -37,6 +40,9 @@ pub struct Issue {
 #[derive(Clone)]
 pub struct GitHub {
     token: String,
+    /// `None` unless a GitHub App is configured, which is what lets a push
+    /// carry a token scoped to the one repository instead of this one.
+    app: Option<Arc<GithubApp>>,
     http: reqwest::Client,
 }
 
@@ -68,6 +74,7 @@ impl GitHub {
     pub fn new(token: impl Into<String>) -> Self {
         GitHub {
             token: token.into(),
+            app: None,
             http: reqwest::Client::new(),
         }
     }
@@ -93,9 +100,18 @@ impl GitHub {
     }
 
     fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+        self.request_as(method, path, &self.token)
+    }
+
+    fn request_as(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        auth: &str,
+    ) -> reqwest::RequestBuilder {
         self.http
             .request(method, format!("{API_BASE}{path}"))
-            .bearer_auth(&self.token)
+            .bearer_auth(auth)
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "lgtm")
             .header("X-GitHub-Api-Version", "2022-11-28")

@@ -81,6 +81,26 @@ impl App {
         push_token(self.github.as_ref(), task)
     }
 
+    /// Fetches the installation token for `task`'s repository before anyone
+    /// approves, so `push_token` finds one in the cache and stays sync. Does
+    /// nothing unless a GitHub App is configured.
+    pub fn warm_push_token(&self, task: &Task) {
+        let Some(github) = self.github.clone() else {
+            return;
+        };
+        if !github.has_app() {
+            return;
+        }
+        let Some(repo) = lgtm_github::parse_repo(&task.spec.repository) else {
+            return;
+        };
+        tokio::spawn(async move {
+            if let Err(err) = github.installation_token(&repo).await {
+                tracing::warn!(?err, "fetching a github app installation token");
+            }
+        });
+    }
+
     pub fn persist_batch(&self, batch: &Batch) {
         let _ = self.persist.send(Persist::Batch(batch.clone()));
     }
@@ -112,11 +132,14 @@ impl App {
 
 /// Shared by `App::push_token` and `orchestrate::approve`, which only holds
 /// the state lock and not `App` itself.
-// ponytail: whole-token-per-push; scope to the one repo with a GitHub App
-// installation token if a stolen orchestrator token becomes a risk.
 pub(crate) fn push_token(github: Option<&lgtm_github::GitHub>, task: &Task) -> Option<String> {
     let github = github?;
-    lgtm_github::parse_repo(&task.spec.repository)?;
+    let repo = lgtm_github::parse_repo(&task.spec.repository)?;
+    if let Some(token) = github.cached_installation_token(&repo) {
+        tracing::debug!(repo = %task.spec.repository, "pushing with an installation token");
+        return Some(token);
+    }
+    tracing::debug!(repo = %task.spec.repository, "pushing with the static token");
     Some(github.token().to_string())
 }
 

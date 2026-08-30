@@ -249,6 +249,9 @@ fn apply(app: &Arc<App>, task_id: &str, event: TaskEvent) {
         let changed = state.apply_event(task_id, event);
         app.persist_ids(&mut state, &changed);
         if completed {
+            if let Some(rec) = state.tasks.get(task_id) {
+                app.warm_push_token(&rec.task);
+            }
             auto_approve(app, &mut state, task_id);
             let changed = state.auto_approve_plan(task_id);
             app.persist_ids(&mut state, &changed);

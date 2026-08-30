@@ -130,3 +130,33 @@ lgtm runner ws://orchestrator.tailnet-name.ts.net:4750 --token <token>
 
 This is the easiest setup for a personal fleet of runners and avoids
 managing a certificate at all.
+
+## Pushing with a GitHub App
+
+By default a push carries the orchestrator's own `GITHUB_TOKEN`, which can do
+everything that token can do in every repository. Configure a GitHub App and
+the orchestrator instead mints a token per repository, good for an hour, that
+can only push:
+
+- `LGTM_GITHUB_APP_ID` — the app's numeric id.
+- `LGTM_GITHUB_APP_KEY` — path to the app's private key PEM.
+
+Both must be set, alongside `GITHUB_TOKEN` (the API client still reads issues
+and opens pull requests with it). Signing the app's JWT shells out to
+`openssl`, so it has to be on the orchestrator's PATH.
+
+What the installation token can do:
+
+| Action | Allowed |
+| --- | --- |
+| Read the repository | yes |
+| Push the task branch | yes |
+| Create a pull request | yes |
+| Merge a pull request | no |
+| Delete a branch or repository | no |
+| Change repository configuration | no |
+
+The token is fetched when a task completes and cached for 50 minutes, so
+approving a task does not wait on GitHub. If anything about the app is wrong —
+no installation on the repository, an unreadable key — the push falls back to
+`GITHUB_TOKEN` and the failure is logged.
