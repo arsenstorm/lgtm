@@ -16,7 +16,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
 
-use crate::runner;
+use crate::{runner, terminal};
 
 const RETRY: Duration = Duration::from_secs(3);
 /// Time the writer gets to put `Goodbye` on the wire before the process exits.
@@ -36,6 +36,9 @@ pub struct Ctx {
     /// Mirror path per task, so a discard after a restart of the task still
     /// knows which bare clone owns the worktree.
     pub mirrors: Mutex<HashMap<TaskId, PathBuf>>,
+    /// The shell attached to each task, if any. An async mutex because a
+    /// keystroke is written to the child's stdin while it is held.
+    pub terminals: tokio::sync::Mutex<HashMap<TaskId, terminal::Terminal>>,
     /// Exit once `max_tasks` runs have ended and nothing is running.
     pub ephemeral: bool,
     pub max_tasks: u32,
@@ -61,6 +64,7 @@ impl Ctx {
             tx,
             running: Mutex::new(HashMap::new()),
             mirrors: Mutex::new(HashMap::new()),
+            terminals: tokio::sync::Mutex::new(HashMap::new()),
             ephemeral,
             max_tasks,
             finished: AtomicU32::new(0),
@@ -217,7 +221,7 @@ async fn session(
                 let Ok(inbound) = inbound else {
                     return Ok(Ended::Disconnected);
                 };
-                if let Some(ended) = receive(inbound, ctx)? {
+                if let Some(ended) = receive(inbound, ctx).await? {
                     return Ok(ended);
                 }
             }
@@ -275,13 +279,13 @@ where
     Ok(Some(Ended::Done))
 }
 
-fn receive(
+async fn receive(
     inbound: Option<Result<Message, tokio_tungstenite::tungstenite::Error>>,
     ctx: &Arc<Ctx>,
 ) -> Result<Option<Ended>> {
     match inbound {
         Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
-            Ok(msg) => dispatch(msg, ctx),
+            Ok(msg) => dispatch(msg, ctx).await,
             Err(err) => tracing::warn!("bad frame: {err} ({text})"),
         },
         Some(Ok(Message::Close(_))) | None => return Ok(Some(Ended::Disconnected)),
@@ -291,7 +295,9 @@ fn receive(
     Ok(None)
 }
 
-fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
+/// Terminal frames are applied here rather than in a spawned task, so
+/// keystrokes reach the shell in the order they were typed.
+async fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
     match msg {
         OrchestratorMessage::HelloAck => {}
         // Only ever arrives during handshake, handled there.
@@ -336,7 +342,17 @@ fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
             tokio::spawn(runner::push_task(task_id, token, ctx.clone()));
         }
         OrchestratorMessage::Discard { task_id } => {
+            terminal::close(&task_id, ctx).await;
             tokio::spawn(runner::discard_task(task_id, ctx.clone()));
+        }
+        OrchestratorMessage::TerminalOpen { task_id } => {
+            terminal::open(task_id, ctx.clone()).await;
+        }
+        OrchestratorMessage::TerminalInput { task_id, data } => {
+            terminal::input(&task_id, &data, ctx).await;
+        }
+        OrchestratorMessage::TerminalClose { task_id } => {
+            terminal::close(&task_id, ctx).await;
         }
     }
     ctx.check_exit();

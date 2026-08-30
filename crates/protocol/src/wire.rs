@@ -145,6 +145,18 @@ pub enum WorkerMessage {
         task_id: TaskId,
         event: TaskEvent,
     },
+    /// Output from the task's attached shell. Not a `TaskEvent`: terminal
+    /// traffic is a live pipe, not task history, so it is never stored.
+    /// `data` is UTF-8 text with invalid bytes replaced by U+FFFD.
+    Terminal {
+        task_id: TaskId,
+        data: String,
+    },
+    /// The task's shell exited or was killed. Not a `TaskEvent`, for the same
+    /// reason as `Terminal`.
+    TerminalClosed {
+        task_id: TaskId,
+    },
     /// The worker is exiting on purpose and runs nothing.
     Goodbye,
 }
@@ -188,6 +200,21 @@ pub enum OrchestratorMessage {
     },
     /// Remove the worktree and branch.
     Discard {
+        task_id: TaskId,
+    },
+    /// Start a shell in the task's worktree, if one is not running already.
+    /// Not a `TaskEvent`: terminal traffic is not task history.
+    TerminalOpen {
+        task_id: TaskId,
+    },
+    /// Keystrokes for that shell's stdin.
+    TerminalInput {
+        task_id: TaskId,
+        data: String,
+    },
+    /// Kill the task's shell. Only a person detaching does not send this; the
+    /// shell is meant to survive a client going away.
+    TerminalClose {
         task_id: TaskId,
     },
 }

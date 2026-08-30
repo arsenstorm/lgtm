@@ -109,10 +109,27 @@ fn handle(app: &Arc<App>, info: &WorkerInfo, conn_id: u64, text: &str) -> bool {
             app.persist_ids(&mut state, &changed);
             return true;
         }
+        Ok(WorkerMessage::Terminal { task_id, data }) => terminal(app, &task_id, Some(data)),
+        Ok(WorkerMessage::TerminalClosed { task_id }) => terminal(app, &task_id, None),
         Ok(WorkerMessage::Hello { .. }) => {}
         Err(err) => tracing::warn!(worker = %info.name, %err, "bad worker frame"),
     }
     false
+}
+
+/// Output from a task's shell, or `None` for the shell closing. Never stored:
+/// terminal traffic is not task history.
+fn terminal(app: &Arc<App>, task_id: &str, data: Option<String>) {
+    let mut state = app.state.lock().unwrap();
+    let Some(rec) = state.tasks.get_mut(task_id) else {
+        return;
+    };
+    match data {
+        Some(data) => rec.push_terminal(data),
+        None => {
+            let _ = rec.terminal.send(None);
+        }
+    }
 }
 
 async fn hello(

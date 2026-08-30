@@ -5,6 +5,7 @@ mod render;
 mod run;
 mod serve;
 mod table;
+mod terminal;
 mod upgrade;
 
 use std::path::Path;
@@ -151,6 +152,13 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
 async fn task_command(client: &Client, command: Command) -> anyhow::Result<i32> {
     match command {
         Command::Show { id } => show(client, &id).await,
+        Command::Terminal { id, close } => {
+            if close {
+                client.close_terminal(&id).await?;
+                return Ok(0);
+            }
+            terminal::attach(client, &id).await
+        }
         Command::Logs { id } => {
             let mut stdout = std::io::stdout();
             for e in client.task(&id).await?.events {

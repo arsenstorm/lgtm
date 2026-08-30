@@ -18,9 +18,9 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
 pub use types::{
     BatchDetail, BatchRequest, BatchResponse, EventStream, FromIssue, FromLinear, GoalDetail,
-    IssuePreview, NewGoal, PromoteTodo, Retry, TaskDetail,
+    IssuePreview, NewGoal, PromoteTodo, Retry, TaskDetail, TerminalStream,
 };
-use types::{ErrorBody, FollowUp, NewMemory, NewTodo, Notes};
+use types::{ErrorBody, FollowUp, NewMemory, NewTodo, Notes, Socket};
 
 #[derive(Clone)]
 pub struct Client {
@@ -354,7 +354,35 @@ impl Client {
     /// Opens the events socket from event index `from` and returns a stream
     /// of stored events that ends when the server closes it.
     pub async fn events(&self, id: &str, from: usize) -> anyhow::Result<EventStream> {
-        let mut request = self.events_url(id, from)?.into_client_request()?;
+        let stream = self.dial(&self.events_url(id, from)?).await?;
+        Ok(EventStream { stream })
+    }
+
+    /// Attaches to the shell in the task's worktree, starting one if the
+    /// worker has none.
+    pub async fn terminal(&self, id: &str) -> anyhow::Result<TerminalStream> {
+        let url = format!("{}/api/tasks/{id}/terminal", self.ws_base()?);
+        Ok(TerminalStream {
+            stream: self.dial(&url).await?,
+        })
+    }
+
+    /// Kills the task's shell. Detaching from it does not.
+    pub async fn close_terminal(&self, id: &str) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .delete(format!("{}/api/tasks/{id}/terminal", self.base))
+            .bearer_auth(&self.token)
+            .send()
+            .await?;
+        if resp.status().is_success() {
+            return Ok(());
+        }
+        Err(Self::failure(resp).await)
+    }
+
+    async fn dial(&self, url: &str) -> anyhow::Result<Socket> {
+        let mut request = url.into_client_request()?;
         request.headers_mut().insert(
             "Authorization",
             HeaderValue::from_str(&format!("Bearer {}", self.token))?,
@@ -366,23 +394,46 @@ impl Client {
             self.connector.clone(),
         )
         .await?;
-        Ok(EventStream { stream })
+        Ok(stream)
+    }
+
+    /// The base with its scheme swapped for the WebSocket one.
+    fn ws_base(&self) -> anyhow::Result<String> {
+        if let Some(rest) = self.base.strip_prefix("https://") {
+            Ok(format!("wss://{rest}"))
+        } else if let Some(rest) = self.base.strip_prefix("http://") {
+            Ok(format!("ws://{rest}"))
+        } else {
+            anyhow::bail!("orchestrator URL must start with http:// or https://");
+        }
     }
 
     /// `ws(s)://host/api/tasks/<id>/events[?from=n]` (query omitted when 0).
     pub fn events_url(&self, id: &str, from: usize) -> anyhow::Result<String> {
-        let (scheme, rest) = if let Some(rest) = self.base.strip_prefix("https://") {
-            ("wss://", rest)
-        } else if let Some(rest) = self.base.strip_prefix("http://") {
-            ("ws://", rest)
-        } else {
-            anyhow::bail!("orchestrator URL must start with http:// or https://");
-        };
+        let base = self.ws_base()?;
         if from == 0 {
-            Ok(format!("{scheme}{rest}/api/tasks/{id}/events"))
+            Ok(format!("{base}/api/tasks/{id}/events"))
         } else {
-            Ok(format!("{scheme}{rest}/api/tasks/{id}/events?from={from}"))
+            Ok(format!("{base}/api/tasks/{id}/events?from={from}"))
         }
+    }
+}
+
+impl TerminalStream {
+    /// Next chunk of shell output; `None` when the shell or the socket ended.
+    pub async fn next(&mut self) -> Option<String> {
+        while let Some(msg) = self.stream.next().await {
+            if let Message::Text(text) = msg.ok()? {
+                return Some(text.to_string());
+            }
+        }
+        None
+    }
+
+    pub async fn send(&mut self, data: &str) -> anyhow::Result<()> {
+        use futures_util::SinkExt;
+        self.stream.send(Message::Text(data.into())).await?;
+        Ok(())
     }
 }
 

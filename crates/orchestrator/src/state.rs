@@ -1,7 +1,7 @@
 //! Shared state and every status transition, kept free of I/O so it can be
 //! tested without sockets or files.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -15,6 +15,10 @@ use crate::persist::Persist;
 pub use crate::worker::{Conn, WorkerConn};
 
 const LIVE_CAPACITY: usize = 1024;
+/// Terminal output kept per task, in bytes. Enough for someone attaching late
+/// to see the screen they walked in on; it is a pipe, not history, so nothing
+/// older is worth the memory.
+const SCROLLBACK_MAX: usize = 64 * 1024;
 
 pub struct App {
     pub token: String,
@@ -117,6 +121,10 @@ pub struct TaskRecord {
     pub task: Task,
     pub events: Vec<StoredEvent>,
     pub live: broadcast::Sender<StoredEvent>,
+    /// Output from the task's shell; `None` means the shell closed.
+    pub terminal: broadcast::Sender<Option<String>>,
+    scrollback: VecDeque<String>,
+    scrollback_len: usize,
     /// `events[..written]` are already on disk. A freshly created task has
     /// none yet; a task loaded from disk brings its whole history as already
     /// written, so `persist_ids` only ever appends what is new.
@@ -126,13 +134,35 @@ pub struct TaskRecord {
 impl TaskRecord {
     pub fn new(task: Task, events: Vec<StoredEvent>) -> Self {
         let (live, _) = broadcast::channel(LIVE_CAPACITY);
+        let (terminal, _) = broadcast::channel(LIVE_CAPACITY);
         let written = events.len();
         Self {
             task,
             events,
             live,
+            terminal,
+            scrollback: VecDeque::new(),
+            scrollback_len: 0,
             written,
         }
+    }
+
+    /// Records one chunk of terminal output and hands it to whoever is attached.
+    pub fn push_terminal(&mut self, data: String) {
+        let _ = self.terminal.send(Some(data.clone()));
+        self.scrollback_len += data.len();
+        self.scrollback.push_back(data);
+        while self.scrollback_len > SCROLLBACK_MAX {
+            let Some(dropped) = self.scrollback.pop_front() else {
+                break;
+            };
+            self.scrollback_len -= dropped.len();
+        }
+    }
+
+    /// The recent terminal output, for a client that just attached.
+    pub fn scrollback(&self) -> String {
+        self.scrollback.iter().map(String::as_str).collect()
     }
 
     /// Head of the pushed branch, from the last `Pushed` event that carried
