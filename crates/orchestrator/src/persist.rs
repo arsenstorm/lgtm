@@ -1,17 +1,24 @@
 //! One JSON file per task under `<data_dir>/tasks`, one per batch under
 //! `<data_dir>/batches`, one per memory under `<data_dir>/memories`, one per
 //! goal under `<data_dir>/goals`, and one per todo under `<data_dir>/todos`.
+//!
+//! A task's events are append-only: rewriting `<id>.json` on every event
+//! meant copying the whole history back to disk each time, so events live in
+//! a sibling `<id>.events.jsonl` instead and the task file holds only the
+//! `Task`.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use lgtm_protocol::{Batch, Goal, Memory, Overlap, StoredEvent, Task, Todo};
+use lgtm_protocol::{Batch, Goal, Memory, Overlap, StoredEvent, Task, TaskId, Todo};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::state::TaskRecord;
 
-/// On-disk shape of a task, and the body of `GET /api/tasks/:id`.
+/// On-disk shape of a task before the event log split, and the body of
+/// `GET /api/tasks/:id`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Stored {
     pub task: Task,
@@ -24,7 +31,8 @@ pub struct Stored {
 
 /// One thing to write. The writer owns every directory it writes into.
 pub enum Persist {
-    Task(Box<Stored>),
+    Task(Box<Task>),
+    Event { task_id: TaskId, event: StoredEvent },
     Batch(Batch),
     Memory(Memory),
     RemoveMemory(String),
@@ -55,7 +63,8 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
     let todos = dir.join("todos");
     while let Some(item) = rx.recv().await {
         match item {
-            Persist::Task(stored) => save(&tasks, &stored),
+            Persist::Task(task) => save(&tasks, &task),
+            Persist::Event { task_id, event } => append_event(&tasks, &task_id, &event),
             Persist::Batch(batch) => save_batch(&batches, &batch),
             Persist::Memory(memory) => save_memory(&memories, &memory),
             Persist::RemoveMemory(id) => remove_by_id(&memories, "memory", &id),
@@ -99,8 +108,34 @@ fn save_by_id<T: Serialize>(dir: &Path, kind: &str, id: &str, value: &T) {
     }
 }
 
-pub fn save(dir: &Path, stored: &Stored) {
-    save_by_id(dir, "task", &stored.task.id, stored);
+pub fn save(dir: &Path, task: &Task) {
+    save_by_id(dir, "task", &task.id, task);
+}
+
+/// Appends one JSON line to `<id>.events.jsonl`; a task's events are never
+/// rewritten, only ever added to.
+fn append_event(dir: &Path, task_id: &str, event: &StoredEvent) {
+    let Some(stem) = file_stem(task_id) else {
+        tracing::error!(
+            kind = "event",
+            id = task_id,
+            "refusing to persist record with unsafe id"
+        );
+        return;
+    };
+    if let Err(err) = append_json_line(dir, &stem, event) {
+        tracing::error!(kind = "event", id = task_id, %err, "failed to persist record");
+    }
+}
+
+fn append_json_line<T: Serialize>(dir: &Path, stem: &str, value: &T) -> std::io::Result<()> {
+    let mut line = serde_json::to_vec(value).map_err(std::io::Error::other)?;
+    line.push(b'\n');
+    std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(dir.join(format!("{stem}.events.jsonl")))
+        .and_then(|mut file| file.write_all(&line))
 }
 
 pub fn save_batch(dir: &Path, batch: &Batch) {
@@ -162,8 +197,92 @@ fn load_dir<T: DeserializeOwned>(dir: &Path, id: impl Fn(&T) -> &str) -> Vec<T> 
     out
 }
 
+/// Every `<dir>/<id>.json`, task and events reassembled into a `Stored`. A
+/// file in the old layout (task and events together) is migrated to the new
+/// one as it is read, so the slow path is taken at most once per task.
 pub fn load_all(dir: &Path) -> Vec<Stored> {
-    load_dir(dir, |stored: &Stored| stored.task.id.as_str())
+    let mut out = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) => {
+            tracing::error!(dir = %dir.display(), %err, "failed to read directory");
+            return out;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        out.extend(load_task_file(dir, &path));
+    }
+    out
+}
+
+fn load_task_file(dir: &Path, path: &Path) -> Option<Stored> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            tracing::error!(path = %path.display(), %err, "failed to load record");
+            return None;
+        }
+    };
+    if let Ok(stored) = serde_json::from_slice::<Stored>(&bytes) {
+        return migrate(dir, stored);
+    }
+    let task = match serde_json::from_slice::<Task>(&bytes) {
+        Ok(task) => task,
+        Err(err) => {
+            tracing::error!(path = %path.display(), %err, "failed to load record");
+            return None;
+        }
+    };
+    if file_stem(&task.id).is_none() {
+        tracing::error!(id = %task.id, "refusing to load record with unsafe id");
+        return None;
+    }
+    let events = load_events(dir, &task.id);
+    Some(Stored {
+        task,
+        events,
+        overlaps: Vec::new(),
+    })
+}
+
+/// Rewrites an old-layout file (task and events together) as a task file
+/// plus an events file, so this task never takes the slow path again.
+fn migrate(dir: &Path, stored: Stored) -> Option<Stored> {
+    if file_stem(&stored.task.id).is_none() {
+        tracing::error!(id = %stored.task.id, "refusing to load record with unsafe id");
+        return None;
+    }
+    tracing::info!(task = %stored.task.id, "migrating task file to the split event log");
+    save(dir, &stored.task);
+    for event in &stored.events {
+        append_event(dir, &stored.task.id, event);
+    }
+    Some(stored)
+}
+
+fn load_events(dir: &Path, task_id: &str) -> Vec<StoredEvent> {
+    let Some(stem) = file_stem(task_id) else {
+        return Vec::new();
+    };
+    let path = dir.join(format!("{stem}.events.jsonl"));
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    text.lines()
+        .filter_map(|line| parse_event(&path, line))
+        .collect()
+}
+
+fn parse_event(path: &Path, line: &str) -> Option<StoredEvent> {
+    match serde_json::from_str(line) {
+        Ok(event) => Some(event),
+        Err(err) => {
+            tracing::error!(path = %path.display(), %err, "skipping unparsable event line");
+            None
+        }
+    }
 }
 
 pub fn load_all_batches(dir: &Path) -> Vec<Batch> {
@@ -184,7 +303,9 @@ pub fn load_all_todos(dir: &Path) -> Vec<Todo> {
 
 #[cfg(test)]
 mod tests {
-    use super::file_stem;
+    use super::*;
+    use lgtm_protocol::{Executor, TaskEvent, TaskKind, TaskSpec, TaskStatus};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn only_hex_ids_become_file_names() {
@@ -195,5 +316,103 @@ mod tests {
         assert_eq!(file_stem("a/b"), None);
         assert_eq!(file_stem("0123ABCDE"), None);
         assert_eq!(file_stem("zzzzzzzz"), None);
+    }
+
+    /// A fresh directory per test, so tests never see one another's files.
+    fn temp_dir(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("lgtm-persist-test-{name}-{nonce}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn task(id: &str) -> Task {
+        Task {
+            id: id.into(),
+            spec: TaskSpec {
+                repository: "https://example.com/repo.git".into(),
+                base_branch: "main".into(),
+                prompt: "do it".into(),
+                executor: Executor::Claude,
+                worker: None,
+                issue: None,
+                linear: None,
+                kind: TaskKind::Run,
+                parent: None,
+                depends_on: Vec::new(),
+                batch: None,
+                sandbox: None,
+                requirements: Vec::new(),
+                review_executor: None,
+                goal: None,
+            },
+            status: TaskStatus::Queued,
+            worker: None,
+            created_at: 0,
+            result: None,
+            error: None,
+            pull_request: None,
+            ci: None,
+            executions: Vec::new(),
+            scratchpad: String::new(),
+        }
+    }
+
+    fn event(at: u64) -> StoredEvent {
+        StoredEvent {
+            at,
+            event: TaskEvent::Started,
+        }
+    }
+
+    #[test]
+    fn round_trips_the_new_layout() {
+        let dir = temp_dir("round-trip");
+        let task = task("0123abcd");
+        save(&dir, &task);
+        append_event(&dir, &task.id, &event(1));
+        append_event(&dir, &task.id, &event(2));
+
+        let loaded = load_all(&dir);
+
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].task.id, task.id);
+        assert_eq!(loaded[0].events.len(), 2);
+    }
+
+    #[test]
+    fn old_layout_loads_and_migrates() {
+        let dir = temp_dir("migrate");
+        let stored = Stored {
+            task: task("0123abcd"),
+            events: vec![event(1), event(2)],
+            overlaps: Vec::new(),
+        };
+        write_json(&dir, "0123abcd", &stored).unwrap();
+
+        let loaded = load_all(&dir);
+
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].events.len(), 2);
+        assert!(dir.join("0123abcd.events.jsonl").exists());
+        // The migrated layout must itself be readable, not just written.
+        assert_eq!(load_all(&dir)[0].events.len(), 2);
+    }
+
+    #[test]
+    fn a_corrupt_event_line_is_skipped() {
+        let dir = temp_dir("corrupt-event");
+        save(&dir, &task("0123abcd"));
+        let mut good = serde_json::to_vec(&event(1)).unwrap();
+        good.push(b'\n');
+        let bytes = [b"not json\n".as_slice(), &good].concat();
+        std::fs::write(dir.join("0123abcd.events.jsonl"), bytes).unwrap();
+
+        let loaded = load_all(&dir);
+
+        assert_eq!(loaded[0].events.len(), 1);
     }
 }

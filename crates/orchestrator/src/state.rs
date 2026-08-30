@@ -11,7 +11,7 @@ use lgtm_protocol::{
 };
 use tokio::sync::{broadcast, mpsc};
 
-use crate::persist::{Persist, Stored};
+use crate::persist::Persist;
 pub use crate::worker::{Conn, WorkerConn};
 
 const LIVE_CAPACITY: usize = 1024;
@@ -36,12 +36,21 @@ pub struct App {
 }
 
 impl App {
-    /// Queues a write for each id a transition reported as changed.
-    pub fn persist_ids(&self, state: &State, ids: &[TaskId]) {
-        for rec in ids.iter().filter_map(|id| state.tasks.get(id)) {
-            let _ = self
-                .persist
-                .send(Persist::Task(Box::new(Stored::from(rec))));
+    /// Rewrites the task for each id a transition reported as changed, and
+    /// appends any events on it that have not been written yet.
+    pub fn persist_ids(&self, state: &mut State, ids: &[TaskId]) {
+        for id in ids {
+            let Some(rec) = state.tasks.get_mut(id) else {
+                continue;
+            };
+            let _ = self.persist.send(Persist::Task(Box::new(rec.task.clone())));
+            for event in &rec.events[rec.written..] {
+                let _ = self.persist.send(Persist::Event {
+                    task_id: rec.task.id.clone(),
+                    event: event.clone(),
+                });
+            }
+            rec.written = rec.events.len();
         }
     }
 
@@ -91,12 +100,22 @@ pub struct TaskRecord {
     pub task: Task,
     pub events: Vec<StoredEvent>,
     pub live: broadcast::Sender<StoredEvent>,
+    /// `events[..written]` are already on disk. A freshly created task has
+    /// none yet; a task loaded from disk brings its whole history as already
+    /// written, so `persist_ids` only ever appends what is new.
+    written: usize,
 }
 
 impl TaskRecord {
     pub fn new(task: Task, events: Vec<StoredEvent>) -> Self {
         let (live, _) = broadcast::channel(LIVE_CAPACITY);
-        Self { task, events, live }
+        let written = events.len();
+        Self {
+            task,
+            events,
+            live,
+            written,
+        }
     }
 
     /// Head of the pushed branch, from the last `Pushed` event that carried

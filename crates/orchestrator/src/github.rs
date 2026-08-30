@@ -35,7 +35,7 @@ pub fn open_pull_request(app: Arc<App>, task_id: TaskId, plan: PrPlan) {
             if let Some(rec) = state.tasks.get_mut(&task_id) {
                 rec.task.pull_request = Some(pr);
             }
-            app.persist_ids(&state, std::slice::from_ref(&task_id));
+            app.persist_ids(&mut state, std::slice::from_ref(&task_id));
         }
         crate::linear::after_transition(&app, &task_id, TaskStatus::Approved, true);
         if !plan.sha.is_empty() {
@@ -49,7 +49,7 @@ fn record_error(app: &App, task_id: &TaskId, error: String) {
     if let Some(rec) = state.tasks.get_mut(task_id) {
         rec.task.error = Some(error);
     }
-    app.persist_ids(&state, std::slice::from_ref(task_id));
+    app.persist_ids(&mut state, std::slice::from_ref(task_id));
 }
 
 /// Why a merge could not happen: a state the task is in, or GitHub itself.
@@ -96,7 +96,7 @@ pub async fn merge_task(app: &Arc<App>, id: &str) -> Result<Task, MergeError> {
     let task = {
         let mut state = app.state.lock().unwrap();
         let (task, changed) = state.mark_merged(id)?;
-        app.persist_ids(&state, &changed);
+        app.persist_ids(&mut state, &changed);
         task
     };
     crate::linear::after_transition(app, id, TaskStatus::Approved, false);
@@ -142,7 +142,7 @@ async fn auto_merge(app: &Arc<App>, task_id: &TaskId) {
             {
                 let mut state = app.state.lock().unwrap();
                 let changed = state.apply_event(task_id, TaskEvent::AutoMerged);
-                app.persist_ids(&state, &changed);
+                app.persist_ids(&mut state, &changed);
             }
             crate::notify::deliver(app, &task, &TaskEvent::AutoMerged);
         }
@@ -207,10 +207,10 @@ fn record_ci(app: &Arc<App>, task_id: &TaskId, status: CiStatus) -> Option<bool>
     let decision = crate::policy::decide(&rec.task);
     let event = decision.as_ref().map(Decision::event);
     let repeat = event.as_ref() == rec.last_policy_decision("merge");
-    app.persist_ids(&state, std::slice::from_ref(task_id));
+    app.persist_ids(&mut state, std::slice::from_ref(task_id));
     if let Some(event) = event.filter(|_| !repeat) {
         let changed = state.apply_event(task_id, event);
-        app.persist_ids(&state, &changed);
+        app.persist_ids(&mut state, &changed);
     }
     Some(decision.is_some_and(|decision| decision.allowed))
 }

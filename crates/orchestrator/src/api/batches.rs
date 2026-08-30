@@ -140,7 +140,7 @@ pub(super) async fn create_batch(
         refused,
     } = create_tasks(&mut state, selected);
     if let Some(err) = refused {
-        app.persist_ids(&state, &changed);
+        app.persist_ids(&mut state, &changed);
         return Err(conflict(err));
     }
     let batch = Batch {

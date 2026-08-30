@@ -103,7 +103,7 @@ pub(super) async fn promote_todo(
         worker: body.worker,
     };
     let (task, changed) = state.promote_todo(&id, into).map_err(conflict)?;
-    app.persist_ids(&state, &changed);
+    app.persist_ids(&mut state, &changed);
     if let Some(todo) = state.todos.get(&id) {
         app.persist_todo(todo);
     }

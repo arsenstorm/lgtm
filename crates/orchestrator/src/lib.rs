@@ -123,7 +123,7 @@ fn load_state(data_dir: &std::path::Path, queue_without_workers: bool) -> anyhow
         let (task, changed) = restore(stored.task);
         let rec = TaskRecord::new(task, stored.events);
         if changed {
-            persist::save(&tasks_dir, &persist::Stored::from(&rec));
+            persist::save(&tasks_dir, &rec.task);
         }
         state.tasks.insert(rec.task.id.clone(), rec);
     }
