@@ -8,7 +8,7 @@ fn sample_task() -> Task {
             base_branch: "main".into(),
             prompt: "add a /health endpoint".into(),
             executor: Executor::Claude,
-            worker: Some("compute".into()),
+            runner: Some("compute".into()),
             issue: Some(IssueRef {
                 owner: "arsenstorm".into(),
                 repo: "lgtm".into(),
@@ -32,7 +32,7 @@ fn sample_task() -> Task {
             allowed_hosts: Vec::new(),
         },
         status: TaskStatus::Queued,
-        worker: None,
+        runner: None,
         created_at: 1,
         result: None,
         error: None,
@@ -46,7 +46,7 @@ fn sample_task() -> Task {
         }),
         executions: vec![Execution {
             attempt: 1,
-            worker: "compute".into(),
+            runner: "compute".into(),
             executor: Executor::Claude,
             model: Some("claude-opus-4".into()),
             started_at: 2,
@@ -68,7 +68,7 @@ fn round_trip<T: Serialize + for<'de> Deserialize<'de> + PartialEq + std::fmt::D
 
 #[test]
 fn every_message_round_trips() {
-    let info = WorkerInfo {
+    let info = RunnerInfo {
         name: "compute".into(),
         os: "windows".into(),
         arch: "x86_64".into(),
@@ -166,11 +166,11 @@ fn every_message_round_trips() {
             reason: "checks failed".into(),
         },
         TaskEvent::Requeued {
-            worker: Some("compute".into()),
+            runner: Some("compute".into()),
             executor: Executor::Codex,
         },
         TaskEvent::Requeued {
-            worker: None,
+            runner: None,
             executor: Executor::Claude,
         },
         TaskEvent::PolicyDecision {
@@ -199,19 +199,19 @@ fn every_message_round_trips() {
             at: 2,
             event: event.clone(),
         });
-        round_trip(WorkerMessage::Event {
+        round_trip(RunnerMessage::Event {
             task_id: "0123abcd".into(),
             event,
         });
     }
-    round_trip(WorkerMessage::Hello {
+    round_trip(RunnerMessage::Hello {
         token: "t".into(),
         info: info.clone(),
         running: vec!["0123abcd".into()],
         version: PROTOCOL_VERSION,
     });
-    round_trip(WorkerMessage::Goodbye);
-    round_trip(WorkerStatus {
+    round_trip(RunnerMessage::Goodbye);
+    round_trip(RunnerStatus {
         info,
         running: vec!["0123abcd".into()],
     });
@@ -284,34 +284,34 @@ fn every_message_round_trips() {
 
 #[test]
 fn terminal_frames_round_trip() {
-    round_trip(WorkerMessage::Terminal {
+    round_trip(RunnerMessage::Terminal {
         task_id: "0123abcd".into(),
         data: "$ ".into(),
     });
-    round_trip(WorkerMessage::TerminalClosed {
+    round_trip(RunnerMessage::TerminalClosed {
         task_id: "0123abcd".into(),
     });
 }
 
 #[test]
 fn phase_one_frames_still_parse() {
-    let info: WorkerInfo =
+    let info: RunnerInfo =
         serde_json::from_str(r#"{"name":"w","os":"linux","arch":"x86_64","executors":["claude"]}"#)
             .unwrap();
     assert_eq!(info.slots, 1);
     assert!(!info.ephemeral);
     assert!(info.capabilities.is_empty());
-    let hello: WorkerMessage = serde_json::from_str(
+    let hello: RunnerMessage = serde_json::from_str(
         r#"{"type":"hello","token":"t","info":{"name":"w","os":"linux","arch":"x86_64","executors":[]}}"#,
     )
     .unwrap();
-    assert!(matches!(hello, WorkerMessage::Hello { running, .. } if running.is_empty()));
+    assert!(matches!(hello, RunnerMessage::Hello { running, .. } if running.is_empty()));
     let result: TaskResult =
         serde_json::from_str(r#"{"branch":"lgtm/0123abcd","diff":"","changed_files":[]}"#).unwrap();
     assert!(result.validation.is_empty());
     assert!(result.review.is_none() && result.policy.is_none() && result.cost_usd == 0.0);
     let task: Task = serde_json::from_str(
-        r#"{"id":"0123abcd","spec":{"repository":"r","base_branch":"main","prompt":"p","executor":"claude","worker":null},"status":"approved","worker":"w","created_at":1,"result":null,"error":null}"#,
+        r#"{"id":"0123abcd","spec":{"repository":"r","base_branch":"main","prompt":"p","executor":"claude","runner":null},"status":"approved","runner":"w","created_at":1,"result":null,"error":null}"#,
     )
     .unwrap();
     assert!(task.pull_request.is_none() && task.ci.is_none() && task.spec.issue.is_none());
@@ -363,11 +363,11 @@ fn knowledge_block_lists_every_memory() {
 
 #[test]
 fn hello_without_version_defaults_to_zero() {
-    let hello: WorkerMessage = serde_json::from_str(
+    let hello: RunnerMessage = serde_json::from_str(
         r#"{"type":"hello","token":"t","info":{"name":"w","os":"linux","arch":"x86_64","executors":[]}}"#,
     )
     .unwrap();
-    assert!(matches!(hello, WorkerMessage::Hello { version: 0, .. }));
+    assert!(matches!(hello, RunnerMessage::Hello { version: 0, .. }));
 }
 
 #[test]
@@ -376,7 +376,7 @@ fn todo_round_trips() {
         id: "0123abcd".into(),
         repository: Some("https://github.com/arsenstorm/lgtm.git".into()),
         title: "add a /health endpoint".into(),
-        description: "should return 200 while workers are connected".into(),
+        description: "should return 200 while runners are connected".into(),
         status: TodoStatus::InProgress,
         created_at: 1,
         task: Some("11111111".into()),
@@ -408,7 +408,7 @@ fn sandbox_profile_round_trips_through_its_wire_name() {
 
 #[test]
 fn has_all_requires_every_requirement_in_capabilities() {
-    let info = WorkerInfo {
+    let info = RunnerInfo {
         name: "w".into(),
         os: "linux".into(),
         arch: "x86_64".into(),
@@ -776,5 +776,24 @@ fn pending_requests_are_distinct_and_exclude_already_allowed_hosts() {
                 "install a private package".to_string()
             ),
         ]
+    );
+}
+
+#[test]
+fn worker_keyed_json_still_parses_as_runner() {
+    let spec: TaskSpec = serde_json::from_str(
+        r#"{"repository":"r","base_branch":"main","prompt":"p","executor":"claude","worker":"compute"}"#,
+    )
+    .unwrap();
+    assert_eq!(spec.runner.as_deref(), Some("compute"));
+    let task: Task = serde_json::from_str(
+        r#"{"id":"0123abcd","spec":{"repository":"r","base_branch":"main","prompt":"p","executor":"claude","worker":null},"status":"approved","worker":"w","created_at":1,"result":null,"error":null}"#,
+    )
+    .unwrap();
+    assert_eq!(task.runner.as_deref(), Some("w"));
+    let requeued: TaskEvent =
+        serde_json::from_str(r#"{"type":"requeued","worker":"w","executor":"claude"}"#).unwrap();
+    assert!(
+        matches!(requeued, TaskEvent::Requeued { runner, .. } if runner.as_deref() == Some("w"))
     );
 }

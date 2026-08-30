@@ -28,7 +28,7 @@ const DEFAULT_ALLOWED_HOSTS: &[&str] = &[
     "files.pythonhosted.org",
 ];
 
-/// What the repository asked the worker to do beyond running the agent once.
+/// What the repository asked the runner to do beyond running the agent once.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PolicyConfig {
     /// Extra agent runs after a crash.
@@ -62,7 +62,7 @@ pub enum NetworkPolicy {
     Allowlist(Vec<String>),
 }
 
-/// The harness for the review pass. Defaults to `Auto` so a worker with both
+/// The harness for the review pass. Defaults to `Auto` so a runner with both
 /// harnesses reviews under the one that didn't write the diff.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ReviewExecutor {
@@ -93,7 +93,7 @@ impl Default for PolicyConfig {
 /// The task's own choice wins; then the repository's `[policy]
 /// review_executor`; otherwise the first available harness that isn't the
 /// one that implemented the task, falling back to that same harness when the
-/// worker has no other.
+/// runner has no other.
 pub fn reviewer(spec: &TaskSpec, policy: &PolicyConfig, available: &[Executor]) -> Executor {
     if let Some(executor) = spec.review_executor {
         return executor;
@@ -122,7 +122,7 @@ pub fn load_policy(worktree: &Path) -> PolicyConfig {
 }
 
 /// A missing section, a missing key, or a key of the wrong type all leave the
-/// default in place: a malformed config must not change what the worker does.
+/// default in place: a malformed config must not change what the runner does.
 pub fn parse_policy(text: &str) -> PolicyConfig {
     let mut policy = PolicyConfig::default();
     let table: toml::Table = match text.parse() {
@@ -528,7 +528,7 @@ mod tests {
             base_branch: "main".into(),
             prompt: "p".into(),
             executor: lgtm_protocol::Executor::Claude,
-            worker: None,
+            runner: None,
             issue: None,
             linear: None,
             kind: lgtm_protocol::TaskKind::Run,

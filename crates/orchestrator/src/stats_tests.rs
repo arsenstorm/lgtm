@@ -9,7 +9,7 @@ fn spec() -> TaskSpec {
         base_branch: "main".into(),
         prompt: "do it".into(),
         executor: Executor::Claude,
-        worker: None,
+        runner: None,
         issue: None,
         linear: None,
         kind: TaskKind::Run,
@@ -31,7 +31,7 @@ fn task(id: &str, status: TaskStatus, created_at: u64, executions: Vec<Execution
         id: id.into(),
         spec: spec(),
         status,
-        worker: None,
+        runner: None,
         created_at,
         result: None,
         error: None,
@@ -58,7 +58,7 @@ fn with_cost(mut task: Task, cost_usd: f64) -> Task {
 
 fn execution(
     attempt: u32,
-    worker: &str,
+    runner: &str,
     executor: Executor,
     started_at: u64,
     finished_at: Option<u64>,
@@ -66,7 +66,7 @@ fn execution(
 ) -> Execution {
     Execution {
         attempt,
-        worker: worker.into(),
+        runner: runner.into(),
         executor,
         model: None,
         started_at,

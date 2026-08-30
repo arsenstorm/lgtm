@@ -50,7 +50,7 @@ pub fn with_notes(prompt: &str, kind: TaskKind) -> String {
     }
 }
 
-/// Puts the task's notes back in the worktree, so a retry on another worker
+/// Puts the task's notes back in the worktree, so a retry on another runner
 /// starts from what the last run wrote down.
 pub async fn restore_notes(worktree: &Path, notes: &str) -> Result<()> {
     if notes.is_empty() {
@@ -547,7 +547,7 @@ impl<'a> Run<'a> {
                 .envs(std::env::vars().filter(|(name, _)| sandbox::keep_env(name)));
         }
         // After the inherited variables: the run's own proxy is not one the
-        // worker's shell gets to override.
+        // runner's shell gets to override.
         cmd.envs(self.mcp_env())
             .envs(sandbox::network_env(self.network))
             .current_dir(self.worktree)
@@ -572,7 +572,7 @@ impl Run<'_> {
 }
 
 fn args(opts: &RunOpts<'_>) -> Vec<String> {
-    // A worker whose own path is unknowable can still run the agent; it
+    // A runner whose own path is unknowable can still run the agent; it
     // just runs it without the LGTM tools.
     let exe = std::env::current_exe().ok();
     match opts.executor {
@@ -581,7 +581,7 @@ fn args(opts: &RunOpts<'_>) -> Vec<String> {
     }
 }
 
-/// The worker dials the orchestrator over a WebSocket; the MCP server talks
+/// The runner dials the orchestrator over a WebSocket; the MCP server talks
 /// to the same host over HTTP.
 fn http_url(ws: &str) -> String {
     match ws.split_once("://") {

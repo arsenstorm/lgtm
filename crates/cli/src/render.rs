@@ -62,10 +62,10 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
             )
         }
         TaskEvent::Retry { attempt, reason } => writeln!(out, "retry {attempt}: {reason}"),
-        TaskEvent::Requeued { worker, executor } => writeln!(
+        TaskEvent::Requeued { runner, executor } => writeln!(
             out,
             "requeued on {} ({})",
-            worker.as_deref().unwrap_or("any worker"),
+            runner.as_deref().unwrap_or("any runner"),
             executor.binary()
         ),
         TaskEvent::PolicyDecision {
@@ -140,7 +140,7 @@ pub fn print_executions(execs: &[Execution], out: &mut impl Write) -> std::io::R
             out,
             "attempt {}: {status} on {} ({}){model} {}",
             exec.attempt,
-            exec.worker,
+            exec.runner,
             exec.executor.binary(),
             duration(ms),
         )?;
@@ -529,7 +529,7 @@ mod tests {
     fn execution(attempt: u32, status: ExecutionStatus, finished_at: Option<u64>) -> Execution {
         Execution {
             attempt,
-            worker: "w1".into(),
+            runner: "w1".into(),
             executor: lgtm_protocol::Executor::Claude,
             model: None,
             started_at: 1_000,

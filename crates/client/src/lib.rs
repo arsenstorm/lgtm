@@ -127,8 +127,8 @@ impl Client {
         }
     }
 
-    pub async fn workers(&self) -> anyhow::Result<Vec<lgtm_protocol::WorkerStatus>> {
-        self.get("/api/workers").await
+    pub async fn runners(&self) -> anyhow::Result<Vec<lgtm_protocol::RunnerStatus>> {
+        self.get("/api/runners").await
     }
 
     pub async fn tasks(&self) -> anyhow::Result<Vec<lgtm_protocol::Task>> {
@@ -391,7 +391,7 @@ impl Client {
     }
 
     /// Attaches to the shell in the task's worktree, starting one if the
-    /// worker has none.
+    /// runner has none.
     pub async fn terminal(&self, id: &str) -> anyhow::Result<TerminalStream> {
         let url = format!("{}/api/tasks/{id}/terminal", self.ws_base()?);
         Ok(TerminalStream {

@@ -9,7 +9,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use lgtm_protocol::{
-    OrchestratorMessage, TaskEvent, TaskId, WorkerInfo, WorkerMessage, PROTOCOL_VERSION,
+    OrchestratorMessage, RunnerInfo, RunnerMessage, TaskEvent, TaskId, PROTOCOL_VERSION,
 };
 use rustls_pki_types::{pem::PemObject, CertificateDer};
 use tokio::sync::{mpsc, oneshot};
@@ -28,10 +28,10 @@ const READ_TIMEOUT: Duration = Duration::from_secs(45);
 pub struct Ctx {
     pub data_dir: PathBuf,
     /// `ws(s)://host:port`, no path: what an agent run's MCP server is
-    /// pointed at, and what this worker dials.
+    /// pointed at, and what this runner dials.
     pub orchestrator: String,
     pub token: String,
-    pub tx: mpsc::UnboundedSender<WorkerMessage>,
+    pub tx: mpsc::UnboundedSender<RunnerMessage>,
     pub running: Mutex<HashMap<TaskId, oneshot::Sender<()>>>,
     /// Mirror path per task, so a discard after a restart of the task still
     /// knows which bare clone owns the worktree.
@@ -53,7 +53,7 @@ impl Ctx {
         data_dir: PathBuf,
         orchestrator: String,
         token: String,
-        tx: mpsc::UnboundedSender<WorkerMessage>,
+        tx: mpsc::UnboundedSender<RunnerMessage>,
         ephemeral: bool,
         max_tasks: u32,
     ) -> Self {
@@ -73,7 +73,7 @@ impl Ctx {
     }
 
     pub fn emit(&self, task_id: &str, event: TaskEvent) {
-        let _ = self.tx.send(WorkerMessage::Event {
+        let _ = self.tx.send(RunnerMessage::Event {
             task_id: task_id.to_string(),
             event,
         });
@@ -88,13 +88,13 @@ impl Ctx {
         );
     }
 
-    /// One run ended; count it and leave if this worker is done.
+    /// One run ended; count it and leave if this runner is done.
     pub fn task_finished(&self) {
         self.finished.fetch_add(1, Ordering::Relaxed);
         self.check_exit();
     }
 
-    /// Queues the goodbye when an ephemeral worker has nothing left to do.
+    /// Queues the goodbye when an ephemeral runner has nothing left to do.
     /// The session loop owns the receiver, so it performs the actual exit.
     pub fn check_exit(&self) {
         let running = self.running.lock().expect("running map poisoned").len();
@@ -105,9 +105,9 @@ impl Ctx {
         if self.exiting.swap(true, Ordering::Relaxed) {
             return;
         }
-        tracing::info!("ephemeral worker ran {finished} task(s), cleaning up and saying goodbye");
+        tracing::info!("ephemeral runner ran {finished} task(s), cleaning up and saying goodbye");
         cleanup(&self.data_dir);
-        let _ = self.tx.send(WorkerMessage::Goodbye);
+        let _ = self.tx.send(RunnerMessage::Goodbye);
     }
 }
 
@@ -115,7 +115,7 @@ pub const fn should_exit(ephemeral: bool, finished: u32, max_tasks: u32, running
     ephemeral && finished >= max_tasks && running == 0
 }
 
-/// Everything an ephemeral worker leaves behind on its disposable machine.
+/// Everything an ephemeral runner leaves behind on its disposable machine.
 fn cleanup(data_dir: &Path) {
     for dir in ["worktrees", "repos"] {
         let _ = std::fs::remove_dir_all(data_dir.join(dir));
@@ -157,30 +157,30 @@ pub fn ca_connector(pem: &[u8]) -> Result<Connector> {
 }
 
 /// Whether a session ended because the orchestrator dropped it (retry) or
-/// because the worker said goodbye on purpose (the caller should exit).
+/// because the runner said goodbye on purpose (the caller should exit).
 enum Ended {
     Disconnected,
     Done,
 }
 
-/// The orchestrator refused this worker's hello; retrying would only repeat
+/// The orchestrator refused this runner's hello; retrying would only repeat
 /// the refusal, so the caller must give up instead of reconnecting.
 #[derive(Debug)]
 pub struct Rejected(pub String);
 
 impl std::fmt::Display for Rejected {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "orchestrator rejected this worker: {}", self.0)
+        write!(f, "orchestrator rejected this runner: {}", self.0)
     }
 }
 
 impl std::error::Error for Rejected {}
 
-/// How to reach the orchestrator and who this worker says it is.
+/// How to reach the orchestrator and who this runner says it is.
 pub struct Link {
     pub url: String,
     pub token: String,
-    pub info: WorkerInfo,
+    pub info: RunnerInfo,
     pub connector: Option<Connector>,
 }
 
@@ -190,7 +190,7 @@ type Socket =
 pub async fn run(
     link: Link,
     ctx: Arc<Ctx>,
-    mut rx: mpsc::UnboundedReceiver<WorkerMessage>,
+    mut rx: mpsc::UnboundedReceiver<RunnerMessage>,
 ) -> Result<()> {
     loop {
         match session(&link, &ctx, &mut rx).await {
@@ -206,7 +206,7 @@ pub async fn run(
 async fn session(
     link: &Link,
     ctx: &Arc<Ctx>,
-    rx: &mut mpsc::UnboundedReceiver<WorkerMessage>,
+    rx: &mut mpsc::UnboundedReceiver<RunnerMessage>,
 ) -> Result<Ended> {
     let (mut sink, mut stream) = handshake(link, ctx).await?.split();
     loop {
@@ -243,7 +243,7 @@ async fn handshake(link: &Link, ctx: &Arc<Ctx>) -> Result<Socket> {
         .keys()
         .cloned()
         .collect();
-    let hello = WorkerMessage::Hello {
+    let hello = RunnerMessage::Hello {
         token: link.token.clone(),
         info: link.info.clone(),
         running,
@@ -263,11 +263,11 @@ async fn handshake(link: &Link, ctx: &Arc<Ctx>) -> Result<Socket> {
     Ok(ws)
 }
 
-async fn send<S>(sink: &mut S, msg: WorkerMessage) -> Result<Option<Ended>>
+async fn send<S>(sink: &mut S, msg: RunnerMessage) -> Result<Option<Ended>>
 where
     S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
-    let goodbye = matches!(msg, WorkerMessage::Goodbye);
+    let goodbye = matches!(msg, RunnerMessage::Goodbye);
     sink.send(Message::Text(serde_json::to_string(&msg)?.into()))
         .await?;
     if !goodbye {
@@ -387,7 +387,7 @@ yir6+pWbTODJFSqCYKsj4RTsbw==
 ";
 
     #[test]
-    fn only_a_done_ephemeral_worker_with_nothing_running_exits() {
+    fn only_a_done_ephemeral_runner_with_nothing_running_exits() {
         assert!(should_exit(true, 1, 1, 0));
         assert!(!should_exit(false, 1, 1, 0));
         assert!(!should_exit(true, 1, 2, 0));

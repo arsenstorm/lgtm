@@ -1,5 +1,5 @@
 //! The settings dialog: where this app points, how it looks, and how another
-//! machine joins as a worker.
+//! machine joins as a runner.
 
 use crate::app::LgtmApp;
 use crate::theme::{
@@ -18,10 +18,10 @@ use lgtm_diff::DiffStyle;
 
 const WIDTH: f32 = 640.;
 const MAX_BODY_H: f32 = 520.;
-/// Index of the Workers section among the dialog's scrolled children.
-pub const WORKERS_SECTION: usize = 3;
+/// Index of the Runners section among the dialog's scrolled children.
+pub const RUNNERS_SECTION: usize = 3;
 
-/// `lgtm worker` takes a ws(s) URL; the app holds the http(s) one.
+/// `lgtm runner` takes a ws(s) URL; the app holds the http(s) one.
 fn ws_url(orchestrator: &str) -> String {
     match orchestrator.trim_end_matches('/').split_once("://") {
         Some(("http", rest)) => format!("ws://{rest}"),
@@ -32,7 +32,7 @@ fn ws_url(orchestrator: &str) -> String {
 
 /// The line a person pastes on the machine they want to add.
 pub fn join_line(orchestrator: &str, token: &str) -> String {
-    format!("lgtm worker {} --token {token}", ws_url(orchestrator))
+    format!("lgtm runner {} --token {token}", ws_url(orchestrator))
 }
 
 pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
@@ -59,7 +59,7 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                         .child(orchestrator(app, &t, cx))
                         .child(appearance(app, &t, cx))
                         .child(notifications(&t, cx))
-                        .child(workers(app, &t, cx))
+                        .child(runners(app, &t, cx))
                         .child(about(&t)),
                 ),
         )
@@ -203,7 +203,7 @@ fn diff_buttons(style: DiffStyle, cx: &mut Context<LgtmApp>) -> [Button; 2] {
     })
 }
 
-fn workers(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+fn runners(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     // When this app hosts the orchestrator its own URL is loopback, so the
     // startup-computed line (advertised address) is the one to hand out.
     let join = app
@@ -211,7 +211,7 @@ fn workers(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .join
         .clone()
         .unwrap_or_else(|| join_line(&app.link.orchestrator, &app.link.token));
-    section("Workers", t)
+    section("Runners", t)
         .child(
             div()
                 .text_color(t.muted_fg)
@@ -273,11 +273,11 @@ mod tests {
     fn the_join_line_uses_the_websocket_scheme() {
         assert_eq!(
             join_line("http://127.0.0.1:4750", "abc"),
-            "lgtm worker ws://127.0.0.1:4750 --token abc"
+            "lgtm runner ws://127.0.0.1:4750 --token abc"
         );
         assert_eq!(
             join_line("https://host:4750/", "abc"),
-            "lgtm worker wss://host:4750 --token abc"
+            "lgtm runner wss://host:4750 --token abc"
         );
     }
 }

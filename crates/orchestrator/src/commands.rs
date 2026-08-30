@@ -7,7 +7,7 @@ use crate::state::{CmdError, PrPlan, State, TaskRecord, TITLE_MAX};
 
 /// Where a retried task should run. `None` keeps what the spec already says.
 pub struct RetryInto {
-    pub worker: Option<String>,
+    pub runner: Option<String>,
     pub executor: Option<Executor>,
 }
 
@@ -33,7 +33,7 @@ fn conflict_prefix(rec: &TaskRecord) -> Option<String> {
 
 impl State {
     /// Shared guard for cancel/approve/reject: the task must exist, be in one
-    /// of `allowed`, and its worker must still be connected.
+    /// of `allowed`, and its runner must still be connected.
     pub fn command(
         &mut self,
         task_id: &str,
@@ -45,13 +45,13 @@ impl State {
         if !allowed.contains(&rec.task.status) {
             return Err(CmdError::Conflict(wrong_status.to_string()));
         }
-        let name = rec.task.worker.clone().unwrap_or_default();
-        let worker = self
-            .workers
+        let name = rec.task.runner.clone().unwrap_or_default();
+        let runner = self
+            .runners
             .get(&name)
-            .filter(|worker| worker.is_connected())
-            .ok_or_else(|| CmdError::Conflict(format!("worker {name} is not connected")))?;
-        worker.send(msg(task_id.to_string()));
+            .filter(|runner| runner.is_connected())
+            .ok_or_else(|| CmdError::Conflict(format!("runner {name} is not connected")))?;
+        runner.send(msg(task_id.to_string()));
         Ok(rec.task.clone())
     }
 
@@ -111,7 +111,7 @@ impl State {
     pub fn cancel(&mut self, task_id: &str) -> Result<Task, CmdError> {
         let rec = self.tasks.get(task_id).ok_or(CmdError::NotFound)?;
         // Nothing has been told to run it yet, so it ends here.
-        if rec.task.status == TaskStatus::Queued && rec.task.worker.is_none() {
+        if rec.task.status == TaskStatus::Queued && rec.task.runner.is_none() {
             self.apply_event(task_id, TaskEvent::Cancelled);
             return self
                 .tasks
@@ -127,8 +127,8 @@ impl State {
         )
     }
 
-    /// Records a follow-up and hands it to the worker; the slot is taken again
-    /// until the worker reports the run finished.
+    /// Records a follow-up and hands it to the runner; the slot is taken again
+    /// until the runner reports the run finished.
     pub fn message(
         &mut self,
         task_id: &str,
@@ -142,29 +142,29 @@ impl State {
             return Err(CmdError::Conflict("task is not awaiting review".into()));
         }
         let prefix = conflict_prefix(rec).unwrap_or_default();
-        let name = rec.task.worker.clone().unwrap_or_default();
+        let name = rec.task.runner.clone().unwrap_or_default();
         let repository = rec.task.spec.repository.clone();
         let connected = self
-            .workers
+            .runners
             .get(&name)
-            .is_some_and(|worker| worker.is_connected());
+            .is_some_and(|runner| runner.is_connected());
         if !connected {
             return Err(CmdError::Conflict(format!(
-                "worker {name} is not connected"
+                "runner {name} is not connected"
             )));
         }
         let instruction = format!("{prefix}{text}");
         let changed = self.apply_event(task_id, TaskEvent::Message { text });
         let memories = self.memories_for(&repository);
-        // The worker's own copy of the task predates any spec change (e.g. an
+        // The runner's own copy of the task predates any spec change (e.g. an
         // allowed host) made since its last run, so the current one rides along.
         let task = self
             .tasks
             .get(task_id)
             .map(|rec| Box::new(rec.task.clone()));
-        if let Some(worker) = self.workers.get_mut(&name) {
-            worker.running.insert(task_id.to_string());
-            worker.send(OrchestratorMessage::Message {
+        if let Some(runner) = self.runners.get_mut(&name) {
+            runner.running.insert(task_id.to_string());
+            runner.send(OrchestratorMessage::Message {
                 task_id: task_id.to_string(),
                 text: instruction,
                 memories,
@@ -194,7 +194,7 @@ impl State {
             )));
         }
         let mut spec = task.spec.clone();
-        spec.worker = into.worker.or(spec.worker);
+        spec.runner = into.runner.or(spec.runner);
         spec.executor = into.executor.unwrap_or(spec.executor);
         self.check_eligible(&spec).map_err(CmdError::Conflict)?;
         Ok(spec)
@@ -219,7 +219,7 @@ impl State {
     }
 
     /// Puts a task that ended badly back in the queue as a fresh attempt.
-    // The old worker may still hold a worktree for this id; the runner's
+    // The old runner may still hold a worktree for this id; the runner's
     // `add_worktree` replaces a stale one, so nothing has to be torn down.
     pub fn retry(
         &mut self,
@@ -228,14 +228,14 @@ impl State {
     ) -> Result<(Task, Vec<TaskId>), CmdError> {
         let spec = self.retry_spec(task_id, into)?;
         let event = TaskEvent::Requeued {
-            worker: spec.worker.clone(),
+            runner: spec.runner.clone(),
             executor: spec.executor,
         };
         let mut changed = self.apply_event(task_id, event);
         let rec = self.tasks.get_mut(task_id).ok_or(CmdError::NotFound)?;
         rec.task.spec = spec;
         rec.task.status = TaskStatus::Queued;
-        rec.task.worker = None;
+        rec.task.runner = None;
         rec.task.error = None;
         tracing::info!(task = %task_id, "task requeued");
         changed.extend(self.schedule());

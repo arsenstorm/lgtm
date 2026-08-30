@@ -219,7 +219,7 @@ pub fn apply(
             .retry(
                 task_id,
                 RetryInto {
-                    worker: None,
+                    runner: None,
                     executor: None,
                 },
             )
@@ -290,7 +290,7 @@ fn create_task(
         base_branch: subject.spec.base_branch,
         prompt,
         executor: subject.spec.executor,
-        worker: None,
+        runner: None,
         issue: None,
         linear: None,
         kind: TaskKind::Run,

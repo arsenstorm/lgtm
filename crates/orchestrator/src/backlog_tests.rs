@@ -3,8 +3,8 @@
 
 use super::*;
 use lgtm_protocol::{
-    Batch, BatchSource, OrchestratorMessage, Plan, PlanStep, TaskEvent, TaskId, TaskResult,
-    WorkerInfo,
+    Batch, BatchSource, OrchestratorMessage, Plan, PlanStep, RunnerInfo, TaskEvent, TaskId,
+    TaskResult,
 };
 use tokio::sync::mpsc;
 
@@ -15,7 +15,7 @@ fn task(id: &str, status: TaskStatus, spec: TaskSpec) -> Task {
         id: id.into(),
         spec,
         status,
-        worker: None,
+        runner: None,
         created_at: 1,
         result: None,
         error: None,
@@ -46,7 +46,7 @@ fn candidate(number: u64) -> Candidate {
     let input = SpecInput {
         base_branch: "main".into(),
         executor: Executor::Claude,
-        worker: None,
+        runner: None,
         kind: TaskKind::Run,
         batch: Some("b0000001".into()),
         sandbox: None,
@@ -62,7 +62,7 @@ fn github_candidate_builds_the_from_issue_shape() {
     let input = SpecInput {
         base_branch: "trunk".into(),
         executor: Executor::Codex,
-        worker: Some("w".into()),
+        runner: Some("w".into()),
         kind: TaskKind::Plan,
         batch: Some("b0000001".into()),
         sandbox: None,
@@ -85,7 +85,7 @@ fn github_candidate_builds_the_from_issue_shape() {
         "Resolve GitHub issue #12: Issue 12\n\nplease fix"
     );
     assert_eq!(spec.executor, Executor::Codex);
-    assert_eq!(spec.worker.as_deref(), Some("w"));
+    assert_eq!(spec.runner.as_deref(), Some("w"));
     assert_eq!(spec.kind, TaskKind::Plan);
     assert_eq!(spec.batch.as_deref(), Some("b0000001"));
     assert_eq!(
@@ -211,10 +211,10 @@ fn batch_with_plan(state: &mut State, approve_plans: bool) -> TaskId {
     id
 }
 
-fn worker(state: &mut State) -> mpsc::UnboundedReceiver<OrchestratorMessage> {
+fn runner(state: &mut State) -> mpsc::UnboundedReceiver<OrchestratorMessage> {
     let (tx, rx) = mpsc::unbounded_channel();
-    state.worker_hello(
-        WorkerInfo {
+    state.runner_hello(
+        RunnerInfo {
             name: "w".into(),
             os: "linux".into(),
             arch: "x86_64".into(),
@@ -232,7 +232,7 @@ fn worker(state: &mut State) -> mpsc::UnboundedReceiver<OrchestratorMessage> {
 #[test]
 fn batch_approve_plans_turns_a_plan_into_its_steps() {
     let mut state = State::default();
-    let _w = worker(&mut state);
+    let _w = runner(&mut state);
     let plan = batch_with_plan(&mut state, true);
     assert_eq!(state.tasks[&plan].task.status, TaskStatus::AwaitingReview);
 
@@ -262,7 +262,7 @@ fn batch_approve_plans_turns_a_plan_into_its_steps() {
 #[test]
 fn a_plan_outside_an_approving_batch_waits_for_a_person() {
     let mut state = State::default();
-    let _w = worker(&mut state);
+    let _w = runner(&mut state);
     let plan = batch_with_plan(&mut state, false);
     assert!(state.auto_approve_plan(&plan).is_empty());
     assert_eq!(state.tasks[&plan].task.status, TaskStatus::AwaitingReview);

@@ -1,8 +1,8 @@
-//! `lgtm serve` and `lgtm worker`: the two long-running commands.
+//! `lgtm serve` and `lgtm runner`: the two long-running commands.
 
 use lgtm_orchestrator::token::data_dir;
 
-use crate::cli::{ServeArgs, WorkerArgs};
+use crate::cli::{RunnerArgs, ServeArgs};
 use crate::require_token;
 
 pub async fn serve(args: ServeArgs, token: Option<String>) -> anyhow::Result<i32> {
@@ -35,26 +35,31 @@ pub async fn serve(args: ServeArgs, token: Option<String>) -> anyhow::Result<i32
     eprintln!("{}", lgtm_orchestrator::local::join_line_for(&serve_opts));
     lgtm_orchestrator::local::serve_local(lgtm_orchestrator::local::LocalOptions {
         serve: serve_opts,
-        worker: !args.no_worker,
-        worker_name: lgtm_agent::default_name(),
-        worker_slots: lgtm_agent::default_slots(),
+        runner: !args.no_runner,
+        runner_name: lgtm_agent::default_name(),
+        runner_slots: lgtm_agent::default_slots(),
     })
     .await?;
     Ok(0)
 }
 
-pub async fn worker(
-    args: WorkerArgs,
+pub async fn runner(
+    args: RunnerArgs,
     token: Option<String>,
     ca: Option<std::path::PathBuf>,
 ) -> anyhow::Result<i32> {
     init_tracing();
     let data_dir = data_dir(args.data_dir);
     let token = require_token(token, &data_dir);
-    lgtm_agent::run(lgtm_agent::WorkerOptions {
+    lgtm_agent::run(lgtm_agent::RunnerOptions {
         orchestrator: ws_url(&args.url),
         token,
-        name: args.name.unwrap_or_else(lgtm_agent::default_name),
+        // clap only binds one env var per flag; the pre-rename name is read
+        // by hand so an existing LGTM_WORKER_NAME setup keeps working.
+        name: args
+            .name
+            .or_else(|| std::env::var("LGTM_WORKER_NAME").ok())
+            .unwrap_or_else(lgtm_agent::default_name),
         data_dir,
         slots: args.slots.unwrap_or_else(lgtm_agent::default_slots),
         ephemeral: args.ephemeral,
@@ -82,7 +87,7 @@ fn provision_options(
     })
 }
 
-/// A specific bind address is the only one workers can dial; `0.0.0.0`
+/// A specific bind address is the only one runners can dial; `0.0.0.0`
 /// becomes the address this machine advertises.
 fn advertised(bind: std::net::SocketAddr) -> String {
     if bind.ip().is_unspecified() {
@@ -92,9 +97,9 @@ fn advertised(bind: std::net::SocketAddr) -> String {
     }
 }
 
-/// Best-guess URL a provisioned worker can reach this orchestrator at, when
+/// Best-guess URL a provisioned runner can reach this orchestrator at, when
 /// `--public-url` isn't given: `bind`'s scheme plus host, with `0.0.0.0`
-/// (which a worker on another machine can't dial) swapped for the address
+/// (which a runner on another machine can't dial) swapped for the address
 /// this machine advertises in its join line.
 fn default_public_url(bind: &str, tls: bool, ip: &str) -> String {
     let scheme = if tls { "https" } else { "http" };
@@ -102,7 +107,7 @@ fn default_public_url(bind: &str, tls: bool, ip: &str) -> String {
     format!("{scheme}://{host}")
 }
 
-/// `lgtm worker` takes the same URL a person would paste from a browser, so
+/// `lgtm runner` takes the same URL a person would paste from a browser, so
 /// an http(s) one becomes its ws(s) equivalent.
 fn ws_url(url: &str) -> String {
     match url.split_once("://") {

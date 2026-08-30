@@ -1,4 +1,4 @@
-//! Ephemeral workers on demand: when the queue holds work no connected worker
+//! Ephemeral runners on demand: when the queue holds work no connected runner
 //! can take, run a command that is expected to bring one up.
 
 use std::sync::Arc;
@@ -11,15 +11,15 @@ use crate::ProvisionOptions;
 
 /// How often the queue is looked at.
 const PROVISION_INTERVAL: Duration = Duration::from_secs(30);
-/// How long a launched worker gets to connect before another one is allowed.
+/// How long a launched runner gets to connect before another one is allowed.
 const PROVISION_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
-/// Connected workers that go away by themselves.
+/// Connected runners that go away by themselves.
 fn ephemeral_count(state: &State) -> u32 {
     let count = state
-        .workers
+        .runners
         .values()
-        .filter(|worker| worker.is_connected() && worker.info.ephemeral)
+        .filter(|runner| runner.is_connected() && runner.info.ephemeral)
         .count();
     u32::try_from(count).unwrap_or(u32::MAX)
 }
@@ -33,7 +33,7 @@ fn queued_count(state: &State) -> u32 {
     u32::try_from(count).unwrap_or(u32::MAX)
 }
 
-/// Whether a worker should be started: some ready task has nowhere to run, we
+/// Whether a runner should be started: some ready task has nowhere to run, we
 /// are under the cap, and nothing we started is still on its way.
 pub fn needs_provision(state: &State, max: u32, in_flight: bool) -> bool {
     if in_flight || ephemeral_count(state) >= max {
@@ -42,15 +42,15 @@ pub fn needs_provision(state: &State, max: u32, in_flight: bool) -> bool {
     state.tasks.values().any(|rec| {
         state.is_ready(&rec.task)
             && !state
-                .workers
+                .runners
                 .values()
-                .any(|worker| worker.can_run(&rec.task.spec))
+                .any(|runner| runner.can_run(&rec.task.spec))
     })
 }
 
 pub async fn run(app: Arc<App>, opts: ProvisionOptions, token: String) {
     // Instant of the launch and the ephemeral count it saw, so the next tick
-    // can tell whether the worker arrived.
+    // can tell whether the runner arrived.
     let mut in_flight: Option<(Instant, u32)> = None;
     loop {
         tokio::time::sleep(PROVISION_INTERVAL).await;
@@ -68,12 +68,12 @@ pub async fn run(app: Arc<App>, opts: ProvisionOptions, token: String) {
             continue;
         };
         in_flight = Some((Instant::now(), ephemeral));
-        spawn_worker(&opts, &token, queued);
+        spawn_runner(&opts, &token, queued);
     }
 }
 
-fn spawn_worker(opts: &ProvisionOptions, token: &str, queued: u32) {
-    tracing::info!(command = %opts.command, queued, "provisioning a worker");
+fn spawn_runner(opts: &ProvisionOptions, token: &str, queued: u32) {
+    tracing::info!(command = %opts.command, queued, "provisioning a runner");
     let mut cmd = tokio::process::Command::new("sh");
     cmd.arg("-c")
         .arg(&opts.command)
@@ -95,18 +95,18 @@ fn spawn_worker(opts: &ProvisionOptions, token: &str, queued: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{Conn, TaskRecord, WorkerConn};
-    use lgtm_protocol::{Executor, Task, TaskId, TaskKind, TaskSpec, WorkerInfo};
+    use crate::state::{Conn, RunnerConn, TaskRecord};
+    use lgtm_protocol::{Executor, RunnerInfo, Task, TaskId, TaskKind, TaskSpec};
     use std::collections::HashSet;
 
-    /// Registers a connected worker. Nothing is ever sent to it, so the
+    /// Registers a connected runner. Nothing is ever sent to it, so the
     /// receiver going away here does not matter.
     fn connect(state: &mut State, name: &str, slots: u32, ephemeral: bool) {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        state.workers.insert(
+        state.runners.insert(
             name.to_string(),
-            WorkerConn {
-                info: WorkerInfo {
+            RunnerConn {
+                info: RunnerInfo {
                     name: name.to_string(),
                     os: "linux".into(),
                     arch: "x86_64".into(),
@@ -125,7 +125,7 @@ mod tests {
     fn task(
         state: &mut State,
         status: TaskStatus,
-        worker: Option<&str>,
+        runner: Option<&str>,
         deps: Vec<TaskId>,
     ) -> TaskId {
         let id = state.new_id();
@@ -136,7 +136,7 @@ mod tests {
                 base_branch: "main".into(),
                 prompt: "do the thing".into(),
                 executor: Executor::Claude,
-                worker: worker.map(str::to_string),
+                runner: runner.map(str::to_string),
                 issue: None,
                 linear: None,
                 kind: TaskKind::Run,
@@ -152,7 +152,7 @@ mod tests {
                 allowed_hosts: Vec::new(),
             },
             status,
-            worker: None,
+            runner: None,
             created_at: 1,
             result: None,
             error: None,
@@ -178,18 +178,18 @@ mod tests {
     }
 
     #[test]
-    fn a_worker_that_could_take_it_is_enough() {
+    fn a_runner_that_could_take_it_is_enough() {
         let mut state = State::default();
         task(&mut state, TaskStatus::Queued, None, Vec::new());
         connect(&mut state, "a", 1, false);
         assert!(!needs_provision(&state, 2, false));
         // Its only slot is taken, so the task still has nowhere to go.
-        state.workers.get_mut("a").unwrap().running = ["busy".to_string()].into_iter().collect();
+        state.runners.get_mut("a").unwrap().running = ["busy".to_string()].into_iter().collect();
         assert!(needs_provision(&state, 2, false));
     }
 
     #[test]
-    fn a_pinned_task_still_needs_a_worker() {
+    fn a_pinned_task_still_needs_a_runner() {
         let mut state = State::default();
         task(&mut state, TaskStatus::Queued, Some("gone"), Vec::new());
         assert!(needs_provision(&state, 2, false));

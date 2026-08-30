@@ -8,7 +8,7 @@ LGTM is a Rust workspace. You need a stable Rust toolchain (via `rustup`)
 and `git` on `PATH`.
 
 ```sh
-cargo run -p lgtm-cli --bin lgtm -- serve    # orchestrator plus a local worker
+cargo run -p lgtm-cli --bin lgtm -- serve    # orchestrator plus a local runner
 cargo run -p lgtm-desktop                    # the desktop app
 ```
 

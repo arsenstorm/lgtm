@@ -17,8 +17,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
-    overlaps, plan_versions, Executor, OrchestratorMessage, PlanVersion, SandboxProfile, Stats,
-    Task, TaskEvent, TaskKind, TaskSpec, TaskStatus, WorkerStatus,
+    overlaps, plan_versions, Executor, OrchestratorMessage, PlanVersion, RunnerStatus,
+    SandboxProfile, Stats, Task, TaskEvent, TaskKind, TaskSpec, TaskStatus,
 };
 use serde::Deserialize;
 
@@ -60,7 +60,9 @@ impl From<crate::github::MergeError> for ApiError {
 
 pub fn router(app: Arc<App>) -> Router<Arc<App>> {
     Router::new()
-        .route("/workers", get(workers))
+        .route("/runners", get(runners))
+        // Kept one release so an old CLI/desktop build still finds it.
+        .route("/workers", get(runners))
         .route("/stats", get(stats))
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/from-issue", post(create_task_from_issue))
@@ -115,13 +117,13 @@ async fn auth(State(app): State<Arc<App>>, req: Request, next: Next) -> Response
     }
 }
 
-async fn workers(State(app): State<Arc<App>>) -> Json<Vec<WorkerStatus>> {
+async fn runners(State(app): State<Arc<App>>) -> Json<Vec<RunnerStatus>> {
     let state = app.state.lock().unwrap();
-    let mut out: Vec<WorkerStatus> = state
-        .workers
+    let mut out: Vec<RunnerStatus> = state
+        .runners
         .values()
         .filter(|conn| conn.is_connected())
-        .map(|conn| WorkerStatus {
+        .map(|conn| RunnerStatus {
             info: conn.info.clone(),
             running: conn.running.iter().cloned().collect(),
         })
@@ -183,8 +185,8 @@ struct FromIssueBody {
     issue: String,
     base_branch: String,
     executor: Executor,
-    #[serde(default)]
-    worker: Option<String>,
+    #[serde(default, alias = "worker")]
+    runner: Option<String>,
     #[serde(default)]
     sandbox: Option<SandboxProfile>,
     #[serde(default)]
@@ -210,7 +212,7 @@ async fn create_task_from_issue(
     let input = SpecInput {
         base_branch: body.base_branch,
         executor: body.executor,
-        worker: body.worker,
+        runner: body.runner,
         kind: TaskKind::Run,
         batch: None,
         sandbox: body.sandbox,
@@ -238,8 +240,8 @@ struct FromLinearBody {
     repository: String,
     base_branch: String,
     executor: Executor,
-    #[serde(default)]
-    worker: Option<String>,
+    #[serde(default, alias = "worker")]
+    runner: Option<String>,
     #[serde(default)]
     sandbox: Option<SandboxProfile>,
     #[serde(default)]
@@ -265,7 +267,7 @@ async fn create_task_from_linear(
     let input = SpecInput {
         base_branch: body.base_branch,
         executor: body.executor,
-        worker: body.worker,
+        runner: body.runner,
         kind: TaskKind::Run,
         batch: None,
         sandbox: body.sandbox,
@@ -305,8 +307,8 @@ async fn message(
 
 #[derive(Deserialize)]
 struct RetryBody {
-    #[serde(default)]
-    worker: Option<String>,
+    #[serde(default, alias = "worker")]
+    runner: Option<String>,
     #[serde(default)]
     executor: Option<Executor>,
 }
@@ -321,7 +323,7 @@ async fn retry(
     let (task, changed) = state.retry(
         &id,
         RetryInto {
-            worker: body.worker,
+            runner: body.runner,
             executor: body.executor,
         },
     )?;

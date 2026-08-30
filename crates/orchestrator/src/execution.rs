@@ -54,7 +54,7 @@ fn start(task: &mut Task, model: Option<String>, now: u64) {
     }
     task.executions.push(Execution {
         attempt: task.executions.len() as u32 + 1,
-        worker: task.worker.clone().unwrap_or_default(),
+        runner: task.runner.clone().unwrap_or_default(),
         executor: task.spec.executor,
         model,
         started_at: now,

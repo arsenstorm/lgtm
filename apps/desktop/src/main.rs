@@ -161,7 +161,7 @@ fn startup() -> Option<Config> {
     }
 }
 
-/// Starts the orchestrator and a worker for it on the app's tokio runtime.
+/// Starts the orchestrator and a runner for it on the app's tokio runtime.
 fn host(orchestrator: String, data_dir: PathBuf, embedded: bool) -> Option<Config> {
     let (token, source) = token::resolve_or_create(None, &data_dir)
         .inspect_err(|e| eprintln!("cannot resolve a token: {e:#}"))
@@ -185,9 +185,9 @@ fn host(orchestrator: String, data_dir: PathBuf, embedded: bool) -> Option<Confi
         if let Err(e) =
             lgtm_orchestrator::local::serve_local(lgtm_orchestrator::local::LocalOptions {
                 serve,
-                worker: true,
-                worker_name: lgtm_agent::default_name(),
-                worker_slots: lgtm_agent::default_slots(),
+                runner: true,
+                runner_name: lgtm_agent::default_name(),
+                runner_slots: lgtm_agent::default_slots(),
             })
             .await
         {

@@ -12,7 +12,7 @@ use lgtm_protocol::{
 use tokio::sync::{broadcast, mpsc};
 
 use crate::persist::Persist;
-pub use crate::worker::{Conn, WorkerConn};
+pub use crate::runner::{Conn, RunnerConn};
 
 const LIVE_CAPACITY: usize = 1024;
 /// Terminal output kept per task, in bytes. Enough for someone attaching late
@@ -59,7 +59,7 @@ impl App {
     }
 
     /// A bearer token for a one-time push, or `None` to leave it to the
-    /// worker's own git credentials: no `GITHUB_TOKEN`, or a repository
+    /// runner's own git credentials: no `GITHUB_TOKEN`, or a repository
     /// that isn't on GitHub over https.
     pub fn push_token(&self, task: &Task) -> Option<String> {
         push_token(self.github.as_ref(), task)
@@ -102,7 +102,7 @@ pub(crate) fn push_token(github: Option<&lgtm_github::GitHub>, task: &Task) -> O
 
 #[derive(Default)]
 pub struct State {
-    pub workers: HashMap<String, WorkerConn>,
+    pub runners: HashMap<String, RunnerConn>,
     pub tasks: HashMap<TaskId, TaskRecord>,
     /// Backlog imports, by id. A task points back with `spec.batch`.
     pub batches: HashMap<String, Batch>,
@@ -112,9 +112,9 @@ pub struct State {
     pub goals: HashMap<String, Goal>,
     /// Lightweight notes about work to do, by id.
     pub todos: HashMap<String, Todo>,
-    /// Accept tasks no connected worker can run, because provisioning is on
-    /// and a worker for them is a queue away.
-    pub queue_without_workers: bool,
+    /// Accept tasks no connected runner can run, because provisioning is on
+    /// and a runner for them is a queue away.
+    pub queue_without_runners: bool,
 }
 
 pub struct TaskRecord {
@@ -166,7 +166,7 @@ impl TaskRecord {
     }
 
     /// Head of the pushed branch, from the last `Pushed` event that carried
-    /// one. Workers before phase 5 pushed without a sha.
+    /// one. Runners before phase 5 pushed without a sha.
     pub fn pushed_sha(&self) -> Option<String> {
         self.events
             .iter()
@@ -191,7 +191,7 @@ impl TaskRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrPlan {
     pub pull: lgtm_github::NewPull,
-    /// Head sha to poll checks for, empty when the worker did not report one.
+    /// Head sha to poll checks for, empty when the runner did not report one.
     pub sha: String,
 }
 
@@ -385,53 +385,53 @@ impl State {
         {
             return Err(format!("unknown goal {id}"));
         }
-        if let Some(name) = &spec.worker {
-            let worker = self
-                .workers
+        if let Some(name) = &spec.runner {
+            let runner = self
+                .runners
                 .get(name)
-                .filter(|worker| worker.is_connected())
-                .ok_or_else(|| format!("worker {name} is not connected"))?;
-            if !worker.info.executors.contains(&spec.executor) {
+                .filter(|runner| runner.is_connected())
+                .ok_or_else(|| format!("runner {name} is not connected"))?;
+            if !runner.info.executors.contains(&spec.executor) {
                 let executor = spec.executor.binary();
-                return Err(format!("worker {name} does not have {executor}"));
+                return Err(format!("runner {name} does not have {executor}"));
             }
             if let Some(missing) = spec
                 .requirements
                 .iter()
-                .find(|r| !worker.info.capabilities.contains(r))
+                .find(|r| !runner.info.capabilities.contains(r))
             {
-                return Err(format!("worker {name} lacks {missing}"));
+                return Err(format!("runner {name} lacks {missing}"));
             }
             return Ok(());
         }
-        let any = self.queue_without_workers
-            || self.workers.values().any(|worker| {
-                worker.is_connected()
-                    && worker.info.executors.contains(&spec.executor)
-                    && worker.info.has_all(&spec.requirements)
+        let any = self.queue_without_runners
+            || self.runners.values().any(|runner| {
+                runner.is_connected()
+                    && runner.info.executors.contains(&spec.executor)
+                    && runner.info.has_all(&spec.requirements)
             });
-        any.then_some(()).ok_or_else(|| "no eligible worker".into())
+        any.then_some(()).ok_or_else(|| "no eligible runner".into())
     }
 
-    /// Connected worker with the most free slots that can run `spec`, ties
+    /// Connected runner with the most free slots that can run `spec`, ties
     /// broken by the lowest name.
     fn candidate(&self, spec: &TaskSpec) -> Option<String> {
-        self.workers
+        self.runners
             .values()
-            .filter(|worker| worker.can_run(spec) && spec.pins(&worker.info.name))
+            .filter(|runner| runner.can_run(spec) && spec.pins(&runner.info.name))
             .max_by(|a, b| {
                 a.free_slots()
                     .cmp(&b.free_slots())
                     .then_with(|| b.info.name.cmp(&a.info.name))
             })
-            .map(|worker| worker.info.name.clone())
+            .map(|runner| runner.info.name.clone())
     }
 
     /// Assigns unassigned queued tasks, oldest first, and starts them.
     /// Returns the ids it assigned.
     /// Queued, unassigned, and not waiting on any dependency.
     pub fn is_ready(&self, task: &Task) -> bool {
-        task.status == TaskStatus::Queued && task.worker.is_none() && self.deps_met(&task.spec)
+        task.status == TaskStatus::Queued && task.runner.is_none() && self.deps_met(&task.spec)
     }
 
     pub fn schedule(&mut self) -> Vec<TaskId> {
@@ -454,17 +454,17 @@ impl State {
             let Some(rec) = self.tasks.get_mut(&id) else {
                 continue;
             };
-            rec.task.worker = Some(name.clone());
+            rec.task.runner = Some(name.clone());
             let task = rec.task.clone();
             let memories = self.memories_for(&task.spec.repository);
-            if let Some(worker) = self.workers.get_mut(&name) {
-                worker.running.insert(id.clone());
-                worker.send(OrchestratorMessage::Start {
+            if let Some(runner) = self.runners.get_mut(&name) {
+                runner.running.insert(id.clone());
+                runner.send(OrchestratorMessage::Start {
                     task: Box::new(task),
                     memories,
                 });
             }
-            tracing::info!(task = %id, worker = %name, "task assigned");
+            tracing::info!(task = %id, runner = %name, "task assigned");
             assigned.push(id);
         }
         assigned
@@ -477,7 +477,7 @@ impl State {
             id: self.new_id(),
             spec,
             status: TaskStatus::Queued,
-            worker: None,
+            runner: None,
             created_at: now_ms(),
             result: None,
             error: None,
@@ -504,7 +504,7 @@ impl State {
         }
     }
 
-    /// Records a worker event, applies its status transition, and reschedules
+    /// Records a runner event, applies its status transition, and reschedules
     /// if it freed a slot. Returns the ids to persist.
     pub fn apply_event(&mut self, task_id: &str, event: TaskEvent) -> Vec<TaskId> {
         let Some(rec) = self.tasks.get_mut(task_id) else {
@@ -520,13 +520,13 @@ impl State {
         crate::execution::record(&mut rec.task, &stored.event, stored.at);
         let finished = transition(&mut rec.task, &stored.event);
         let status = rec.task.status;
-        let worker = rec.task.worker.clone();
+        let runner = rec.task.runner.clone();
         let _ = rec.live.send(stored);
         tracing::debug!(task = %task_id, ?status, "task event applied");
         let freed = finished
-            && worker
-                .and_then(|name| self.workers.get_mut(&name))
-                .is_some_and(|worker| worker.running.remove(task_id));
+            && runner
+                .and_then(|name| self.runners.get_mut(&name))
+                .is_some_and(|runner| runner.running.remove(task_id));
         let mut changed = vec![task_id.to_string()];
         if freed {
             changed.extend(self.schedule());
@@ -554,7 +554,7 @@ impl State {
 }
 
 /// Moves the task's status for `event` and says whether the run ended. A
-/// worker that reconnects may keep reporting on a task we already failed;
+/// runner that reconnects may keep reporting on a task we already failed;
 /// the event is kept but a terminal status is left alone.
 fn transition(task: &mut Task, event: &TaskEvent) -> bool {
     let terminal = task.status.is_terminal();

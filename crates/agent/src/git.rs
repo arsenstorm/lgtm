@@ -6,7 +6,7 @@ use anyhow::{bail, Context, Result};
 use lgtm_protocol::TaskResult;
 use tokio::process::Command;
 
-/// Identity for commits made on behalf of the agent; the worker machine has no
+/// Identity for commits made on behalf of the agent; the runner machine has no
 /// git identity of its own.
 pub const IDENTITY: [&str; 4] = ["-c", "user.name=lgtm", "-c", "user.email=lgtm@localhost"];
 

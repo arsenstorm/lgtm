@@ -5,7 +5,7 @@
 //! back over an unbounded channel that the GPUI side drains (see `App::pump`).
 
 use lgtm_client::{BatchRequest, BatchResponse, Client, TaskDetail};
-use lgtm_protocol::{Batch, GoalSummary, Stats, StoredEvent, Task, TaskSpec, WorkerStatus};
+use lgtm_protocol::{Batch, GoalSummary, RunnerStatus, Stats, StoredEvent, Task, TaskSpec};
 use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -23,7 +23,7 @@ pub type Sender = UnboundedSender<Msg>;
 /// One refresh of everything the chrome lists.
 pub struct Lists {
     pub tasks: Vec<Task>,
-    pub workers: Vec<WorkerStatus>,
+    pub runners: Vec<RunnerStatus>,
     pub batches: Vec<Batch>,
     pub goals: Vec<GoalSummary>,
     /// `None` on the polls that skipped stats; the view keeps the last ones.
@@ -69,13 +69,13 @@ pub fn reachable(orchestrator: &str, token: &str) -> bool {
     let client = Client::new(orchestrator, token);
     runtime().block_on(async move {
         matches!(
-            tokio::time::timeout(PROBE_TIMEOUT, client.workers()).await,
+            tokio::time::timeout(PROBE_TIMEOUT, client.runners()).await,
             Ok(Ok(_))
         )
     })
 }
 
-/// Refreshes the task and worker lists every two seconds, forever.
+/// Refreshes the task and runner lists every two seconds, forever.
 pub fn poll(client: Client, tx: Sender) {
     runtime().spawn(async move {
         let mut tick = 0u32;
@@ -99,7 +99,7 @@ pub fn refresh(client: Client, tx: Sender) {
 
 async fn fetch_lists(client: &Client, with_stats: bool) -> Result<Lists, String> {
     let tasks = client.tasks().await.map_err(|e| e.to_string())?;
-    let workers = client.workers().await.map_err(|e| e.to_string())?;
+    let runners = client.runners().await.map_err(|e| e.to_string())?;
     // A failing secondary call must not take down the whole refresh.
     let batches = client.batches().await.unwrap_or_default();
     let goals = client.goals().await.unwrap_or_default();
@@ -109,7 +109,7 @@ async fn fetch_lists(client: &Client, with_stats: bool) -> Result<Lists, String>
     };
     Ok(Lists {
         tasks,
-        workers,
+        runners,
         batches,
         goals,
         stats,

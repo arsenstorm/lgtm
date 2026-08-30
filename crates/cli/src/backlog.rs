@@ -47,7 +47,7 @@ pub async fn create(
         repository,
         base_branch: flags.base,
         executor: flags.agent,
-        worker: flags.on,
+        runner: flags.on,
         plan: flags.plan,
         approve_plans: flags.approve_plans,
         max: flags.max,

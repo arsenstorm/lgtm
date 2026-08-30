@@ -20,7 +20,7 @@ use gpui::{
 };
 use gpui_component::input::{InputEvent, InputState};
 use lgtm_client::Client;
-use lgtm_protocol::{Batch, GoalSummary, Overlap, Stats, StoredEvent, Task, WorkerStatus};
+use lgtm_protocol::{Batch, GoalSummary, Overlap, RunnerStatus, Stats, StoredEvent, Task};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
@@ -127,7 +127,7 @@ pub struct ComposerState {
     pub plus_menu: bool,
     /// The `+` menu is showing its base-branch field.
     pub branch_edit: bool,
-    pub worker_menu: bool,
+    pub runner_menu: bool,
 }
 
 /// The chrome's own state: what is open, unfolded, scrolled, or remembered.
@@ -179,7 +179,7 @@ pub struct LgtmApp {
     pub client: Client,
     pub tx: net::Sender,
     pub tasks: Vec<Task>,
-    pub workers: Vec<WorkerStatus>,
+    pub runners: Vec<RunnerStatus>,
     pub batches: Vec<Batch>,
     pub goals: Vec<GoalSummary>,
     /// Orchestrator-wide, and only refreshed on one poll in ten.
@@ -225,7 +225,7 @@ impl LgtmApp {
             client,
             tx,
             tasks: Vec::new(),
-            workers: Vec::new(),
+            runners: Vec::new(),
             batches: Vec::new(),
             goals: Vec::new(),
             stats: None,

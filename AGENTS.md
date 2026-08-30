@@ -5,8 +5,8 @@ LGTM is a Rust workspace. There is no JavaScript toolchain.
 ## Layout
 
 - `crates/protocol` — wire types shared by every binary
-- `crates/orchestrator` — task state, worker WebSocket, HTTP API, policy
-- `crates/agent` — the worker: git worktrees, agent runs, checks, review
+- `crates/orchestrator` — task state, runner WebSocket, HTTP API, policy
+- `crates/agent` — the runner: git worktrees, agent runs, checks, review
 - `crates/client` — HTTP/WebSocket client for the orchestrator API
 - `crates/github`, `crates/linear` — the two issue sources
 - `crates/cli` — `lgtm`, the developer command

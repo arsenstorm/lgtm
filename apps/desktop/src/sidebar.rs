@@ -307,8 +307,8 @@ fn status_dot(tone: gpui::Hsla) -> Div {
 /// One row: whether the orchestrator answered, and the way into Settings.
 fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> gpui::Stateful<Div> {
     let status = if app.link.reachable {
-        let n = app.workers.len();
-        format!("Connected · {n} worker{}", if n == 1 { "" } else { "s" })
+        let n = app.runners.len();
+        format!("Connected · {n} runner{}", if n == 1 { "" } else { "s" })
     } else {
         "Not connected".to_string()
     };
@@ -334,7 +334,7 @@ fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> gpui::Statefu
         .child(div().flex_1().min_w_0().truncate().child(status))
         .child(
             icon_button("open-settings", "settings", true, t)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_worker_settings(cx))),
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_runner_settings(cx))),
         )
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_worker_settings(cx)))
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_runner_settings(cx)))
 }

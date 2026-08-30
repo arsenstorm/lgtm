@@ -11,7 +11,7 @@ fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
             base_branch: "main".into(),
             prompt: "do the thing".into(),
             executor: Executor::Claude,
-            worker: None,
+            runner: None,
             issue: None,
             linear: None,
             kind: TaskKind::Run,
@@ -27,7 +27,7 @@ fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
             allowed_hosts: Vec::new(),
         },
         status,
-        worker: Some("w".into()),
+        runner: Some("w".into()),
         created_at: 1,
         result: Some(TaskResult {
             branch: "lgtm/0123abcd".into(),

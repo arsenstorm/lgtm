@@ -8,7 +8,7 @@ use crate::state::State;
 pub struct PromoteInto {
     pub base_branch: String,
     pub executor: Executor,
-    pub worker: Option<String>,
+    pub runner: Option<String>,
 }
 
 fn wire_status(status: TodoStatus) -> &'static str {
@@ -48,7 +48,7 @@ impl State {
             base_branch: into.base_branch,
             prompt,
             executor: into.executor,
-            worker: into.worker,
+            runner: into.runner,
             issue: None,
             linear: None,
             kind: TaskKind::Run,

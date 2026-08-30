@@ -204,12 +204,12 @@ fn chips(task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> 
     out
 }
 
-/// `repo · base · worker`, and the cost once there is one.
+/// `repo · base · runner`, and the cost once there is one.
 fn meta_line(task: &Task) -> String {
-    let worker = task.worker.as_deref().unwrap_or("unassigned");
+    let runner = task.runner.as_deref().unwrap_or("unassigned");
     let cost = task.result.as_ref().map(|r| r.cost_usd).unwrap_or(0.0);
     let mut meta = format!(
-        "{} · {} · {worker}",
+        "{} · {} · {runner}",
         repo_slug(&task.spec.repository),
         task.spec.base_branch
     );

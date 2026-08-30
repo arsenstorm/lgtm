@@ -94,7 +94,7 @@ fn pill(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
     let (tone, label) = match app.link.reachable {
         true => (
             t.success,
-            format!("Connected · {} runners", app.workers.len()),
+            format!("Connected · {} runners", app.runners.len()),
         ),
         false => (t.danger, "Disconnected".to_string()),
     };
@@ -137,10 +137,10 @@ fn popover(app: &LgtmApp, t: &Tokens) -> Div {
         .text_size(px(TEXT_SECONDARY))
         .text_color(t.muted_fg)
         .occlude()
-        .when(app.workers.is_empty(), |this| {
+        .when(app.runners.is_empty(), |this| {
             this.child(div().px(px(SPACE[1])).py(px(SPACE[0])).child("No runners"))
         })
-        .children(app.workers.iter().map(|worker| {
+        .children(app.runners.iter().map(|runner| {
             div()
                 .flex()
                 .items_center()
@@ -153,10 +153,10 @@ fn popover(app: &LgtmApp, t: &Tokens) -> Div {
                         .min_w_0()
                         .truncate()
                         .text_color(t.fg)
-                        .child(worker.info.name.clone()),
+                        .child(runner.info.name.clone()),
                 )
-                .child(format!("{}/{}", worker.running.len(), worker.info.slots))
-                .child(worker.info.os.clone())
+                .child(format!("{}/{}", runner.running.len(), runner.info.slots))
+                .child(runner.info.os.clone())
         }))
 }
 

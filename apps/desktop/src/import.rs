@@ -94,7 +94,7 @@ impl ImportForm {
             repository,
             base_branch: filled(read(&self.base)).unwrap_or_else(|| "main".into()),
             executor: Executor::Claude,
-            worker: None,
+            runner: None,
             plan: self.plan,
             approve_plans: self.approve,
             max: read(&self.max).parse().unwrap_or(DEFAULT_MAX),

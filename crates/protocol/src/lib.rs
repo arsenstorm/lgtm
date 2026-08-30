@@ -1,4 +1,4 @@
-//! Wire types shared by the orchestrator, worker agent, and CLI.
+//! Wire types shared by the orchestrator, runner agent, and CLI.
 //!
 //! Every message crosses a process boundary as JSON. Enums are tagged with
 //! `type` so a reader can dispatch on one field without knowing the variant.
@@ -12,8 +12,10 @@ pub use wire::*;
 pub const DEFAULT_PORT: u16 = 4750;
 /// Bumped on any incompatible change to the messages in `wire.rs`.
 pub const PROTOCOL_VERSION: u32 = 1;
-/// Orchestrator route the worker agent connects to.
-pub const WORKER_WS_PATH: &str = "/ws/worker";
+/// Orchestrator route the runner agent connects to.
+pub const RUNNER_WS_PATH: &str = "/ws/runner";
+/// Kept one release so a runner built before the rename can still connect.
+pub const LEGACY_WORKER_WS_PATH: &str = "/ws/worker";
 
 /// Eight lowercase hex characters, assigned by the orchestrator.
 pub type TaskId = String;
@@ -27,7 +29,7 @@ pub enum Executor {
 }
 
 impl Executor {
-    /// Executable name looked up on the worker's PATH.
+    /// Executable name looked up on the runner's PATH.
     pub fn binary(self) -> &'static str {
         match self {
             Executor::Claude => "claude",
@@ -87,7 +89,7 @@ pub enum TaskStatus {
     Failed,
     /// The runner killed the agent at the policy's `timeout_secs`.
     TimedOut,
-    /// The worker running it went away and did not come back.
+    /// The runner running it went away and did not come back.
     RunnerLost,
     Cancelled,
 }
@@ -184,13 +186,14 @@ impl DependsOn {
 /// What the developer asked for. Also the body of `POST /api/tasks`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct TaskSpec {
-    /// Git URL the worker clones from.
+    /// Git URL the runner clones from.
     pub repository: String,
     pub base_branch: String,
     pub prompt: String,
     pub executor: Executor,
-    /// Explicit worker name. `None` lets the orchestrator pick.
-    pub worker: Option<String>,
+    /// Explicit runner name. `None` lets the orchestrator pick.
+    #[serde(alias = "worker")]
+    pub runner: Option<String>,
     #[serde(default)]
     pub issue: Option<IssueRef>,
     #[serde(default)]
@@ -212,7 +215,7 @@ pub struct TaskSpec {
     /// `None` defers to the repository's `[sandbox] profile`, then `Standard`.
     #[serde(default)]
     pub sandbox: Option<SandboxProfile>,
-    /// Every one must appear in a worker's `capabilities` for it to run this.
+    /// Every one must appear in a runner's `capabilities` for it to run this.
     #[serde(default)]
     pub requirements: Vec<String>,
     /// The goal this task works toward.
@@ -230,9 +233,9 @@ pub struct TaskSpec {
 }
 
 impl TaskSpec {
-    /// Whether the spec lets `worker` run it: it names that worker, or none.
-    pub fn pins(&self, worker: &str) -> bool {
-        self.worker.as_deref().is_none_or(|name| name == worker)
+    /// Whether the spec lets `runner` run it: it names that runner, or none.
+    pub fn pins(&self, runner: &str) -> bool {
+        self.runner.as_deref().is_none_or(|name| name == runner)
     }
 }
 
@@ -491,7 +494,7 @@ pub struct PullRequest {
     pub url: String,
 }
 
-/// One check from the repository's `.lgtm/config.toml`, run by the worker
+/// One check from the repository's `.lgtm/config.toml`, run by the runner
 /// after the agent finished.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ValidationResult {
@@ -556,7 +559,7 @@ pub struct Policy {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TaskResult {
-    /// Branch on the worker holding the committed change, `lgtm/<task-id>`.
+    /// Branch on the runner holding the committed change, `lgtm/<task-id>`.
     pub branch: String,
     /// `git diff <merge-base> <branch>` output.
     pub diff: String,
@@ -596,7 +599,8 @@ pub enum ExecutionStatus {
 pub struct Execution {
     /// 1-based, per task.
     pub attempt: u32,
-    pub worker: String,
+    #[serde(alias = "worker")]
+    pub runner: String,
     pub executor: Executor,
     /// The model the task asked for; the harness default when `None`.
     #[serde(default)]
@@ -617,8 +621,9 @@ pub struct Task {
     pub id: TaskId,
     pub spec: TaskSpec,
     pub status: TaskStatus,
-    /// Worker the task was assigned to, once assigned.
-    pub worker: Option<String>,
+    /// Runner the task was assigned to, once assigned.
+    #[serde(alias = "worker")]
+    pub runner: Option<String>,
     /// Unix milliseconds.
     pub created_at: u64,
     pub result: Option<TaskResult>,
@@ -802,7 +807,7 @@ pub struct Stats {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct WorkerInfo {
+pub struct RunnerInfo {
     pub name: String,
     /// `std::env::consts::OS`.
     pub os: String,
@@ -810,7 +815,7 @@ pub struct WorkerInfo {
     pub arch: String,
     /// Executors whose binary was found on PATH at startup.
     pub executors: Vec<Executor>,
-    /// Maximum tasks the worker runs at once.
+    /// Maximum tasks the runner runs at once.
     #[serde(default = "one")]
     pub slots: u32,
     /// Exits after its tasks; the orchestrator forgets it at once on `Goodbye`.
@@ -821,7 +826,7 @@ pub struct WorkerInfo {
     pub capabilities: Vec<String>,
 }
 
-impl WorkerInfo {
+impl RunnerInfo {
     /// True when every requirement is in `capabilities`.
     pub fn has_all(&self, requirements: &[String]) -> bool {
         requirements.iter().all(|r| self.capabilities.contains(r))
@@ -832,10 +837,10 @@ fn one() -> u32 {
     1
 }
 
-/// Body of `GET /api/workers`.
+/// Body of `GET /api/runners`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct WorkerStatus {
-    pub info: WorkerInfo,
+pub struct RunnerStatus {
+    pub info: RunnerInfo,
     pub running: Vec<TaskId>,
 }
 
