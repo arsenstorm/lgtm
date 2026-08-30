@@ -73,6 +73,27 @@ review already cleared, and it refuses a new task that depends on work
 outside the goal. Every decision, refusal and failure is on the task's event
 log (`lgtm logs <id>`). Tasks that belong to no goal are never touched.
 
+## Agent tools
+
+Every agent run gets LGTM's own context over MCP, so the harness reaches it
+with tools instead of file conventions:
+
+| Tool | What it does |
+| --- | --- |
+| `memories_list` | The facts recorded for this repository. |
+| `memory_propose` | Propose a fact for the next run to be told. |
+| `todos_list` | The open todos for this repository. |
+| `todo_create` | Note work the run spotted but did not do. |
+| `scratchpad_read` | The working notes kept for this task. |
+| `scratchpad_write` | Replace those notes. |
+
+The worker registers the server (`lgtm mcp`, this same binary, over stdio)
+with claude and codex for every run; there is nothing to configure.
+
+An agent cannot write a memory directly: `memory_propose` files a todo
+titled `Proposed memory: …`. You read it, and `lgtm memory add "…"` makes it
+a memory every later run is told.
+
 ## Repository config
 
 A repository can declare its checks and its policy in `.lgtm/config.toml`.

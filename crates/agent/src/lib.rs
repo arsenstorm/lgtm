@@ -124,7 +124,7 @@ pub async fn run(opts: WorkerOptions) -> Result<()> {
 
     let link = connection::Link {
         url: format!("{}{WORKER_WS_PATH}", opts.orchestrator),
-        token: opts.token,
+        token: opts.token.clone(),
         info,
         connector: opts.ca.as_deref().map(load_connector).transpose()?,
     };
@@ -132,7 +132,14 @@ pub async fn run(opts: WorkerOptions) -> Result<()> {
     // One channel for the process lifetime: events emitted while disconnected
     // wait here and flush on the next connection.
     let (tx, rx) = mpsc::unbounded_channel();
-    let ctx = Arc::new(Ctx::new(opts.data_dir, tx, opts.ephemeral, opts.max_tasks));
+    let ctx = Arc::new(Ctx::new(
+        opts.data_dir,
+        opts.orchestrator,
+        opts.token,
+        tx,
+        opts.ephemeral,
+        opts.max_tasks,
+    ));
 
     tokio::spawn(shutdown(ctx.clone()));
 

@@ -27,6 +27,10 @@ const READ_TIMEOUT: Duration = Duration::from_secs(45);
 /// Shared state every task runner needs.
 pub struct Ctx {
     pub data_dir: PathBuf,
+    /// `ws(s)://host:port`, no path: what an agent run's MCP server is
+    /// pointed at, and what this worker dials.
+    pub orchestrator: String,
+    pub token: String,
     pub tx: mpsc::UnboundedSender<WorkerMessage>,
     pub running: Mutex<HashMap<TaskId, oneshot::Sender<()>>>,
     /// Mirror path per task, so a discard after a restart of the task still
@@ -44,12 +48,16 @@ pub struct Ctx {
 impl Ctx {
     pub fn new(
         data_dir: PathBuf,
+        orchestrator: String,
+        token: String,
         tx: mpsc::UnboundedSender<WorkerMessage>,
         ephemeral: bool,
         max_tasks: u32,
     ) -> Self {
         Self {
             data_dir,
+            orchestrator,
+            token,
             tx,
             running: Mutex::new(HashMap::new()),
             mirrors: Mutex::new(HashMap::new()),

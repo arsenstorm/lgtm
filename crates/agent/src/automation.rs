@@ -12,6 +12,7 @@ use lgtm_protocol::{
     Executor, OutputStream, Policy, Review, SandboxProfile, Task, TaskEvent, TaskKind, TaskResult,
     ValidationResult,
 };
+use serde_json::json;
 use tokio::process::Command;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -34,7 +35,7 @@ use crate::validate::{load_validation, run_validation, tail};
 const FIX_MESSAGE: &str = "fix failing checks";
 
 /// Told to a `Run` as the last paragraph of its prompt.
-const NOTES: &str = "\n\nKeep your working notes in .lgtm/scratchpad.md: findings, open questions, decisions, and the files that matter. Whoever continues this task reads that file first.";
+const NOTES: &str = "\n\nKeep your working notes in .lgtm/scratchpad.md, or with the `scratchpad_write` tool: findings, open questions, decisions, and the files that matter. Whoever continues this task reads them first. Use `memory_propose` for a fact the next run should know, and `todo_create` for work you noticed but did not do.";
 
 /// The notes travel over the socket and are stored with the task, so a file
 /// that ran away is truncated rather than carried.
@@ -441,7 +442,8 @@ impl Run<'_> {
             cmd.env_clear()
                 .envs(std::env::vars().filter(|(name, _)| sandbox::keep_env(name)));
         }
-        cmd.current_dir(self.worktree)
+        cmd.envs(self.mcp_env())
+            .current_dir(self.worktree)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -449,11 +451,34 @@ impl Run<'_> {
         cmd
     }
 
+    /// What `lgtm mcp` reads to answer for this run.
+    fn mcp_env(&self) -> [(&'static str, String); 4] {
+        [
+            ("LGTM_ORCHESTRATOR", http_url(&self.ctx.orchestrator)),
+            ("LGTM_TOKEN", self.ctx.token.clone()),
+            ("LGTM_TASK_ID", self.task.id.clone()),
+            ("LGTM_REPOSITORY", self.task.spec.repository.clone()),
+        ]
+    }
+
     fn args(&self, opts: &RunOpts<'_>) -> Vec<String> {
+        // A worker whose own path is unknowable can still run the agent; it
+        // just runs it without the LGTM tools.
+        let exe = std::env::current_exe().ok();
         match self.task.spec.executor {
-            Executor::Claude => claude_args(opts),
-            Executor::Codex => codex_args(opts),
+            Executor::Claude => claude_args(opts, exe.as_deref()),
+            Executor::Codex => codex_args(opts, exe.as_deref()),
         }
+    }
+}
+
+/// The worker dials the orchestrator over a WebSocket; the MCP server talks
+/// to the same host over HTTP.
+fn http_url(ws: &str) -> String {
+    match ws.split_once("://") {
+        Some(("ws", rest)) => format!("http://{rest}"),
+        Some(("wss", rest)) => format!("https://{rest}"),
+        _ => ws.to_string(),
     }
 }
 
@@ -465,7 +490,7 @@ fn capped(content: &str) -> String {
     content[..end].to_string()
 }
 
-fn claude_args(opts: &RunOpts<'_>) -> Vec<String> {
+fn claude_args(opts: &RunOpts<'_>, exe: Option<&Path>) -> Vec<String> {
     let mut args = vec!["-p".to_string(), opts.prompt.to_string()];
     if let Some(session) = opts.resume.as_ref() {
         args.extend(["--resume".to_string(), session.clone()]);
@@ -477,13 +502,29 @@ fn claude_args(opts: &RunOpts<'_>) -> Vec<String> {
         "--permission-mode".to_string(),
         if opts.edits { "acceptEdits" } else { "default" }.to_string(),
     ]);
+    if let Some(exe) = exe {
+        args.extend([
+            "--mcp-config".to_string(),
+            mcp_config(exe),
+            // Nothing prompts an unattended run, so the LGTM tools are
+            // pre-approved; every other tool still goes by permission mode.
+            "--allowedTools".to_string(),
+            "mcp__lgtm__*".to_string(),
+        ]);
+    }
     args
+}
+
+/// The MCP server is this same binary: the runner and `lgtm` are one command.
+fn mcp_config(exe: &Path) -> String {
+    json!({ "mcpServers": { "lgtm": { "command": exe.display().to_string(), "args": ["mcp"] } } })
+        .to_string()
 }
 
 /// `codex exec resume` takes no `--sandbox`, so the mode goes through `-c`,
 /// which both forms accept. Codex has no `--full-auto` any more; the editing
 /// mode it stood for is `workspace-write`.
-fn codex_args(opts: &RunOpts<'_>) -> Vec<String> {
+fn codex_args(opts: &RunOpts<'_>, exe: Option<&Path>) -> Vec<String> {
     let mut args = vec!["exec".to_string()];
     if let Some(session) = opts.resume.as_ref() {
         args.extend(["resume".to_string(), session.clone()]);
@@ -497,8 +538,16 @@ fn codex_args(opts: &RunOpts<'_>) -> Vec<String> {
         "--json".to_string(),
         "-c".to_string(),
         format!("sandbox_mode=\"{mode}\""),
-        opts.prompt.to_string(),
     ]);
+    if let Some(exe) = exe {
+        args.extend([
+            "-c".to_string(),
+            format!("mcp_servers.lgtm.command=\"{}\"", exe.display()),
+            "-c".to_string(),
+            "mcp_servers.lgtm.args=[\"mcp\"]".to_string(),
+        ]);
+    }
+    args.push(opts.prompt.to_string());
     args
 }
 
@@ -551,7 +600,17 @@ mod tests {
         let run = with_notes("do the thing", TaskKind::Run);
         assert!(run.starts_with("do the thing\n\nKeep your working notes"));
         assert!(run.contains(".lgtm/scratchpad.md"));
+        assert!(run.contains("`scratchpad_write`"));
+        assert!(run.contains("`memory_propose`"));
+        assert!(run.contains("`todo_create`"));
         assert_eq!(with_notes("do the thing", TaskKind::Plan), "do the thing");
+    }
+
+    #[test]
+    fn the_orchestrator_socket_becomes_an_http_url() {
+        assert_eq!(http_url("ws://127.0.0.1:4750"), "http://127.0.0.1:4750");
+        assert_eq!(http_url("wss://example.com"), "https://example.com");
+        assert_eq!(http_url("http://example.com"), "http://example.com");
     }
 
     #[test]
@@ -574,7 +633,7 @@ mod tests {
     #[test]
     fn a_fresh_codex_run_is_json_and_sandboxed_by_its_edit_rights() {
         assert_eq!(
-            codex_args(&opts(None, true)),
+            codex_args(&opts(None, true), None),
             [
                 "exec",
                 "--json",
@@ -584,7 +643,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            codex_args(&opts(None, false))[3],
+            codex_args(&opts(None, false), None)[3],
             "sandbox_mode=\"read-only\""
         );
     }
@@ -592,7 +651,7 @@ mod tests {
     #[test]
     fn a_codex_follow_up_resumes_the_thread() {
         assert_eq!(
-            codex_args(&opts(Some("01a04eb1"), true)),
+            codex_args(&opts(Some("01a04eb1"), true), None),
             [
                 "exec",
                 "resume",
@@ -607,10 +666,36 @@ mod tests {
 
     #[test]
     fn claude_edit_rights_pick_the_permission_mode() {
-        let editing = claude_args(&opts(Some("abc-123"), true));
+        let editing = claude_args(&opts(Some("abc-123"), true), None);
         assert!(editing.ends_with(&["--permission-mode".to_string(), "acceptEdits".to_string()]));
         assert!(editing[2..4] == ["--resume".to_string(), "abc-123".to_string()]);
-        let reviewing = claude_args(&opts(None, false));
+        let reviewing = claude_args(&opts(None, false), None);
         assert!(reviewing.ends_with(&["--permission-mode".to_string(), "default".to_string()]));
+    }
+
+    #[test]
+    fn both_executors_register_this_binary_as_the_lgtm_mcp_server() {
+        let exe = Path::new("/usr/local/bin/lgtm");
+        let claude = claude_args(&opts(None, true), Some(exe));
+        assert_eq!(claude[claude.len() - 4], "--mcp-config");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&claude[claude.len() - 3]).unwrap(),
+            json!({"mcpServers": {"lgtm": {"command": "/usr/local/bin/lgtm", "args": ["mcp"]}}})
+        );
+        assert_eq!(
+            &claude[claude.len() - 2..],
+            ["--allowedTools", "mcp__lgtm__*"]
+        );
+        let codex = codex_args(&opts(None, true), Some(exe));
+        assert_eq!(
+            &codex[codex.len() - 5..],
+            [
+                "-c",
+                "mcp_servers.lgtm.command=\"/usr/local/bin/lgtm\"",
+                "-c",
+                "mcp_servers.lgtm.args=[\"mcp\"]",
+                "do the thing"
+            ]
+        );
     }
 }
