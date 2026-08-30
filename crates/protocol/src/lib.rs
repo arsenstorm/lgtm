@@ -608,6 +608,9 @@ pub struct Policy {
     /// Refuse auto-approve when the run cost more than this.
     #[serde(default)]
     pub budget_per_task_usd: Option<f64>,
+    /// Move a lost or failed task to another runner this many times.
+    #[serde(default)]
+    pub reassign: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

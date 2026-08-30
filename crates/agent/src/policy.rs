@@ -45,6 +45,8 @@ pub struct PolicyConfig {
     pub protected_files: Vec<String>,
     /// Refuse auto-approve when the run cost more than this.
     pub budget_per_task_usd: Option<f64>,
+    /// Move a lost or failed task to another runner this many times.
+    pub reassign: u32,
     /// Kill an agent run that has been going this long.
     pub timeout_secs: u64,
     pub sandbox: SandboxProfile,
@@ -92,6 +94,7 @@ impl Default for PolicyConfig {
             max_diff_lines: None,
             protected_files: Vec::new(),
             budget_per_task_usd: None,
+            reassign: 0,
             timeout_secs: DEFAULT_TIMEOUT_SECS,
             sandbox: SandboxProfile::Standard,
             network: NetworkPolicy::Unrestricted,
@@ -157,6 +160,7 @@ pub fn parse_policy(text: &str) -> PolicyConfig {
             "max_diff_lines" => optional_count(&mut policy.max_diff_lines, key, value),
             "protected_files" => strings(&mut policy.protected_files, key, value),
             "budget_per_task_usd" => optional_money(&mut policy.budget_per_task_usd, key, value),
+            "reassign" => count(&mut policy.reassign, key, value),
             "timeout_secs" => seconds(&mut policy.timeout_secs, key, value),
             "review_executor" => review_executor(&mut policy.review_executor, key, value),
             _ => tracing::warn!("[policy] unknown key {key}, ignoring"),
@@ -381,6 +385,7 @@ mod tests {
                 max_diff_lines: None,
                 protected_files: Vec::new(),
                 budget_per_task_usd: None,
+                reassign: 0,
                 timeout_secs: 120,
                 sandbox: SandboxProfile::Standard,
                 network: NetworkPolicy::Unrestricted,
@@ -402,6 +407,12 @@ mod tests {
             parse_policy("[policy]\nbudget_per_task_usd = 2\n").budget_per_task_usd,
             Some(2.0)
         );
+    }
+
+    #[test]
+    fn reads_reassign() {
+        let policy = parse_policy("[policy]\nreassign = 2\n");
+        assert_eq!(policy.reassign, 2);
     }
 
     #[test]

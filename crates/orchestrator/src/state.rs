@@ -11,6 +11,7 @@ use lgtm_protocol::{
 };
 use tokio::sync::{broadcast, mpsc};
 
+use crate::commands::RetryInto;
 use crate::persist::Persist;
 pub use crate::runner::{Conn, RunnerConn};
 
@@ -524,9 +525,19 @@ impl State {
     /// Connected runner with the most free slots that can run `spec`, ties
     /// broken by the lowest name.
     fn candidate(&self, spec: &TaskSpec) -> Option<String> {
+        self.candidate_excluding(spec, None)
+    }
+
+    /// `candidate`, but never `exclude` — the runner a lost or failed task is
+    /// being moved off of.
+    fn candidate_excluding(&self, spec: &TaskSpec, exclude: Option<&str>) -> Option<String> {
         self.runners
             .values()
-            .filter(|runner| runner.can_run(spec) && spec.pins(&runner.info.name))
+            .filter(|runner| {
+                runner.can_run(spec)
+                    && spec.pins(&runner.info.name)
+                    && Some(runner.info.name.as_str()) != exclude
+            })
             .max_by(|a, b| {
                 a.free_slots()
                     .cmp(&b.free_slots())
@@ -535,13 +546,13 @@ impl State {
             .map(|runner| runner.info.name.clone())
     }
 
-    /// Assigns unassigned queued tasks, oldest first, and starts them.
-    /// Returns the ids it assigned.
     /// Queued, unassigned, and not waiting on any dependency.
     pub fn is_ready(&self, task: &Task) -> bool {
         task.status == TaskStatus::Queued && task.runner.is_none() && self.deps_met(&task.spec)
     }
 
+    /// Assigns unassigned queued tasks, oldest first, and starts them.
+    /// Returns the ids it assigned.
     pub fn schedule(&mut self) -> Vec<TaskId> {
         let mut queued: Vec<(u64, TaskId)> = self
             .tasks
@@ -650,11 +661,11 @@ impl State {
         // Only the transition itself, never a late event repeating it.
         if !terminal {
             match status {
-                TaskStatus::Failed
-                | TaskStatus::TimedOut
-                | TaskStatus::RunnerLost
-                | TaskStatus::Cancelled
-                | TaskStatus::Rejected => {
+                TaskStatus::Failed | TaskStatus::TimedOut | TaskStatus::RunnerLost => {
+                    changed.extend(self.fail_dependents(task_id));
+                    changed.extend(self.maybe_reassign(task_id, status));
+                }
+                TaskStatus::Cancelled | TaskStatus::Rejected => {
                     changed.extend(self.fail_dependents(task_id));
                 }
                 // Approved unblocks an Approved/Merged dependency; AwaitingReview
@@ -666,6 +677,48 @@ impl State {
             }
         }
         changed
+    }
+
+    /// Puts a task that just ended badly back in the queue, off the runner
+    /// it was on, when the repository's `reassign` policy allows one more
+    /// try. A lost runner is not the task's fault, so it always gets one
+    /// attempt even with no policy on record; a failed or timed-out run only
+    /// gets one when a completed run declared `reassign > 0`.
+    fn maybe_reassign(&mut self, task_id: &str, status: TaskStatus) -> Vec<TaskId> {
+        let Some(rec) = self.tasks.get(task_id) else {
+            return Vec::new();
+        };
+        let declared = rec
+            .task
+            .result
+            .as_ref()
+            .and_then(|result| result.policy.as_ref())
+            .map(|policy| policy.reassign);
+        let reassign = match status {
+            TaskStatus::RunnerLost => declared.unwrap_or(1),
+            TaskStatus::Failed | TaskStatus::TimedOut => match declared {
+                Some(n) if n > 0 => n,
+                _ => return Vec::new(),
+            },
+            _ => return Vec::new(),
+        };
+        let requeued = rec
+            .events
+            .iter()
+            .filter(|stored| matches!(stored.event, TaskEvent::Requeued { .. }))
+            .count() as u32;
+        if requeued >= reassign {
+            return Vec::new();
+        }
+        let current = rec.task.runner.clone();
+        let other = self.candidate_excluding(&rec.task.spec, current.as_deref());
+        tracing::info!(task = %task_id, runner = ?other, ?status, "reassigning after a bad run");
+        let into = RetryInto {
+            runner: other,
+            executor: None,
+        };
+        self.retry(task_id, into)
+            .map_or(Vec::new(), |(_, changed)| changed)
     }
 }
 
