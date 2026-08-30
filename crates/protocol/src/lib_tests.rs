@@ -173,6 +173,7 @@ fn every_message_round_trips() {
         OrchestratorMessage::HelloAck,
         OrchestratorMessage::Start {
             task: Box::new(sample_task()),
+            memories: vec![memory(Some("r"), "ship small commits")],
         },
         OrchestratorMessage::Cancel {
             task_id: "0123abcd".into(),
@@ -180,6 +181,7 @@ fn every_message_round_trips() {
         OrchestratorMessage::Message {
             task_id: "0123abcd".into(),
             text: "again".into(),
+            memories: vec![memory(None, "deploys are manual")],
         },
         OrchestratorMessage::Push {
             task_id: "0123abcd".into(),
@@ -224,6 +226,37 @@ fn phase_one_frames_still_parse() {
     assert!(task.spec.sandbox.is_none());
     let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
     assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
+}
+
+fn memory(repository: Option<&str>, content: &str) -> Memory {
+    Memory {
+        id: "0123abcd".into(),
+        repository: repository.map(String::from),
+        content: content.into(),
+        created_at: 1,
+    }
+}
+
+#[test]
+fn memory_applies_to_its_repository_or_all() {
+    let scoped = memory(Some("https://github.com/arsenstorm/lgtm.git"), "c");
+    assert!(scoped.applies_to("https://github.com/arsenstorm/lgtm.git"));
+    assert!(!scoped.applies_to("https://github.com/arsenstorm/other.git"));
+    assert!(memory(None, "c").applies_to("anything"));
+}
+
+#[test]
+fn knowledge_block_is_empty_without_memories() {
+    assert_eq!(knowledge_block(&[]), "");
+}
+
+#[test]
+fn knowledge_block_lists_every_memory() {
+    let memories = [memory(None, "deploys are manual"), memory(None, "no yarn")];
+    assert_eq!(
+        knowledge_block(&memories),
+        "Project knowledge (from the team, treat as fact):\n- deploys are manual\n- no yarn\n\n"
+    );
 }
 
 #[test]

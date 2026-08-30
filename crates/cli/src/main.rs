@@ -13,8 +13,8 @@ use lgtm_client::{Client, FromLinear};
 use lgtm_orchestrator::token::{data_dir, resolve_token};
 use lgtm_protocol::{BatchSource, TaskKind, TaskSpec};
 
-use crate::cli::{BacklogCommand, Cli, Command, Target};
-use crate::table::{ci_str, print_task_table, status_str};
+use crate::cli::{BacklogCommand, Cli, Command, MemoryCommand, Target};
+use crate::table::{ci_str, print_memory_table, print_task_table, status_str};
 
 fn default_repo() -> anyhow::Result<String> {
     let result = std::process::Command::new("git")
@@ -115,6 +115,7 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
             Ok(0)
         }
         Command::Backlog { command } => backlog_command(client, command).await,
+        Command::Memory { command } => memory_command(client, command).await,
         other => task_command(client, other).await,
     }
 }
@@ -275,6 +276,23 @@ async fn show(client: &Client, id: &str) -> anyhow::Result<i32> {
         render::print_cost(result.cost_usd, &mut stdout)?;
         if let Some(plan) = &result.plan {
             render::print_plan(plan, &mut stdout)?;
+        }
+    }
+    Ok(0)
+}
+
+async fn memory_command(client: &Client, command: MemoryCommand) -> anyhow::Result<i32> {
+    match command {
+        MemoryCommand::Add { repo, content } => {
+            let memory = client.create_memory(repo.as_deref(), &content).await?;
+            println!("memory {} added", memory.id);
+        }
+        MemoryCommand::List { repo } => {
+            print_memory_table(&client.memories(repo.as_deref()).await?);
+        }
+        MemoryCommand::Rm { id } => {
+            client.delete_memory(&id).await?;
+            println!("memory {id} removed");
         }
     }
     Ok(0)

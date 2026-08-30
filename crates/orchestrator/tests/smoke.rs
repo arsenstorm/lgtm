@@ -127,7 +127,7 @@ async fn end_to_end() {
     assert_eq!(r.status(), 201);
     let task: Task = r.json().await.unwrap();
     let start = w.next().await.unwrap().unwrap();
-    let OrchestratorMessage::Start { task: started } =
+    let OrchestratorMessage::Start { task: started, .. } =
         serde_json::from_str(start.to_text().unwrap()).unwrap()
     else {
         panic!()
@@ -388,7 +388,7 @@ async fn end_to_end() {
     assert_eq!(r.status(), 201);
     let task_a: Task = r.json().await.unwrap();
     let start = w2.next().await.unwrap().unwrap();
-    let OrchestratorMessage::Start { task: started } =
+    let OrchestratorMessage::Start { task: started, .. } =
         serde_json::from_str(start.to_text().unwrap()).unwrap()
     else {
         panic!()
@@ -439,7 +439,7 @@ async fn end_to_end() {
     .await
     .unwrap();
     let start = w2.next().await.unwrap().unwrap();
-    let OrchestratorMessage::Start { task: started } =
+    let OrchestratorMessage::Start { task: started, .. } =
         serde_json::from_str(start.to_text().unwrap()).unwrap()
     else {
         panic!()
@@ -627,5 +627,84 @@ async fn end_to_end() {
         TaskStatus::Queued,
         "a queued task waits for a worker instead of failing"
     );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn a_memory_reaches_the_worker() {
+    let dir = std::env::temp_dir().join(format!("lgtm-memories-{}", std::process::id()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    tokio::spawn(lgtm_orchestrator::serve_plain(
+        addr,
+        "tok".into(),
+        dir.clone(),
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+
+    let r = http
+        .post(format!("{base}/api/memories"))
+        .bearer_auth("tok")
+        .json(&serde_json::json!({ "repository": "r", "content": "deploys are manual" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let memory: Memory = r.json().await.unwrap();
+
+    let mut w = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
+    w.send(TMsg::Text(
+        serde_json::to_string(&WorkerMessage::Hello {
+            token: "tok".into(),
+            info: WorkerInfo {
+                name: "w1".into(),
+                os: "linux".into(),
+                arch: "x86_64".into(),
+                executors: vec![Executor::Claude],
+                slots: 1,
+                ephemeral: false,
+            },
+            running: Vec::new(),
+            version: PROTOCOL_VERSION,
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
+    w.next().await.unwrap().unwrap();
+
+    let spec = TaskSpec {
+        repository: "r".into(),
+        base_branch: "main".into(),
+        prompt: "p".into(),
+        executor: Executor::Claude,
+        worker: None,
+        issue: None,
+        linear: None,
+        kind: TaskKind::Run,
+        parent: None,
+        depends_on: Vec::new(),
+        batch: None,
+        sandbox: None,
+    };
+    let r = http
+        .post(format!("{base}/api/tasks"))
+        .bearer_auth("tok")
+        .json(&spec)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let start = w.next().await.unwrap().unwrap();
+    let OrchestratorMessage::Start { memories, .. } =
+        serde_json::from_str(start.to_text().unwrap()).unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(memories, vec![memory]);
     std::fs::remove_dir_all(&dir).ok();
 }

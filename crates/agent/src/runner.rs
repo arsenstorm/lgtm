@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{bail, Result};
-use lgtm_protocol::{Task, TaskEvent, TaskId, TaskKind};
+use lgtm_protocol::{knowledge_block, Memory, Task, TaskEvent, TaskId, TaskKind};
 use tokio::sync::oneshot;
 
 use crate::automation::{execute, recorded_session, Run};
@@ -15,8 +15,13 @@ use crate::git::{
 };
 use crate::plan::{planning_prompt, revision_prompt};
 
-pub async fn run_task(task: Task, ctx: Arc<Ctx>, cancel: oneshot::Receiver<()>) {
-    let result = run(&task, &ctx, cancel).await;
+pub async fn run_task(
+    task: Task,
+    memories: Vec<Memory>,
+    ctx: Arc<Ctx>,
+    cancel: oneshot::Receiver<()>,
+) {
+    let result = run(&task, &memories, &ctx, cancel).await;
     finished(&task.id, &ctx, result);
 }
 
@@ -25,10 +30,11 @@ pub async fn run_task(task: Task, ctx: Arc<Ctx>, cancel: oneshot::Receiver<()>) 
 pub async fn follow_up(
     task_id: TaskId,
     text: String,
+    memories: Vec<Memory>,
     ctx: Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) {
-    let result = resume(&task_id, &text, &ctx, cancel).await;
+    let result = resume(&task_id, &text, &memories, &ctx, cancel).await;
     finished(&task_id, &ctx, result);
 }
 
@@ -43,7 +49,12 @@ fn finished(task_id: &str, ctx: &Arc<Ctx>, result: Result<()>) {
     ctx.task_finished();
 }
 
-async fn run(task: &Task, ctx: &Arc<Ctx>, cancel: oneshot::Receiver<()>) -> Result<()> {
+async fn run(
+    task: &Task,
+    memories: &[Memory],
+    ctx: &Arc<Ctx>,
+    cancel: oneshot::Receiver<()>,
+) -> Result<()> {
     let branch = branch_name(&task.id);
     let worktree = worktree_path(&ctx.data_dir, &task.id);
     tokio::fs::create_dir_all(ctx.data_dir.join("worktrees")).await?;
@@ -60,12 +71,15 @@ async fn run(task: &Task, ctx: &Arc<Ctx>, cancel: oneshot::Receiver<()>) -> Resu
         TaskKind::Plan => planning_prompt(&task.spec.prompt),
         TaskKind::Run => task.spec.prompt.clone(),
     };
+    // A follow-up resumes this session, which already saw the block.
+    let prompt = format!("{}{prompt}", knowledge_block(memories));
     execute(Run::new(task, &worktree, ctx, cancel), &prompt, None).await
 }
 
 async fn resume(
     task_id: &TaskId,
     text: &str,
+    memories: &[Memory],
     ctx: &Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) -> Result<()> {
@@ -81,7 +95,13 @@ async fn resume(
         bail!("worktree missing");
     }
     if task.spec.kind == TaskKind::Plan {
-        let prompt = revision_prompt(&task.spec.prompt, text);
+        // A revision is a fresh process, not a resumed session, so it is told
+        // again.
+        let prompt = format!(
+            "{}{}",
+            knowledge_block(memories),
+            revision_prompt(&task.spec.prompt, text)
+        );
         return execute(Run::new(&task, &worktree, ctx, cancel), &prompt, None).await;
     }
     let session = recorded_session(ctx, task_id).await;

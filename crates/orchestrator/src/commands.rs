@@ -112,6 +112,7 @@ impl State {
             return Err(CmdError::Conflict("task is not awaiting review".into()));
         }
         let name = rec.task.worker.clone().unwrap_or_default();
+        let repository = rec.task.spec.repository.clone();
         let connected = self
             .workers
             .get(&name)
@@ -122,11 +123,13 @@ impl State {
             )));
         }
         let changed = self.apply_event(task_id, TaskEvent::Message { text: text.clone() });
+        let memories = self.memories_for(&repository);
         if let Some(worker) = self.workers.get_mut(&name) {
             worker.running.insert(task_id.to_string());
             worker.send(OrchestratorMessage::Message {
                 task_id: task_id.to_string(),
                 text,
+                memories,
             });
         }
         self.tasks

@@ -2,6 +2,7 @@
 
 mod batches;
 mod events;
+mod memories;
 
 use std::sync::Arc;
 
@@ -10,7 +11,7 @@ use axum::extract::{Path, Request, State};
 use axum::http::{header::AUTHORIZATION, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
     Executor, OrchestratorMessage, SandboxProfile, Task, TaskKind, TaskSpec, TaskStatus,
@@ -70,6 +71,11 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
             get(batches::list_batches).post(batches::create_batch),
         )
         .route("/batches/{id}", get(batches::get_batch))
+        .route(
+            "/memories",
+            get(memories::list_memories).post(memories::create_memory),
+        )
+        .route("/memories/{id}", delete(memories::delete_memory))
         .layer(middleware::from_fn_with_state(app, auth))
 }
 
