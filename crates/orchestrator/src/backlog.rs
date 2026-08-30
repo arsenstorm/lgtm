@@ -2,7 +2,8 @@
 //! the locking and the storing.
 
 use lgtm_protocol::{
-    BatchSummary, Executor, IssueRef, LinearRef, Task, TaskKind, TaskSpec, TaskStatus,
+    BatchSummary, Executor, IssueRef, LinearRef, SandboxProfile, Task, TaskKind, TaskSpec,
+    TaskStatus,
 };
 
 use crate::state::State;
@@ -46,6 +47,7 @@ pub struct SpecInput {
     pub worker: Option<String>,
     pub kind: TaskKind,
     pub batch: Option<String>,
+    pub sandbox: Option<SandboxProfile>,
 }
 
 impl SpecInput {
@@ -62,6 +64,7 @@ impl SpecInput {
             parent: None,
             depends_on: Vec::new(),
             batch: self.batch,
+            sandbox: self.sandbox,
         }
     }
 }

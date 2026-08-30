@@ -66,6 +66,9 @@ review = true      # review the finished diff with a second agent run
 timeout_secs = 3600  # kill an agent run after this long
 auto_approve = false
 auto_merge = false
+
+[sandbox]
+profile = "standard"   # off, standard, or strict; not enforced yet
 ```
 
 A malformed file changes nothing: unknown or ill-typed keys are logged and

@@ -99,6 +99,7 @@ impl ImportForm {
             approve_plans: self.approve,
             max: read(&self.max).parse().unwrap_or(DEFAULT_MAX),
             dry_run: false,
+            sandbox: None,
         })
     }
 }

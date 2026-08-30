@@ -13,7 +13,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
-    Executor, OrchestratorMessage, Task, TaskKind, TaskSpec, TaskStatus, WorkerStatus,
+    Executor, OrchestratorMessage, SandboxProfile, Task, TaskKind, TaskSpec, TaskStatus,
+    WorkerStatus,
 };
 use serde::Deserialize;
 
@@ -133,6 +134,8 @@ struct FromIssueBody {
     executor: Executor,
     #[serde(default)]
     worker: Option<String>,
+    #[serde(default)]
+    sandbox: Option<SandboxProfile>,
 }
 
 async fn create_task_from_issue(
@@ -154,6 +157,7 @@ async fn create_task_from_issue(
         worker: body.worker,
         kind: TaskKind::Run,
         batch: None,
+        sandbox: body.sandbox,
     };
     queue(&app, backlog::github_candidate(&issue, &repo, input).spec)
 }
@@ -177,6 +181,8 @@ struct FromLinearBody {
     executor: Executor,
     #[serde(default)]
     worker: Option<String>,
+    #[serde(default)]
+    sandbox: Option<SandboxProfile>,
 }
 
 async fn create_task_from_linear(
@@ -198,6 +204,7 @@ async fn create_task_from_linear(
         worker: body.worker,
         kind: TaskKind::Run,
         batch: None,
+        sandbox: body.sandbox,
     };
     queue(
         &app,

@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use lgtm_protocol::{Finding, Review, Severity, ValidationResult};
+use lgtm_protocol::{Finding, Review, SandboxProfile, Severity, TaskSpec, ValidationResult};
 
 /// How much of the diff the reviewer is shown.
 const DIFF_CHARS: usize = 60_000;
@@ -25,6 +25,7 @@ pub struct PolicyConfig {
     pub auto_merge: bool,
     /// Kill an agent run that has been going this long.
     pub timeout_secs: u64,
+    pub sandbox: SandboxProfile,
 }
 
 impl Default for PolicyConfig {
@@ -36,8 +37,15 @@ impl Default for PolicyConfig {
             auto_approve: false,
             auto_merge: false,
             timeout_secs: DEFAULT_TIMEOUT_SECS,
+            sandbox: SandboxProfile::Standard,
         }
     }
+}
+
+/// The task's own `sandbox` wins; otherwise the repository's `[sandbox]
+/// profile`, which already defaults to `Standard`.
+pub fn effective_sandbox(spec: &TaskSpec, policy: &PolicyConfig) -> SandboxProfile {
+    spec.sandbox.unwrap_or(policy.sandbox)
 }
 
 pub fn load_policy(worktree: &Path) -> PolicyConfig {
@@ -58,6 +66,7 @@ pub fn parse_policy(text: &str) -> PolicyConfig {
             return policy;
         }
     };
+    read_sandbox(&table, &mut policy);
     let Some(section) = table.get("policy").and_then(toml::Value::as_table) else {
         return policy;
     };
@@ -73,6 +82,23 @@ pub fn parse_policy(text: &str) -> PolicyConfig {
         }
     }
     policy
+}
+
+/// A separate table from `[policy]`: the sandbox profile is a runner
+/// concern, not one of the checks-and-approval policies above it.
+fn read_sandbox(table: &toml::Table, policy: &mut PolicyConfig) {
+    let Some(profile) = table
+        .get("sandbox")
+        .and_then(toml::Value::as_table)
+        .and_then(|section| section.get("profile"))
+        .and_then(toml::Value::as_str)
+    else {
+        return;
+    };
+    match SandboxProfile::parse(profile) {
+        Some(parsed) => policy.sandbox = parsed,
+        None => tracing::warn!("[sandbox] profile must be off, standard or strict, ignoring"),
+    }
 }
 
 fn count(slot: &mut u32, key: &str, value: &toml::Value) {
@@ -189,6 +215,7 @@ mod tests {
                 auto_approve: false,
                 auto_merge: true,
                 timeout_secs: 120,
+                sandbox: SandboxProfile::Standard,
             }
         );
     }
@@ -200,6 +227,47 @@ mod tests {
         );
         assert_eq!(policy, PolicyConfig::default());
         assert_eq!(policy.timeout_secs, DEFAULT_TIMEOUT_SECS);
+    }
+
+    #[test]
+    fn sandbox_profile_is_read_from_its_own_table() {
+        let policy = parse_policy("[sandbox]\nprofile = \"strict\"\n");
+        assert_eq!(policy.sandbox, SandboxProfile::Strict);
+    }
+
+    #[test]
+    fn bad_sandbox_profile_keeps_the_default() {
+        let policy = parse_policy("[sandbox]\nprofile = \"chaos\"\n");
+        assert_eq!(policy.sandbox, SandboxProfile::Standard);
+    }
+
+    #[test]
+    fn effective_sandbox_prefers_the_task_over_the_policy() {
+        let mut spec = sample_spec();
+        let policy = PolicyConfig {
+            sandbox: SandboxProfile::Strict,
+            ..PolicyConfig::default()
+        };
+        assert_eq!(effective_sandbox(&spec, &policy), SandboxProfile::Strict);
+        spec.sandbox = Some(SandboxProfile::Off);
+        assert_eq!(effective_sandbox(&spec, &policy), SandboxProfile::Off);
+    }
+
+    fn sample_spec() -> TaskSpec {
+        TaskSpec {
+            repository: "r".into(),
+            base_branch: "main".into(),
+            prompt: "p".into(),
+            executor: lgtm_protocol::Executor::Claude,
+            worker: None,
+            issue: None,
+            linear: None,
+            kind: lgtm_protocol::TaskKind::Run,
+            parent: None,
+            depends_on: vec![],
+            batch: None,
+            sandbox: None,
+        }
     }
 
     fn check(name: &str) -> ValidationResult {

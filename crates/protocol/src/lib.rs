@@ -35,6 +35,39 @@ impl Executor {
     }
 }
 
+/// How much of the host an agent run may touch. Enforcement is the runner's
+/// job and lands per platform; until then the profile is recorded, not applied.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxProfile {
+    /// Ordinary host-user access.
+    Off,
+    /// Isolated worktree, project files only, stripped environment, limits.
+    #[default]
+    Standard,
+    /// Standard plus a container/VM boundary and no network by default.
+    Strict,
+}
+
+impl SandboxProfile {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "off" => Some(SandboxProfile::Off),
+            "standard" => Some(SandboxProfile::Standard),
+            "strict" => Some(SandboxProfile::Strict),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SandboxProfile::Off => "off",
+            SandboxProfile::Standard => "standard",
+            SandboxProfile::Strict => "strict",
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
@@ -136,6 +169,9 @@ pub struct TaskSpec {
     /// The backlog batch this task was imported by.
     #[serde(default)]
     pub batch: Option<String>,
+    /// `None` defers to the repository's `[sandbox] profile`, then `Standard`.
+    #[serde(default)]
+    pub sandbox: Option<SandboxProfile>,
 }
 
 impl TaskSpec {

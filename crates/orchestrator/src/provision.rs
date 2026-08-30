@@ -142,6 +142,7 @@ mod tests {
                 parent: None,
                 depends_on: deps,
                 batch: None,
+                sandbox: None,
             },
             status,
             worker: None,

@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
-use lgtm_protocol::Executor;
+use lgtm_protocol::{Executor, SandboxProfile};
 
 #[derive(Parser)]
 #[command(name = "lgtm", version)]
@@ -147,6 +147,9 @@ pub struct Target {
     pub base: String,
     #[arg(long, default_value = "claude", value_parser = parse_executor)]
     pub agent: Executor,
+    /// off, standard, or strict; defaults to the repository's config.
+    #[arg(long, value_parser = parse_sandbox)]
+    pub sandbox: Option<SandboxProfile>,
 }
 
 #[derive(Subcommand)]
@@ -199,6 +202,9 @@ pub struct BatchFlags {
     pub agent: Executor,
     #[arg(long)]
     pub on: Option<String>,
+    /// off, standard, or strict; defaults to the repository's config.
+    #[arg(long, value_parser = parse_sandbox)]
+    pub sandbox: Option<SandboxProfile>,
 }
 
 fn parse_executor(s: &str) -> Result<Executor, String> {
@@ -209,4 +215,9 @@ fn parse_executor(s: &str) -> Result<Executor, String> {
             "invalid agent '{other}', expected 'claude' or 'codex'"
         )),
     }
+}
+
+fn parse_sandbox(s: &str) -> Result<SandboxProfile, String> {
+    SandboxProfile::parse(s)
+        .ok_or_else(|| format!("invalid sandbox '{s}', expected 'off', 'standard' or 'strict'"))
 }

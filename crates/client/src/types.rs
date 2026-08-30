@@ -26,6 +26,7 @@ pub(crate) struct FromIssue<'a> {
     pub(crate) base_branch: &'a str,
     pub(crate) executor: lgtm_protocol::Executor,
     pub(crate) worker: Option<&'a str>,
+    pub(crate) sandbox: Option<lgtm_protocol::SandboxProfile>,
 }
 
 /// Body of `POST /api/batches`.
@@ -40,6 +41,7 @@ pub struct BatchRequest {
     pub approve_plans: bool,
     pub max: u32,
     pub dry_run: bool,
+    pub sandbox: Option<lgtm_protocol::SandboxProfile>,
 }
 
 /// One issue found for a batch, previewed before (or instead of) import.
@@ -73,6 +75,7 @@ pub struct FromLinear<'a> {
     pub base_branch: &'a str,
     pub executor: lgtm_protocol::Executor,
     pub worker: Option<&'a str>,
+    pub sandbox: Option<lgtm_protocol::SandboxProfile>,
 }
 
 pub struct EventStream {

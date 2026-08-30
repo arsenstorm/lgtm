@@ -6,7 +6,9 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
-use lgtm_protocol::{Batch, BatchSource, BatchSummary, Executor, Task, TaskId, TaskKind};
+use lgtm_protocol::{
+    Batch, BatchSource, BatchSummary, Executor, SandboxProfile, Task, TaskId, TaskKind,
+};
 use serde::{Deserialize, Serialize};
 
 use super::{bad_gateway, bad_linear, conflict, github, linear, ApiError};
@@ -40,6 +42,8 @@ pub(super) struct BatchRequest {
     /// Report what would be imported and create nothing.
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    sandbox: Option<SandboxProfile>,
 }
 
 #[derive(Serialize)]
@@ -182,6 +186,7 @@ fn candidates(
             TaskKind::Run
         },
         batch: Some(id.to_string()),
+        sandbox: body.sandbox,
     };
     match fetched {
         Fetched::Github(repo, issues) => issues

@@ -262,6 +262,7 @@ mod tests {
                 parent: None,
                 depends_on: vec![],
                 batch: batch.map(String::from),
+                sandbox: None,
             },
             status,
             worker: None,

@@ -364,6 +364,7 @@ mod tests {
                 parent: None,
                 depends_on: vec![],
                 batch: None,
+                sandbox: None,
             },
             status: TaskStatus::Running,
             worker: None,
