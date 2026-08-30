@@ -1,5 +1,7 @@
 //! The `tasks` table and the cells in it.
 
+use std::collections::HashMap;
+
 use lgtm_protocol::{CiState, GoalSummary, Memory, Review, Task, TaskStatus, Todo, Verification};
 
 /// The wire form ("awaiting_review") rather than Rust's Debug form, so a
@@ -151,21 +153,33 @@ pub fn print_goal_table(goals: Vec<GoalSummary>) {
     }
 }
 
-/// One row of the `todo list` table. A todo with no repository shows `*`.
-pub fn todo_row(todo: &Todo) -> String {
+/// One row of the `todo list` table. A todo with no repository shows `*`;
+/// STATUS shows `blocked` (derived from `all`) in place of the wire status.
+pub fn todo_row(todo: &Todo, all: &HashMap<String, Todo>) -> String {
+    let status = if todo.is_blocked(all) {
+        "blocked".to_string()
+    } else {
+        wire_str(todo.status)
+    };
     format!(
-        "{:<10}{:<14}{:<48}{}",
+        "{:<10}{:<14}{:<6}{:<10}{:<48}{}",
         todo.id,
-        wire_str(todo.status),
+        status,
+        wire_str(todo.priority),
+        todo.assignee.as_deref().unwrap_or("-"),
         todo.repository.as_deref().unwrap_or("*"),
         first_line_truncated(&todo.title, 60)
     )
 }
 
 pub fn print_todo_table(todos: &[Todo]) {
-    println!("{:<10}{:<14}{:<48}TITLE", "ID", "STATUS", "REPOSITORY");
+    let all: HashMap<String, Todo> = todos.iter().map(|t| (t.id.clone(), t.clone())).collect();
+    println!(
+        "{:<10}{:<14}{:<6}{:<10}{:<48}TITLE",
+        "ID", "STATUS", "PRI", "BY", "REPOSITORY"
+    );
     for todo in todos {
-        println!("{}", todo_row(todo));
+        println!("{}", todo_row(todo, &all));
     }
 }
 
@@ -283,20 +297,45 @@ mod tests {
         assert!(row.starts_with("0123abcd  proposed  t1        "));
     }
 
-    #[test]
-    fn todo_row_stars_no_repository_and_truncates() {
-        let todo = Todo {
-            id: "0123abcd".into(),
+    fn todo(id: &str, blockers: Vec<String>) -> Todo {
+        Todo {
+            id: id.into(),
             repository: None,
             title: "x".repeat(100),
             description: String::new(),
             status: lgtm_protocol::TodoStatus::Open,
             created_at: 1,
             task: None,
-        };
-        let row = todo_row(&todo);
-        assert!(row.starts_with("0123abcd  open          *"));
+            priority: lgtm_protocol::Priority::Medium,
+            assignee: None,
+            blockers,
+        }
+    }
+
+    #[test]
+    fn todo_row_stars_no_repository_and_truncates() {
+        let row = todo_row(&todo("0123abcd", Vec::new()), &HashMap::new());
+        assert!(row.starts_with("0123abcd  open          medium-         *"));
         assert!(row.ends_with(&"x".repeat(60)));
+    }
+
+    #[test]
+    fn todo_row_shows_priority_and_assignee() {
+        let mut t = todo("0123abcd", Vec::new());
+        t.priority = lgtm_protocol::Priority::High;
+        t.assignee = Some("arsen".into());
+        let row = todo_row(&t, &HashMap::new());
+        assert!(row.starts_with("0123abcd  open          high  arsen     *"));
+    }
+
+    #[test]
+    fn todo_row_shows_blocked_in_place_of_status() {
+        let blocker = todo("blocker1", Vec::new());
+        let t = todo("0123abcd", vec![blocker.id.clone()]);
+        let mut all = HashMap::new();
+        all.insert(blocker.id.clone(), blocker);
+        let row = todo_row(&t, &all);
+        assert!(row.starts_with("0123abcd  blocked       medium-         *"));
     }
 
     #[test]

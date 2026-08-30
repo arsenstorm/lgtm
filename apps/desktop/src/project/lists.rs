@@ -1,8 +1,11 @@
 //! The Memories and TODOs tabs: what the project knows, and what it owes.
 
+use std::collections::HashMap;
+
 use super::muted;
 use crate::app::LgtmApp;
 use crate::net::Action;
+use crate::panes::badge;
 use crate::theme::{field, icon_button, section_label, Tokens, RADIUS, SPACE, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -12,7 +15,7 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::InputState;
 use gpui_component::Sizable as _;
-use lgtm_protocol::{Memory, Todo, TodoStatus};
+use lgtm_protocol::{Memory, Priority, Todo, TodoStatus};
 
 pub(super) fn memories(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
     let mut out = vec![
@@ -50,10 +53,15 @@ pub(super) fn todos(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec
     if app.todos.is_empty() {
         out.push(muted("Nothing on the list.", t));
     }
+    let by_id: HashMap<String, Todo> = app
+        .todos
+        .iter()
+        .map(|todo| (todo.id.clone(), todo.clone()))
+        .collect();
     out.extend(
         app.todos
             .iter()
-            .map(|todo| todo_row(todo, t, cx).into_any_element()),
+            .map(|todo| todo_row(todo, &by_id, t, cx).into_any_element()),
     );
     out
 }
@@ -100,7 +108,24 @@ fn memory_row(memory: &Memory, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         ))
 }
 
-fn todo_row(todo: &Todo, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+/// The priority chip's colour; `None` (Medium, the common case) shows no
+/// chip at all so the row stays quiet for the default.
+fn priority_tone(priority: Priority, t: &Tokens) -> Option<(&'static str, gpui::Hsla)> {
+    match priority {
+        Priority::High => Some(("high", t.warning)),
+        Priority::Low => Some(("low", t.muted_fg)),
+        Priority::Medium => None,
+    }
+}
+
+/// Editing priority, assignee, and blockers is CLI-only for now; this row
+/// only ever displays them.
+fn todo_row(
+    todo: &Todo,
+    all: &HashMap<String, Todo>,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Div {
     let done = todo.status == TodoStatus::Done;
     let (finish, promote, remove) = (todo.id.clone(), todo.clone(), todo.id.clone());
     row(t)
@@ -110,7 +135,24 @@ fn todo_row(todo: &Todo, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .child(div().truncate().child(todo.title.clone()))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(SPACE[0]))
+                        .child(div().truncate().child(todo.title.clone()))
+                        .when_some(priority_tone(todo.priority, t), |this, (label, tone)| {
+                            this.child(badge(label, tone, t))
+                        })
+                        .when_some(todo.assignee.clone(), |this, assignee| {
+                            this.child(
+                                div()
+                                    .text_size(px(TEXT_SECONDARY))
+                                    .text_color(t.muted_fg)
+                                    .child(assignee),
+                            )
+                        }),
+                )
                 .when(!todo.description.trim().is_empty(), |this| {
                     this.child(
                         div()
@@ -126,7 +168,11 @@ fn todo_row(todo: &Todo, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                 .flex_shrink_0()
                 .text_size(px(TEXT_SECONDARY))
                 .text_color(t.muted_fg)
-                .child(status_label(todo.status)),
+                .child(if todo.is_blocked(all) {
+                    "blocked".to_string()
+                } else {
+                    status_label(todo.status).to_string()
+                }),
         )
         .when(!done, |this| {
             this.child(

@@ -6,12 +6,12 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
-use lgtm_protocol::{Executor, Task, Todo};
+use lgtm_protocol::{Executor, Priority, Task, Todo, TodoPatch};
 use serde::Deserialize;
 
 use super::{conflict, ApiError};
 use crate::state::App;
-use crate::todo::PromoteInto;
+use crate::todo::{PromoteInto, UpdateTodoError};
 
 /// Query of `GET /api/todos`.
 #[derive(Deserialize)]
@@ -29,6 +29,26 @@ pub(super) struct TodoRequest {
     title: String,
     #[serde(default)]
     description: String,
+    #[serde(default)]
+    priority: Priority,
+    #[serde(default)]
+    assignee: Option<String>,
+    #[serde(default)]
+    blockers: Vec<String>,
+}
+
+impl From<UpdateTodoError> for ApiError {
+    fn from(err: UpdateTodoError) -> Self {
+        match err {
+            UpdateTodoError::NotFound => ApiError(StatusCode::NOT_FOUND, "todo not found".into()),
+            UpdateTodoError::UnknownBlocker(id) => {
+                ApiError(StatusCode::BAD_REQUEST, format!("unknown blocker {id}"))
+            }
+            UpdateTodoError::SelfBlocker => {
+                ApiError(StatusCode::BAD_REQUEST, "todo cannot block itself".into())
+            }
+        }
+    }
 }
 
 /// Body of `POST /api/todos/:id/promote`.
@@ -73,9 +93,25 @@ pub(super) async fn create_todo(
         ));
     }
     let mut state = app.state.lock().unwrap();
-    let todo = state.create_todo(body.repository, title.to_string(), body.description);
+    let mut todo = state.create_todo(body.repository, title.to_string(), body.description);
+    todo.priority = body.priority;
+    todo.assignee = body.assignee;
+    todo.blockers = body.blockers;
+    state.todos.insert(todo.id.clone(), todo.clone());
     app.persist_todo(&todo);
     Ok((StatusCode::CREATED, Json(todo)))
+}
+
+pub(super) async fn update_todo(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<TodoPatch>, JsonRejection>,
+) -> Result<Json<Todo>, ApiError> {
+    let Json(patch) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let mut state = app.state.lock().unwrap();
+    let todo = state.update_todo(&id, patch)?;
+    app.persist_todo(&todo);
+    Ok(Json(todo))
 }
 
 pub(super) async fn finish_todo(

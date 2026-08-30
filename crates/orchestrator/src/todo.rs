@@ -1,6 +1,7 @@
-//! Promoting a todo into a task.
+//! Promoting a todo into a task, and patching one's priority, assignee, or
+//! blockers.
 
-use lgtm_protocol::{Executor, Task, TaskId, TaskKind, TaskSpec, TodoStatus};
+use lgtm_protocol::{Executor, Task, TaskId, TaskKind, TaskSpec, Todo, TodoPatch, TodoStatus};
 
 use crate::state::State;
 
@@ -9,6 +10,14 @@ pub struct PromoteInto {
     pub base_branch: String,
     pub executor: Executor,
     pub runner: Option<String>,
+}
+
+/// Why `update_todo` refused a patch.
+#[derive(Debug)]
+pub enum UpdateTodoError {
+    NotFound,
+    UnknownBlocker(String),
+    SelfBlocker,
 }
 
 fn wire_status(status: TodoStatus) -> &'static str {
@@ -33,6 +42,13 @@ impl State {
             .ok_or_else(|| "todo not found".to_string())?;
         if todo.status != TodoStatus::Open {
             return Err(format!("todo is already {}", wire_status(todo.status)));
+        }
+        if let Some(blocker) = todo.blockers.iter().find(|blocker| {
+            self.todos
+                .get(blocker.as_str())
+                .is_some_and(|b| b.status != TodoStatus::Done)
+        }) {
+            return Err(format!("todo is blocked by {blocker}"));
         }
         let repository = todo
             .repository
@@ -72,6 +88,34 @@ impl State {
         todo.task = Some(task.id.clone());
         todo.status = TodoStatus::InProgress;
         Ok((task, changed))
+    }
+
+    /// Applies the fields a `PATCH /todos/:id` body actually sent.
+    pub fn update_todo(&mut self, id: &str, patch: TodoPatch) -> Result<Todo, UpdateTodoError> {
+        if !self.todos.contains_key(id) {
+            return Err(UpdateTodoError::NotFound);
+        }
+        if let Some(blockers) = &patch.blockers {
+            for blocker in blockers {
+                if blocker == id {
+                    return Err(UpdateTodoError::SelfBlocker);
+                }
+                if !self.todos.contains_key(blocker) {
+                    return Err(UpdateTodoError::UnknownBlocker(blocker.clone()));
+                }
+            }
+        }
+        let todo = self.todos.get_mut(id).expect("checked above");
+        if let Some(priority) = patch.priority {
+            todo.priority = priority;
+        }
+        if let Some(assignee) = patch.assignee {
+            todo.assignee = assignee;
+        }
+        if let Some(blockers) = patch.blockers {
+            todo.blockers = blockers;
+        }
+        Ok(todo.clone())
     }
 }
 

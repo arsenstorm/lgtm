@@ -325,7 +325,14 @@ async fn one_task(client: &Client, id: &str, action: Action) -> anyhow::Result<(
             .map(|_| ()),
         Action::DeleteMemory => client.delete_memory(id).await,
         Action::AddTodo { repository, title } => client
-            .create_todo(Some(&repository), &title, "")
+            .create_todo(
+                Some(&repository),
+                &title,
+                "",
+                lgtm_protocol::Priority::default(),
+                None,
+                &[],
+            )
             .await
             .map(|_| ()),
         Action::FinishTodo => client.finish_todo(id).await.map(|_| ()),

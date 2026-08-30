@@ -102,7 +102,10 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/goals/{id}", get(goals::get_goal))
         .route("/goals/{id}/attention", post(goals::set_attention))
         .route("/todos", get(todos::list_todos).post(todos::create_todo))
-        .route("/todos/{id}", delete(todos::delete_todo))
+        .route(
+            "/todos/{id}",
+            delete(todos::delete_todo).patch(todos::update_todo),
+        )
         .route("/todos/{id}/done", post(todos::finish_todo))
         .route("/todos/{id}/promote", post(todos::promote_todo))
         .route("/goals/{id}/plans", get(goals::get_goal_plans))
