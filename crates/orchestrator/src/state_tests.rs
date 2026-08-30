@@ -14,6 +14,7 @@ fn info(name: &str, slots: u32, executors: Vec<Executor>) -> WorkerInfo {
         executors,
         slots,
         ephemeral: false,
+        capabilities: Vec::new(),
     }
 }
 
@@ -48,6 +49,7 @@ fn spec(executor: Executor, worker: Option<&str>) -> TaskSpec {
         depends_on: Vec::new(),
         batch: None,
         sandbox: None,
+        requirements: Vec::new(),
         goal: None,
     }
 }
@@ -921,5 +923,40 @@ fn timeout_ends_the_task_and_frees_the_slot() {
         state.tasks[&queued.id].task.worker.as_deref(),
         Some("a"),
         "the freed slot took the backlog"
+    );
+}
+
+#[test]
+fn requirement_restricts_scheduling_to_capable_workers() {
+    let mut state = State::default();
+    let _plain = connect(&mut state, "plain", 1, 1);
+
+    let mut needs_docker = spec(Executor::Claude, None);
+    needs_docker.requirements = vec!["docker".into()];
+    assert_eq!(
+        state.check_eligible(&needs_docker).unwrap_err(),
+        "no eligible worker"
+    );
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut docker_worker = info("docker", 1, vec![Executor::Claude]);
+    docker_worker.capabilities = vec!["docker".into()];
+    state.worker_hello(docker_worker, Vec::new(), Conn { tx, conn_id: 1 });
+
+    assert!(state.check_eligible(&needs_docker).is_ok());
+    let (task, _) = state.create_task(needs_docker).unwrap();
+    assert_eq!(task.worker.as_deref(), Some("docker"));
+}
+
+#[test]
+fn pinned_worker_lacking_a_requirement_is_refused() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+
+    let mut needs_docker = spec(Executor::Claude, Some("a"));
+    needs_docker.requirements = vec!["docker".into()];
+    assert_eq!(
+        state.check_eligible(&needs_docker).unwrap_err(),
+        "worker a lacks docker"
     );
 }

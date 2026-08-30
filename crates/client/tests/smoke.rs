@@ -43,6 +43,7 @@ async fn end_to_end() {
         depends_on: vec![],
         batch: None,
         sandbox: None,
+        requirements: vec![],
         goal: None,
     };
     let err = client.create_task(&spec).await.unwrap_err();
@@ -56,6 +57,7 @@ async fn end_to_end() {
         executors: vec![Executor::Claude],
         slots: 1,
         ephemeral: false,
+        capabilities: vec![],
     };
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Hello {

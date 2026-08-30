@@ -58,6 +58,7 @@ async fn end_to_end() {
         depends_on: Vec::new(),
         batch: None,
         sandbox: None,
+        requirements: vec![],
         goal: None,
     };
     let r = http
@@ -88,6 +89,7 @@ async fn end_to_end() {
         executors: vec![Executor::Claude],
         slots: 1,
         ephemeral: false,
+        capabilities: vec![],
     };
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Hello {
@@ -335,6 +337,7 @@ async fn end_to_end() {
         executors: vec![Executor::Claude],
         slots: 1,
         ephemeral: false,
+        capabilities: vec![],
     };
     w1.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Hello {
@@ -456,6 +459,7 @@ async fn end_to_end() {
         executors: vec![Executor::Claude],
         slots: 1,
         ephemeral: false,
+        capabilities: vec![],
     };
     bad.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Hello {
@@ -479,6 +483,7 @@ async fn end_to_end() {
         executors: vec![Executor::Claude],
         slots: 1,
         ephemeral: false,
+        capabilities: vec![],
     };
     stale
         .send(TMsg::Text(
@@ -728,6 +733,7 @@ async fn a_memory_reaches_the_worker() {
                 executors: vec![Executor::Claude],
                 slots: 1,
                 ephemeral: false,
+                capabilities: vec![],
             },
             running: Vec::new(),
             version: PROTOCOL_VERSION,
@@ -752,6 +758,7 @@ async fn a_memory_reaches_the_worker() {
         depends_on: Vec::new(),
         batch: None,
         sandbox: None,
+        requirements: vec![],
         goal: None,
     };
     let r = http

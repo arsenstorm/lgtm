@@ -24,6 +24,7 @@ fn sample_task() -> Task {
             depends_on: vec!["11111111".into()],
             batch: Some("b1".into()),
             sandbox: Some(SandboxProfile::Strict),
+            requirements: vec!["docker".into()],
             goal: Some("g1".into()),
         },
         status: TaskStatus::Queued,
@@ -68,6 +69,7 @@ fn every_message_round_trips() {
         executors: vec![Executor::Claude],
         slots: 2,
         ephemeral: true,
+        capabilities: vec!["os:windows".into(), "docker".into()],
     };
     let result = TaskResult {
         branch: "lgtm/0123abcd".into(),
@@ -225,6 +227,7 @@ fn phase_one_frames_still_parse() {
             .unwrap();
     assert_eq!(info.slots, 1);
     assert!(!info.ephemeral);
+    assert!(info.capabilities.is_empty());
     let hello: WorkerMessage = serde_json::from_str(
         r#"{"type":"hello","token":"t","info":{"name":"w","os":"linux","arch":"x86_64","executors":[]}}"#,
     )
@@ -245,6 +248,7 @@ fn phase_one_frames_still_parse() {
     assert!(task.spec.batch.is_none() && task.spec.goal.is_none());
     assert!(task.executions.is_empty());
     assert!(task.spec.sandbox.is_none());
+    assert!(task.spec.requirements.is_empty());
     let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
     assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
 }
@@ -323,6 +327,22 @@ fn sandbox_profile_round_trips_through_its_wire_name() {
         assert_eq!(profile.as_str(), name);
     }
     assert_eq!(SandboxProfile::parse("x"), None);
+}
+
+#[test]
+fn has_all_requires_every_requirement_in_capabilities() {
+    let info = WorkerInfo {
+        name: "w".into(),
+        os: "linux".into(),
+        arch: "x86_64".into(),
+        executors: vec![],
+        slots: 1,
+        ephemeral: false,
+        capabilities: vec!["os:linux".into(), "docker".into()],
+    };
+    assert!(info.has_all(&[]));
+    assert!(info.has_all(&["docker".into()]));
+    assert!(!info.has_all(&["node".into()]));
 }
 
 #[test]

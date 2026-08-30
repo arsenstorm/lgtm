@@ -65,6 +65,7 @@ mod tests {
                 depends_on: Vec::new(),
                 batch: None,
                 sandbox: None,
+                requirements: Vec::new(),
                 goal: None,
             },
             status,

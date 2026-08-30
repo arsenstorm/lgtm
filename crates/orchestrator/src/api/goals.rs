@@ -55,6 +55,7 @@ fn first_spec(body: GoalRequest, goal: String) -> TaskSpec {
         depends_on: Vec::new(),
         batch: None,
         sandbox: None,
+        requirements: Vec::new(),
         goal: Some(goal),
     }
 }

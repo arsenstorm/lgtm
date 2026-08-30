@@ -186,8 +186,8 @@ fn print_json(value: impl serde::Serialize) -> anyhow::Result<i32> {
 
 async fn workers(client: &Client) -> anyhow::Result<i32> {
     println!(
-        "{:<16}{:<8}{:<8}{:<16}{:<10}SLOTS",
-        "NAME", "OS", "ARCH", "EXECUTORS", "KIND"
+        "{:<16}{:<8}{:<8}{:<16}{:<10}{:<8}CAPABILITIES",
+        "NAME", "OS", "ARCH", "EXECUTORS", "KIND", "SLOTS"
     );
     for w in client.workers().await? {
         let executors = w
@@ -203,9 +203,10 @@ async fn workers(client: &Client) -> anyhow::Result<i32> {
         } else {
             "fixed"
         };
+        let capabilities = w.info.capabilities.join(" ");
         println!(
-            "{:<16}{:<8}{:<8}{:<16}{:<10}{}",
-            w.info.name, w.info.os, w.info.arch, executors, kind, slots
+            "{:<16}{:<8}{:<8}{:<16}{:<10}{:<8}{}",
+            w.info.name, w.info.os, w.info.arch, executors, kind, slots, capabilities
         );
     }
     Ok(0)
@@ -226,6 +227,7 @@ impl Target {
             depends_on: vec![],
             batch: None,
             sandbox: self.sandbox,
+            requirements: self.requirements,
             goal: None,
         })
     }
@@ -253,6 +255,7 @@ async fn run(
                 target.agent,
                 target.on.as_deref(),
                 target.sandbox,
+                target.requirements,
             )
             .await?
     } else if let Some(linear) = linear {
@@ -264,6 +267,7 @@ async fn run(
             executor: target.agent,
             worker: target.on.as_deref(),
             sandbox: target.sandbox,
+            requirements: target.requirements,
         };
         client.create_task_from_linear(&body).await?
     } else if let Some(prompt) = prompt {

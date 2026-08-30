@@ -49,6 +49,7 @@ fn candidate(number: u64) -> Candidate {
         kind: TaskKind::Run,
         batch: Some("b0000001".into()),
         sandbox: None,
+        requirements: Vec::new(),
     };
     github_candidate(&issue(number), &repo(), input)
 }
@@ -62,6 +63,7 @@ fn github_candidate_builds_the_from_issue_shape() {
         kind: TaskKind::Plan,
         batch: Some("b0000001".into()),
         sandbox: None,
+        requirements: Vec::new(),
     };
     let candidate = github_candidate(&issue(12), &repo(), input);
     assert_eq!(candidate.key, "#12");
@@ -214,6 +216,7 @@ fn worker(state: &mut State) -> mpsc::UnboundedReceiver<OrchestratorMessage> {
             executors: vec![Executor::Claude],
             slots: 4,
             ephemeral: false,
+            capabilities: Vec::new(),
         },
         Vec::new(),
         Conn { tx, conn_id: 1 },

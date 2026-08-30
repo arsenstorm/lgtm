@@ -37,9 +37,13 @@ impl WorkerConn {
         self.info.slots.saturating_sub(running)
     }
 
-    /// Connected, with a free slot and the executor `spec` asks for.
+    /// Connected, with a free slot, the executor `spec` asks for, and every
+    /// capability it requires.
     pub(crate) fn can_run(&self, spec: &TaskSpec) -> bool {
-        self.is_connected() && self.free_slots() > 0 && self.info.executors.contains(&spec.executor)
+        self.is_connected()
+            && self.free_slots() > 0
+            && self.info.executors.contains(&spec.executor)
+            && self.info.has_all(&spec.requirements)
     }
 
     pub(crate) fn send(&self, msg: OrchestratorMessage) {

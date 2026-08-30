@@ -152,6 +152,8 @@ struct FromIssueBody {
     worker: Option<String>,
     #[serde(default)]
     sandbox: Option<SandboxProfile>,
+    #[serde(default)]
+    requirements: Vec<String>,
 }
 
 async fn create_task_from_issue(
@@ -174,6 +176,7 @@ async fn create_task_from_issue(
         kind: TaskKind::Run,
         batch: None,
         sandbox: body.sandbox,
+        requirements: body.requirements,
     };
     queue(&app, backlog::github_candidate(&issue, &repo, input).spec)
 }
@@ -199,6 +202,8 @@ struct FromLinearBody {
     worker: Option<String>,
     #[serde(default)]
     sandbox: Option<SandboxProfile>,
+    #[serde(default)]
+    requirements: Vec<String>,
 }
 
 async fn create_task_from_linear(
@@ -221,6 +226,7 @@ async fn create_task_from_linear(
         kind: TaskKind::Run,
         batch: None,
         sandbox: body.sandbox,
+        requirements: body.requirements,
     };
     queue(
         &app,

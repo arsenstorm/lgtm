@@ -44,6 +44,8 @@ pub(super) struct BatchRequest {
     dry_run: bool,
     #[serde(default)]
     sandbox: Option<SandboxProfile>,
+    #[serde(default)]
+    requirements: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -187,6 +189,7 @@ fn candidates(
         },
         batch: Some(id.to_string()),
         sandbox: body.sandbox,
+        requirements: body.requirements.clone(),
     };
     match fetched {
         Fetched::Github(repo, issues) => issues

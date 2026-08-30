@@ -181,6 +181,9 @@ pub struct Target {
     /// off, standard, or strict; defaults to the repository's config.
     #[arg(long, value_parser = parse_sandbox)]
     pub sandbox: Option<SandboxProfile>,
+    /// A capability the worker must have, e.g. docker or os:windows. Repeatable.
+    #[arg(long = "require")]
+    pub requirements: Vec<String>,
 }
 
 #[derive(Subcommand)]
@@ -283,6 +286,9 @@ pub struct BatchFlags {
     /// off, standard, or strict; defaults to the repository's config.
     #[arg(long, value_parser = parse_sandbox)]
     pub sandbox: Option<SandboxProfile>,
+    /// A capability the worker must have, e.g. docker or os:windows. Repeatable.
+    #[arg(long = "require")]
+    pub requirements: Vec<String>,
 }
 
 fn parse_executor(s: &str) -> Result<Executor, String> {

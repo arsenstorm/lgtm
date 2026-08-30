@@ -100,6 +100,7 @@ impl ImportForm {
             max: read(&self.max).parse().unwrap_or(DEFAULT_MAX),
             dry_run: false,
             sandbox: None,
+            requirements: vec![],
         })
     }
 }

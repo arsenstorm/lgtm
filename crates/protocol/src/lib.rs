@@ -174,6 +174,9 @@ pub struct TaskSpec {
     /// `None` defers to the repository's `[sandbox] profile`, then `Standard`.
     #[serde(default)]
     pub sandbox: Option<SandboxProfile>,
+    /// Every one must appear in a worker's `capabilities` for it to run this.
+    #[serde(default)]
+    pub requirements: Vec<String>,
     /// The goal this task works toward.
     #[serde(default)]
     pub goal: Option<String>,
@@ -518,6 +521,16 @@ pub struct WorkerInfo {
     /// Exits after its tasks; the orchestrator forgets it at once on `Goodbye`.
     #[serde(default)]
     pub ephemeral: bool,
+    /// Lowercase tags: `os:<os>`, `arch:<arch>`, and each toolchain binary found on PATH.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+}
+
+impl WorkerInfo {
+    /// True when every requirement is in `capabilities`.
+    pub fn has_all(&self, requirements: &[String]) -> bool {
+        requirements.iter().all(|r| self.capabilities.contains(r))
+    }
 }
 
 fn one() -> u32 {

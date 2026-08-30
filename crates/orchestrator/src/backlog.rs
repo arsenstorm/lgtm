@@ -48,6 +48,7 @@ pub struct SpecInput {
     pub kind: TaskKind,
     pub batch: Option<String>,
     pub sandbox: Option<SandboxProfile>,
+    pub requirements: Vec<String>,
 }
 
 impl SpecInput {
@@ -65,6 +66,7 @@ impl SpecInput {
             depends_on: Vec::new(),
             batch: self.batch,
             sandbox: self.sandbox,
+            requirements: self.requirements,
             goal: None,
         }
     }
