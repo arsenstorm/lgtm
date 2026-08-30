@@ -75,6 +75,8 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/tasks/{id}/plans", get(get_task_plans))
         .route("/tasks/{id}/message", post(message))
         .route("/tasks/{id}/retry", post(retry))
+        .route("/tasks/{id}/allow", post(allow))
+        .route("/tasks/{id}/permissions", post(request_permission))
         .route("/tasks/{id}/scratchpad", post(scratchpad))
         .route("/tasks/{id}/cancel", post(cancel))
         .route("/tasks/{id}/approve", post(approve))
@@ -325,6 +327,63 @@ async fn retry(
     )?;
     app.persist_ids(&mut state, &changed);
     Ok(Json(task))
+}
+
+#[derive(Deserialize)]
+struct AllowBody {
+    host: String,
+}
+
+/// A person granting `host` for this task's next run.
+async fn allow(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<AllowBody>, JsonRejection>,
+) -> Result<Json<Task>, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let host = valid_host(&body.host)
+        .ok_or_else(|| ApiError(StatusCode::BAD_REQUEST, "invalid host".into()))?;
+    let mut state = app.state.lock().unwrap();
+    let (task, changed) = state.allow_host(&id, host)?;
+    app.persist_ids(&mut state, &changed);
+    Ok(Json(task))
+}
+
+/// A host is non-empty, has no whitespace, and names no scheme: the proxy
+/// matches it against the bare host it sees on the connection, nothing else.
+fn valid_host(host: &str) -> Option<String> {
+    let host = host.trim();
+    let ok = !host.is_empty() && !host.contains(char::is_whitespace) && !host.contains("://");
+    ok.then(|| host.to_string())
+}
+
+#[derive(Deserialize)]
+struct PermissionBody {
+    kind: String,
+    target: String,
+    reason: String,
+}
+
+/// What the MCP tool calls when the agent hits a sandbox refusal it wants a
+/// person to lift. Recorded for `pending_requests`; nothing else acts on it.
+async fn request_permission(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<PermissionBody>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let mut state = app.state.lock().unwrap();
+    if !state.tasks.contains_key(&id) {
+        return Err(CmdError::NotFound.into());
+    }
+    let event = TaskEvent::PermissionRequested {
+        kind: body.kind,
+        target: body.target,
+        reason: body.reason,
+    };
+    let changed = state.apply_event(&id, event);
+    app.persist_ids(&mut state, &changed);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]

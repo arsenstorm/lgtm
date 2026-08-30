@@ -156,12 +156,19 @@ impl State {
         let instruction = format!("{prefix}{text}");
         let changed = self.apply_event(task_id, TaskEvent::Message { text });
         let memories = self.memories_for(&repository);
+        // The worker's own copy of the task predates any spec change (e.g. an
+        // allowed host) made since its last run, so the current one rides along.
+        let task = self
+            .tasks
+            .get(task_id)
+            .map(|rec| Box::new(rec.task.clone()));
         if let Some(worker) = self.workers.get_mut(&name) {
             worker.running.insert(task_id.to_string());
             worker.send(OrchestratorMessage::Message {
                 task_id: task_id.to_string(),
                 text: instruction,
                 memories,
+                task,
             });
         }
         self.tasks
@@ -191,6 +198,24 @@ impl State {
         spec.executor = into.executor.unwrap_or(spec.executor);
         self.check_eligible(&spec).map_err(CmdError::Conflict)?;
         Ok(spec)
+    }
+
+    /// Adds `host` to the task's allowlist for its next run. Any status: the
+    /// run that asked for it may already be over, and a retry or follow-up
+    /// might not start for a while yet.
+    pub fn allow_host(
+        &mut self,
+        task_id: &str,
+        host: String,
+    ) -> Result<(Task, Vec<TaskId>), CmdError> {
+        let rec = self.tasks.get(task_id).ok_or(CmdError::NotFound)?;
+        if rec.task.spec.allowed_hosts.contains(&host) {
+            return Ok((rec.task.clone(), Vec::new()));
+        }
+        let changed = self.apply_event(task_id, TaskEvent::HostAllowed { host: host.clone() });
+        let rec = self.tasks.get_mut(task_id).ok_or(CmdError::NotFound)?;
+        rec.task.spec.allowed_hosts.push(host);
+        Ok((rec.task.clone(), changed))
     }
 
     /// Puts a task that ended badly back in the queue as a fresh attempt.

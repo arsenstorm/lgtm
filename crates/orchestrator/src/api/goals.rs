@@ -60,6 +60,7 @@ fn first_spec(body: GoalRequest, goal: String) -> TaskSpec {
         goal: Some(goal),
         review_executor: None,
         model: None,
+        allowed_hosts: Vec::new(),
     }
 }
 

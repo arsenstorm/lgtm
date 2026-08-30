@@ -224,6 +224,9 @@ pub struct TaskSpec {
     /// Passed to the harness as its model flag; `None` is the harness default.
     #[serde(default)]
     pub model: Option<String>,
+    /// Hosts a person allowed for this task on top of the repository's allowlist.
+    #[serde(default)]
+    pub allowed_hosts: Vec<String>,
 }
 
 impl TaskSpec {
@@ -670,6 +673,33 @@ pub fn overlaps(task: &Task, others: &[&Task]) -> Vec<Overlap> {
             })
         })
         .collect()
+}
+
+fn as_request(event: &TaskEvent) -> Option<(String, String)> {
+    match event {
+        TaskEvent::PermissionRequested {
+            kind,
+            target,
+            reason,
+        } if kind == "network" => Some((target.clone(), reason.clone())),
+        TaskEvent::NetworkDenied { host } => {
+            Some((host.clone(), "refused by the allowlist".into()))
+        }
+        _ => None,
+    }
+}
+
+/// A host an agent asked for, or was refused, that a person has not yet
+/// granted for this task's next run: distinct `(target, reason)` pairs, in
+/// the order first seen.
+pub fn pending_requests(events: &[StoredEvent], spec: &TaskSpec) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for pair in events.iter().filter_map(|stored| as_request(&stored.event)) {
+        if !spec.allowed_hosts.contains(&pair.0) && !out.contains(&pair) {
+            out.push(pair);
+        }
+    }
+    out
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

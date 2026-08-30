@@ -268,6 +268,7 @@ mod tests {
                 goal: None,
                 review_executor: None,
                 model: None,
+                allowed_hosts: Vec::new(),
             },
             status,
             worker: None,

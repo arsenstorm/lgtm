@@ -56,6 +56,17 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
         TaskEvent::NetworkDenied { host } => {
             vec![Line::new(Kind::Status, format!("network denied: {host}"))]
         }
+        TaskEvent::PermissionRequested {
+            kind,
+            target,
+            reason,
+        } => vec![Line::new(
+            Kind::Status,
+            format!("permission requested: {kind} {target} — {reason}"),
+        )],
+        TaskEvent::HostAllowed { host } => {
+            vec![Line::new(Kind::Status, format!("allowed host {host}"))]
+        }
         TaskEvent::Completed { result } => {
             let changed = result.changed_files.len();
             let total = result.validation.len();

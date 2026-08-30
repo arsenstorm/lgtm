@@ -150,6 +150,14 @@ lets the run reach nothing but the proxy's port. On Linux it is the proxy
 variables only until a network namespace lands, so a process that ignores them
 is not stopped; `none` is enforced there today, with `--unshare-net`.
 
+An agent that hits a refusal it wants lifted calls the `request_network` MCP
+tool (or just tries the host and lets the automatic `network denied` stand as
+the request); either way it lands as an event on the task. A person answers
+with `lgtm allow <task> <host>`, which adds the host to that task's own
+allowlist. Nothing pauses to wait for the answer — `claude -p` has no seam for
+that mid-run — so the grant takes effect on the task's next run: a follow-up,
+or a retry.
+
 A malformed file changes nothing: unknown or ill-typed keys are logged and
 the defaults stay.
 

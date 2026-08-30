@@ -118,6 +118,7 @@ async fn call(params: &Value, client: &Client, env: &Env) -> Result<String> {
                 .await?;
             Ok("notes saved".to_string())
         }
+        "request_network" => request_network(client, env, &args).await,
         _ => anyhow::bail!("no such tool: {name}"),
     }
 }
@@ -128,6 +129,19 @@ async fn call(params: &Value, client: &Client, env: &Env) -> Result<String> {
 async fn propose(client: &Client, repository: Option<&str>, args: &Value) -> Result<String> {
     let title = format!("Proposed memory: {}", string(args, "content")?);
     Ok(client.create_todo(repository, &title, "").await?.id)
+}
+
+/// A run can't be paused mid-flight to ask a person, so the request is only
+/// recorded; `lgtm allow` answers it before the task's next run.
+async fn request_network(client: &Client, env: &Env, args: &Value) -> Result<String> {
+    let host = string(args, "host")?;
+    client
+        .request_permission(&env.task_id, "network", host, string(args, "reason")?)
+        .await?;
+    Ok(format!(
+        "recorded; a person can allow it with: lgtm allow {} {host}",
+        env.task_id
+    ))
 }
 
 fn string<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
@@ -153,6 +167,7 @@ fn tools() -> Value {
         tool("todo_create", "Note work that should happen but is not part of this task.", json!({ "title": string("One line."), "description": string("Optional detail.") }), &["title"]),
         tool("scratchpad_read", "The working notes kept for this task.", json!({}), &[]),
         tool("scratchpad_write", "Replace the working notes for this task.", json!({ "content": string("The full notes, in markdown.") }), &["content"]),
+        tool("request_network", "Ask a person to allow this task to reach a host its sandbox refused. Recorded for the task's next run, not this one.", json!({ "host": string("The host to allow, e.g. registry.internal."), "reason": string("Why the run needs it.") }), &["host", "reason"]),
     ])
 }
 
@@ -205,7 +220,8 @@ mod tests {
                 "todos_list",
                 "todo_create",
                 "scratchpad_read",
-                "scratchpad_write"
+                "scratchpad_write",
+                "request_network"
             ]
         );
         assert!(tools.iter().all(|t| t["inputSchema"]["type"] == "object"));

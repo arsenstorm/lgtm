@@ -26,15 +26,17 @@ pub async fn run_task(
 }
 
 /// A follow-up in the worktree of a task that already ran, resuming the agent
-/// session when the first run recorded one.
+/// session when the first run recorded one. `task` is the orchestrator's
+/// current copy, ahead of whatever this worker last wrote to disk for it.
 pub async fn follow_up(
     task_id: TaskId,
     text: String,
     memories: Vec<Memory>,
+    task: Option<Box<Task>>,
     ctx: Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) {
-    let result = resume(&task_id, &text, &memories, &ctx, cancel).await;
+    let result = resume(&task_id, &text, &memories, task, &ctx, cancel).await;
     finished(&task_id, &ctx, result);
 }
 
@@ -90,15 +92,31 @@ async fn stored_task(ctx: &Arc<Ctx>, task_id: &str) -> Option<Task> {
     serde_json::from_slice(&bytes).ok()
 }
 
+/// Brings the worker's on-disk copy up to date with what the orchestrator
+/// just sent along with a follow-up, so a later rebase or discard on this
+/// task reads the current spec instead of the one from its first run.
+async fn rewrite_task(ctx: &Arc<Ctx>, task_id: &str, task: &Task) {
+    if let Ok(bytes) = serde_json::to_vec(task) {
+        let _ = tokio::fs::write(task_path(&ctx.data_dir, task_id), bytes).await;
+    }
+}
+
 async fn resume(
     task_id: &TaskId,
     text: &str,
     memories: &[Memory],
+    task: Option<Box<Task>>,
     ctx: &Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) -> Result<()> {
-    let Some(task) = stored_task(ctx, task_id).await else {
-        bail!("task unknown to this worker (restarted?)");
+    let task = match task {
+        Some(task) => {
+            rewrite_task(ctx, task_id, &task).await;
+            *task
+        }
+        None => stored_task(ctx, task_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("task unknown to this worker (restarted?)"))?,
     };
     let worktree = worktree_path(&ctx.data_dir, task_id);
     if !worktree.exists() {

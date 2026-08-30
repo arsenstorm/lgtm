@@ -29,6 +29,7 @@ fn sample_task() -> Task {
             goal: Some("g1".into()),
             review_executor: None,
             model: Some("opus".into()),
+            allowed_hosts: Vec::new(),
         },
         status: TaskStatus::Queued,
         worker: None,
@@ -143,6 +144,14 @@ fn every_message_round_trips() {
         TaskEvent::NetworkDenied {
             host: "evil.example".into(),
         },
+        TaskEvent::PermissionRequested {
+            kind: "network".into(),
+            target: "registry.internal".into(),
+            reason: "install a private package".into(),
+        },
+        TaskEvent::HostAllowed {
+            host: "registry.internal".into(),
+        },
         TaskEvent::Completed {
             result: result.clone(),
         },
@@ -236,6 +245,13 @@ fn every_message_round_trips() {
             task_id: "0123abcd".into(),
             text: "again".into(),
             memories: vec![memory(None, "deploys are manual")],
+            task: None,
+        },
+        OrchestratorMessage::Message {
+            task_id: "0123abcd".into(),
+            text: "again, with an allowed host".into(),
+            memories: vec![],
+            task: Some(Box::new(sample_task())),
         },
         OrchestratorMessage::Push {
             task_id: "0123abcd".into(),
@@ -718,4 +734,47 @@ fn depends_on_met_widens_with_the_condition() {
 
     assert!(met(DependsOn::Merged, TaskStatus::Merged));
     assert!(!met(DependsOn::Merged, TaskStatus::Approved));
+}
+
+#[test]
+fn pending_requests_are_distinct_and_exclude_already_allowed_hosts() {
+    let mut spec = sample_task().spec;
+    spec.allowed_hosts = vec!["already.example".into()];
+    let events: Vec<StoredEvent> = [
+        TaskEvent::NetworkDenied {
+            host: "blocked.example".into(),
+        },
+        TaskEvent::NetworkDenied {
+            host: "blocked.example".into(),
+        },
+        TaskEvent::PermissionRequested {
+            kind: "network".into(),
+            target: "registry.internal".into(),
+            reason: "install a private package".into(),
+        },
+        TaskEvent::NetworkDenied {
+            host: "already.example".into(),
+        },
+        TaskEvent::PermissionRequested {
+            kind: "shell".into(),
+            target: "docker".into(),
+            reason: "build a container".into(),
+        },
+    ]
+    .into_iter()
+    .map(|event| StoredEvent { at: 0, event })
+    .collect();
+    assert_eq!(
+        pending_requests(&events, &spec),
+        vec![
+            (
+                "blocked.example".to_string(),
+                "refused by the allowlist".to_string()
+            ),
+            (
+                "registry.internal".to_string(),
+                "install a private package".to_string()
+            ),
+        ]
+    );
 }

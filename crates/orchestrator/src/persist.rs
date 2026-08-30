@@ -350,6 +350,7 @@ mod tests {
                 review_executor: None,
                 model: None,
                 goal: None,
+                allowed_hosts: Vec::new(),
             },
             status: TaskStatus::Queued,
             worker: None,

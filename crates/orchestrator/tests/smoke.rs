@@ -63,6 +63,7 @@ async fn end_to_end() {
         goal: None,
         review_executor: None,
         model: None,
+        allowed_hosts: Vec::new(),
     };
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -766,6 +767,7 @@ async fn a_memory_reaches_the_worker() {
         goal: None,
         review_executor: None,
         model: None,
+        allowed_hosts: Vec::new(),
     };
     let r = http
         .post(format!("{base}/api/tasks"))

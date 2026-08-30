@@ -596,6 +596,8 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
         | TaskEvent::Progress { .. }
         | TaskEvent::Validating { .. }
         | TaskEvent::NetworkDenied { .. }
+        | TaskEvent::PermissionRequested { .. }
+        | TaskEvent::HostAllowed { .. }
         | TaskEvent::Retry { .. }
         | TaskEvent::PolicyDecision { .. }
         | TaskEvent::Orchestrated { .. }

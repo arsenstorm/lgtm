@@ -16,11 +16,11 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
+use types::{AllowHost, ErrorBody, FollowUp, NewMemory, NewTodo, Notes, PermissionRequest, Socket};
 pub use types::{
     BatchDetail, BatchRequest, BatchResponse, EventStream, FromIssue, FromLinear, GoalDetail,
     IssuePreview, NewGoal, PromoteTodo, Retry, TaskDetail, TerminalStream,
 };
-use types::{ErrorBody, FollowUp, NewMemory, NewTodo, Notes, Socket};
 
 #[derive(Clone)]
 pub struct Client {
@@ -181,6 +181,38 @@ impl Client {
     pub async fn retry(&self, id: &str, into: &Retry) -> anyhow::Result<lgtm_protocol::Task> {
         self.post(&format!("/api/tasks/{id}/retry"), Some(into))
             .await
+    }
+
+    /// Grants `host` for the task's next run.
+    pub async fn allow_host(&self, id: &str, host: &str) -> anyhow::Result<lgtm_protocol::Task> {
+        self.post(&format!("/api/tasks/{id}/allow"), Some(&AllowHost { host }))
+            .await
+    }
+
+    /// What the `request_network` MCP tool calls when the agent's sandbox
+    /// refuses it something. The 204 carries no body.
+    pub async fn request_permission(
+        &self,
+        id: &str,
+        kind: &str,
+        target: &str,
+        reason: &str,
+    ) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .post(format!("{}/api/tasks/{id}/permissions", self.base))
+            .bearer_auth(&self.token)
+            .json(&PermissionRequest {
+                kind,
+                target,
+                reason,
+            })
+            .send()
+            .await?;
+        if resp.status().is_success() {
+            return Ok(());
+        }
+        Err(Self::failure(resp).await)
     }
 
     pub async fn set_scratchpad(

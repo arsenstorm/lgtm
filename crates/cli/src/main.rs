@@ -192,6 +192,11 @@ async fn task_command(client: &Client, command: Command) -> anyhow::Result<i32> 
             run::stream(client, &id, from).await
         }
         Command::Pad { id, set } => pad(client, &id, set).await,
+        Command::Allow { id, host } => {
+            client.allow_host(&id, &host).await?;
+            println!("allowed {host} for {id}; it applies to the next run");
+            Ok(0)
+        }
         Command::Tell { id, message } => {
             // Events already delivered by a prior `run`/`tell` shouldn't replay.
             let from = client.task(&id).await?.events.len();
@@ -275,6 +280,7 @@ impl Target {
             goal: None,
             review_executor: self.review_with,
             model: self.model,
+            allowed_hosts: Vec::new(),
         })
     }
 }
@@ -372,6 +378,15 @@ async fn show(client: &Client, id: &str) -> anyhow::Result<i32> {
             "overlaps with {}: {}",
             overlap.task,
             overlap.files.join(", ")
+        );
+    }
+    for (target, reason) in lgtm_protocol::pending_requests(&detail.events, &detail.task.spec) {
+        println!("requested: {target} — {reason}");
+    }
+    if !detail.task.spec.allowed_hosts.is_empty() {
+        println!(
+            "allowed hosts: {}",
+            detail.task.spec.allowed_hosts.join(", ")
         );
     }
     if let Some(pr) = &detail.task.pull_request {
