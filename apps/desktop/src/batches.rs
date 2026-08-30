@@ -281,6 +281,7 @@ mod tests {
             pr_review: None,
             executions: Vec::new(),
             scratchpad: String::new(),
+            workspace: None,
         }
     }
 

@@ -50,6 +50,9 @@ pub struct ServeOptions {
     pub models: Vec<(String, String)>,
     /// How the scheduler breaks a free-slot tie between candidate runners.
     pub prefer: Prefer,
+    /// The workspace this orchestrator records on everything it creates;
+    /// one per orchestrator until teams exist.
+    pub workspace: Option<String>,
 }
 
 /// How `State::candidate` breaks a tie between runners with the same number
@@ -85,6 +88,7 @@ pub async fn serve_plain(bind: SocketAddr, token: String, data_dir: PathBuf) -> 
         orchestrate: None,
         models: Vec::new(),
         prefer: Prefer::default(),
+        workspace: None,
     })
     .await
 }
@@ -95,6 +99,7 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
     let mut state = load_state(&opts.data_dir, opts.provision.is_some())?;
     state.models = opts.models.into_iter().collect();
     state.prefer = opts.prefer;
+    state.workspace = opts.workspace;
     let (persist_tx, persist_rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(persist::writer(opts.data_dir, persist_rx));
 

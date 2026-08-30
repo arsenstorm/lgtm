@@ -47,6 +47,7 @@ fn seed(dir: &std::path::Path) {
         pr_review: None,
         executions: Vec::new(),
         scratchpad: String::new(),
+        workspace: None,
     };
     let tasks = dir.join("tasks");
     std::fs::create_dir_all(&tasks).unwrap();

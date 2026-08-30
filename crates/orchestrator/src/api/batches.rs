@@ -151,6 +151,7 @@ pub(super) async fn create_batch(
         repository,
         task_ids,
         approve_plans: body.approve_plans,
+        workspace: state.workspace.clone(),
     };
     store(&app, &mut state, &batch, &changed);
     let response = BatchResponse {

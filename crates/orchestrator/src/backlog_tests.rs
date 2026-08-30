@@ -24,6 +24,7 @@ fn task(id: &str, status: TaskStatus, spec: TaskSpec) -> Task {
         pr_review: None,
         executions: Vec::new(),
         scratchpad: String::new(),
+        workspace: None,
     }
 }
 
@@ -184,6 +185,7 @@ fn batch_with_plan(state: &mut State, approve_plans: bool) -> TaskId {
             repository: "https://github.com/arsenstorm/lgtm.git".into(),
             task_ids: vec![id.clone()],
             approve_plans,
+            workspace: None,
         },
     );
     state.apply_event(&id, TaskEvent::Started { model: None });

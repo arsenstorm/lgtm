@@ -240,6 +240,7 @@ mod tests {
             pr_review: None,
             executions: Vec::new(),
             scratchpad: String::new(),
+            workspace: None,
         }
     }
 
@@ -270,6 +271,7 @@ mod tests {
             source: lgtm_protocol::MemorySource::User,
             verification: Verification::UserApproved,
             proposed_by: None,
+            workspace: None,
         }
     }
 
@@ -309,6 +311,7 @@ mod tests {
             priority: lgtm_protocol::Priority::Medium,
             assignee: None,
             blockers,
+            workspace: None,
         }
     }
 
@@ -347,6 +350,7 @@ mod tests {
                 repository: "https://github.com/arsenstorm/lgtm.git".into(),
                 created_at: 1,
                 attention: None,
+                workspace: None,
             },
             status: lgtm_protocol::GoalStatus::Running,
             tasks: lgtm_protocol::BatchSummary {

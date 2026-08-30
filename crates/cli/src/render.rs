@@ -829,6 +829,7 @@ mod tests {
             pr_review: None,
             executions: Vec::new(),
             scratchpad: String::new(),
+            workspace: None,
         }
     }
 
@@ -847,6 +848,7 @@ mod tests {
                 repository: "https://example.com/repo.git".into(),
                 created_at: 0,
                 attention: None,
+                workspace: None,
             }),
             plan: Some(lgtm_protocol::PlanVersion {
                 task: "plan1".into(),
