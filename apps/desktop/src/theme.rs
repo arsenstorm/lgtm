@@ -229,7 +229,7 @@ pub const GLYPH: f32 = 24.;
 pub const ICON: f32 = 16.;
 
 pub use palette::{dark, light};
-pub use prefs::{apply, config, init, persist, pref, set_pref, Pref};
+pub use prefs::{apply, config, init, notify, persist, pref, set_notify, set_pref, Pref};
 
 pub fn tokens(cx: &App) -> Tokens {
     if cx.theme().mode.is_dark() {

@@ -7,6 +7,7 @@ mod execution;
 mod github;
 mod linear;
 pub mod local;
+mod notify;
 mod persist;
 mod plan;
 mod policy;
@@ -36,6 +37,8 @@ pub struct ServeOptions {
     pub tls: Option<(PathBuf, PathBuf)>,
     /// Command to bring an ephemeral worker up when the queue needs one.
     pub provision: Option<ProvisionOptions>,
+    /// URL every event a person would want to see is POSTed to.
+    pub webhook: Option<String>,
 }
 
 pub struct ProvisionOptions {
@@ -55,6 +58,7 @@ pub async fn serve_plain(bind: SocketAddr, token: String, data_dir: PathBuf) -> 
         data_dir,
         tls: None,
         provision: None,
+        webhook: None,
     })
     .await
 }
@@ -70,12 +74,14 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
     tracing::info!(enabled = github.is_some(), "github integration");
     let linear = lgtm_linear::Linear::from_env();
     tracing::info!(enabled = linear.is_some(), "linear integration");
+    tracing::info!(enabled = opts.webhook.is_some(), "webhook");
     let app = Arc::new(App {
         token: opts.token,
         state: Mutex::new(state),
         persist: persist_tx,
         github,
         linear,
+        webhook: opts.webhook,
     });
     github::resume_ci_polls(&app);
     if let Some(provision) = opts.provision {

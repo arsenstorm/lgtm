@@ -28,6 +28,8 @@ pub struct App {
     /// `None` when no `LINEAR_API_KEY` was set, which turns the from-linear
     /// route and every issue sync off.
     pub linear: Option<lgtm_linear::Linear>,
+    /// Where events a person would want to see are POSTed; `None` posts none.
+    pub webhook: Option<String>,
 }
 
 impl App {

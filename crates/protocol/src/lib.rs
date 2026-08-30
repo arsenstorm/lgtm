@@ -337,6 +337,64 @@ pub fn goal_status(tasks: &[&Task]) -> GoalStatus {
     }
 }
 
+/// How much of the prompt a notification line carries.
+const TITLE_LEN: usize = 60;
+
+/// The first line of the prompt, cut to [`TITLE_LEN`] characters.
+fn title(task: &Task) -> String {
+    let first = task.spec.prompt.lines().next().unwrap_or_default().trim();
+    first.chars().take(TITLE_LEN).collect()
+}
+
+fn line(task: &Task, why: &str) -> String {
+    format!("{}: {why}", title(task))
+}
+
+fn review_why(task: &Task) -> &'static str {
+    if task.spec.kind == TaskKind::Plan {
+        "plan ready"
+    } else {
+        "ready for review"
+    }
+}
+
+fn failed_why(error: Option<&str>) -> String {
+    match error.and_then(|error| error.lines().next()) {
+        Some(first) => format!("failed: {first}"),
+        None => "failed".to_string(),
+    }
+}
+
+/// Why a person might want to look now; `None` for everything routine.
+pub fn attention(task: &Task, event: &TaskEvent) -> Option<String> {
+    let why = match event {
+        TaskEvent::Completed { .. } => review_why(task).to_string(),
+        TaskEvent::Failed { error } => failed_why(Some(error)),
+        TaskEvent::TimedOut { secs } => format!("timed out after {secs}s"),
+        TaskEvent::RunnerLost => "runner lost".to_string(),
+        TaskEvent::AutoMerged => "merged by policy".to_string(),
+        _ => return None,
+    };
+    Some(line(task, &why))
+}
+
+/// The same question for a reader that sees statuses rather than events, such
+/// as the desktop app comparing one poll with the last.
+pub fn attention_for_status(task: &Task, previous: TaskStatus) -> Option<String> {
+    if task.status == previous {
+        return None;
+    }
+    let why = match task.status {
+        TaskStatus::AwaitingReview => review_why(task).to_string(),
+        TaskStatus::Failed => failed_why(task.error.as_deref()),
+        TaskStatus::TimedOut => "timed out".to_string(),
+        TaskStatus::RunnerLost => "runner lost".to_string(),
+        TaskStatus::Merged => "merged".to_string(),
+        _ => return None,
+    };
+    Some(line(task, &why))
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TodoStatus {

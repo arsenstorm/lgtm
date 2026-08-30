@@ -135,11 +135,16 @@ fn mergeable(app: &Arc<App>, id: &str) -> Result<(lgtm_github::GitHub, Repo, u64
 /// Merges a task the policy says needs no one's say-so, once its checks passed.
 async fn auto_merge(app: &Arc<App>, task_id: &TaskId) {
     match merge_task(app, task_id).await {
-        Ok(_) => {
+        // `merge_task` already moved the task to `Merged`, and `AutoMerged`
+        // changes no status, so the task it returned is what the webhook wants.
+        Ok(task) => {
             tracing::info!(task = %task_id, "auto-merged by policy");
-            let mut state = app.state.lock().unwrap();
-            let changed = state.apply_event(task_id, TaskEvent::AutoMerged);
-            app.persist_ids(&state, &changed);
+            {
+                let mut state = app.state.lock().unwrap();
+                let changed = state.apply_event(task_id, TaskEvent::AutoMerged);
+                app.persist_ids(&state, &changed);
+            }
+            crate::notify::deliver(app, &task, &TaskEvent::AutoMerged);
         }
         Err(err) => {
             tracing::warn!(task = %task_id, %err, "auto-merge failed");

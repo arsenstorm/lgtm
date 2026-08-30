@@ -61,21 +61,43 @@ pub fn config() -> toml::Table {
 
 /// Read-modify-write so the token and orchestrator keys survive a preference
 /// change. Best effort: an unwritable home directory must not break a button.
-pub fn persist(key: &str, value: &str) {
+pub fn persist(key: &str, value: impl Into<toml::Value>) {
     let Some(path) = config_path() else {
         return;
     };
     let mut table = config();
-    table.insert(key.into(), toml::Value::String(value.into()));
+    table.insert(key.into(), value.into());
     let _ = std::fs::write(path, table.to_string());
 }
 
 struct Current(Pref);
 impl Global for Current {}
 
+/// Whether a task that needs a person raises an OS notification.
+struct Notify(bool);
+impl Global for Notify {}
+
+/// On by default: not having to watch the app is the point of it.
+fn stored_notify() -> bool {
+    config()
+        .get("notify")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(true)
+}
+
+pub fn notify(cx: &App) -> bool {
+    cx.global::<Notify>().0
+}
+
+pub fn set_notify(on: bool, cx: &mut App) {
+    cx.set_global(Notify(on));
+    persist("notify", on);
+}
+
 pub fn init(cx: &mut App) {
     gpui_component::init(cx);
     cx.set_global(Current(Pref::stored()));
+    cx.set_global(Notify(stored_notify()));
     apply(None, cx);
 }
 

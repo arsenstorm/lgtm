@@ -9,6 +9,7 @@ mod import;
 mod keys;
 mod labels;
 mod net;
+mod notify;
 mod palette;
 mod panes;
 mod render;
@@ -171,6 +172,7 @@ fn host(orchestrator: String, data_dir: PathBuf, embedded: bool) -> Option<Confi
         data_dir,
         tls: None,
         provision: None,
+        webhook: None,
     };
     let ip = lgtm_orchestrator::local::advertised_ip();
     let join = settings::join_line(&format!("http://{ip}:{port}"), &token);
