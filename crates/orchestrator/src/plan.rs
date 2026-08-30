@@ -113,6 +113,7 @@ impl State {
                 error: None,
                 pull_request: None,
                 ci: None,
+                executions: Vec::new(),
             };
             let child_id = child.id.clone();
             ids.insert(step.key.as_str(), child_id.clone());

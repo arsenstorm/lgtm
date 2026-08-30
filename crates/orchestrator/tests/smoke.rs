@@ -197,6 +197,9 @@ async fn end_to_end() {
         .unwrap();
     assert_eq!(detail["task"]["status"], "awaiting_review");
     assert_eq!(detail["events"].as_array().unwrap().len(), 2);
+    let executions = detail["task"]["executions"].as_array().unwrap();
+    assert_eq!(executions.len(), 1);
+    assert_eq!(executions[0]["status"], "completed");
 
     let r = http
         .post(format!("{base}/api/tasks/{}/approve", task.id))

@@ -37,6 +37,17 @@ fn sample_task() -> Task {
             state: CiState::Pending,
             url: "https://github.com/arsenstorm/lgtm/pull/12/checks".into(),
         }),
+        executions: vec![Execution {
+            attempt: 1,
+            worker: "compute".into(),
+            executor: Executor::Claude,
+            started_at: 2,
+            finished_at: Some(3),
+            status: ExecutionStatus::Completed,
+            error: None,
+            cost_usd: 0.42,
+            validation: Vec::new(),
+        }],
     }
 }
 
@@ -206,6 +217,7 @@ fn phase_one_frames_still_parse() {
     assert_eq!(task.spec.kind, TaskKind::Run);
     assert!(task.spec.parent.is_none() && task.spec.depends_on.is_empty());
     assert!(task.spec.batch.is_none());
+    assert!(task.executions.is_empty());
     let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
     assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
 }

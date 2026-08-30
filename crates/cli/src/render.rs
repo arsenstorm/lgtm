@@ -6,7 +6,9 @@
 //! bookkeeping, rate-limit pings, successful results already implied by
 //! `Completed`).
 
-use lgtm_protocol::{OutputStream, Plan, Review, Severity, TaskEvent, ValidationResult};
+use lgtm_protocol::{
+    Execution, ExecutionStatus, OutputStream, Plan, Review, Severity, TaskEvent, ValidationResult,
+};
 use serde_json::Value;
 use std::io::Write;
 
@@ -51,6 +53,38 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
         TaskEvent::Pushed { branch, .. } => writeln!(out, "pushed {branch}"),
         TaskEvent::Discarded => writeln!(out, "discarded"),
     }
+}
+
+/// Renders one line per attempt. Silent for a task that was attempted once,
+/// where the task's own status and result already say everything.
+pub fn print_executions(execs: &[Execution], out: &mut impl Write) -> std::io::Result<()> {
+    if execs.len() < 2 {
+        return Ok(());
+    }
+    writeln!(out)?;
+    for exec in execs {
+        let status = match exec.status {
+            ExecutionStatus::Running => "running",
+            ExecutionStatus::Completed => "completed",
+            ExecutionStatus::Failed => "failed",
+            ExecutionStatus::Cancelled => "cancelled",
+        };
+        let secs = exec
+            .finished_at
+            .unwrap_or(exec.started_at)
+            .saturating_sub(exec.started_at)
+            / 1000;
+        writeln!(
+            out,
+            "attempt {}: {status} on {} ({}) {}m{}s",
+            exec.attempt,
+            exec.worker,
+            exec.executor.binary(),
+            secs / 60,
+            secs % 60,
+        )?;
+    }
+    Ok(())
 }
 
 /// Renders each check's pass/fail line after a `Completed` event, with the
@@ -318,6 +352,47 @@ mod tests {
              ⚠ src/b.rs unused import\n\
              ⚠ 9 line without a file\n\
              ✖ no location at all\n"
+        );
+    }
+
+    fn execution(attempt: u32, status: ExecutionStatus, finished_at: Option<u64>) -> Execution {
+        Execution {
+            attempt,
+            worker: "w1".into(),
+            executor: lgtm_protocol::Executor::Claude,
+            started_at: 1_000,
+            finished_at,
+            status,
+            error: None,
+            cost_usd: 0.0,
+            validation: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn print_executions_hides_a_single_attempt() {
+        let mut out = Vec::new();
+        print_executions(
+            &[execution(1, ExecutionStatus::Completed, Some(2_000))],
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(out, b"");
+    }
+
+    #[test]
+    fn print_executions_lists_every_attempt_with_its_duration() {
+        let execs = vec![
+            execution(1, ExecutionStatus::Failed, Some(91_000)),
+            execution(2, ExecutionStatus::Running, None),
+        ];
+        let mut out = Vec::new();
+        print_executions(&execs, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "\n\
+             attempt 1: failed on w1 (claude) 1m30s\n\
+             attempt 2: running on w1 (claude) 0m0s\n"
         );
     }
 

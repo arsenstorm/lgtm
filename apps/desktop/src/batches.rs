@@ -270,6 +270,7 @@ mod tests {
             error: None,
             pull_request: None,
             ci: None,
+            executions: Vec::new(),
         }
     }
 

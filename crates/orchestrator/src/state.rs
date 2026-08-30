@@ -248,6 +248,7 @@ impl State {
             error: None,
             pull_request: None,
             ci: None,
+            executions: Vec::new(),
         };
         let id = task.id.clone();
         tracing::info!(task = %id, "task created");
@@ -283,6 +284,7 @@ impl State {
         };
         rec.events.push(stored.clone());
         let terminal = rec.task.status.is_terminal();
+        crate::execution::record(&mut rec.task, &stored.event, stored.at);
         let finished = transition(&mut rec.task, &stored.event);
         let status = rec.task.status;
         let worker = rec.task.worker.clone();
