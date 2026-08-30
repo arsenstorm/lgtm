@@ -6,8 +6,9 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
-    first_line_title, goal_status, Batch, Goal, GoalSummary, Memory, OrchestratorMessage, Session,
-    StoredEvent, Task, TaskEvent, TaskId, TaskSpec, TaskStatus, Todo, TodoStatus,
+    first_line_title, goal_status, Batch, Goal, GoalSummary, Memory, MemorySource,
+    OrchestratorMessage, Session, StoredEvent, Task, TaskEvent, TaskId, TaskSpec, TaskStatus, Todo,
+    TodoStatus, Verification,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -299,15 +300,38 @@ impl State {
             .unwrap_or_default()
     }
 
-    pub fn create_memory(&mut self, repository: Option<String>, content: String) -> Memory {
+    pub fn create_memory(
+        &mut self,
+        repository: Option<String>,
+        content: String,
+        source: MemorySource,
+        proposed_by: Option<TaskId>,
+    ) -> Memory {
+        // An agent cannot write what every later run is told, whatever
+        // verification the request claims: its source forces the state.
+        let verification = match source {
+            MemorySource::Agent => Verification::AgentProposed,
+            MemorySource::User => Verification::UserApproved,
+        };
         let memory = Memory {
             id: self.new_memory_id(),
             repository,
             content,
             created_at: now_ms(),
+            source,
+            verification,
+            proposed_by,
         };
         self.memories.insert(memory.id.clone(), memory.clone());
         memory
+    }
+
+    /// Marks a proposal as told from now on. `None` if there is no such
+    /// memory.
+    pub fn approve_memory(&mut self, id: &str) -> Option<Memory> {
+        let memory = self.memories.get_mut(id)?;
+        memory.verification = Verification::UserApproved;
+        Some(memory.clone())
     }
 
     pub fn remove_memory(&mut self, id: &str) -> bool {
@@ -319,7 +343,7 @@ impl State {
         let mut out: Vec<Memory> = self
             .memories
             .values()
-            .filter(|memory| memory.applies_to(repository))
+            .filter(|memory| memory.is_told_to(repository))
             .cloned()
             .collect();
         out.sort_by_key(|memory| memory.created_at);

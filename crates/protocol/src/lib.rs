@@ -285,6 +285,30 @@ pub struct BatchSummary {
     pub rejected: u32,
 }
 
+/// Who wrote a `Memory`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MemorySource {
+    #[default]
+    User,
+    Agent,
+}
+
+/// Whether a person has signed off on a `Memory`. An agent should not be
+/// able to write what every later run is told, so an agent-sourced memory
+/// starts `AgentProposed` and stays out of `knowledge_block` until approved.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Verification {
+    AgentProposed,
+    UserApproved,
+}
+
+/// Stored memories predate `Verification`; treat them as already approved.
+fn approved() -> Verification {
+    Verification::UserApproved
+}
+
 /// A fact, constraint, or decision every run in a repository should know.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Memory {
@@ -294,6 +318,13 @@ pub struct Memory {
     pub content: String,
     /// Unix milliseconds.
     pub created_at: u64,
+    #[serde(default)]
+    pub source: MemorySource,
+    #[serde(default = "approved")]
+    pub verification: Verification,
+    /// The task that proposed it, when `source` is `Agent`.
+    #[serde(default)]
+    pub proposed_by: Option<TaskId>,
 }
 
 impl BatchSummary {
@@ -338,9 +369,11 @@ pub struct Goal {
 }
 
 impl Memory {
-    /// Whether a run in `repository` should be told this.
-    pub fn applies_to(&self, repository: &str) -> bool {
-        self.repository.as_deref().is_none_or(|r| r == repository)
+    /// Whether a run in `repository` should be told this: it applies to the
+    /// repository, and a person has approved it.
+    pub fn is_told_to(&self, repository: &str) -> bool {
+        self.verification == Verification::UserApproved
+            && self.repository.as_deref().is_none_or(|r| r == repository)
     }
 }
 

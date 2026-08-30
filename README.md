@@ -42,7 +42,7 @@ to add it to the fleet.
   backlog as one batch of tasks.
 - `lgtm tell <id> "…"` sends a follow-up to a task that is awaiting review.
 - `lgtm memory add "…"` records a fact every agent run in the repository is
-  told.
+  told; `lgtm memory approve <id>` accepts one an agent proposed.
 - `lgtm todo add "…"` keeps a note; `lgtm todo promote <id>` turns it into a
   task.
 - `lgtm pad <id>` shows the notes an agent kept in `.lgtm/scratchpad.md`; they
@@ -114,7 +114,7 @@ with tools instead of file conventions:
 | Tool | What it does |
 | --- | --- |
 | `memories_list` | The facts recorded for this repository. |
-| `memory_propose` | Propose a fact for the next run to be told. |
+| `memory_propose` | Propose a fact; it waits for a person's approval. |
 | `todos_list` | The open todos for this repository. |
 | `todo_create` | Note work the run spotted but did not do. |
 | `scratchpad_read` | The working notes kept for this task. |
@@ -123,9 +123,9 @@ with tools instead of file conventions:
 The runner registers the server (`lgtm mcp`, this same binary, over stdio)
 with claude and codex for every run; there is nothing to configure.
 
-An agent cannot write a memory directly: `memory_propose` files a todo
-titled `Proposed memory: …`. You read it, and `lgtm memory add "…"` makes it
-a memory every later run is told.
+An agent cannot write a memory directly: `memory_propose` files a memory
+that waits, unapproved, until you run `lgtm memory approve <id>`; only then
+does a later run get told it.
 
 ## Repository config
 

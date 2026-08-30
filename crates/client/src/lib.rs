@@ -301,18 +301,27 @@ impl Client {
         self.get(&format!("/api/batches/{id}")).await
     }
 
-    /// Memories that apply to `repository`, or every one when it is `None`.
+    /// Memories that apply to `repository`, or every one when it is `None`;
+    /// `pending` narrows the list to proposals awaiting approval.
     pub async fn memories(
         &self,
         repository: Option<&str>,
+        pending: bool,
     ) -> anyhow::Result<Vec<lgtm_protocol::Memory>> {
         let mut req = self
             .http
             .get(format!("{}/api/memories", self.base))
             .bearer_auth(&self.token);
         // A git URL needs escaping, which reqwest's query builder does.
+        let mut query = Vec::new();
         if let Some(repository) = repository {
-            req = req.query(&[("repository", repository)]);
+            query.push(("repository", repository));
+        }
+        if pending {
+            query.push(("pending", "true"));
+        }
+        if !query.is_empty() {
+            req = req.query(&query);
         }
         Self::handle(req.send().await?).await
     }
@@ -327,9 +336,36 @@ impl Client {
             Some(&NewMemory {
                 repository,
                 content,
+                source: None,
+                proposed_by: None,
             }),
         )
         .await
+    }
+
+    /// Files `content` as a pending memory `proposed_by` a task; a person
+    /// approves it with `lgtm memory approve`.
+    pub async fn propose_memory(
+        &self,
+        repository: Option<&str>,
+        content: &str,
+        proposed_by: &str,
+    ) -> anyhow::Result<lgtm_protocol::Memory> {
+        self.post(
+            "/api/memories",
+            Some(&NewMemory {
+                repository,
+                content,
+                source: Some(lgtm_protocol::MemorySource::Agent),
+                proposed_by: Some(proposed_by),
+            }),
+        )
+        .await
+    }
+
+    pub async fn approve_memory(&self, id: &str) -> anyhow::Result<lgtm_protocol::Memory> {
+        self.post(&format!("/api/memories/{id}/approve"), None::<&()>)
+            .await
     }
 
     /// The 204 carries no body, so nothing is deserialized here.

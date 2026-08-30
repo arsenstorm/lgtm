@@ -1,6 +1,6 @@
 //! The `tasks` table and the cells in it.
 
-use lgtm_protocol::{CiState, GoalSummary, Memory, Review, Task, TaskStatus, Todo};
+use lgtm_protocol::{CiState, GoalSummary, Memory, Review, Task, TaskStatus, Todo, Verification};
 
 /// The wire form ("awaiting_review") rather than Rust's Debug form, so a
 /// cell matches the JSON everywhere else in the CLI's output.
@@ -106,18 +106,28 @@ pub fn print_task_table(tasks: Vec<Task>) {
 }
 
 /// One row of the `memory list` table. A memory with no repository shows `*`,
-/// since it applies to all of them.
+/// since it applies to all of them. `BY` is the task id that proposed it, or
+/// `-` for one a person added directly.
 pub fn memory_row(memory: &Memory) -> String {
+    let state = match memory.verification {
+        Verification::UserApproved => "approved",
+        Verification::AgentProposed => "proposed",
+    };
     format!(
-        "{:<10}{:<48}{}",
+        "{:<10}{:<10}{:<10}{:<48}{}",
         memory.id,
+        state,
+        memory.proposed_by.as_deref().unwrap_or("-"),
         memory.repository.as_deref().unwrap_or("*"),
         first_line_truncated(&memory.content, 80)
     )
 }
 
 pub fn print_memory_table(memories: &[Memory]) {
-    println!("{:<10}{:<48}CONTENT", "ID", "REPOSITORY");
+    println!(
+        "{:<10}{:<10}{:<10}{:<48}CONTENT",
+        "ID", "STATE", "BY", "REPOSITORY"
+    );
     for memory in memories {
         println!("{}", memory_row(memory));
     }
@@ -234,15 +244,18 @@ mod tests {
             repository: repository.map(String::from),
             content: content.into(),
             created_at: 1,
+            source: lgtm_protocol::MemorySource::User,
+            verification: Verification::UserApproved,
+            proposed_by: None,
         }
     }
 
     #[test]
     fn memory_row_stars_every_repository_and_truncates() {
         let row = memory_row(&memory(None, &"x".repeat(100)));
-        assert!(row.starts_with("0123abcd  *         "));
+        assert!(row.starts_with("0123abcd  approved  -         *"));
         assert!(row.ends_with(&"x".repeat(80)));
-        assert_eq!(row.len(), 10 + 48 + 80);
+        assert_eq!(row.len(), 10 + 10 + 10 + 48 + 80);
     }
 
     #[test]
@@ -250,6 +263,15 @@ mod tests {
         let row = memory_row(&memory(Some("https://example.com/r.git"), "no yarn"));
         assert!(row.contains("https://example.com/r.git"));
         assert!(row.ends_with("no yarn"));
+    }
+
+    #[test]
+    fn memory_row_shows_proposed_state_and_task() {
+        let mut memory = memory(None, "no yarn");
+        memory.verification = Verification::AgentProposed;
+        memory.proposed_by = Some("t1".into());
+        let row = memory_row(&memory);
+        assert!(row.starts_with("0123abcd  proposed  t1        "));
     }
 
     #[test]

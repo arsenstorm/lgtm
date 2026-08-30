@@ -340,15 +340,45 @@ fn memory(repository: Option<&str>, content: &str) -> Memory {
         repository: repository.map(String::from),
         content: content.into(),
         created_at: 1,
+        source: MemorySource::User,
+        verification: Verification::UserApproved,
+        proposed_by: None,
     }
 }
 
 #[test]
-fn memory_applies_to_its_repository_or_all() {
+fn memory_is_told_to_its_repository_or_all() {
     let scoped = memory(Some("https://github.com/arsenstorm/lgtm.git"), "c");
-    assert!(scoped.applies_to("https://github.com/arsenstorm/lgtm.git"));
-    assert!(!scoped.applies_to("https://github.com/arsenstorm/other.git"));
-    assert!(memory(None, "c").applies_to("anything"));
+    assert!(scoped.is_told_to("https://github.com/arsenstorm/lgtm.git"));
+    assert!(!scoped.is_told_to("https://github.com/arsenstorm/other.git"));
+    assert!(memory(None, "c").is_told_to("anything"));
+}
+
+#[test]
+fn memory_is_not_told_to_anyone_until_approved() {
+    let mut proposed = memory(None, "c");
+    proposed.verification = Verification::AgentProposed;
+    assert!(!proposed.is_told_to("anything"));
+}
+
+#[test]
+fn memory_round_trips_source_and_proposal() {
+    let mut memory = memory(Some("https://github.com/arsenstorm/lgtm.git"), "c");
+    memory.source = MemorySource::Agent;
+    memory.verification = Verification::AgentProposed;
+    memory.proposed_by = Some("t1".into());
+    let json = serde_json::to_string(&memory).unwrap();
+    assert_eq!(serde_json::from_str::<Memory>(&json).unwrap(), memory);
+}
+
+#[test]
+fn memory_without_verification_defaults_to_approved() {
+    let memory: Memory =
+        serde_json::from_str(r#"{"id":"0123abcd","repository":null,"content":"c","created_at":1}"#)
+            .unwrap();
+    assert_eq!(memory.source, MemorySource::User);
+    assert_eq!(memory.verification, Verification::UserApproved);
+    assert_eq!(memory.proposed_by, None);
 }
 
 #[test]
