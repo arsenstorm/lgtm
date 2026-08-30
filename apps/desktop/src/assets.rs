@@ -39,6 +39,7 @@ icons![
     "search",
     "settings",
     "square-pen",
+    "trash-2",
     "x",
 ];
 

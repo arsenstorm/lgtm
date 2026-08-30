@@ -21,7 +21,8 @@ use gpui::{
 use gpui_component::input::{InputEvent, InputState};
 use lgtm_client::Client;
 use lgtm_protocol::{
-    Batch, GoalSummary, Overlap, RunnerStatus, Session, SessionDetail, Stats, StoredEvent, Task,
+    Batch, GoalSummary, Memory, Overlap, PlanVersion, RunnerStatus, Session, SessionDetail, Stats,
+    StoredEvent, Task, Todo,
 };
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
@@ -39,6 +40,7 @@ pub enum Pane {
     Changes,
     Review,
     Notes,
+    Terminal,
     Plan,
 }
 
@@ -67,6 +69,13 @@ pub enum Overlay {
     Palette,
     Settings,
     Import,
+}
+
+/// An attached shell: what it has printed, and the way to type at it.
+pub struct Shell {
+    pub output: String,
+    pub input: tokio::sync::mpsc::UnboundedSender<String>,
+    pub stream: JoinHandle<()>,
 }
 
 /// The orchestrator this window talks to, and how the talking is going.
@@ -108,6 +117,10 @@ pub struct Inputs {
     pub follow_up: Entity<InputState>,
     pub query: Entity<InputState>,
     pub notes: Entity<InputState>,
+    pub memory: Entity<InputState>,
+    pub todo: Entity<InputState>,
+    pub model: Entity<InputState>,
+    pub shell: Entity<InputState>,
 }
 
 impl Inputs {
@@ -123,6 +136,14 @@ impl Inputs {
                     .multi_line(true)
                     .auto_grow(4, 16)
             }),
+            memory: field("Something every run here should know…", window, cx),
+            todo: field("Something to do later…", window, cx),
+            model: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("the harness default")
+                    .default_value(crate::theme::models(cx).model)
+            }),
+            shell: field("Type a command, then ↩", window, cx),
         }
     }
 }
@@ -165,6 +186,12 @@ pub struct UiState {
     pub project_tab: ProjectTab,
     /// The titlebar's runner popover.
     pub runner_menu: bool,
+    /// Which Settings dropdown is open, by its id.
+    pub settings_menu: Option<&'static str>,
+    /// `<task>:<host>` for every request denied in this window. Denying is
+    /// local: the orchestrator has no endpoint for it (see `review_tab`).
+    pub denied: HashSet<String>,
+    pub terminal_scroll: ScrollHandle,
 }
 
 impl Default for UiState {
@@ -187,6 +214,9 @@ impl Default for UiState {
             session_scroll: ScrollHandle::new(),
             project_tab: ProjectTab::default(),
             runner_menu: false,
+            settings_menu: None,
+            denied: HashSet::new(),
+            terminal_scroll: ScrollHandle::new(),
         }
     }
 }
@@ -204,6 +234,13 @@ pub struct LgtmApp {
     /// Events per task of the open session, for the tasks whose detail has
     /// been fetched. Kept after a task finishes so its turns do not vanish.
     pub session_events: Vec<(String, Vec<StoredEvent>)>,
+    /// The open project's memories and todos, while one of those tabs is open.
+    pub memories: Vec<Memory>,
+    pub todos: Vec<Todo>,
+    /// Every plan version under the open project's goals, newest first.
+    pub plans: Vec<PlanVersion>,
+    /// The todo the composer was prefilled from, promoted on submit.
+    pub promoting: Option<String>,
     /// Orchestrator-wide, and only refreshed on one poll in ten.
     pub stats: Option<Stats>,
     pub selected: Option<String>,
@@ -217,6 +254,10 @@ pub struct LgtmApp {
     /// Bumped on every selection so events from the previous stream are dropped.
     pub generation: u64,
     pub(crate) stream: Option<JoinHandle<()>>,
+    /// Polls the open project's lists, or fetches its plans.
+    pub(crate) project_stream: Option<JoinHandle<()>>,
+    /// The open task's shell, while the Terminal tab is showing it.
+    pub(crate) shell: Option<Shell>,
     pub lines: Vec<Line>,
     /// The selected task's events, kept beside the rendered lines because the
     /// Overview and Review tabs read fields the lines have already flattened.
@@ -253,6 +294,10 @@ impl LgtmApp {
             sessions: Vec::new(),
             session: None,
             session_events: Vec::new(),
+            memories: Vec::new(),
+            todos: Vec::new(),
+            plans: Vec::new(),
+            promoting: None,
             stats: None,
             selected: None,
             page: Page::Home,
@@ -263,6 +308,8 @@ impl LgtmApp {
             focus,
             generation: 0,
             stream: None,
+            project_stream: None,
+            shell: None,
             lines: Vec::new(),
             events: Vec::new(),
             overlaps: Vec::new(),
@@ -296,6 +343,44 @@ impl LgtmApp {
                 |this, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { secondary: true }) {
                         this.submit(window, cx);
+                    }
+                },
+            ),
+            // Saved when the field is done being typed in, not per keystroke:
+            // every save rewrites `~/.lgtm/desktop.toml`.
+            cx.subscribe_in(
+                &self.inputs.model,
+                window,
+                |this, _, event: &InputEvent, _, cx| {
+                    if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                        this.save_model(cx);
+                    }
+                },
+            ),
+            cx.subscribe_in(
+                &self.inputs.shell,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.send_to_shell(window, cx);
+                    }
+                },
+            ),
+            cx.subscribe_in(
+                &self.inputs.memory,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.add_memory(window, cx);
+                    }
+                },
+            ),
+            cx.subscribe_in(
+                &self.inputs.todo,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.add_todo(window, cx);
                     }
                 },
             ),

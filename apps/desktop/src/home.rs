@@ -1,12 +1,12 @@
 //! The welcome screen: an empty stage, with the composer pinned to the bottom.
 
 use crate::app::LgtmApp;
-use crate::theme::{icon, tokens, Tokens, ICON, RADIUS, SPACE};
+use crate::theme::{icon, tokens, Models, Tokens, ICON, RADIUS, SPACE};
 use gpui::{
     div, px, AnyElement, Context, FontWeight, Hsla, IntoElement, ParentElement as _, Styled as _,
     Window,
 };
-use lgtm_protocol::{Executor, TaskKind, TaskSpec};
+use lgtm_protocol::{TaskKind, TaskSpec};
 
 /// The outlined mark over the greeting.
 const MARK: f32 = 44.;
@@ -29,33 +29,48 @@ impl Chip {
     }
 }
 
-/// The task the composer would start, or None while it is incomplete.
-pub fn compose(prompt: &str, project: Option<&str>, chips: &[Chip]) -> Option<TaskSpec> {
+/// The base branch the chips ask for; `main` when they ask for none.
+pub fn branch_of(chips: &[Chip]) -> String {
+    chips
+        .iter()
+        .find_map(|chip| match chip {
+            Chip::Branch(branch) if !branch.trim().is_empty() => Some(branch.trim().to_string()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "main".to_string())
+}
+
+/// The runner the chips pin the task to, or `None` for the orchestrator's pick.
+pub fn runner_of(chips: &[Chip]) -> Option<String> {
+    chips.iter().find_map(|chip| match chip {
+        Chip::Runner(name) if name != AUTO_RUNNER => Some(name.clone()),
+        _ => None,
+    })
+}
+
+/// The task the composer would start, or None while it is incomplete. What the
+/// chips do not say comes from Settings → Models.
+pub fn compose(
+    prompt: &str,
+    project: Option<&str>,
+    chips: &[Chip],
+    models: &Models,
+) -> Option<TaskSpec> {
     let prompt = prompt.trim();
     let repository = project.map(str::trim).filter(|url| !url.is_empty())?;
     if prompt.is_empty() {
         return None;
     }
-    let mut base_branch = "main".to_string();
-    let mut runner = None;
-    let mut kind = TaskKind::Run;
-    for chip in chips {
-        match chip {
-            Chip::Plan => kind = TaskKind::Plan,
-            Chip::Runner(name) if name != AUTO_RUNNER => runner = Some(name.clone()),
-            Chip::Runner(_) => runner = None,
-            Chip::Branch(branch) if !branch.trim().is_empty() => {
-                base_branch = branch.trim().to_string()
-            }
-            Chip::Branch(_) => {}
-        }
-    }
+    let kind = match chips.contains(&Chip::Plan) {
+        true => TaskKind::Plan,
+        false => TaskKind::Run,
+    };
     Some(TaskSpec {
         repository: repository.to_string(),
-        base_branch,
+        base_branch: branch_of(chips),
         prompt: prompt.to_string(),
-        executor: Executor::Claude,
-        runner,
+        executor: models.executor,
+        runner: runner_of(chips),
         issue: None,
         linear: None,
         kind,
@@ -66,8 +81,8 @@ pub fn compose(prompt: &str, project: Option<&str>, chips: &[Chip]) -> Option<Ta
         sandbox: None,
         requirements: vec![],
         goal: None,
-        review_executor: None,
-        model: None,
+        review_executor: models.review.executor(),
+        model: Some(models.model.clone()).filter(|model| !model.trim().is_empty()),
         allowed_hosts: Vec::new(),
         session: None,
     })
@@ -164,19 +179,35 @@ fn stage(t: &Tokens) -> impl IntoElement {
 mod tests {
     use super::*;
 
+    use crate::theme::Pick;
+    use lgtm_protocol::Executor;
+
     const URL: &str = "https://github.com/you/repo.git";
+
+    fn models() -> Models {
+        Models {
+            executor: Executor::Claude,
+            model: String::new(),
+            review: Pick::Auto,
+            orchestrate: Pick::Off,
+        }
+    }
+
+    fn spec(prompt: &str, project: Option<&str>, chips: &[Chip]) -> Option<TaskSpec> {
+        compose(prompt, project, chips, &models())
+    }
 
     #[test]
     fn nothing_composes_without_a_prompt_or_a_project() {
-        assert!(compose("", Some(URL), &[]).is_none());
-        assert!(compose("   ", Some(URL), &[]).is_none());
-        assert!(compose("do it", None, &[]).is_none());
-        assert!(compose("do it", Some("  "), &[]).is_none());
+        assert!(spec("", Some(URL), &[]).is_none());
+        assert!(spec("   ", Some(URL), &[]).is_none());
+        assert!(spec("do it", None, &[]).is_none());
+        assert!(spec("do it", Some("  "), &[]).is_none());
     }
 
     #[test]
     fn defaults_are_main_no_runner_and_a_run() {
-        let spec = compose("do it", Some(URL), &[]).unwrap();
+        let spec = spec("do it", Some(URL), &[]).unwrap();
         assert_eq!(spec.repository, URL);
         assert_eq!(spec.base_branch, "main");
         assert_eq!(spec.prompt, "do it");
@@ -191,7 +222,7 @@ mod tests {
             Chip::Runner("MacBook".into()),
             Chip::Branch("develop".into()),
         ];
-        let spec = compose("do it", Some(URL), &chips).unwrap();
+        let spec = spec("do it", Some(URL), &chips).unwrap();
         assert_eq!(spec.kind, TaskKind::Plan);
         assert_eq!(spec.runner.as_deref(), Some("MacBook"));
         assert_eq!(spec.base_branch, "develop");
@@ -200,9 +231,25 @@ mod tests {
     #[test]
     fn the_auto_runner_leaves_the_choice_to_the_orchestrator() {
         let chips = vec![Chip::Runner(AUTO_RUNNER.into())];
-        assert!(compose("do it", Some(URL), &chips)
+        assert!(spec("do it", Some(URL), &chips).unwrap().runner.is_none());
+    }
+
+    #[test]
+    fn the_settings_defaults_fill_in_the_harness_the_model_and_the_reviewer() {
+        let codex = Models {
+            executor: Executor::Codex,
+            model: "gpt-5".into(),
+            review: Pick::Claude,
+            orchestrate: Pick::Off,
+        };
+        let spec = compose("do it", Some(URL), &[], &codex).unwrap();
+        assert_eq!(spec.executor, Executor::Codex);
+        assert_eq!(spec.model.as_deref(), Some("gpt-5"));
+        assert_eq!(spec.review_executor, Some(Executor::Claude));
+        // An empty model field means the harness picks, not an empty flag.
+        assert!(compose("do it", Some(URL), &[], &models())
             .unwrap()
-            .runner
+            .model
             .is_none());
     }
 }

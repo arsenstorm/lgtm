@@ -4,18 +4,23 @@
 //! so network work lives on one process-wide tokio runtime and results come
 //! back over an unbounded channel that the GPUI side drains (see `App::pump`).
 
-use lgtm_client::{BatchRequest, BatchResponse, Client, NewSession, SessionMessage, TaskDetail};
+use lgtm_client::{
+    BatchRequest, BatchResponse, Client, NewSession, PromoteTodo, SessionMessage, TaskDetail,
+};
 use lgtm_protocol::{
-    Batch, GoalSummary, RunnerStatus, Session, SessionDetail, Stats, StoredEvent, Task, TaskSpec,
-    TaskStatus,
+    Batch, GoalSummary, Memory, PlanVersion, RunnerStatus, Session, SessionDetail, Stats,
+    StoredEvent, Task, TaskSpec, TaskStatus, Todo,
 };
 use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
+/// Memories and todos change when a person changes them, so they are polled
+/// less often than the task lists.
+const NOTES_INTERVAL: Duration = Duration::from_secs(5);
 /// Stats are computed over every task the orchestrator has, so they ride
 /// along on one poll in ten rather than on all of them.
 const STATS_EVERY: u32 = 10;
@@ -55,6 +60,22 @@ pub enum Msg {
     },
     /// An action went through; the next poll shows what it did.
     Action(Result<(), String>),
+    /// One refresh of the open project's memories and todos.
+    Notes {
+        generation: u64,
+        memories: Vec<Memory>,
+        todos: Vec<Todo>,
+    },
+    /// Every plan version under the open project's goals, newest first.
+    Plans {
+        generation: u64,
+        plans: Vec<PlanVersion>,
+    },
+    /// One chunk of the open task's shell output.
+    Terminal {
+        generation: u64,
+        data: String,
+    },
     /// A session to open: one just created, with or without a first message.
     Opened(Result<String, String>),
     /// A dry run's issue list, or the batch an import created.
@@ -74,6 +95,20 @@ pub enum Action {
     Tell(String),
     SetScratchpad(String),
     AllowHost(String),
+    /// The `id` these are given is the memory's or the todo's, not a task's.
+    AddMemory {
+        repository: String,
+        content: String,
+    },
+    DeleteMemory,
+    AddTodo {
+        repository: String,
+        title: String,
+    },
+    FinishTodo,
+    DeleteTodo,
+    Promote(Box<PromoteTodo>),
+    CloseTerminal,
 }
 
 pub fn runtime() -> &'static Runtime {
@@ -281,7 +316,118 @@ async fn one_task(client: &Client, id: &str, action: Action) -> anyhow::Result<(
         Action::Tell(text) => client.tell(id, &text).await.map(|_| ()),
         Action::SetScratchpad(notes) => client.set_scratchpad(id, &notes).await.map(|_| ()),
         Action::AllowHost(host) => client.allow_host(id, &host).await.map(|_| ()),
+        Action::AddMemory {
+            repository,
+            content,
+        } => client
+            .create_memory(Some(&repository), &content)
+            .await
+            .map(|_| ()),
+        Action::DeleteMemory => client.delete_memory(id).await,
+        Action::AddTodo { repository, title } => client
+            .create_todo(Some(&repository), &title, "")
+            .await
+            .map(|_| ()),
+        Action::FinishTodo => client.finish_todo(id).await.map(|_| ()),
+        Action::DeleteTodo => client.delete_todo(id).await,
+        Action::Promote(into) => client.promote_todo(id, &into).await.map(|_| ()),
+        Action::CloseTerminal => client.close_terminal(id).await,
         // Answered before this is reached; it does not act on one task.
         Action::StartSession(_) => Ok(()),
+    }
+}
+
+/// Refreshes one project's memories and todos every five seconds until the
+/// caller aborts it. A failed poll is skipped rather than ending the loop.
+pub fn watch_notes(
+    client: Client,
+    repository: String,
+    generation: u64,
+    tx: Sender,
+) -> JoinHandle<()> {
+    runtime().spawn(async move {
+        loop {
+            let memories = client.memories(Some(&repository), false).await;
+            let todos = client.todos(Some(&repository)).await;
+            if let (Ok(memories), Ok(todos)) = (memories, todos) {
+                let msg = Msg::Notes {
+                    generation,
+                    memories,
+                    todos,
+                };
+                if tx.send(msg).is_err() {
+                    return;
+                }
+            }
+            tokio::time::sleep(NOTES_INTERVAL).await;
+        }
+    })
+}
+
+/// Every plan version under `goals`, newest first. Fetched once when the tab
+/// opens: a plan only changes when a plan task runs.
+pub fn fetch_plans(
+    client: Client,
+    goals: Vec<String>,
+    generation: u64,
+    tx: Sender,
+) -> JoinHandle<()> {
+    runtime().spawn(async move {
+        let mut plans: Vec<PlanVersion> = Vec::new();
+        for goal in goals {
+            plans.extend(client.goal_plans(&goal).await.unwrap_or_default());
+        }
+        plans.sort_by_key(|plan| std::cmp::Reverse(plan.created_at));
+        let _ = tx.send(Msg::Plans { generation, plans });
+    })
+}
+
+/// Attaches to the task's shell. The returned sender writes to it; dropping
+/// the handle detaches without killing the shell.
+pub fn attach_terminal(
+    client: Client,
+    id: String,
+    generation: u64,
+    tx: Sender,
+) -> (JoinHandle<()>, UnboundedSender<String>) {
+    let (input, rx) = tokio::sync::mpsc::unbounded_channel();
+    let handle = runtime().spawn(async move {
+        match client.terminal(&id).await {
+            Ok(shell) => pump_terminal(shell, rx, generation, tx).await,
+            Err(err) => {
+                let _ = tx.send(Msg::Action(Err(err.to_string())));
+            }
+        }
+    });
+    (handle, input)
+}
+
+/// Both directions of the shell in one loop. The select only ever borrows the
+/// stream for the read, so the write happens after it hands back a line.
+async fn pump_terminal(
+    mut shell: lgtm_client::TerminalStream,
+    mut rx: UnboundedReceiver<String>,
+    generation: u64,
+    tx: Sender,
+) {
+    loop {
+        let typed = tokio::select! {
+            chunk = shell.next() => match chunk {
+                Some(data) => {
+                    if tx.send(Msg::Terminal { generation, data }).is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                None => return,
+            },
+            line = rx.recv() => match line {
+                Some(line) => line,
+                None => return,
+            },
+        };
+        if shell.send(&typed).await.is_err() {
+            return;
+        }
     }
 }
