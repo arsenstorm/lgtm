@@ -120,6 +120,8 @@ budget_per_task_usd = 2.0  # no auto-approve for a run that cost more
 
 [sandbox]
 profile = "standard"   # standard: stripped env, writes only to the worktree, secrets unreadable
+network = "unrestricted"  # unrestricted, none, or allowlist
+allowed_hosts = ["github.com", "api.anthropic.com", "crates.io"]  # what allowlist may reach
 ```
 
 `standard` runs the agent with only the variables it needs — a token in the
@@ -133,6 +135,18 @@ login; the host's secrets (`.ssh`, `.aws`, `.gnupg`, `.config/gh`, `.netrc`,
 readable, because that is where claude keeps its own token and denying it only
 logs the agent out. `strict` runs as `standard` until the container boundary
 lands.
+
+`network` decides where a run may go: `unrestricted` (the default), `none`, or
+`allowlist`. Under `allowlist` the worker starts an HTTP proxy on the loopback
+for the length of the run, points the agent at it, and refuses any host
+`allowed_hosts` does not name — exactly, or as a suffix when the entry starts
+with a dot (`.github.com` covers `api.github.com`). Naming no hosts means the
+registries and APIs a build usually needs. Every refused host is reported on
+the task as `network denied: <host>`, so a missing entry shows up as itself
+rather than as a mystery failure. On macOS this is a real boundary: seatbelt
+lets the run reach nothing but the proxy's port. On Linux it is the proxy
+variables only until a network namespace lands, so a process that ignores them
+is not stopped; `none` is enforced there today, with `--unshare-net`.
 
 A malformed file changes nothing: unknown or ill-typed keys are logged and
 the defaults stay.

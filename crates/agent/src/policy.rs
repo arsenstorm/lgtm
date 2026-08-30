@@ -14,6 +14,20 @@ const DIFF_CHARS: usize = 60_000;
 /// not hold a slot overnight.
 const DEFAULT_TIMEOUT_SECS: u64 = 3600;
 
+/// What an `allowlist` run reaches when the repository names no hosts: the
+/// registries a build needs and the APIs the harnesses talk to.
+const DEFAULT_ALLOWED_HOSTS: &[&str] = &[
+    "github.com",
+    "api.github.com",
+    "api.anthropic.com",
+    "registry.npmjs.org",
+    "crates.io",
+    "static.crates.io",
+    "index.crates.io",
+    "pypi.org",
+    "files.pythonhosted.org",
+];
+
 /// What the repository asked the worker to do beyond running the agent once.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PolicyConfig {
@@ -34,7 +48,18 @@ pub struct PolicyConfig {
     /// Kill an agent run that has been going this long.
     pub timeout_secs: u64,
     pub sandbox: SandboxProfile,
+    pub network: NetworkPolicy,
     pub review_executor: ReviewExecutor,
+}
+
+/// Where an agent run may go on the network. Still `Unrestricted` by default:
+/// narrowing that is a decision for its own change.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum NetworkPolicy {
+    #[default]
+    Unrestricted,
+    None,
+    Allowlist(Vec<String>),
 }
 
 /// The harness for the review pass. Defaults to `Auto` so a worker with both
@@ -59,6 +84,7 @@ impl Default for PolicyConfig {
             budget_per_task_usd: None,
             timeout_secs: DEFAULT_TIMEOUT_SECS,
             sandbox: SandboxProfile::Standard,
+            network: NetworkPolicy::Unrestricted,
             review_executor: ReviewExecutor::Auto,
         }
     }
@@ -128,20 +154,39 @@ pub fn parse_policy(text: &str) -> PolicyConfig {
     policy
 }
 
-/// A separate table from `[policy]`: the sandbox profile is a runner
-/// concern, not one of the checks-and-approval policies above it.
+/// A separate table from `[policy]`: what confines a run is a runner concern,
+/// not one of the checks-and-approval policies above it.
 fn read_sandbox(table: &toml::Table, policy: &mut PolicyConfig) {
-    let Some(profile) = table
-        .get("sandbox")
-        .and_then(toml::Value::as_table)
-        .and_then(|section| section.get("profile"))
-        .and_then(toml::Value::as_str)
-    else {
+    let Some(section) = table.get("sandbox").and_then(toml::Value::as_table) else {
         return;
     };
-    match SandboxProfile::parse(profile) {
-        Some(parsed) => policy.sandbox = parsed,
-        None => tracing::warn!("[sandbox] profile must be off, standard or strict, ignoring"),
+    if let Some(profile) = section.get("profile").and_then(toml::Value::as_str) {
+        match SandboxProfile::parse(profile) {
+            Some(parsed) => policy.sandbox = parsed,
+            None => tracing::warn!("[sandbox] profile must be off, standard or strict, ignoring"),
+        }
+    }
+    policy.network = read_network(section);
+}
+
+/// `allowed_hosts` is read whatever order it appears in, so an allowlist is
+/// never silently the default list because the keys were the other way round.
+fn read_network(section: &toml::Table) -> NetworkPolicy {
+    let mut hosts: Vec<String> = DEFAULT_ALLOWED_HOSTS
+        .iter()
+        .map(|h| h.to_string())
+        .collect();
+    if let Some(value) = section.get("allowed_hosts") {
+        strings(&mut hosts, "allowed_hosts", value);
+    }
+    match section.get("network").and_then(toml::Value::as_str) {
+        Some("unrestricted") | None => NetworkPolicy::Unrestricted,
+        Some("none") => NetworkPolicy::None,
+        Some("allowlist") => NetworkPolicy::Allowlist(hosts),
+        Some(_) => {
+            tracing::warn!("[sandbox] network must be unrestricted, none or allowlist, ignoring");
+            NetworkPolicy::Unrestricted
+        }
     }
 }
 
@@ -304,6 +349,7 @@ mod tests {
                 budget_per_task_usd: None,
                 timeout_secs: 120,
                 sandbox: SandboxProfile::Standard,
+                network: NetworkPolicy::Unrestricted,
                 review_executor: ReviewExecutor::Auto,
             }
         );
@@ -342,6 +388,58 @@ mod tests {
     fn bad_sandbox_profile_keeps_the_default() {
         let policy = parse_policy("[sandbox]\nprofile = \"chaos\"\n");
         assert_eq!(policy.sandbox, SandboxProfile::Standard);
+    }
+
+    #[test]
+    fn network_defaults_to_unrestricted_and_reads_the_three_modes() {
+        assert_eq!(parse_policy("").network, NetworkPolicy::Unrestricted);
+        assert_eq!(
+            parse_policy("[sandbox]\nnetwork = \"none\"\n").network,
+            NetworkPolicy::None
+        );
+        assert_eq!(
+            parse_policy("[sandbox]\nnetwork = \"nope\"\n").network,
+            NetworkPolicy::Unrestricted
+        );
+        let NetworkPolicy::Allowlist(hosts) =
+            parse_policy("[sandbox]\nnetwork = \"allowlist\"\n").network
+        else {
+            panic!("expected an allowlist");
+        };
+        assert_eq!(hosts, DEFAULT_ALLOWED_HOSTS);
+    }
+
+    #[test]
+    fn allowed_hosts_replace_the_defaults_whichever_key_comes_first() {
+        let listed = "allowed_hosts = [\"proxy.internal\", \".github.com\"]";
+        for text in [
+            format!("[sandbox]\nnetwork = \"allowlist\"\n{listed}\n"),
+            format!("[sandbox]\n{listed}\nnetwork = \"allowlist\"\n"),
+        ] {
+            assert_eq!(
+                parse_policy(&text).network,
+                NetworkPolicy::Allowlist(vec![
+                    "proxy.internal".to_string(),
+                    ".github.com".to_string()
+                ])
+            );
+        }
+        // Named without an allowlist they change nothing, and a wrong type
+        // leaves the defaults standing.
+        assert_eq!(
+            parse_policy(&format!("[sandbox]\n{listed}\n")).network,
+            NetworkPolicy::Unrestricted
+        );
+        assert_eq!(
+            parse_policy("[sandbox]\nnetwork = \"allowlist\"\nallowed_hosts = \"github.com\"\n")
+                .network,
+            NetworkPolicy::Allowlist(
+                DEFAULT_ALLOWED_HOSTS
+                    .iter()
+                    .map(|h| h.to_string())
+                    .collect()
+            )
+        );
     }
 
     #[test]

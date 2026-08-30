@@ -14,7 +14,7 @@ use lgtm_protocol::{
 };
 use serde_json::json;
 use tokio::process::Command;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::connection::Ctx;
@@ -22,13 +22,14 @@ use crate::git::{branch_name, commit, mirror_path, session_path, SCRATCHPAD};
 use crate::plan::extract_plan;
 use crate::policy::{
     effective_sandbox, failed_names, fix_prompt, load_policy, parse_review, review_prompt,
-    review_warning, reviewer, PolicyConfig,
+    review_warning, reviewer, NetworkPolicy, PolicyConfig,
 };
 use crate::proc::{
     cost_buffer, cost_total, final_text, tail_buffer, tail_lines, text_buffer, Cost, Pump, Sinks,
     Tail, Text,
 };
-use crate::sandbox;
+use crate::proxy;
+use crate::sandbox::{self, Network};
 use crate::validate::{load_validation, run_validation, tail};
 
 /// Commit subject for the follow-up run that fixed the checks.
@@ -116,8 +117,21 @@ pub struct Run<'a> {
     /// The profile every run of this task is confined by, known at the same
     /// point as the timeout.
     sandbox: SandboxProfile,
+    /// The hosts an allowlisted run may reach, `None` when the repository
+    /// asked for no allowlist.
+    allowed_hosts: Option<Vec<String>>,
+    /// What the sandbox enforces for the run that is about to start: a port
+    /// only once that run's proxy is listening.
+    network: Network,
     /// The notes as last seen, so an unchanged scratchpad sends nothing.
     notes: String,
+}
+
+/// The allowlist proxy serving one run: the task that accepts on it, and the
+/// hosts it refused.
+struct Proxy {
+    task: JoinHandle<()>,
+    denied: mpsc::UnboundedReceiver<String>,
 }
 
 impl<'a> Run<'a> {
@@ -135,6 +149,8 @@ impl<'a> Run<'a> {
             cost: cost_buffer(),
             timeout: Duration::from_secs(3600),
             sandbox: SandboxProfile::default(),
+            allowed_hosts: None,
+            network: Network::Unrestricted,
             notes: task.scratchpad.clone(),
         }
     }
@@ -146,6 +162,13 @@ pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> 
     let available = crate::detect_executors();
     run.timeout = Duration::from_secs(policy.timeout_secs);
     run.sandbox = effective_sandbox(&run.task.spec, &policy);
+    // An allowlist stays blocked until its proxy is listening: a run that
+    // cannot be restricted must not run unrestricted instead.
+    (run.allowed_hosts, run.network) = match &policy.network {
+        NetworkPolicy::Unrestricted => (None, Network::Unrestricted),
+        NetworkPolicy::None => (None, Network::Blocked),
+        NetworkPolicy::Allowlist(hosts) => (Some(hosts.clone()), Network::Blocked),
+    };
     tracing::info!(profile = run.sandbox.as_str(), "sandbox profile");
     if run.task.spec.kind == TaskKind::Plan {
         return run.plan(prompt, &policy).await;
@@ -361,6 +384,7 @@ impl<'a> Run<'a> {
     async fn agent_run(&mut self, opts: RunOpts<'_>) -> Result<Ran> {
         let binary = opts.executor.binary();
         let path = which::which(binary).with_context(|| format!("{binary} not found on PATH"))?;
+        let proxy = self.start_proxy().await;
         let mut child = self
             .command(&path, &opts)
             .spawn()
@@ -377,6 +401,7 @@ impl<'a> Run<'a> {
         let waited = self.wait_or_kill(&mut child).await?;
         // Also for a cancel or a timeout: that is when the notes matter most.
         self.after_run().await;
+        self.close_proxy(proxy);
         let status = match waited {
             Waited::Exited(status) => status,
             Waited::Cancelled => return Ok(Ran::Cancelled),
@@ -387,6 +412,42 @@ impl<'a> Run<'a> {
             status,
             stderr_tail: tail(&tail_lines(&stderr_tail)),
         }))
+    }
+
+    /// Each run gets its own proxy, so the port a run was told to use dies
+    /// with it. A proxy that will not bind leaves the run blocked.
+    async fn start_proxy(&mut self) -> Option<Proxy> {
+        let hosts = self.allowed_hosts.clone()?;
+        self.network = Network::Blocked;
+        let (sender, denied) = mpsc::unbounded_channel();
+        match proxy::serve(hosts, sender).await {
+            Ok((addr, task)) => {
+                self.network = Network::Proxy(addr.port());
+                Some(Proxy { task, denied })
+            }
+            Err(err) => {
+                tracing::warn!("network allowlist proxy: {err}; the run gets no network");
+                None
+            }
+        }
+    }
+
+    /// One event per host, however many times the run tried it: the point is
+    /// which hosts the allowlist is missing, not how often.
+    fn close_proxy(&mut self, proxy: Option<Proxy>) {
+        let Some(mut proxy) = proxy else {
+            return;
+        };
+        proxy.task.abort();
+        let mut seen: Vec<String> = Vec::new();
+        while let Ok(host) = proxy.denied.try_recv() {
+            if seen.contains(&host) {
+                continue;
+            }
+            seen.push(host.clone());
+            self.ctx
+                .emit(&self.task.id, TaskEvent::NetworkDenied { host });
+        }
     }
 
     /// Publishes the scratchpad the run left behind. A run that wrote nothing
@@ -463,7 +524,7 @@ impl<'a> Run<'a> {
         }
     }
 
-    fn command(&self, path: &Path, opts: &RunOpts<'_>) -> Command {
+    fn wrapped(&self, path: &Path, opts: &RunOpts<'_>) -> sandbox::Wrapped {
         let mirror = mirror_path(&self.ctx.data_dir, &self.task.spec.repository);
         let home = sandbox::home_dir(self.worktree);
         let paths = sandbox::Paths {
@@ -471,14 +532,21 @@ impl<'a> Run<'a> {
             mirror: &mirror,
             home: &home,
         };
-        let wrapped = sandbox::wrap(self.sandbox, &paths, path, &args(opts));
+        sandbox::wrap(self.sandbox, &paths, self.network, path, &args(opts))
+    }
+
+    fn command(&self, path: &Path, opts: &RunOpts<'_>) -> Command {
+        let wrapped = self.wrapped(path, opts);
         let mut cmd = Command::new(wrapped.program);
         cmd.args(wrapped.args);
         if self.sandbox != SandboxProfile::Off {
             cmd.env_clear()
                 .envs(std::env::vars().filter(|(name, _)| sandbox::keep_env(name)));
         }
+        // After the inherited variables: the run's own proxy is not one the
+        // worker's shell gets to override.
         cmd.envs(self.mcp_env())
+            .envs(sandbox::network_env(self.network))
             .current_dir(self.worktree)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

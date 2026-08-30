@@ -33,7 +33,11 @@ fn seatbelt_profile_allows_the_roots_and_denies_the_secrets() {
         mirror: Path::new("/data/repos/repo.git"),
         home: &home,
     };
-    let profile = seatbelt_profile(&paths, Some(Path::new("/scratch/tmp")));
+    let profile = seatbelt_profile(
+        &paths,
+        Some(Path::new("/scratch/tmp")),
+        Network::Unrestricted,
+    );
 
     // `/tmp` is a symlink on macOS, and seatbelt only matches the real path.
     let tmp = fs::canonicalize("/tmp").expect("/tmp");
@@ -58,6 +62,7 @@ fn off_runs_the_program_unchanged() {
     let wrapped = wrap(
         SandboxProfile::Off,
         &paths,
+        Network::Unrestricted,
         Path::new("/usr/bin/claude"),
         &args,
     );
@@ -73,14 +78,55 @@ fn bwrap_argv_binds_the_worktree_over_a_read_only_root() {
         mirror: &worktree,
         home: Path::new("/home/me"),
     };
-    let argv = bwrap_args(&paths, Path::new("/usr/bin/claude"), &["-p".to_string()]);
+    let argv = bwrap_args(
+        &paths,
+        Path::new("/usr/bin/claude"),
+        &["-p".to_string()],
+        Network::Unrestricted,
+    );
 
     let joined = argv.join(" ");
     assert!(joined.starts_with("--ro-bind / /"));
     assert!(joined.contains(&format!("--bind {0} {0}", worktree.display())));
     assert!(joined.contains("--die-with-parent"));
     assert!(joined.ends_with("-- /usr/bin/claude -p"));
+    assert!(!joined.contains("--unshare-net"));
+
+    let blocked = bwrap_args(&paths, Path::new("/usr/bin/claude"), &[], Network::Blocked);
+    assert!(blocked.contains(&"--unshare-net".to_string()));
+    // Best effort until a netns lands: the proxy is only an environment hint.
+    let proxied = bwrap_args(&paths, Path::new("/usr/bin/claude"), &[], Network::Proxy(1));
+    assert!(!proxied.contains(&"--unshare-net".to_string()));
     fs::remove_dir_all(&worktree).ok();
+}
+
+#[test]
+fn the_seatbelt_profile_says_what_each_network_mode_may_reach() {
+    let paths = Paths {
+        worktree: Path::new("/work/tree"),
+        mirror: Path::new("/data/repo.git"),
+        home: Path::new("/home/me"),
+    };
+    let profile = |network| seatbelt_profile(&paths, None, network);
+    assert!(!profile(Network::Unrestricted).contains("network"));
+    assert!(profile(Network::Blocked).contains("(deny network*)"));
+    let proxied = profile(Network::Proxy(51234));
+    assert!(proxied.contains("(deny network-outbound)"));
+    assert!(proxied.contains("(allow network-outbound (to ip \"localhost:51234\"))"));
+    assert!(proxied.contains("(allow network-outbound (to unix-socket))"));
+}
+
+#[test]
+fn a_restricted_run_is_told_about_the_proxy_and_an_unrestricted_one_is_not() {
+    assert!(network_env(Network::Unrestricted).is_empty());
+    let proxied = network_env(Network::Proxy(8080));
+    assert!(proxied.contains(&("HTTPS_PROXY", "http://127.0.0.1:8080".to_string())));
+    assert!(proxied.contains(&("all_proxy", "http://127.0.0.1:8080".to_string())));
+    assert!(proxied.contains(&("NO_PROXY", String::new())));
+    // `none` empties them instead, so an inherited proxy is not a way out.
+    assert!(network_env(Network::Blocked)
+        .iter()
+        .all(|(_, value)| value.is_empty()));
 }
 
 #[cfg(target_os = "macos")]
@@ -99,7 +145,7 @@ fn seatbelt_denies_writes_outside_the_worktree_and_reads_of_secrets() {
         mirror: &worktree,
         home: &home,
     };
-    let profile = seatbelt_profile(&paths, None);
+    let profile = seatbelt_profile(&paths, None, Network::Unrestricted);
 
     assert!(sh(&profile, &format!("touch {}/ok", worktree.display())));
     assert!(worktree.join("ok").exists());

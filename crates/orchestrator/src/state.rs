@@ -565,6 +565,7 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
         | TaskEvent::FileChanged { .. }
         | TaskEvent::Progress { .. }
         | TaskEvent::Validating { .. }
+        | TaskEvent::NetworkDenied { .. }
         | TaskEvent::Retry { .. }
         | TaskEvent::PolicyDecision { .. }
         | TaskEvent::Orchestrated { .. }

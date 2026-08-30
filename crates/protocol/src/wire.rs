@@ -55,6 +55,10 @@ pub enum TaskEvent {
     Validating {
         names: Vec<String>,
     },
+    /// The run tried to reach a host outside its allowlist; the connection was refused.
+    NetworkDenied {
+        host: String,
+    },
     /// Agent exited 0 and the change is committed on the task branch.
     Completed {
         result: TaskResult,
