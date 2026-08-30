@@ -106,3 +106,19 @@ pub struct FromLinear<'a> {
 pub struct EventStream {
     pub(crate) stream: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
 }
+
+/// Body of `POST /api/todos`.
+#[derive(Serialize)]
+pub(crate) struct NewTodo<'a> {
+    pub(crate) repository: Option<&'a str>,
+    pub(crate) title: &'a str,
+    pub(crate) description: &'a str,
+}
+
+/// Body of `POST /api/todos/:id/promote`.
+#[derive(Serialize, Clone, Debug)]
+pub struct PromoteTodo {
+    pub base_branch: String,
+    pub executor: lgtm_protocol::Executor,
+    pub worker: Option<String>,
+}

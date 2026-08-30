@@ -282,6 +282,19 @@ fn hello_without_version_defaults_to_zero() {
 }
 
 #[test]
+fn todo_round_trips() {
+    round_trip(Todo {
+        id: "0123abcd".into(),
+        repository: Some("https://github.com/arsenstorm/lgtm.git".into()),
+        title: "add a /health endpoint".into(),
+        description: "should return 200 while workers are connected".into(),
+        status: TodoStatus::InProgress,
+        created_at: 1,
+        task: Some("11111111".into()),
+    });
+}
+
+#[test]
 fn rejected_round_trips() {
     round_trip(OrchestratorMessage::Rejected {
         reason: "protocol version 0, this orchestrator speaks 1".into(),

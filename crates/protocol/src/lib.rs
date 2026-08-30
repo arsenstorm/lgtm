@@ -328,6 +328,31 @@ pub fn goal_status(tasks: &[&Task]) -> GoalStatus {
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    Open,
+    InProgress,
+    Done,
+}
+
+/// A note about work to do; not yet a task, and cheaper than one.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Todo {
+    pub id: String,
+    /// Git URL; `None` is not tied to a repository.
+    pub repository: Option<String>,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub status: TodoStatus,
+    /// Unix milliseconds.
+    pub created_at: u64,
+    /// The task it was promoted into, which moves it to `InProgress`.
+    #[serde(default)]
+    pub task: Option<TaskId>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum CiState {
     Pending,
     Success,

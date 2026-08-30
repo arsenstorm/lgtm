@@ -1,10 +1,10 @@
 //! One JSON file per task under `<data_dir>/tasks`, one per batch under
-//! `<data_dir>/batches`, one per memory under `<data_dir>/memories`, and one
-//! per goal under `<data_dir>/goals`.
+//! `<data_dir>/batches`, one per memory under `<data_dir>/memories`, one per
+//! goal under `<data_dir>/goals`, and one per todo under `<data_dir>/todos`.
 
 use std::path::{Path, PathBuf};
 
-use lgtm_protocol::{Batch, Goal, Memory, StoredEvent, Task};
+use lgtm_protocol::{Batch, Goal, Memory, StoredEvent, Task, Todo};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -25,6 +25,8 @@ pub enum Persist {
     Memory(Memory),
     RemoveMemory(String),
     Goal(Goal),
+    Todo(Todo),
+    RemoveTodo(String),
 }
 
 impl From<&TaskRecord> for Stored {
@@ -45,13 +47,16 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
     let batches = dir.join("batches");
     let memories = dir.join("memories");
     let goals = dir.join("goals");
+    let todos = dir.join("todos");
     while let Some(item) = rx.recv().await {
         match item {
             Persist::Task(stored) => save(&tasks, &stored),
             Persist::Batch(batch) => save_batch(&batches, &batch),
             Persist::Memory(memory) => save_memory(&memories, &memory),
-            Persist::RemoveMemory(id) => remove_memory(&memories, &id),
+            Persist::RemoveMemory(id) => remove_by_id(&memories, "memory", &id),
             Persist::Goal(goal) => save_goal(&goals, &goal),
+            Persist::Todo(todo) => save_todo(&todos, &todo),
+            Persist::RemoveTodo(id) => remove_by_id(&todos, "todo", &id),
         }
     }
 }
@@ -105,15 +110,21 @@ pub fn save_memory(dir: &Path, memory: &Memory) {
     save_by_id(dir, "memory", &memory.id, memory);
 }
 
-pub fn remove_memory(dir: &Path, id: &str) {
+pub fn save_todo(dir: &Path, todo: &Todo) {
+    save_by_id(dir, "todo", &todo.id, todo);
+}
+
+/// `kind` names the record in the log; everything else is the same however
+/// the record is stored.
+fn remove_by_id(dir: &Path, kind: &str, id: &str) {
     let Some(stem) = file_stem(id) else {
-        tracing::error!(memory = %id, "refusing to remove memory with unsafe id");
+        tracing::error!(kind, id, "refusing to remove record with unsafe id");
         return;
     };
     match std::fs::remove_file(dir.join(format!("{stem}.json"))) {
         Ok(()) => {}
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => tracing::error!(memory = %id, %err, "failed to remove memory"),
+        Err(err) => tracing::error!(kind, id, %err, "failed to remove record"),
     }
 }
 
@@ -160,6 +171,10 @@ pub fn load_all_memories(dir: &Path) -> Vec<Memory> {
 
 pub fn load_all_goals(dir: &Path) -> Vec<Goal> {
     load_dir(dir, |goal: &Goal| goal.id.as_str())
+}
+
+pub fn load_all_todos(dir: &Path) -> Vec<Todo> {
+    load_dir(dir, |todo: &Todo| todo.id.as_str())
 }
 
 #[cfg(test)]

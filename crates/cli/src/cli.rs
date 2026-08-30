@@ -93,6 +93,11 @@ pub enum Command {
         #[command(subcommand)]
         command: MemoryCommand,
     },
+    /// Note work to do, and promote a note into a task when it's ready.
+    Todo {
+        #[command(subcommand)]
+        command: TodoCommand,
+    },
     /// Replace this binary with the latest release
     Upgrade {
         /// Install a specific release tag instead of the latest.
@@ -213,6 +218,35 @@ pub enum MemoryCommand {
         repo: Option<String>,
     },
     /// Forget one memory.
+    Rm { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum TodoCommand {
+    /// Note work to do.
+    Add {
+        /// Git URL; omit for one not tied to a repository.
+        #[arg(long)]
+        repo: Option<String>,
+        title: String,
+        /// Longer text below the title.
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// List todos.
+    List {
+        #[arg(long)]
+        repo: Option<String>,
+    },
+    /// Mark a todo done.
+    Done { id: String },
+    /// Turn a todo into a task and stream its output.
+    Promote {
+        id: String,
+        #[command(flatten)]
+        target: Target,
+    },
+    /// Delete a todo.
     Rm { id: String },
 }
 
