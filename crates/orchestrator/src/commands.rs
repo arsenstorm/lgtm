@@ -1,8 +1,15 @@
-//! What a reviewer can do to a task: approve, reject, cancel, merge, message.
+//! What a reviewer can do to a task: approve, reject, cancel, merge, message,
+//! retry.
 
-use lgtm_protocol::{OrchestratorMessage, Task, TaskEvent, TaskId, TaskStatus};
+use lgtm_protocol::{Executor, OrchestratorMessage, Task, TaskEvent, TaskId, TaskSpec, TaskStatus};
 
 use crate::state::{CmdError, PrPlan, State, TITLE_MAX};
+
+/// Where a retried task should run. `None` keeps what the spec already says.
+pub struct RetryInto {
+    pub worker: Option<String>,
+    pub executor: Option<Executor>,
+}
 
 impl State {
     /// Shared guard for cancel/approve/reject: the task must exist, be in one
@@ -132,6 +139,56 @@ impl State {
                 memories,
             });
         }
+        self.tasks
+            .get(task_id)
+            .map(|rec| (rec.task.clone(), changed))
+            .ok_or(CmdError::NotFound)
+    }
+
+    /// The spec a retry would run under: `into` applied over what the task
+    /// already says, refused unless the task ended badly and could run again.
+    fn retry_spec(&self, task_id: &str, into: RetryInto) -> Result<TaskSpec, CmdError> {
+        let task = &self.tasks.get(task_id).ok_or(CmdError::NotFound)?.task;
+        let status = task.status;
+        if !matches!(
+            status,
+            TaskStatus::Failed
+                | TaskStatus::TimedOut
+                | TaskStatus::RunnerLost
+                | TaskStatus::Cancelled
+        ) {
+            return Err(CmdError::Conflict(format!(
+                "task cannot be retried from {status:?}"
+            )));
+        }
+        let mut spec = task.spec.clone();
+        spec.worker = into.worker.or(spec.worker);
+        spec.executor = into.executor.unwrap_or(spec.executor);
+        self.check_eligible(&spec).map_err(CmdError::Conflict)?;
+        Ok(spec)
+    }
+
+    /// Puts a task that ended badly back in the queue as a fresh attempt.
+    // The old worker may still hold a worktree for this id; the runner's
+    // `add_worktree` replaces a stale one, so nothing has to be torn down.
+    pub fn retry(
+        &mut self,
+        task_id: &str,
+        into: RetryInto,
+    ) -> Result<(Task, Vec<TaskId>), CmdError> {
+        let spec = self.retry_spec(task_id, into)?;
+        let event = TaskEvent::Requeued {
+            worker: spec.worker.clone(),
+            executor: spec.executor,
+        };
+        let mut changed = self.apply_event(task_id, event);
+        let rec = self.tasks.get_mut(task_id).ok_or(CmdError::NotFound)?;
+        rec.task.spec = spec;
+        rec.task.status = TaskStatus::Queued;
+        rec.task.worker = None;
+        rec.task.error = None;
+        tracing::info!(task = %task_id, "task requeued");
+        changed.extend(self.schedule());
         self.tasks
             .get(task_id)
             .map(|rec| (rec.task.clone(), changed))

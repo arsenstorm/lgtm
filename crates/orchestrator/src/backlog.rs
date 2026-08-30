@@ -130,7 +130,8 @@ pub fn summary(tasks: &[&Task], state: &State) -> BatchSummary {
                 &mut out.blocked
             }
             TaskStatus::Queued => &mut out.queued,
-            TaskStatus::Running => &mut out.running,
+            // A follow-up is work in flight, not something waiting on a person.
+            TaskStatus::Running | TaskStatus::ChangesRequested => &mut out.running,
             TaskStatus::AwaitingReview => &mut out.awaiting_review,
             TaskStatus::Approved => &mut out.approved,
             TaskStatus::Merged => &mut out.merged,

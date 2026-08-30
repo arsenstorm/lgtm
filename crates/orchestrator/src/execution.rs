@@ -24,6 +24,14 @@ pub fn record(task: &mut Task, event: &TaskEvent, now: u64) {
             finish(exec, ExecutionStatus::Failed, now);
             exec.error = Some(error.clone());
         }
+        TaskEvent::TimedOut { secs } => {
+            finish(exec, ExecutionStatus::Failed, now);
+            exec.error = Some(format!("timed out after {secs}s"));
+        }
+        TaskEvent::RunnerLost => {
+            finish(exec, ExecutionStatus::Failed, now);
+            exec.error = Some("runner lost".into());
+        }
         TaskEvent::Cancelled => finish(exec, ExecutionStatus::Cancelled, now),
         TaskEvent::Completed { result } => {
             finish(exec, ExecutionStatus::Completed, now);

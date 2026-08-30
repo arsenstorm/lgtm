@@ -240,6 +240,16 @@ fn actions(task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                 .small()
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Cancel, cx))),
         ),
+        TaskStatus::Failed
+        | TaskStatus::TimedOut
+        | TaskStatus::RunnerLost
+        | TaskStatus::Cancelled => row.child(
+            Button::new("retry")
+                .label("Retry")
+                .outline()
+                .small()
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Retry, cx))),
+        ),
         TaskStatus::Approved if ci_passed(task) => row.child(
             Button::new("merge")
                 .label("Merge")
@@ -290,7 +300,7 @@ fn review_actions(t: &Tokens, cx: &mut Context<LgtmApp>) -> [Button; 3] {
 fn status_tone(status: &str, t: &Tokens) -> Hsla {
     match status {
         "awaiting_review" => t.warning,
-        "running" => t.info,
+        "running" | "changes_requested" => t.info,
         "approved" | "merged" => t.success,
         "failed" | "rejected" | "cancelled" => t.danger,
         _ => t.muted_fg,

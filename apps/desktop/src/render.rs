@@ -70,6 +70,14 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
             Kind::Status,
             format!("retry {attempt}: {reason}"),
         )],
+        TaskEvent::Requeued { worker, executor } => vec![Line::new(
+            Kind::Status,
+            format!(
+                "requeued on {} ({})",
+                worker.as_deref().unwrap_or("any worker"),
+                executor.binary()
+            ),
+        )],
         TaskEvent::AutoApproved => vec![Line::new(Kind::Status, "approved by policy")],
         TaskEvent::AutoMerged => vec![Line::new(Kind::Status, "merged by policy")],
         TaskEvent::Failed { error } => vec![Line::new(Kind::Status, format!("failed: {error}"))],

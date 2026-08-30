@@ -20,6 +20,15 @@ pub(crate) struct FollowUp<'a> {
     pub(crate) text: &'a str,
 }
 
+/// Body of `POST /api/tasks/:id/retry`. Both `None` retries where it was.
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct Retry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executor: Option<lgtm_protocol::Executor>,
+}
+
 /// Body of `POST /api/memories`.
 #[derive(Serialize)]
 pub(crate) struct NewMemory<'a> {

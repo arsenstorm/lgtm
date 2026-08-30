@@ -44,8 +44,8 @@ to add it to the fleet.
   task.
 - Repository checks run after the agent finishes; a second agent pass
   reviews the diff and reports findings.
-- `lgtm approve`, `reject`, `cancel`, and `merge` drive a task to a pull
-  request and into `main`.
+- `lgtm approve`, `reject`, `cancel`, `retry`, and `merge` drive a task to a
+  pull request and into `main`.
 - `lgtm tasks`, `show`, `logs`, `diff`, and `workers` show what is going on.
 - Policy in the repository can retry, fix failing checks, and auto-approve
   or auto-merge.

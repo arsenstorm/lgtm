@@ -1,6 +1,7 @@
 //! Unit tests for `state.rs`: pure transitions, no sockets and no files.
 
 use super::*;
+use crate::commands::RetryInto;
 use lgtm_protocol::{
     Executor, IssueRef, LinearRef, Plan, PlanStep, PullRequest, TaskKind, TaskResult, WorkerInfo,
 };
@@ -441,7 +442,7 @@ fn message_requires_awaiting_review() {
     );
 
     let (task, changed) = state.message(&id, "keep going".into()).unwrap();
-    assert_eq!(task.status, TaskStatus::AwaitingReview);
+    assert_eq!(task.status, TaskStatus::ChangesRequested);
     assert!(changed.contains(&id));
     match &state.tasks[&id].events.last().unwrap().event {
         TaskEvent::Message { text } => assert_eq!(text.as_str(), "keep going"),
@@ -461,6 +462,100 @@ fn message_requires_awaiting_review() {
         state.workers["a"].running.is_empty(),
         "slot freed again after the follow-up run"
     );
+}
+
+/// A retry that changes nothing about where the task runs.
+fn same_place() -> RetryInto {
+    RetryInto {
+        worker: None,
+        executor: None,
+    }
+}
+
+#[test]
+fn retry_queues_a_failed_task_as_a_second_attempt() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(
+        &id,
+        TaskEvent::Failed {
+            error: "boom".into(),
+        },
+    );
+    assert_eq!(status(&state, &id), TaskStatus::Failed);
+
+    let (task, changed) = state.retry(&id, same_place()).unwrap();
+    assert!(changed.contains(&id));
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert_eq!(task.worker.as_deref(), Some("a"), "scheduled again");
+    assert!(task.error.is_none());
+    assert!(matches!(
+        state.tasks[&id].events.last().unwrap().event,
+        TaskEvent::Requeued {
+            worker: None,
+            executor: Executor::Claude
+        }
+    ));
+
+    state.apply_event(&id, TaskEvent::Started);
+    assert_eq!(status(&state, &id), TaskStatus::Running);
+    let executions = &state.tasks[&id].task.executions;
+    assert_eq!(executions.len(), 2);
+    assert_eq!(executions[1].attempt, 2);
+}
+
+#[test]
+fn retry_refuses_an_executor_the_worker_does_not_have() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let id = state
+        .create_task(spec(Executor::Claude, Some("a")))
+        .unwrap()
+        .0
+        .id;
+    state.apply_event(&id, TaskEvent::RunnerLost);
+
+    let into = RetryInto {
+        worker: None,
+        executor: Some(Executor::Codex),
+    };
+    assert!(matches!(
+        state.retry(&id, into),
+        Err(CmdError::Conflict(msg)) if msg == "worker a does not have codex"
+    ));
+    assert_eq!(
+        status(&state, &id),
+        TaskStatus::RunnerLost,
+        "a refused retry leaves the task where it was"
+    );
+}
+
+#[test]
+fn retry_refuses_a_task_still_under_review() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+    state.apply_event(
+        &id,
+        TaskEvent::Completed {
+            result: TaskResult {
+                branch: format!("lgtm/{id}"),
+                diff: "diff".into(),
+                changed_files: vec!["a.rs".into()],
+                validation: Vec::new(),
+                plan: None,
+                review: None,
+                policy: None,
+                cost_usd: 0.0,
+            },
+        },
+    );
+    assert!(matches!(
+        state.retry(&id, same_place()),
+        Err(CmdError::Conflict(_))
+    ));
 }
 
 #[test]

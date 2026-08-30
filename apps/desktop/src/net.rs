@@ -41,6 +41,7 @@ pub enum Action {
     Approve,
     Reject,
     Merge,
+    Retry,
     Tell(String),
 }
 
@@ -127,6 +128,10 @@ pub fn act(client: Client, id: String, action: Action, tx: Sender) {
             Action::Approve => client.approve(&id).await.map(|_| None),
             Action::Reject => client.reject(&id).await.map(|_| None),
             Action::Merge => client.merge(&id).await.map(|_| None),
+            Action::Retry => client
+                .retry(&id, &lgtm_client::Retry::default())
+                .await
+                .map(|_| None),
             Action::Tell(text) => client.tell(&id, &text).await.map(|_| None),
         };
         let _ = tx.send(Msg::Action(result.map_err(|e| e.to_string())));

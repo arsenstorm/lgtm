@@ -74,6 +74,8 @@ pub enum TaskStatus {
     Queued,
     Running,
     AwaitingReview,
+    /// A follow-up was sent; the run for it has not started yet.
+    ChangesRequested,
     Approved,
     /// The pull request was merged from LGTM.
     Merged,
@@ -313,7 +315,12 @@ pub fn goal_status(tasks: &[&Task]) -> GoalStatus {
         GoalStatus::Draft
     } else if any(|t| t.spec.kind == TaskKind::Plan && !t.status.is_terminal()) {
         GoalStatus::Planning
-    } else if any(|t| matches!(t.status, TaskStatus::Queued | TaskStatus::Running)) {
+    } else if any(|t| {
+        matches!(
+            t.status,
+            TaskStatus::Queued | TaskStatus::Running | TaskStatus::ChangesRequested
+        )
+    }) {
         GoalStatus::Running
     } else if any(|t| t.status == TaskStatus::AwaitingReview) {
         GoalStatus::Review

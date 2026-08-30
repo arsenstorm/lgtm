@@ -484,6 +484,10 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
         TaskEvent::Cancelled => (Some(TaskStatus::Cancelled), true),
         TaskEvent::Pushed { .. } => (Some(TaskStatus::Approved), false),
         TaskEvent::Discarded => (Some(TaskStatus::Rejected), false),
+        TaskEvent::Message { .. } => (Some(TaskStatus::ChangesRequested), false),
+        // `retry` sets the status itself: this is the one move out of a
+        // terminal status, which the rule below would otherwise refuse.
+        TaskEvent::Requeued { .. } => (None, false),
         // Retry and the two policy notes are for the reader, not the
         // status; a run in progress stays exactly where it was.
         TaskEvent::Output { .. }
@@ -491,7 +495,6 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
         | TaskEvent::FileChanged { .. }
         | TaskEvent::Progress { .. }
         | TaskEvent::Validating { .. }
-        | TaskEvent::Message { .. }
         | TaskEvent::Retry { .. }
         | TaskEvent::AutoApproved
         | TaskEvent::AutoMerged => (None, false),

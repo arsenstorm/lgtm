@@ -137,6 +137,14 @@ fn every_message_round_trips() {
             attempt: 1,
             reason: "checks failed".into(),
         },
+        TaskEvent::Requeued {
+            worker: Some("compute".into()),
+            executor: Executor::Codex,
+        },
+        TaskEvent::Requeued {
+            worker: None,
+            executor: Executor::Claude,
+        },
         TaskEvent::AutoApproved,
         TaskEvent::AutoMerged,
         TaskEvent::Pushed {

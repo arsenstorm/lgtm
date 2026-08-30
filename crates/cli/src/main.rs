@@ -156,6 +156,18 @@ async fn task_command(client: &Client, command: Command) -> anyhow::Result<i32> 
         Command::Reject { id } => print_json(client.reject(&id).await?),
         Command::Cancel { id } => print_json(client.cancel(&id).await?),
         Command::Merge { id } => print_json(client.merge(&id).await?),
+        Command::Retry { id, on, agent } => {
+            // The failure that made this worth retrying is already on record;
+            // replaying it would end the stream before the new run started.
+            let from = client.task(&id).await?.events.len();
+            let into = lgtm_client::Retry {
+                worker: on,
+                executor: agent,
+            };
+            client.retry(&id, &into).await?;
+            eprintln!("retrying {id}");
+            run::stream(client, &id, from).await
+        }
         Command::Tell { id, message } => {
             // Events already delivered by a prior `run`/`tell` shouldn't replay.
             let from = client.task(&id).await?.events.len();

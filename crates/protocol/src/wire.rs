@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Memory, Task, TaskId, TaskResult, WorkerInfo};
+use crate::{Executor, Memory, Task, TaskId, TaskResult, WorkerInfo};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -55,6 +55,12 @@ pub enum TaskEvent {
     Retry {
         attempt: u32,
         reason: String,
+    },
+    /// A retry: the task goes back to the queue as a new attempt, possibly
+    /// elsewhere.
+    Requeued {
+        worker: Option<String>,
+        executor: Executor,
     },
     /// Approved by policy rather than by hand; a `Pushed` event follows.
     AutoApproved,

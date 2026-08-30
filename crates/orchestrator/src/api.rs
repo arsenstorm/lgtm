@@ -22,6 +22,7 @@ use lgtm_protocol::{
 use serde::Deserialize;
 
 use crate::backlog::{self, SpecInput};
+use crate::commands::RetryInto;
 use crate::persist::Stored;
 use crate::state::{App, CmdError};
 
@@ -65,6 +66,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/tasks/{id}/merge", post(merge))
         .route("/tasks/{id}/events", get(events::events))
         .route("/tasks/{id}/message", post(message))
+        .route("/tasks/{id}/retry", post(retry))
         .route("/tasks/{id}/cancel", post(cancel))
         .route("/tasks/{id}/approve", post(approve))
         .route("/tasks/{id}/reject", post(reject))
@@ -246,6 +248,32 @@ async fn message(
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
     let mut state = app.state.lock().unwrap();
     let (task, changed) = state.message(&id, body.text)?;
+    app.persist_ids(&state, &changed);
+    Ok(Json(task))
+}
+
+#[derive(Deserialize)]
+struct RetryBody {
+    #[serde(default)]
+    worker: Option<String>,
+    #[serde(default)]
+    executor: Option<Executor>,
+}
+
+async fn retry(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<RetryBody>, JsonRejection>,
+) -> Result<Json<Task>, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let mut state = app.state.lock().unwrap();
+    let (task, changed) = state.retry(
+        &id,
+        RetryInto {
+            worker: body.worker,
+            executor: body.executor,
+        },
+    )?;
     app.persist_ids(&state, &changed);
     Ok(Json(task))
 }
