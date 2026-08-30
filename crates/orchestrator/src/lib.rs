@@ -12,6 +12,7 @@ mod orchestrate;
 mod persist;
 mod plan;
 mod policy;
+mod provenance;
 mod provision;
 mod runner;
 mod runner_ws;

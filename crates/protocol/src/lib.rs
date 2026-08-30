@@ -875,6 +875,18 @@ pub fn plan_versions(task: &Task, events: &[StoredEvent]) -> Vec<PlanVersion> {
     out
 }
 
+/// Why one commit exists, as LGTM's own records answer it. Body of
+/// `GET /api/provenance/:sha`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Provenance {
+    pub task: Task,
+    pub goal: Option<Goal>,
+    pub plan: Option<PlanVersion>,
+    pub review: Option<Review>,
+    pub decisions: Vec<StoredEvent>,
+    pub approval: Option<StoredEvent>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct ExecutorStats {
     pub executor: Executor,

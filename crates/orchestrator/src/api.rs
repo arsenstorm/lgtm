@@ -111,6 +111,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         )
         .route("/sessions/{id}", get(sessions::get_session))
         .route("/sessions/{id}/messages", post(sessions::send_message))
+        .route("/provenance/{sha}", get(provenance))
         .layer(middleware::from_fn_with_state(app, auth))
 }
 
@@ -494,6 +495,19 @@ async fn get_task_plans(
         .get(&id)
         .ok_or(ApiError(StatusCode::NOT_FOUND, "task not found".into()))?;
     Ok(Json(plan_versions(&rec.task, &rec.events)))
+}
+
+async fn provenance(
+    State(app): State<Arc<App>>,
+    Path(sha): Path<String>,
+) -> Result<Json<lgtm_protocol::Provenance>, ApiError> {
+    let state = app.state.lock().unwrap();
+    crate::provenance::find(&state, &sha)
+        .map(Json)
+        .ok_or(ApiError(
+            StatusCode::NOT_FOUND,
+            "no commit like that".into(),
+        ))
 }
 
 async fn cancel(

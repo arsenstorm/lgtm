@@ -21,7 +21,7 @@ fn info(name: &str, slots: u32, executors: Vec<Executor>) -> RunnerInfo {
 
 /// Connects a runner over the same path `Hello` uses. The receiver comes back
 /// so the caller can keep it alive and read what the runner was sent.
-fn connect(
+pub(crate) fn connect(
     state: &mut State,
     name: &str,
     slots: u32,
@@ -60,7 +60,7 @@ fn spec(executor: Executor, runner: Option<&str>) -> TaskSpec {
     }
 }
 
-fn create(state: &mut State, executor: Executor) -> Task {
+pub(crate) fn create(state: &mut State, executor: Executor) -> Task {
     state.create_task(spec(executor, None)).unwrap().0
 }
 
@@ -935,7 +935,7 @@ fn linear_sync_plan_follows_status() {
     );
 }
 
-fn step(key: &str, depends_on: &[&str]) -> PlanStep {
+pub(crate) fn step(key: &str, depends_on: &[&str]) -> PlanStep {
     PlanStep {
         key: key.into(),
         title: format!("Step {key}"),
@@ -945,7 +945,7 @@ fn step(key: &str, depends_on: &[&str]) -> PlanStep {
 }
 
 /// A plan task that ran and is awaiting review with `steps` to approve.
-fn planned(state: &mut State, steps: Vec<PlanStep>) -> TaskId {
+pub(crate) fn planned(state: &mut State, steps: Vec<PlanStep>) -> TaskId {
     let mut spec = spec(Executor::Claude, None);
     spec.kind = TaskKind::Plan;
     let id = state.create_task(spec).unwrap().0.id;
@@ -969,7 +969,7 @@ fn planned(state: &mut State, steps: Vec<PlanStep>) -> TaskId {
 }
 
 /// The tasks a plan created, in step order.
-fn children(state: &State, parent: &str) -> Vec<Task> {
+pub(crate) fn children(state: &State, parent: &str) -> Vec<Task> {
     let mut out: Vec<Task> = state
         .tasks
         .values()
@@ -1106,7 +1106,7 @@ fn blocked_task_runs_after_dependency_approved() {
 
 /// A minimal successful run's result, for tests that only need `a` to reach
 /// `AwaitingReview`.
-fn run_result() -> TaskResult {
+pub(crate) fn run_result() -> TaskResult {
     TaskResult {
         branch: "lgtm/a".into(),
         diff: "diff".into(),
@@ -1436,7 +1436,7 @@ fn pinned_runner_lacking_a_requirement_is_refused() {
 }
 
 /// A goal, and a spec for a task under it.
-fn goal_spec(state: &mut State) -> (String, TaskSpec) {
+pub(crate) fn goal_spec(state: &mut State) -> (String, TaskSpec) {
     let goal = state.create_goal("ship it".into(), "https://example.com/repo.git".into());
     let mut spec = spec(Executor::Claude, None);
     spec.goal = Some(goal.id.clone());

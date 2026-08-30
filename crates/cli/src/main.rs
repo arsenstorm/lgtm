@@ -141,6 +141,7 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
             render::print_stats(&stats, &mut std::io::stdout())?;
             Ok(0)
         }
+        Command::Why { sha } => why(client, &sha).await,
         Command::Backlog { command } => backlog_command(client, command).await,
         Command::Memory { command } => memory_command(client, command).await,
         Command::Todo { command } => todo_command(client, command).await,
@@ -368,6 +369,12 @@ async fn plans(client: &Client, id: &str) -> anyhow::Result<i32> {
         Err(err) => return Err(err),
     };
     render::print_plan_versions(&versions, &mut std::io::stdout())?;
+    Ok(0)
+}
+
+async fn why(client: &Client, sha: &str) -> anyhow::Result<i32> {
+    let provenance = client.provenance(sha).await?;
+    render::print_provenance(sha, &provenance, &mut std::io::stdout())?;
     Ok(0)
 }
 

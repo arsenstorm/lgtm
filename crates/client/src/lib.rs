@@ -498,6 +498,11 @@ impl Client {
         self.get(&format!("/api/goals/{id}/plans")).await
     }
 
+    /// Why the commit at `sha` exists, from LGTM's own records.
+    pub async fn provenance(&self, sha: &str) -> anyhow::Result<lgtm_protocol::Provenance> {
+        self.get(&format!("/api/provenance/{sha}")).await
+    }
+
     /// Opens the events socket from event index `from` and returns a stream
     /// of stored events that ends when the server closes it.
     pub async fn events(&self, id: &str, from: usize) -> anyhow::Result<EventStream> {

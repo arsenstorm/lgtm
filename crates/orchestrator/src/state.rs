@@ -864,4 +864,4 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
 
 #[cfg(test)]
 #[path = "state_tests.rs"]
-mod tests;
+pub(crate) mod tests;
