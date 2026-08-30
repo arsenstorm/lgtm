@@ -66,6 +66,17 @@ pub(crate) fn create(state: &mut State, executor: Executor) -> Task {
     state.create_task(spec(executor, None)).unwrap().0
 }
 
+#[test]
+fn a_created_task_carries_the_workspace_when_set() {
+    let mut state = State {
+        workspace: Some("acme".into()),
+        queue_without_runners: true,
+        ..State::default()
+    };
+    let task = create(&mut state, Executor::Claude);
+    assert_eq!(task.workspace.as_deref(), Some("acme"));
+}
+
 fn status(state: &State, id: &str) -> TaskStatus {
     state.tasks[id].task.status
 }
@@ -102,6 +113,7 @@ fn add_history(state: &mut State, executions: Vec<Execution>) {
         pr_review: None,
         executions,
         scratchpad: String::new(),
+        workspace: None,
     };
     state
         .tasks
@@ -970,6 +982,7 @@ fn linear_task(status: TaskStatus, from_linear: bool) -> Task {
         pr_review: None,
         executions: Vec::new(),
         scratchpad: String::new(),
+        workspace: None,
     }
 }
 

@@ -37,6 +37,7 @@ fn running() -> Task {
         pr_review: None,
         executions: Vec::new(),
         scratchpad: String::new(),
+        workspace: None,
     }
 }
 

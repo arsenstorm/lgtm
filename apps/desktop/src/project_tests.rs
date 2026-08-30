@@ -36,6 +36,7 @@ pub(super) fn task(repository: &str, status: TaskStatus) -> Task {
         pr_review: None,
         executions: Vec::new(),
         scratchpad: String::new(),
+        workspace: None,
     }
 }
 

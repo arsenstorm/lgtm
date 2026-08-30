@@ -175,6 +175,9 @@ pub struct State {
     pub(crate) dirty_goals: Vec<String>,
     /// How `candidate` breaks a free-slot tie.
     pub prefer: crate::Prefer,
+    /// Stamped on everything this orchestrator creates; one per orchestrator
+    /// until teams exist.
+    pub workspace: Option<String>,
 }
 
 pub struct TaskRecord {
@@ -358,6 +361,7 @@ impl State {
             source,
             verification,
             proposed_by,
+            workspace: self.workspace.clone(),
         };
         self.memories.insert(memory.id.clone(), memory.clone());
         memory
@@ -400,6 +404,7 @@ impl State {
             repository,
             created_at: now_ms(),
             attention: None,
+            workspace: self.workspace.clone(),
         };
         tracing::info!(goal = %goal.id, "goal created");
         self.goals.insert(goal.id.clone(), goal.clone());
@@ -450,6 +455,7 @@ impl State {
             base_branch,
             title,
             created_at: now_ms(),
+            workspace: self.workspace.clone(),
         };
         tracing::info!(session = %session.id, "session created");
         self.sessions.insert(session.id.clone(), session.clone());
@@ -503,6 +509,7 @@ impl State {
             priority: lgtm_protocol::Priority::default(),
             assignee: None,
             blockers: Vec::new(),
+            workspace: self.workspace.clone(),
         };
         tracing::info!(todo = %todo.id, "todo added");
         self.todos.insert(todo.id.clone(), todo.clone());
@@ -768,6 +775,7 @@ impl State {
             pr_review: None,
             executions: Vec::new(),
             scratchpad: String::new(),
+            workspace: self.workspace.clone(),
         };
         let id = task.id.clone();
         tracing::info!(task = %id, "task created");

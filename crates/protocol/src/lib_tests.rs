@@ -60,6 +60,7 @@ fn sample_task() -> Task {
             artefacts: Vec::new(),
         }],
         scratchpad: "## Findings\n- the parser is in src/parse.rs\n".into(),
+        workspace: None,
     }
 }
 
@@ -233,6 +234,7 @@ fn every_message_round_trips() {
         repository: "https://github.com/o/r.git".into(),
         task_ids: vec!["0123abcd".into()],
         approve_plans: true,
+        workspace: None,
     });
     round_trip(BatchSource::Linear {
         team: "ENG".into(),
@@ -351,6 +353,7 @@ fn memory(repository: Option<&str>, content: &str) -> Memory {
         source: MemorySource::User,
         verification: Verification::UserApproved,
         proposed_by: None,
+        workspace: None,
     }
 }
 
@@ -387,6 +390,7 @@ fn memory_without_verification_defaults_to_approved() {
     assert_eq!(memory.source, MemorySource::User);
     assert_eq!(memory.verification, Verification::UserApproved);
     assert_eq!(memory.proposed_by, None);
+    assert_eq!(memory.workspace, None);
 }
 
 #[test]
@@ -425,6 +429,7 @@ fn todo_round_trips() {
         priority: Priority::High,
         assignee: Some("arsen".into()),
         blockers: vec!["22222222".into()],
+        workspace: None,
     });
 }
 
@@ -452,6 +457,7 @@ fn todo_is_blocked_only_by_an_unfinished_blocker() {
         priority: Priority::Medium,
         assignee: None,
         blockers: Vec::new(),
+        workspace: None,
     };
     let todo = Todo {
         id: "todo1".into(),
@@ -464,6 +470,7 @@ fn todo_is_blocked_only_by_an_unfinished_blocker() {
         priority: Priority::Medium,
         assignee: None,
         blockers: vec![blocker.id.clone()],
+        workspace: None,
     };
     let mut todos = HashMap::new();
     todos.insert(blocker.id.clone(), blocker.clone());
@@ -497,6 +504,7 @@ fn session_round_trips() {
         base_branch: "main".into(),
         title: "add a /health endpoint".into(),
         created_at: 1,
+        workspace: None,
     });
 }
 
@@ -509,6 +517,7 @@ fn session_detail_round_trips() {
             base_branch: "main".into(),
             title: "add a /health endpoint".into(),
             created_at: 1,
+            workspace: None,
         },
         tasks: vec![sample_task()],
     });
@@ -591,6 +600,7 @@ fn sample_goal() -> Goal {
         repository: "https://example.com/r.git".into(),
         created_at: 1,
         attention: None,
+        workspace: None,
     }
 }
 

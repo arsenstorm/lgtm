@@ -275,6 +275,9 @@ pub struct Batch {
     /// Approve plan tasks in this batch without a person.
     #[serde(default)]
     pub approve_plans: bool,
+    /// The workspace this belongs to; one per orchestrator until teams exist.
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 /// Task counts by state for `GET /api/batches/:id`.
@@ -331,6 +334,9 @@ pub struct Memory {
     /// The task that proposed it, when `source` is `Agent`.
     #[serde(default)]
     pub proposed_by: Option<TaskId>,
+    /// The workspace this belongs to; one per orchestrator until teams exist.
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 impl BatchSummary {
@@ -372,6 +378,9 @@ pub struct Goal {
     /// Cleared by the next message or task under the goal.
     #[serde(default)]
     pub attention: Option<String>,
+    /// The workspace this belongs to; one per orchestrator until teams exist.
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 impl Memory {
@@ -393,6 +402,9 @@ pub struct Session {
     pub title: String,
     /// Unix milliseconds.
     pub created_at: u64,
+    /// The workspace this belongs to; one per orchestrator until teams exist.
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 /// Body of `GET /api/sessions/:id`: the thread is its tasks in creation order.
@@ -567,6 +579,9 @@ pub struct Todo {
     /// Ids of other todos that must be `Done` first.
     #[serde(default)]
     pub blockers: Vec<String>,
+    /// The workspace this belongs to; one per orchestrator until teams exist.
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 impl Todo {
@@ -799,6 +814,9 @@ pub struct Task {
     /// person can pick up where it stopped.
     #[serde(default)]
     pub scratchpad: String,
+    /// The workspace this belongs to; one per orchestrator until teams exist.
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 /// Files another unfinished task in the same repository has changed too.

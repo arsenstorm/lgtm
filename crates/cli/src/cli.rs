@@ -215,6 +215,10 @@ pub struct ServeArgs {
         value_parser = parse_prefer
     )]
     pub prefer: Prefer,
+    /// Names this orchestrator's workspace. Recorded on everything it
+    /// creates; nothing reads it yet.
+    #[arg(long, env = "LGTM_WORKSPACE")]
+    pub workspace: Option<String>,
 }
 
 #[derive(Args)]

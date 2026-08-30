@@ -247,6 +247,10 @@ certificate, `--ephemeral`/`--max-tasks` runners that clean themselves up,
 having the orchestrator provision runners on demand, and running over
 Tailscale with no TLS at all.
 
+`lgtm serve --workspace NAME` (or `LGTM_WORKSPACE`) names this
+orchestrator's workspace; it is recorded on everything and does nothing
+else yet.
+
 ## Notifications
 
 You should not have to watch LGTM. The desktop app raises an OS notification

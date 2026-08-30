@@ -438,6 +438,7 @@ mod tests {
             base_branch: "main".into(),
             title: title.into(),
             created_at: 0,
+            workspace: None,
         }
     }
 
