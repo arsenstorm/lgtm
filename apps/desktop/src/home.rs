@@ -96,8 +96,9 @@ impl LgtmApp {
         cx.notify();
     }
 
-    /// Closes every composer menu. Esc and a click outside land here.
+    /// Closes every transient menu. Esc and a click outside land here.
     pub fn close_menus(&mut self, cx: &mut Context<Self>) {
+        self.ui.runner_menu = false;
         self.composer.project_menu = false;
         self.composer.add_repo = false;
         self.composer.plus_menu = false;

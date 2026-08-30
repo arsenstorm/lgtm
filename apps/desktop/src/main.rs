@@ -12,6 +12,7 @@ mod net;
 mod notify;
 mod palette;
 mod panes;
+mod project;
 mod render;
 mod review;
 mod settings;

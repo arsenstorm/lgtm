@@ -3,7 +3,13 @@
 
 use crate::app::LgtmApp;
 use crate::sidebar;
-use crate::theme::{icon_button, tokens, Tokens, BAR_H, LIGHTS_W, SPACE};
+use crate::theme::{
+    icon_button, tokens, Tokens, BAR_H, LIGHTS_W, RADIUS, RADIUS_PILL, ROW_H, SPACE, TEXT_SECONDARY,
+};
+
+/// The runner pill: shorter than an icon button, so it reads as a status.
+const PILL_H: f32 = 22.;
+const POPOVER_W: f32 = 240.;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, ClickEvent, Context, Div, InteractiveElement as _, MouseButton, ParentElement as _,
@@ -43,6 +49,7 @@ pub fn bar(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
                 .border_color(t.border)
                 .when(!open, |this| this.child(cluster(app, &t, cx)))
                 .child(div().flex_1())
+                .child(runners(app, &t, cx))
                 .child(
                     icon_button("settings-menu", "ellipsis", true, &t).on_click(
                         cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx)),
@@ -70,6 +77,101 @@ fn draggable(bar: Stateful<Div>, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
                 window.start_window_move();
             }
         }))
+}
+
+/// How the orchestrator is doing, and the runners it has, in one pill.
+fn runners(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    div()
+        .relative()
+        .flex_shrink_0()
+        .child(pill(app, t, cx))
+        .when(app.ui.runner_menu, |this| {
+            this.child(dismiss(cx)).child(popover(app, t))
+        })
+}
+
+fn pill(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
+    let (tone, label) = match app.link.reachable {
+        true => (
+            t.success,
+            format!("Connected · {} runners", app.workers.len()),
+        ),
+        false => (t.danger, "Disconnected".to_string()),
+    };
+    div()
+        .id("runner-pill")
+        .flex()
+        .items_center()
+        .gap(px(SPACE[0]))
+        .h(px(PILL_H))
+        .px(px(SPACE[1]))
+        .rounded(px(RADIUS_PILL))
+        .cursor_pointer()
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(if app.link.reachable { t.muted_fg } else { tone })
+        .hover(|this| this.bg(t.muted))
+        .child(div().w(px(6.)).h(px(6.)).rounded_full().bg(tone))
+        .child(label)
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            let open = !this.ui.runner_menu;
+            this.close_menus(cx);
+            this.ui.runner_menu = open;
+            cx.notify();
+        }))
+}
+
+/// One row per runner: what it is called, how loaded it is, what it runs on.
+fn popover(app: &LgtmApp, t: &Tokens) -> Div {
+    div()
+        .absolute()
+        .top(px(PILL_H + SPACE[0]))
+        .right(px(0.))
+        .w(px(POPOVER_W))
+        .flex()
+        .flex_col()
+        .p(px(SPACE[0]))
+        .rounded(px(RADIUS))
+        .bg(t.popover)
+        .border_1()
+        .border_color(t.border)
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.muted_fg)
+        .occlude()
+        .when(app.workers.is_empty(), |this| {
+            this.child(div().px(px(SPACE[1])).py(px(SPACE[0])).child("No runners"))
+        })
+        .children(app.workers.iter().map(|worker| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(SPACE[1]))
+                .h(px(ROW_H))
+                .px(px(SPACE[1]))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(t.fg)
+                        .child(worker.info.name.clone()),
+                )
+                .child(format!("{}/{}", worker.running.len(), worker.info.slots))
+                .child(worker.info.os.clone())
+        }))
+}
+
+/// A click anywhere else closes the popover; the titlebar is the only
+/// positioned ancestor, so this reaches out past its own bounds.
+fn dismiss(cx: &mut Context<LgtmApp>) -> Stateful<Div> {
+    div()
+        .id("runner-dismiss")
+        .absolute()
+        .top(px(-4000.))
+        .left(px(-4000.))
+        .w(px(8000.))
+        .h(px(8000.))
+        .occlude()
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_menus(cx)))
 }
 
 /// Sidebar toggle and task history, inset past the traffic lights.

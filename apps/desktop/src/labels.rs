@@ -1,6 +1,6 @@
 //! The words the chrome uses for a task: its preview and its display status.
 
-use lgtm_protocol::{Task, TaskStatus};
+use lgtm_protocol::{GoalStatus, Task, TaskStatus};
 
 const HEADER_PREVIEW: usize = 80;
 
@@ -37,6 +37,18 @@ pub fn status_label(task: &Task, tasks: &[Task]) -> &'static str {
         TaskStatus::TimedOut => "timed_out",
         TaskStatus::RunnerLost => "runner_lost",
         TaskStatus::Cancelled => "cancelled",
+    }
+}
+
+pub fn goal_status_label(status: GoalStatus) -> &'static str {
+    match status {
+        GoalStatus::Draft => "draft",
+        GoalStatus::Planning => "planning",
+        GoalStatus::Running => "running",
+        GoalStatus::Review => "in review",
+        GoalStatus::Blocked => "blocked",
+        GoalStatus::Completed => "completed",
+        GoalStatus::Cancelled => "cancelled",
     }
 }
 

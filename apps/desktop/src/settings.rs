@@ -3,10 +3,9 @@
 
 use crate::app::LgtmApp;
 use crate::theme::{
-    modal_header, panel, scrim, section_label, tokens, Pref, Tokens, MONO_FONT, RADIUS, ROW_H,
-    SPACE, TEXT_MONO,
+    modal_header, panel, scrim, section_label, tokens, Pref, Tokens, MONO_FONT, RADIUS, SPACE,
+    TEXT_MONO,
 };
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, relative, AnyElement, ClickEvent, ClipboardItem, Context, Div,
     InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
@@ -213,22 +212,11 @@ fn workers(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .clone()
         .unwrap_or_else(|| join_line(&app.link.orchestrator, &app.link.token));
     section("Workers", t)
-        .when(app.workers.is_empty(), |this| {
-            this.child(div().text_color(t.muted_fg).child("None connected"))
-        })
-        .children(app.workers.iter().map(|worker| {
-            let kind = if worker.info.ephemeral {
-                "ephemeral"
-            } else {
-                "fixed"
-            };
-            div().flex().items_center().h(px(ROW_H)).child(format!(
-                "{} · {kind} · {}/{}",
-                worker.info.name,
-                worker.running.len(),
-                worker.info.slots
-            ))
-        }))
+        .child(
+            div()
+                .text_color(t.muted_fg)
+                .child("Runners moved to the project page."),
+        )
         .child(
             div()
                 .pt(px(SPACE[1]))

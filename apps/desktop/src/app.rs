@@ -7,9 +7,10 @@ use crate::keys::{
     SelectPrev, ShowActivity, ShowChanges, ShowChecks, ShowPlan, Submit, ToggleSidebar, CONTEXT,
 };
 use crate::net::{self, Msg};
+use crate::project::ProjectTab;
 use crate::render::Line;
 use crate::theme::{tokens, SPACE, STATUS_H, TEXT_BODY, TEXT_SECONDARY, UI_FONT};
-use crate::{batches, home, import, palette, panes, settings, sidebar, titlebar};
+use crate::{batches, home, import, palette, panes, project, settings, sidebar, titlebar};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, AppContext as _, Context, Div, Entity, FocusHandle, Focusable,
@@ -18,7 +19,7 @@ use gpui::{
 };
 use gpui_component::input::{InputEvent, InputState};
 use lgtm_client::Client;
-use lgtm_protocol::{Batch, Task, WorkerStatus};
+use lgtm_protocol::{Batch, GoalSummary, Stats, Task, WorkerStatus};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
@@ -37,10 +38,12 @@ pub enum Pane {
 }
 
 /// What the main area shows when no task is selected.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Page {
     Home,
     Batches,
+    /// One repository, by the slug the sidebar groups tasks under.
+    Project(String),
 }
 
 /// The one modal that can be up at a time.
@@ -133,6 +136,10 @@ pub struct UiState {
     pub dragging: bool,
     pub task_scroll: ScrollHandle,
     pub content_scroll: ScrollHandle,
+    pub project_scroll: ScrollHandle,
+    pub project_tab: ProjectTab,
+    /// The titlebar's runner popover.
+    pub runner_menu: bool,
 }
 
 impl Default for UiState {
@@ -149,6 +156,9 @@ impl Default for UiState {
             dragging: false,
             task_scroll: ScrollHandle::new(),
             content_scroll: ScrollHandle::new(),
+            project_scroll: ScrollHandle::new(),
+            project_tab: ProjectTab::default(),
+            runner_menu: false,
         }
     }
 }
@@ -159,6 +169,9 @@ pub struct LgtmApp {
     pub tasks: Vec<Task>,
     pub workers: Vec<WorkerStatus>,
     pub batches: Vec<Batch>,
+    pub goals: Vec<GoalSummary>,
+    /// Orchestrator-wide, and only refreshed on one poll in ten.
+    pub stats: Option<Stats>,
     pub selected: Option<String>,
     pub page: Page,
     pub pane: Pane,
@@ -197,6 +210,8 @@ impl LgtmApp {
             tasks: Vec::new(),
             workers: Vec::new(),
             batches: Vec::new(),
+            goals: Vec::new(),
+            stats: None,
             selected: None,
             page: Page::Home,
             pane: Pane::Activity,
@@ -330,13 +345,19 @@ impl LgtmApp {
             .when(self.ui.sidebar_open, |this| {
                 this.child(sidebar::render_sidebar(self, window, cx))
             })
-            .child(if self.selected.is_some() {
-                panes::task_view(self, window, cx)
-            } else if self.page == Page::Batches {
-                batches::page(self, cx)
-            } else {
-                home::home(self, window, cx)
-            })
+            .child(self.main_body(window, cx))
+    }
+
+    /// The selected task, or whatever page is showing instead.
+    fn main_body(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        if self.selected.is_some() {
+            return panes::task_view(self, window, cx);
+        }
+        match self.page.clone() {
+            Page::Batches => batches::page(self, cx),
+            Page::Project(slug) => project::page(self, &slug, cx),
+            Page::Home => home::home(self, window, cx),
+        }
     }
 
     /// `bg-destructive/10 text-destructive`, the reference's destructive

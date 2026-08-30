@@ -3,7 +3,7 @@
 use crate::labels::status_label;
 use crate::theme::Tokens;
 use gpui::Hsla;
-use lgtm_protocol::{BatchSource, Task};
+use lgtm_protocol::{BatchSource, GoalStatus, Task};
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -79,12 +79,27 @@ fn push_children<'a>(parent: &Task, rows: &[&'a Task], out: &mut Vec<&'a Task>) 
 
 /// Coarse age, one unit only: `12s`, `5m`, `2h`, `3d`.
 pub fn relative_age(created_at: u64, now: u64) -> String {
-    let secs = now.saturating_sub(created_at) / 1000;
+    duration(now.saturating_sub(created_at))
+}
+
+/// A span of milliseconds in that same one coarse unit.
+pub fn duration(ms: u64) -> String {
+    let secs = ms / 1000;
     match secs {
         0..=59 => format!("{secs}s"),
         60..=3599 => format!("{}m", secs / 60),
         3600..=86_399 => format!("{}h", secs / 3600),
         _ => format!("{}d", secs / 86_400),
+    }
+}
+
+pub fn goal_color(status: GoalStatus, t: &Tokens) -> Hsla {
+    match status {
+        GoalStatus::Running | GoalStatus::Planning => t.info,
+        GoalStatus::Review => t.warning,
+        GoalStatus::Blocked => t.danger,
+        GoalStatus::Completed => t.success,
+        GoalStatus::Cancelled | GoalStatus::Draft => t.muted_fg,
     }
 }
 
