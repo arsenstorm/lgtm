@@ -72,8 +72,20 @@ auto_approve = false
 auto_merge = false
 
 [sandbox]
-profile = "standard"   # off, standard, or strict; not enforced yet
+profile = "standard"   # standard: stripped env, writes only to the worktree, secrets unreadable
 ```
+
+`standard` runs the agent with only the variables it needs — a token in the
+worker's shell never reaches it — and confines its writes to the worktree, the
+repository mirror, the tool caches, and the temporary directories. macOS uses
+`sandbox-exec`, Linux uses `bubblewrap`; where `bwrap` is missing, and on other
+systems, the environment allowlist is all that applies and the worker says so.
+`HOME` stays the real home, so claude and codex keep their own config and
+login; the host's secrets (`.ssh`, `.aws`, `.gnupg`, `.config/gh`, `.netrc`,
+`.docker/config.json`) are unreadable instead. The macOS login keychain stays
+readable, because that is where claude keeps its own token and denying it only
+logs the agent out. `strict` runs as `standard` until the container boundary
+lands.
 
 A malformed file changes nothing: unknown or ill-typed keys are logged and
 the defaults stay.
