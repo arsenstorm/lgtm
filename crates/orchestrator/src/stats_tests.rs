@@ -194,6 +194,16 @@ fn compute_aggregates_every_field_across_the_window() {
     assert_eq!((codex.attempts, codex.completed, codex.failed), (1, 1, 0));
     assert_eq!(stats.by_executor[0].executor, Executor::Claude);
     assert_eq!(stats.by_executor[1].executor, Executor::Codex);
+
+    // w1 ran the merged task (100ms) and the retried task's failed attempt
+    // (200ms); w2 ran the retried task's successful retry (300ms).
+    assert_eq!(stats.by_runner.len(), 2);
+    let w1 = stats.by_runner.iter().find(|r| r.runner == "w1").unwrap();
+    assert_eq!((w1.attempts, w1.failed, w1.median_ms), (2, 1, 150));
+    let w2 = stats.by_runner.iter().find(|r| r.runner == "w2").unwrap();
+    assert_eq!((w2.attempts, w2.failed, w2.median_ms), (1, 0, 300));
+    assert_eq!(stats.by_runner[0].runner, "w1");
+    assert_eq!(stats.by_runner[1].runner, "w2");
 }
 
 #[test]

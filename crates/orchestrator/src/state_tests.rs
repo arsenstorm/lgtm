@@ -3,8 +3,8 @@
 use super::*;
 use crate::commands::RetryInto;
 use lgtm_protocol::{
-    DependsOn, Executor, IssueRef, LinearRef, Plan, PlanStep, Policy, PullRequest, RunnerInfo,
-    TaskKind, TaskResult,
+    DependsOn, Execution, ExecutionStatus, Executor, IssueRef, LinearRef, Plan, PlanStep, Policy,
+    PullRequest, RunnerInfo, TaskKind, TaskResult,
 };
 
 fn info(name: &str, slots: u32, executors: Vec<Executor>) -> RunnerInfo {
@@ -16,6 +16,8 @@ fn info(name: &str, slots: u32, executors: Vec<Executor>) -> RunnerInfo {
         slots,
         ephemeral: false,
         capabilities: Vec::new(),
+        cpu_cores: 0,
+        memory_mb: 0,
     }
 }
 
@@ -66,6 +68,43 @@ pub(crate) fn create(state: &mut State, executor: Executor) -> Task {
 
 fn status(state: &State, id: &str) -> TaskStatus {
     state.tasks[id].task.status
+}
+
+fn finished_execution(runner: &str, started_at: u64, finished_at: u64) -> Execution {
+    Execution {
+        attempt: 1,
+        runner: runner.into(),
+        executor: Executor::Claude,
+        model: None,
+        started_at,
+        finished_at: Some(finished_at),
+        status: ExecutionStatus::Completed,
+        error: None,
+        cost_usd: 0.0,
+        validation: Vec::new(),
+    }
+}
+
+/// Records a past task's executions without scheduling it, so `median_for`
+/// and `candidate` have history to read without a runner's slot being spent.
+fn add_history(state: &mut State, executions: Vec<Execution>) {
+    let task = Task {
+        id: state.new_id(),
+        spec: spec(Executor::Claude, None),
+        status: TaskStatus::Merged,
+        runner: None,
+        created_at: now_ms(),
+        result: None,
+        error: None,
+        pull_request: None,
+        ci: None,
+        pr_review: None,
+        executions,
+        scratchpad: String::new(),
+    };
+    state
+        .tasks
+        .insert(task.id.clone(), TaskRecord::new(task, Vec::new()));
 }
 
 #[test]
@@ -1653,4 +1692,73 @@ fn schedule_ignores_the_budget_once_spend_is_back_under_it() {
         Some("a"),
         "under budget, scheduled as usual"
     );
+}
+
+#[test]
+fn median_for_is_none_without_execution_history() {
+    let state = State::default();
+    assert_eq!(state.median_for("a", "https://example.com/repo.git"), None);
+}
+
+#[test]
+fn median_for_medians_a_runners_finished_durations_in_the_repository() {
+    let mut state = State::default();
+    add_history(
+        &mut state,
+        vec![
+            finished_execution("a", 0, 100),
+            finished_execution("a", 0, 300),
+            finished_execution("b", 0, 999),
+        ],
+    );
+    assert_eq!(
+        state.median_for("a", "https://example.com/repo.git"),
+        Some(200)
+    );
+}
+
+#[test]
+fn candidate_breaks_a_free_slot_tie_by_median_duration_under_fastest() {
+    let mut state = State {
+        prefer: crate::Prefer::Fastest,
+        ..Default::default()
+    };
+    let _a = connect(&mut state, "a", 1, 1);
+    let _b = connect(&mut state, "b", 1, 2);
+    add_history(
+        &mut state,
+        vec![
+            finished_execution("a", 0, 200),
+            finished_execution("b", 0, 100),
+        ],
+    );
+    assert_eq!(state.candidate(&spec(Executor::Claude, None)).unwrap(), "b");
+}
+
+#[test]
+fn candidate_prefers_a_runner_with_history_over_one_with_none_under_fastest() {
+    let mut state = State {
+        prefer: crate::Prefer::Fastest,
+        ..Default::default()
+    };
+    let _a = connect(&mut state, "a", 1, 1);
+    let _b = connect(&mut state, "b", 1, 2);
+    add_history(&mut state, vec![finished_execution("a", 0, 500)]);
+    assert_eq!(state.candidate(&spec(Executor::Claude, None)).unwrap(), "a");
+}
+
+#[test]
+fn candidate_ignores_median_duration_under_the_default_prefer_slots() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let _b = connect(&mut state, "b", 1, 2);
+    // "a" is the slower runner, but Prefer::Slots never looks: lowest name wins.
+    add_history(
+        &mut state,
+        vec![
+            finished_execution("a", 0, 999),
+            finished_execution("b", 0, 100),
+        ],
+    );
+    assert_eq!(state.candidate(&spec(Executor::Claude, None)).unwrap(), "a");
 }

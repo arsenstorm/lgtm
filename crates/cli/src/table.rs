@@ -169,6 +169,15 @@ pub fn print_todo_table(todos: &[Todo]) {
     }
 }
 
+/// `MEM` cell for the `runners` table: whole gigabytes, nearest, `?` when
+/// the runner never reported (0, before it upgraded past phase one).
+pub fn mem_gb_cell(memory_mb: u64) -> String {
+    if memory_mb == 0 {
+        return "?".to_string();
+    }
+    format!("{} GB", (memory_mb + 512) / 1024)
+}
+
 pub fn first_line_truncated(s: &str, max: usize) -> String {
     let first = s.lines().next().unwrap_or("");
     if first.chars().count() > max {
@@ -376,5 +385,12 @@ mod tests {
         let dep = task("d", TaskStatus::Approved, None, None, &[]);
         let t = task("t", TaskStatus::Queued, None, None, &["d"]);
         assert_eq!(display_status(&t, &[dep, t.clone()]), "queued");
+    }
+
+    #[test]
+    fn mem_gb_cell_rounds_to_the_nearest_gigabyte() {
+        assert_eq!(mem_gb_cell(32_768), "32 GB");
+        assert_eq!(mem_gb_cell(1_500), "1 GB");
+        assert_eq!(mem_gb_cell(0), "?");
     }
 }

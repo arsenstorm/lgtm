@@ -895,6 +895,15 @@ pub struct ExecutorStats {
     pub failed: u32,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct RunnerStats {
+    pub runner: String,
+    pub attempts: u32,
+    pub failed: u32,
+    /// Median of this runner's finished executions' `finished_at - started_at`, ms.
+    pub median_ms: u64,
+}
+
 /// Counts and medians over the tasks created inside one window.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Stats {
@@ -916,6 +925,7 @@ pub struct Stats {
     pub retried_tasks: u32,
     pub cost_usd: f64,
     pub by_executor: Vec<ExecutorStats>,
+    pub by_runner: Vec<RunnerStats>,
     /// The highest `[policy] budget_daily_usd` any repository in view
     /// declared; `None` when none did.
     pub budget_daily_usd: Option<f64>,
@@ -942,12 +952,30 @@ pub struct RunnerInfo {
     /// Lowercase tags: `os:<os>`, `arch:<arch>`, and each toolchain binary found on PATH.
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// `std::thread::available_parallelism`; 0 when unknown.
+    #[serde(default)]
+    pub cpu_cores: u32,
+    /// Total physical memory, in megabytes; 0 when unknown.
+    #[serde(default)]
+    pub memory_mb: u64,
 }
 
 impl RunnerInfo {
-    /// True when every requirement is in `capabilities`.
+    /// True when every requirement is met: `memory_mb:<n>` and `cpu_cores:<n>`
+    /// compare numerically against this runner's resources, a malformed
+    /// number never matches, and anything else must be in `capabilities`.
     pub fn has_all(&self, requirements: &[String]) -> bool {
-        requirements.iter().all(|r| self.capabilities.contains(r))
+        requirements.iter().all(|r| self.meets(r))
+    }
+
+    fn meets(&self, requirement: &str) -> bool {
+        if let Some(n) = requirement.strip_prefix("memory_mb:") {
+            return n.parse().is_ok_and(|n: u64| self.memory_mb >= n);
+        }
+        if let Some(n) = requirement.strip_prefix("cpu_cores:") {
+            return n.parse().is_ok_and(|n: u32| self.cpu_cores >= n);
+        }
+        self.capabilities.iter().any(|c| c == requirement)
     }
 }
 

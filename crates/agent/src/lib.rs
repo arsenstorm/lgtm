@@ -67,6 +67,65 @@ pub fn default_slots() -> u32 {
     (cpus / 4).max(1)
 }
 
+/// CPU cores and total physical memory (MB), so a task can require a minimum
+/// of either. 0 for whichever the platform call fails to report.
+pub fn detect_resources() -> (u32, u64) {
+    let cores = std::thread::available_parallelism().map_or(0, |n| n.get() as u32);
+    (cores, detect_memory_mb())
+}
+
+#[cfg(target_os = "macos")]
+fn detect_memory_mb() -> u64 {
+    let out = std::process::Command::new("sysctl")
+        .args(["-n", "hw.memsize"])
+        .output();
+    out.ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse::<u64>()
+                .ok()
+        })
+        .map_or(0, |bytes| bytes / (1024 * 1024))
+}
+
+#[cfg(target_os = "linux")]
+fn detect_memory_mb() -> u64 {
+    let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") else {
+        return 0;
+    };
+    // "MemTotal:       16384000 kB"
+    meminfo
+        .lines()
+        .find_map(|line| line.strip_prefix("MemTotal:"))
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|kb| kb.parse::<u64>().ok())
+        .map_or(0, |kb| kb / 1024)
+}
+
+#[cfg(windows)]
+fn detect_memory_mb() -> u64 {
+    let out = std::process::Command::new("wmic")
+        .args(["ComputerSystem", "get", "TotalPhysicalMemory"])
+        .output();
+    out.ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty() && line.chars().all(|c| c.is_ascii_digit()))
+                .and_then(|bytes| bytes.parse::<u64>().ok())
+        })
+        .map_or(0, |bytes| bytes / (1024 * 1024))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn detect_memory_mb() -> u64 {
+    0
+}
+
 /// What this machine can run a task with: its os and arch, and every
 /// toolchain binary a task might require that is on PATH.
 pub fn detect_capabilities() -> Vec<String> {
@@ -112,8 +171,10 @@ pub async fn run(opts: RunnerOptions) -> Result<()> {
 
     let executors = detect_executors();
     let capabilities = detect_capabilities();
+    let (cpu_cores, memory_mb) = detect_resources();
     tracing::info!(
-        "runner {} in {} executors {executors:?} slots {} capabilities {capabilities:?}",
+        "runner {} in {} executors {executors:?} slots {} capabilities {capabilities:?} \
+         cpu_cores {cpu_cores} memory_mb {memory_mb}",
         opts.name,
         opts.data_dir.display(),
         opts.slots
@@ -127,6 +188,8 @@ pub async fn run(opts: RunnerOptions) -> Result<()> {
         slots: opts.slots,
         ephemeral: opts.ephemeral,
         capabilities,
+        cpu_cores,
+        memory_mb,
     };
 
     let link = connection::Link {
@@ -209,5 +272,11 @@ mod tests {
         let tags = detect_capabilities();
         assert_eq!(tags[0], format!("os:{}", std::env::consts::OS));
         assert_eq!(tags[1], format!("arch:{}", std::env::consts::ARCH));
+    }
+
+    #[test]
+    fn detect_resources_finds_at_least_one_core() {
+        let (cores, _) = detect_resources();
+        assert!(cores >= 1);
     }
 }

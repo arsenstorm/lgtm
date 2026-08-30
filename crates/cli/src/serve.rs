@@ -32,6 +32,7 @@ pub async fn serve(args: ServeArgs, token: Option<String>) -> anyhow::Result<i32
         models: models(&args.model_for),
         tls,
         webhook: args.webhook.clone(),
+        prefer: args.prefer,
     };
     eprintln!("{}", lgtm_orchestrator::local::join_line_for(&serve_opts));
     lgtm_orchestrator::local::serve_local(lgtm_orchestrator::local::LocalOptions {

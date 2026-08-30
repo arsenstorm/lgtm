@@ -200,6 +200,16 @@ pub fn print_stats(stats: &Stats, out: &mut impl Write) -> std::io::Result<()> {
             entry.failed,
         )?;
     }
+    for entry in &stats.by_runner {
+        writeln!(
+            out,
+            "{:<13}{} attempts, {} failed, median {}",
+            entry.runner,
+            entry.attempts,
+            entry.failed,
+            duration(entry.median_ms),
+        )?;
+    }
     Ok(())
 }
 
@@ -731,6 +741,12 @@ mod tests {
                     failed: 0,
                 },
             ],
+            by_runner: vec![lgtm_protocol::RunnerStats {
+                runner: "w1".into(),
+                attempts: 3,
+                failed: 1,
+                median_ms: 90_000,
+            }],
             budget_daily_usd: None,
             spent_today: 0.0,
         };
@@ -744,7 +760,8 @@ mod tests {
              retried      2\n\
              cost         $12.50\n\
              claude       3 attempts, 2 completed, 1 failed\n\
-             codex        1 attempts, 1 completed, 0 failed\n"
+             codex        1 attempts, 1 completed, 0 failed\n\
+             w1           3 attempts, 1 failed, median 1m30s\n"
         );
     }
 

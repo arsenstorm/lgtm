@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
-use lgtm_orchestrator::Choice;
+use lgtm_orchestrator::{Choice, Prefer};
 use lgtm_protocol::{DependsOn, Executor, SandboxProfile, TaskId};
 
 #[derive(Parser)]
@@ -195,6 +195,16 @@ pub struct ServeArgs {
     /// the flag is absent.
     #[arg(long = "model-for", value_delimiter = ',')]
     pub model_for: Vec<String>,
+    /// How the scheduler breaks a free-slot tie between candidate runners:
+    /// `slots` (lowest name) or `fastest` (lowest median duration for the
+    /// task's repository over the last 7 days).
+    #[arg(
+        long,
+        env = "LGTM_PREFER",
+        default_value = "slots",
+        value_parser = parse_prefer
+    )]
+    pub prefer: Prefer,
 }
 
 #[derive(Args)]
@@ -376,6 +386,16 @@ fn parse_orchestrate(s: &str) -> Result<Choice, String> {
     match s {
         "auto" => Ok(Choice::Auto),
         other => parse_executor(other).map(Choice::One),
+    }
+}
+
+fn parse_prefer(s: &str) -> Result<Prefer, String> {
+    match s {
+        "slots" => Ok(Prefer::Slots),
+        "fastest" => Ok(Prefer::Fastest),
+        other => Err(format!(
+            "invalid prefer '{other}', expected 'slots' or 'fastest'"
+        )),
     }
 }
 
