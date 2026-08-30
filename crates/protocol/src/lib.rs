@@ -50,6 +50,8 @@ pub enum SandboxProfile {
     Standard,
     /// Standard plus a container/VM boundary and no network by default.
     Strict,
+    /// Standard plus the repository's own `[sandbox] readable/writable/denied`.
+    Custom,
 }
 
 impl SandboxProfile {
@@ -58,6 +60,7 @@ impl SandboxProfile {
             "off" => Some(SandboxProfile::Off),
             "standard" => Some(SandboxProfile::Standard),
             "strict" => Some(SandboxProfile::Strict),
+            "custom" => Some(SandboxProfile::Custom),
             _ => None,
         }
     }
@@ -67,6 +70,7 @@ impl SandboxProfile {
             SandboxProfile::Off => "off",
             SandboxProfile::Standard => "standard",
             SandboxProfile::Strict => "strict",
+            SandboxProfile::Custom => "custom",
         }
     }
 }

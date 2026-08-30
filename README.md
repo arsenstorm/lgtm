@@ -153,12 +153,15 @@ reassign = 1  # move a lost or failed task to another runner this many times
 budget_daily_usd = 50.0
 
 [sandbox]
-profile = "standard"   # standard: stripped env, writes only to the worktree, secrets unreadable
+profile = "standard"   # off, standard, strict, or custom
 network = "unrestricted"  # unrestricted, none, or allowlist
 allowed_hosts = ["github.com", "api.anthropic.com", "crates.io"]  # what allowlist may reach
 memory_mb = 4096       # address space one run may map; unset means no limit
 processes = 256        # processes and threads the run's user may have; unset means no limit
 cpu_seconds = 3600     # CPU time before the run is killed; unset means no limit
+readable = ["~/models"]        # custom only: kept readable even under a denied parent
+writable = ["/data/scratch"]   # custom only: appended to the writable roots
+denied = ["~/models/private"]  # custom only: appended to the secret denials
 ```
 
 `standard` runs the agent with only the variables it needs — a token in the
@@ -172,6 +175,16 @@ login; the host's secrets (`.ssh`, `.aws`, `.gnupg`, `.config/gh`, `.netrc`,
 readable, because that is where claude keeps its own token and denying it only
 logs the agent out. `strict` runs as `standard` until the container boundary
 lands.
+
+`custom` is `standard` plus the repository's own `readable`, `writable` and
+`denied` lists: `writable` is appended to the writable roots, `denied` to the
+secret denials, and `readable` keeps a path open even when a `denied` parent
+would otherwise cover it too — the only case it changes anything, since
+everything not denied is already readable. A `~/` entry expands against the
+real `HOME`. An entry naming `/`, `$HOME` itself, or a relative path is
+refused; the rest of that list still applies. These three keys are read
+whatever `profile` is set to, so switching back to `standard` does not
+require deleting them.
 
 `memory_mb`, `processes` and `cpu_seconds` cap what one run may spend; each is
 unset by default, and an unset one is no limit. On macOS and Linux the run

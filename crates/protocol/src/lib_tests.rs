@@ -458,6 +458,7 @@ fn sandbox_profile_round_trips_through_its_wire_name() {
         (SandboxProfile::Off, "off"),
         (SandboxProfile::Standard, "standard"),
         (SandboxProfile::Strict, "strict"),
+        (SandboxProfile::Custom, "custom"),
     ] {
         assert_eq!(SandboxProfile::parse(name), Some(profile));
         assert_eq!(profile.as_str(), name);

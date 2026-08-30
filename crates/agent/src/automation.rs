@@ -22,7 +22,7 @@ use crate::git::{branch_name, commit, mirror_path, session_path, SCRATCHPAD};
 use crate::plan::extract_plan;
 use crate::policy::{
     effective_sandbox, failed_names, fix_prompt, load_policy, parse_review, review_prompt,
-    review_warning, reviewer, Limits, NetworkPolicy, PolicyConfig,
+    review_warning, reviewer, CustomPaths, Limits, NetworkPolicy, PolicyConfig,
 };
 use crate::proc::{
     cost_buffer, cost_total, final_text, tail_buffer, tail_lines, text_buffer, Cost, Pump, Sinks,
@@ -125,6 +125,9 @@ pub struct Run<'a> {
     network: Network,
     /// What the run may consume, known with the timeout and the profile.
     limits: Limits,
+    /// The repository's `[sandbox]` path exceptions; only applied when
+    /// `sandbox` is `Custom`.
+    paths: CustomPaths,
     /// The notes as last seen, so an unchanged scratchpad sends nothing.
     notes: String,
 }
@@ -154,6 +157,7 @@ impl<'a> Run<'a> {
             allowed_hosts: None,
             network: Network::Unrestricted,
             limits: Limits::default(),
+            paths: CustomPaths::default(),
             notes: task.scratchpad.clone(),
         }
     }
@@ -166,6 +170,7 @@ pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> 
     run.timeout = Duration::from_secs(policy.timeout_secs);
     run.sandbox = effective_sandbox(&run.task.spec, &policy);
     run.limits = policy.limits;
+    run.paths = policy.paths.clone();
     // An allowlist stays blocked until its proxy is listening: a run that
     // cannot be restricted must not run unrestricted instead.
     (run.allowed_hosts, run.network) = match &policy.network {
@@ -545,6 +550,7 @@ impl<'a> Run<'a> {
             &paths,
             self.network,
             &self.limits,
+            &self.paths,
             path,
             &args(opts),
         )

@@ -1,7 +1,7 @@
 //! The `[policy]` table of `<worktree>/.lgtm/config.toml`, and the prompts the
 //! policies drive: fixing failing checks, and reviewing the finished diff.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use lgtm_protocol::{
     Executor, Finding, Review, SandboxProfile, Severity, TaskSpec, ValidationResult,
@@ -55,6 +55,9 @@ pub struct PolicyConfig {
     pub sandbox: SandboxProfile,
     pub network: NetworkPolicy,
     pub limits: Limits,
+    /// Only enforced under `SandboxProfile::Custom`; read regardless, so
+    /// switching the profile back to `standard` needs no edit to unset them.
+    pub paths: CustomPaths,
     pub review_executor: ReviewExecutor,
 }
 
@@ -65,6 +68,19 @@ pub struct Limits {
     pub memory_mb: Option<u64>,
     pub processes: Option<u64>,
     pub cpu_seconds: Option<u64>,
+}
+
+/// The `custom` profile's exceptions to `standard`'s own lists. Each is empty
+/// by default, which is `standard` unchanged.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CustomPaths {
+    /// Kept readable even under a `denied` parent (macOS only; Linux's
+    /// read-only root already covers anything not itself denied).
+    pub readable: Vec<String>,
+    /// Appended to the profile's writable roots.
+    pub writable: Vec<String>,
+    /// Appended to the profile's secret denials.
+    pub denied: Vec<String>,
 }
 
 /// Where an agent run may go on the network. Still `Unrestricted` by default:
@@ -103,6 +119,7 @@ impl Default for PolicyConfig {
             sandbox: SandboxProfile::Standard,
             network: NetworkPolicy::Unrestricted,
             limits: Limits::default(),
+            paths: CustomPaths::default(),
             review_executor: ReviewExecutor::Auto,
         }
     }
@@ -183,11 +200,74 @@ fn read_sandbox(table: &toml::Table, policy: &mut PolicyConfig) {
     if let Some(profile) = section.get("profile").and_then(toml::Value::as_str) {
         match SandboxProfile::parse(profile) {
             Some(parsed) => policy.sandbox = parsed,
-            None => tracing::warn!("[sandbox] profile must be off, standard or strict, ignoring"),
+            None => tracing::warn!(
+                "[sandbox] profile must be off, standard, strict or custom, ignoring"
+            ),
         }
     }
     policy.network = read_network(section);
     policy.limits = read_limits(section);
+    policy.paths = read_paths(section);
+}
+
+fn read_paths(section: &toml::Table) -> CustomPaths {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    CustomPaths {
+        readable: path_list(section, "readable", home.as_deref()),
+        writable: path_list(section, "writable", home.as_deref()),
+        denied: path_list(section, "denied", home.as_deref()),
+    }
+}
+
+/// Reads one `[sandbox]` path array, expanding `~/` and dropping whichever
+/// entries `validate` refuses. Unlike a bad `key = value`, one bad entry in a
+/// list must not cost the rest of the list.
+fn path_list(section: &toml::Table, key: &str, home: Option<&Path>) -> Vec<String> {
+    let Some(value) = section.get(key) else {
+        return Vec::new();
+    };
+    let Some(items) = value.as_array() else {
+        tracing::warn!("[sandbox] {key} must be an array of strings, ignoring");
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| item.as_str())
+        .map(|raw| expand_home(raw, home))
+        .filter(|path| match validate(Path::new(path), home) {
+            Ok(()) => true,
+            Err(reason) => {
+                tracing::warn!("[sandbox] {key} entry {path:?} {reason}, dropping");
+                false
+            }
+        })
+        .collect()
+}
+
+/// `~/x` resolved against the real `HOME`, not the worktree's: these paths
+/// name host locations the sandbox exposes, and the run's own `$HOME` inside
+/// the sandbox is the same real one.
+fn expand_home(path: &str, home: Option<&Path>) -> String {
+    match (path.strip_prefix("~/"), home) {
+        (Some(rest), Some(home)) => home.join(rest).display().to_string(),
+        _ => path.to_string(),
+    }
+}
+
+/// Refuses a path that would widen the sandbox rather than carve an exception
+/// into it: the whole filesystem, `$HOME` itself, or anything not already
+/// rooted, which `bwrap`/seatbelt cannot bind without knowing the run's cwd.
+pub fn validate(path: &Path, home: Option<&Path>) -> Result<(), String> {
+    if path == Path::new("/") {
+        return Err("must not be the filesystem root".to_string());
+    }
+    if home.is_some_and(|home| path == home) {
+        return Err("must not be $HOME itself".to_string());
+    }
+    if path.is_relative() {
+        return Err("must be an absolute path".to_string());
+    }
+    Ok(())
 }
 
 fn read_limits(section: &toml::Table) -> Limits {
@@ -396,6 +476,7 @@ mod tests {
                 sandbox: SandboxProfile::Standard,
                 network: NetworkPolicy::Unrestricted,
                 limits: Limits::default(),
+                paths: CustomPaths::default(),
                 review_executor: ReviewExecutor::Auto,
             }
         );
@@ -445,6 +526,12 @@ mod tests {
     fn bad_sandbox_profile_keeps_the_default() {
         let policy = parse_policy("[sandbox]\nprofile = \"chaos\"\n");
         assert_eq!(policy.sandbox, SandboxProfile::Standard);
+    }
+
+    #[test]
+    fn custom_sandbox_profile_is_parsed() {
+        let policy = parse_policy("[sandbox]\nprofile = \"custom\"\n");
+        assert_eq!(policy.sandbox, SandboxProfile::Custom);
     }
 
     #[test]
@@ -527,6 +614,55 @@ mod tests {
                 .limits,
             Limits::default()
         );
+    }
+
+    #[test]
+    fn custom_paths_are_read_from_the_sandbox_table_and_default_to_empty() {
+        assert_eq!(parse_policy("").paths, CustomPaths::default());
+        assert_eq!(
+            parse_policy(
+                "[sandbox]\nreadable = [\"/etc/hosts\"]\nwritable = [\"/data/scratch\"]\ndenied = [\"/data/secret\"]\n"
+            )
+            .paths,
+            CustomPaths {
+                readable: vec!["/etc/hosts".to_string()],
+                writable: vec!["/data/scratch".to_string()],
+                denied: vec!["/data/secret".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn a_tilde_path_expands_against_home() {
+        let policy = parse_policy("[sandbox]\nwritable = [\"~/work/scratch\"]\n");
+        let home = std::env::var("HOME").expect("HOME set in test environment");
+        assert_eq!(policy.paths.writable, [format!("{home}/work/scratch")]);
+    }
+
+    #[test]
+    fn a_bad_path_entry_is_dropped_and_the_rest_of_the_list_survives() {
+        let policy =
+            parse_policy("[sandbox]\nwritable = [\"relative/path\", \"/\", \"/data/scratch\"]\n");
+        assert_eq!(policy.paths.writable, ["/data/scratch".to_string()]);
+    }
+
+    #[test]
+    fn a_path_list_of_the_wrong_type_is_dropped_entirely() {
+        assert_eq!(
+            parse_policy("[sandbox]\nwritable = \"/data/scratch\"\n").paths,
+            CustomPaths::default()
+        );
+    }
+
+    #[test]
+    fn validate_refuses_root_home_and_relative_paths() {
+        let home = Path::new("/home/me");
+        assert!(validate(Path::new("/"), Some(home)).is_err());
+        assert!(validate(home, Some(home)).is_err());
+        assert!(validate(Path::new("relative"), Some(home)).is_err());
+        assert!(validate(Path::new("/data/scratch"), Some(home)).is_ok());
+        // With no known HOME, only root and relative paths are refused.
+        assert!(validate(Path::new("/anything"), None).is_ok());
     }
 
     #[test]
