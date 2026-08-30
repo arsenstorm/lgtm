@@ -511,7 +511,11 @@ impl State {
                 | TaskStatus::Rejected => {
                     changed.extend(self.fail_dependents(task_id));
                 }
-                TaskStatus::Approved => changed.extend(self.schedule()),
+                // Approved unblocks an Approved/Merged dependency; AwaitingReview
+                // unblocks a Completed one.
+                TaskStatus::Approved | TaskStatus::AwaitingReview => {
+                    changed.extend(self.schedule())
+                }
                 _ => {}
             }
         }

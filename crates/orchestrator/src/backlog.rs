@@ -66,6 +66,7 @@ impl SpecInput {
             kind: self.kind,
             parent: None,
             depends_on: Vec::new(),
+            depends_on_condition: Default::default(),
             batch: self.batch,
             sandbox: self.sandbox,
             requirements: self.requirements,

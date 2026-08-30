@@ -3,7 +3,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use lgtm_protocol::{Plan, PlanStep, Task, TaskEvent, TaskId, TaskKind, TaskSpec, TaskStatus};
+use lgtm_protocol::{
+    DependsOn, Plan, PlanStep, Task, TaskEvent, TaskId, TaskKind, TaskSpec, TaskStatus,
+};
 
 use crate::state::{now_ms, CmdError, State, TaskRecord};
 
@@ -17,12 +19,12 @@ fn wire_status(status: TaskStatus) -> &'static str {
 }
 
 impl State {
-    /// Whether every task `spec` depends on has been approved or merged.
+    /// Whether every task `spec` depends on has reached `depends_on_condition`.
     pub fn deps_met(&self, spec: &TaskSpec) -> bool {
         spec.depends_on.iter().all(|id| {
-            self.tasks.get(id).is_some_and(|rec| {
-                matches!(rec.task.status, TaskStatus::Approved | TaskStatus::Merged)
-            })
+            self.tasks
+                .get(id)
+                .is_some_and(|rec| spec.depends_on_condition.met(rec.task.status))
         })
     }
 
@@ -144,10 +146,12 @@ fn check_step_keys(steps: &[PlanStep]) -> Result<(), CmdError> {
 }
 
 fn child_spec(spec: &TaskSpec, step: &PlanStep, depends_on: Vec<TaskId>, parent: &str) -> TaskSpec {
-    let base_branch = match depends_on.as_slice() {
+    let base_branch = match (spec.depends_on_condition, depends_on.as_slice()) {
         // A single dependency's branch is the only base that has its
-        // change; more than one has no branch holding all of them.
-        [only] => format!("lgtm/{only}"),
+        // change; more than one has no branch holding all of them. Only
+        // Approved/Merged push that branch to origin before this child
+        // starts, so a looser condition must base on the plan's own branch.
+        (DependsOn::Approved | DependsOn::Merged, [only]) => format!("lgtm/{only}"),
         _ => spec.base_branch.clone(),
     };
     TaskSpec {
@@ -163,6 +167,7 @@ fn child_spec(spec: &TaskSpec, step: &PlanStep, depends_on: Vec<TaskId>, parent:
         kind: TaskKind::Run,
         parent: Some(parent.to_string()),
         depends_on,
+        depends_on_condition: spec.depends_on_condition,
         // A batch counts its plans' children as its own work.
         batch: spec.batch.clone(),
         sandbox: spec.sandbox,

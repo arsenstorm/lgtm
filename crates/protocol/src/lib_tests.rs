@@ -22,6 +22,7 @@ fn sample_task() -> Task {
             kind: TaskKind::Plan,
             parent: Some("00000000".into()),
             depends_on: vec!["11111111".into()],
+            depends_on_condition: DependsOn::Completed,
             batch: Some("b1".into()),
             sandbox: Some(SandboxProfile::Strict),
             requirements: vec!["docker".into()],
@@ -674,4 +675,23 @@ fn overlap_round_trips() {
         task: "0123abcd".into(),
         files: vec!["a.rs".into()],
     });
+}
+
+#[test]
+fn depends_on_met_widens_with_the_condition() {
+    let met = |cond: DependsOn, status: TaskStatus| cond.met(status);
+
+    assert!(met(DependsOn::Approved, TaskStatus::Approved));
+    assert!(met(DependsOn::Approved, TaskStatus::Merged));
+    assert!(!met(DependsOn::Approved, TaskStatus::AwaitingReview));
+
+    assert!(met(DependsOn::Completed, TaskStatus::AwaitingReview));
+    assert!(met(DependsOn::Completed, TaskStatus::ChangesRequested));
+    assert!(met(DependsOn::Completed, TaskStatus::Conflicted));
+    assert!(met(DependsOn::Completed, TaskStatus::Approved));
+    assert!(met(DependsOn::Completed, TaskStatus::Merged));
+    assert!(!met(DependsOn::Completed, TaskStatus::Running));
+
+    assert!(met(DependsOn::Merged, TaskStatus::Merged));
+    assert!(!met(DependsOn::Merged, TaskStatus::Approved));
 }

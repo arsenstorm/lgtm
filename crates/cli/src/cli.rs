@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
-use lgtm_protocol::{Executor, SandboxProfile};
+use lgtm_protocol::{DependsOn, Executor, SandboxProfile, TaskId};
 
 #[derive(Parser)]
 #[command(name = "lgtm", version)]
@@ -220,6 +220,12 @@ pub struct Target {
     /// the harness's own default.
     #[arg(long)]
     pub model: Option<String>,
+    /// A task id this one must wait on. Repeatable.
+    #[arg(long = "after")]
+    pub after: Vec<TaskId>,
+    /// What every `--after` id must have reached before this task starts.
+    #[arg(long, default_value = "approved", value_parser = parse_depends_on)]
+    pub after_condition: DependsOn,
 }
 
 #[derive(Subcommand)]
@@ -348,4 +354,15 @@ fn parse_executor(s: &str) -> Result<Executor, String> {
 fn parse_sandbox(s: &str) -> Result<SandboxProfile, String> {
     SandboxProfile::parse(s)
         .ok_or_else(|| format!("invalid sandbox '{s}', expected 'off', 'standard' or 'strict'"))
+}
+
+fn parse_depends_on(s: &str) -> Result<DependsOn, String> {
+    match s {
+        "approved" => Ok(DependsOn::Approved),
+        "completed" => Ok(DependsOn::Completed),
+        "merged" => Ok(DependsOn::Merged),
+        other => Err(format!(
+            "invalid after-condition '{other}', expected 'approved', 'completed' or 'merged'"
+        )),
+    }
 }

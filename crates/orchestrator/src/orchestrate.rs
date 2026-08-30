@@ -296,6 +296,7 @@ fn create_task(
         kind: TaskKind::Run,
         parent: None,
         depends_on: depends_on.to_vec(),
+        depends_on_condition: Default::default(),
         batch: None,
         sandbox: subject.spec.sandbox,
         requirements: subject.spec.requirements,

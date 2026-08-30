@@ -3,7 +3,8 @@
 use super::*;
 use crate::commands::RetryInto;
 use lgtm_protocol::{
-    Executor, IssueRef, LinearRef, Plan, PlanStep, PullRequest, TaskKind, TaskResult, WorkerInfo,
+    DependsOn, Executor, IssueRef, LinearRef, Plan, PlanStep, PullRequest, TaskKind, TaskResult,
+    WorkerInfo,
 };
 
 fn info(name: &str, slots: u32, executors: Vec<Executor>) -> WorkerInfo {
@@ -47,6 +48,7 @@ fn spec(executor: Executor, worker: Option<&str>) -> TaskSpec {
         kind: TaskKind::Run,
         parent: None,
         depends_on: Vec::new(),
+        depends_on_condition: Default::default(),
         batch: None,
         sandbox: None,
         requirements: Vec::new(),
@@ -904,6 +906,151 @@ fn blocked_task_runs_after_dependency_approved() {
         state.tasks[&b].task.worker.as_deref(),
         Some("w"),
         "approval released the dependent task"
+    );
+}
+
+/// A minimal successful run's result, for tests that only need `a` to reach
+/// `AwaitingReview`.
+fn run_result() -> TaskResult {
+    TaskResult {
+        branch: "lgtm/a".into(),
+        diff: "diff".into(),
+        changed_files: vec!["a.rs".into()],
+        validation: Vec::new(),
+        plan: None,
+        review: None,
+        policy: None,
+        cost_usd: 0.0,
+    }
+}
+
+/// A task depending on `a` with `condition`, scheduled behind it on a
+/// single-slot worker so its release is visible.
+fn waiting_on(state: &mut State, a: &str, condition: DependsOn) -> TaskId {
+    let mut waiting = spec(Executor::Claude, None);
+    waiting.depends_on = vec![a.to_string()];
+    waiting.depends_on_condition = condition;
+    state.create_task(waiting).unwrap().0.id
+}
+
+#[test]
+fn completed_condition_starts_once_the_dependency_finishes_a_run() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let a = create(&mut state, Executor::Claude).id;
+    let b = waiting_on(&mut state, &a, DependsOn::Completed);
+
+    state.apply_event(&a, TaskEvent::Started { model: None });
+    state.apply_event(
+        &a,
+        TaskEvent::Completed {
+            result: run_result(),
+        },
+    );
+
+    assert_eq!(status(&state, &a), TaskStatus::AwaitingReview);
+    assert_eq!(
+        state.tasks[&b].task.worker.as_deref(),
+        Some("w"),
+        "Completed only needs the dependency to finish a run"
+    );
+}
+
+#[test]
+fn approved_condition_still_waits_once_the_dependency_finishes_a_run() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let a = create(&mut state, Executor::Claude).id;
+    let b = waiting_on(&mut state, &a, DependsOn::Approved);
+
+    state.apply_event(&a, TaskEvent::Started { model: None });
+    state.apply_event(
+        &a,
+        TaskEvent::Completed {
+            result: run_result(),
+        },
+    );
+    assert_eq!(status(&state, &a), TaskStatus::AwaitingReview);
+    assert_eq!(
+        state.tasks[&b].task.worker, None,
+        "Approved needs more than a finished run"
+    );
+
+    state.apply_event(
+        &a,
+        TaskEvent::Pushed {
+            branch: format!("lgtm/{a}"),
+            sha: "abc".into(),
+        },
+    );
+    assert_eq!(status(&state, &a), TaskStatus::Approved);
+    assert_eq!(state.tasks[&b].task.worker.as_deref(), Some("w"));
+}
+
+#[test]
+fn merged_condition_waits_past_approval() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let a = create(&mut state, Executor::Claude).id;
+    let b = waiting_on(&mut state, &a, DependsOn::Merged);
+
+    state.apply_event(&a, TaskEvent::Started { model: None });
+    state.apply_event(
+        &a,
+        TaskEvent::Completed {
+            result: run_result(),
+        },
+    );
+    state.apply_event(
+        &a,
+        TaskEvent::Pushed {
+            branch: format!("lgtm/{a}"),
+            sha: "abc".into(),
+        },
+    );
+    assert_eq!(status(&state, &a), TaskStatus::Approved);
+    assert_eq!(
+        state.tasks[&b].task.worker, None,
+        "Merged needs the pull request merged, not just approved"
+    );
+
+    state.mark_merged(&a).unwrap();
+    assert_eq!(state.tasks[&b].task.worker.as_deref(), Some("w"));
+}
+
+#[test]
+fn completed_condition_child_bases_on_the_plan_branch_not_the_dependency() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let mut plan_spec = spec(Executor::Claude, None);
+    plan_spec.kind = TaskKind::Plan;
+    plan_spec.depends_on_condition = DependsOn::Completed;
+    let plan = state.create_task(plan_spec).unwrap().0.id;
+    state.apply_event(&plan, TaskEvent::Started { model: None });
+    state.apply_event(
+        &plan,
+        TaskEvent::Completed {
+            result: TaskResult {
+                branch: format!("lgtm/{plan}"),
+                diff: String::new(),
+                changed_files: Vec::new(),
+                validation: Vec::new(),
+                plan: Some(Plan {
+                    steps: vec![step("a", &[]), step("b", &["a"])],
+                }),
+                review: None,
+                policy: None,
+                cost_usd: 0.0,
+            },
+        },
+    );
+
+    state.approve_plan(&plan).unwrap();
+    let kids = children(&state, &plan);
+    assert_eq!(kids[1].spec.depends_on_condition, DependsOn::Completed);
+    assert_eq!(
+        kids[1].spec.base_branch, "main",
+        "a Completed dependency's branch is not pushed yet, so the child bases on the plan's own branch"
     );
 }
 

@@ -142,6 +142,7 @@ mod tests {
                 kind: TaskKind::Run,
                 parent: None,
                 depends_on: deps,
+                depends_on_condition: Default::default(),
                 batch: None,
                 sandbox: None,
                 requirements: Vec::new(),
