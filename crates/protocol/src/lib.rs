@@ -424,12 +424,21 @@ impl Review {
 }
 
 /// The repository's `[policy]` bits the orchestrator acts on.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Policy {
     #[serde(default)]
     pub auto_approve: bool,
     #[serde(default)]
     pub auto_merge: bool,
+    /// Refuse auto-approve when the diff has more added+removed lines than this.
+    #[serde(default)]
+    pub max_diff_lines: Option<u32>,
+    /// Paths (with `*` wildcards) an automatic approval must not touch.
+    #[serde(default)]
+    pub protected_files: Vec<String>,
+    /// Refuse auto-approve when the run cost more than this.
+    #[serde(default)]
+    pub budget_per_task_usd: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

@@ -100,6 +100,9 @@ fn every_message_round_trips() {
         policy: Some(Policy {
             auto_approve: true,
             auto_merge: false,
+            max_diff_lines: Some(300),
+            protected_files: vec!["migrations/*".into()],
+            budget_per_task_usd: Some(2.0),
         }),
         cost_usd: 0.42,
     };
@@ -146,6 +149,16 @@ fn every_message_round_trips() {
         TaskEvent::Requeued {
             worker: None,
             executor: Executor::Claude,
+        },
+        TaskEvent::PolicyDecision {
+            action: "approve".into(),
+            allowed: false,
+            reasons: vec!["touches protected file migrations/001.sql".into()],
+        },
+        TaskEvent::PolicyDecision {
+            action: "merge".into(),
+            allowed: true,
+            reasons: vec!["checks passed".into(), "no blocking findings".into()],
         },
         TaskEvent::AutoApproved,
         TaskEvent::AutoMerged,

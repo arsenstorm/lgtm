@@ -108,7 +108,7 @@ pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> 
     run.sandbox = effective_sandbox(&run.task.spec, &policy);
     tracing::info!(profile = run.sandbox.as_str(), "sandbox profile");
     if run.task.spec.kind == TaskKind::Plan {
-        return run.plan(prompt, policy).await;
+        return run.plan(prompt, &policy).await;
     }
     let finish = match run.attempts(prompt, resume, policy.retry).await? {
         Ran::Finished(finish) => finish,
@@ -127,7 +127,7 @@ pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> 
             Err(stop) => return run.stopped(stop),
         }
     }
-    result.policy = Some(policy_of(policy));
+    result.policy = Some(policy_of(&policy));
     result.cost_usd = cost_total(&run.cost);
     run.ctx.emit(&run.task.id, TaskEvent::Completed { result });
     Ok(())
@@ -166,7 +166,7 @@ impl Run<'_> {
     }
 
     /// A plan run leaves nothing behind to retry into, so it runs once.
-    async fn plan(&mut self, prompt: &str, policy: PolicyConfig) -> Result<()> {
+    async fn plan(&mut self, prompt: &str, policy: &PolicyConfig) -> Result<()> {
         let answer = text_buffer();
         let opts = RunOpts {
             prompt,
@@ -416,10 +416,13 @@ impl Run<'_> {
     }
 }
 
-fn policy_of(policy: PolicyConfig) -> Policy {
+fn policy_of(policy: &PolicyConfig) -> Policy {
     Policy {
         auto_approve: policy.auto_approve,
         auto_merge: policy.auto_merge,
+        max_diff_lines: policy.max_diff_lines,
+        protected_files: policy.protected_files.clone(),
+        budget_per_task_usd: policy.budget_per_task_usd,
     }
 }
 
@@ -433,7 +436,7 @@ pub async fn recorded_session(ctx: &Arc<Ctx>, task_id: &str) -> Option<String> {
 }
 
 /// A plan run leaves no diff, so its result carries only the parsed plan.
-fn planned(branch: &str, text: &str, policy: PolicyConfig, cost_usd: f64) -> TaskEvent {
+fn planned(branch: &str, text: &str, policy: &PolicyConfig, cost_usd: f64) -> TaskEvent {
     match extract_plan(text) {
         Ok(plan) => TaskEvent::Completed {
             result: TaskResult {

@@ -8,7 +8,7 @@ use std::time::Duration;
 use lgtm_github::Repo;
 use lgtm_protocol::{CiState, CiStatus, Task, TaskEvent, TaskId, TaskStatus};
 
-use crate::policy::{auto_action, AutoAction};
+use crate::policy::Decision;
 use crate::state::{App, CmdError, PrPlan};
 
 const CI_POLL: Duration = Duration::from_secs(60);
@@ -180,23 +180,34 @@ pub fn poll_ci(app: Arc<App>, task_id: TaskId, repo: Repo, sha: String) {
 /// when polling can stop: the checks settled or the task moved on.
 async fn settle(app: &Arc<App>, task_id: &TaskId, status: CiStatus) -> bool {
     let settled = status.state != CiState::Pending;
-    let merge = {
-        let mut state = app.state.lock().unwrap();
-        let Some(rec) = state.tasks.get_mut(task_id) else {
-            return true;
-        };
-        if rec.task.status != TaskStatus::Approved {
-            return true;
-        }
-        rec.task.ci = Some(status);
-        let merge = auto_action(&rec.task) == Some(AutoAction::Merge);
-        app.persist_ids(&state, std::slice::from_ref(task_id));
-        merge
+    let Some(merge) = record_ci(app, task_id, status) else {
+        return true;
     };
     if merge {
         auto_merge(app, task_id).await;
     }
     settled
+}
+
+/// Stores this reading of the checks and what policy made of it, logging the
+/// decision only when it changed: the checks are polled in a loop. `None` when
+/// the task is gone or has moved on and polling can stop.
+fn record_ci(app: &Arc<App>, task_id: &TaskId, status: CiStatus) -> Option<bool> {
+    let mut state = app.state.lock().unwrap();
+    let rec = state.tasks.get_mut(task_id)?;
+    if rec.task.status != TaskStatus::Approved {
+        return None;
+    }
+    rec.task.ci = Some(status);
+    let decision = crate::policy::decide(&rec.task);
+    let event = decision.as_ref().map(Decision::event);
+    let repeat = event.as_ref() == rec.last_policy_decision("merge");
+    app.persist_ids(&state, std::slice::from_ref(task_id));
+    if let Some(event) = event.filter(|_| !repeat) {
+        let changed = state.apply_event(task_id, event);
+        app.persist_ids(&state, &changed);
+    }
+    Some(decision.is_some_and(|decision| decision.allowed))
 }
 
 /// After a restart, picks up polling for tasks whose pull request is open and

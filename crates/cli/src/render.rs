@@ -55,6 +55,17 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
             worker.as_deref().unwrap_or("any worker"),
             executor.binary()
         ),
+        TaskEvent::PolicyDecision {
+            action,
+            allowed,
+            reasons,
+        } => {
+            if *allowed {
+                writeln!(out, "policy: auto-{action} ({})", reasons.join(", "))
+            } else {
+                writeln!(out, "policy: no auto-{action}: {}", reasons.join("; "))
+            }
+        }
         TaskEvent::AutoApproved => writeln!(out, "approved by policy"),
         TaskEvent::AutoMerged => writeln!(out, "merged by policy"),
         TaskEvent::Failed { error } => writeln!(out, "failed: {error}"),
@@ -195,6 +206,26 @@ mod tests {
         let mut out = Vec::new();
         render(event, &mut out).unwrap();
         String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn policy_decisions_read_as_a_sentence() {
+        assert_eq!(
+            rendered(&TaskEvent::PolicyDecision {
+                action: "approve".into(),
+                allowed: true,
+                reasons: vec!["checks passed".into(), "12 lines".into()],
+            }),
+            "policy: auto-approve (checks passed, 12 lines)\n"
+        );
+        assert_eq!(
+            rendered(&TaskEvent::PolicyDecision {
+                action: "merge".into(),
+                allowed: false,
+                reasons: vec!["ci failure".into()],
+            }),
+            "policy: no auto-merge: ci failure\n"
+        );
     }
 
     fn render_line(line: &str) -> String {
