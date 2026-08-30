@@ -49,7 +49,17 @@ pub struct PolicyConfig {
     pub timeout_secs: u64,
     pub sandbox: SandboxProfile,
     pub network: NetworkPolicy,
+    pub limits: Limits,
     pub review_executor: ReviewExecutor,
+}
+
+/// What one sandboxed run may consume. `None` is no limit of that kind, which
+/// stays the default: capping a run that used to be uncapped can only break it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Limits {
+    pub memory_mb: Option<u64>,
+    pub processes: Option<u64>,
+    pub cpu_seconds: Option<u64>,
 }
 
 /// Where an agent run may go on the network. Still `Unrestricted` by default:
@@ -85,6 +95,7 @@ impl Default for PolicyConfig {
             timeout_secs: DEFAULT_TIMEOUT_SECS,
             sandbox: SandboxProfile::Standard,
             network: NetworkPolicy::Unrestricted,
+            limits: Limits::default(),
             review_executor: ReviewExecutor::Auto,
         }
     }
@@ -167,6 +178,29 @@ fn read_sandbox(table: &toml::Table, policy: &mut PolicyConfig) {
         }
     }
     policy.network = read_network(section);
+    policy.limits = read_limits(section);
+}
+
+fn read_limits(section: &toml::Table) -> Limits {
+    Limits {
+        memory_mb: limit(section, "memory_mb"),
+        processes: limit(section, "processes"),
+        cpu_seconds: limit(section, "cpu_seconds"),
+    }
+}
+
+/// Zero is refused along with the wrong types: a limit of nothing is a run
+/// that cannot start, which is never what the config meant.
+fn limit(section: &toml::Table, key: &str) -> Option<u64> {
+    let parsed = section
+        .get(key)?
+        .as_integer()
+        .and_then(|n| u64::try_from(n).ok())
+        .filter(|n| *n > 0);
+    if parsed.is_none() {
+        tracing::warn!("[sandbox] {key} must be a positive integer, ignoring");
+    }
+    parsed
 }
 
 /// `allowed_hosts` is read whatever order it appears in, so an allowlist is
@@ -350,6 +384,7 @@ mod tests {
                 timeout_secs: 120,
                 sandbox: SandboxProfile::Standard,
                 network: NetworkPolicy::Unrestricted,
+                limits: Limits::default(),
                 review_executor: ReviewExecutor::Auto,
             }
         );
@@ -439,6 +474,36 @@ mod tests {
                     .map(|h| h.to_string())
                     .collect()
             )
+        );
+    }
+
+    #[test]
+    fn limits_are_read_from_the_sandbox_table_and_default_to_none() {
+        assert_eq!(parse_policy("").limits, Limits::default());
+        assert_eq!(
+            parse_policy("[sandbox]\nmemory_mb = 4096\nprocesses = 256\ncpu_seconds = 3600\n")
+                .limits,
+            Limits {
+                memory_mb: Some(4096),
+                processes: Some(256),
+                cpu_seconds: Some(3600),
+            }
+        );
+        assert_eq!(
+            parse_policy("[sandbox]\nprocesses = 64\n").limits,
+            Limits {
+                processes: Some(64),
+                ..Limits::default()
+            }
+        );
+    }
+
+    #[test]
+    fn a_limit_that_is_not_a_positive_integer_is_no_limit() {
+        assert_eq!(
+            parse_policy("[sandbox]\nmemory_mb = \"lots\"\nprocesses = -1\ncpu_seconds = 0\n")
+                .limits,
+            Limits::default()
         );
     }
 

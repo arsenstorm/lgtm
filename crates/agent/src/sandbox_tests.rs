@@ -63,11 +63,102 @@ fn off_runs_the_program_unchanged() {
         SandboxProfile::Off,
         &paths,
         Network::Unrestricted,
+        &Limits {
+            memory_mb: Some(4096),
+            processes: Some(256),
+            cpu_seconds: Some(3600),
+        },
         Path::new("/usr/bin/claude"),
         &args,
     );
     assert_eq!(wrapped.program, PathBuf::from("/usr/bin/claude"));
     assert_eq!(wrapped.args, args);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_shell_sets_only_the_limits_the_config_named() {
+    let claude = Path::new("/usr/bin/claude");
+    let args = ["-p".to_string(), "do it".to_string()];
+    let script = |limits: &Limits| {
+        let wrapped = limited(limits, claude, &args);
+        assert_eq!(wrapped.program, PathBuf::from("/bin/sh"));
+        assert_eq!(wrapped.args[0], "-c");
+        assert_eq!(wrapped.args[2..], ["/usr/bin/claude", "-p", "do it"]);
+        wrapped.args[1].clone()
+    };
+
+    // Memory is asked for in MiB and `ulimit -v` wants KiB.
+    let all = script(&Limits {
+        memory_mb: Some(4096),
+        processes: Some(256),
+        cpu_seconds: Some(3600),
+    });
+    assert_eq!(
+        all,
+        "ulimit -v 4194304 2>/dev/null; ulimit -u 256 2>/dev/null; \
+         ulimit -t 3600 2>/dev/null; exec \"$0\" \"$@\""
+    );
+    let one = |limits| script(&limits);
+    assert_eq!(
+        one(Limits {
+            memory_mb: Some(512),
+            ..Limits::default()
+        }),
+        "ulimit -v 524288 2>/dev/null; exec \"$0\" \"$@\""
+    );
+    assert_eq!(
+        one(Limits {
+            processes: Some(64),
+            ..Limits::default()
+        }),
+        "ulimit -u 64 2>/dev/null; exec \"$0\" \"$@\""
+    );
+    assert_eq!(
+        one(Limits {
+            cpu_seconds: Some(60),
+            ..Limits::default()
+        }),
+        "ulimit -t 60 2>/dev/null; exec \"$0\" \"$@\""
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn no_limits_means_no_shell_in_the_way() {
+    let args = ["-p".to_string()];
+    let wrapped = limited(&Limits::default(), Path::new("/usr/bin/claude"), &args);
+    assert_eq!(wrapped.program, PathBuf::from("/usr/bin/claude"));
+    assert_eq!(wrapped.args, args);
+    assert!(ulimit_script(&Limits::default()).is_none());
+}
+
+/// Proves the wrapper is a real limit and not just an argv: the same shell
+/// runs work that fits and kills work that does not. The limit is CPU time
+/// rather than memory because Darwin refuses `RLIMIT_AS` outright, which is
+/// what the script's `2>/dev/null` is there to survive.
+#[cfg(unix)]
+#[test]
+fn a_run_over_its_cpu_limit_is_killed_and_one_under_it_is_not() {
+    let Ok(python) = which::which("python3") else {
+        return;
+    };
+    let capped = Limits {
+        cpu_seconds: Some(1),
+        ..Limits::default()
+    };
+    let run = |script: &str| {
+        let args = ["-c".to_string(), script.to_string()];
+        let wrapped = limited(&capped, &python, &args);
+        std::process::Command::new(&wrapped.program)
+            .args(&wrapped.args)
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("python3")
+            .success()
+    };
+    assert!(run("pass"));
+    assert!(!run("while True: pass"));
 }
 
 #[test]

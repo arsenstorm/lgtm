@@ -1,11 +1,14 @@
 //! What the `standard` profile means in practice: the agent runs with a
 //! stripped environment, may write only where its work belongs, and cannot
-//! read the host's secrets. macOS confines with `sandbox-exec`, Linux with
+//! read the host's secrets, and spends no more memory, processes or CPU than
+//! the repository allows. macOS confines with `sandbox-exec`, Linux with
 //! `bubblewrap`; everywhere else only the environment allowlist applies.
 
 use std::path::{Path, PathBuf};
 
 use lgtm_protocol::SandboxProfile;
+
+use crate::policy::Limits;
 
 pub struct Paths<'a> {
     pub worktree: &'a Path,
@@ -137,21 +140,26 @@ pub fn wrap(
     profile: SandboxProfile,
     paths: &Paths,
     network: Network,
+    limits: &Limits,
     program: &Path,
     args: &[String],
 ) -> Wrapped {
-    let plain = || Wrapped {
-        program: program.to_path_buf(),
-        args: args.to_vec(),
-    };
     match profile {
-        SandboxProfile::Off => return plain(),
+        SandboxProfile::Off => {
+            return Wrapped {
+                program: program.to_path_buf(),
+                args: args.to_vec(),
+            }
+        }
         SandboxProfile::Strict => {
             tracing::warn!("strict isolation is not implemented yet; running the standard profile");
         }
         SandboxProfile::Standard => {}
     }
-    match confine(paths, network, program, args) {
+    // The limits go on inside the sandbox, so they bind the agent and the
+    // sandbox binds the shell that sets them.
+    let limited = limited(limits, program, args);
+    match confine(paths, network, &limited.program, &limited.args) {
         Ok(wrapped) => wrapped,
         Err(reason) => {
             tracing::warn!(
@@ -159,9 +167,110 @@ pub fn wrap(
                 profile.as_str(),
                 unenforced(network)
             );
-            plain()
+            limited
         }
     }
+}
+
+/// `program args` behind the shell that sets the run's resource limits, or
+/// unchanged when there are none to set. Failures are swallowed: a shell whose
+/// build lacks one of these must still run the agent.
+#[cfg(unix)]
+fn limited(limits: &Limits, program: &Path, args: &[String]) -> Wrapped {
+    let Some(script) = ulimit_script(limits) else {
+        return Wrapped {
+            program: program.to_path_buf(),
+            args: args.to_vec(),
+        };
+    };
+    let mut wrapped = vec!["-c".to_string(), script, program.display().to_string()];
+    wrapped.extend_from_slice(args);
+    Wrapped {
+        program: PathBuf::from("/bin/sh"),
+        args: wrapped,
+    }
+}
+
+#[cfg(not(unix))]
+fn limited(_limits: &Limits, program: &Path, args: &[String]) -> Wrapped {
+    Wrapped {
+        program: program.to_path_buf(),
+        args: args.to_vec(),
+    }
+}
+
+fn ulimit_script(limits: &Limits) -> Option<String> {
+    let mut set: Vec<String> = Vec::new();
+    // `-v` is address space in KiB; the other two are already in their units.
+    if let Some(mb) = limits.memory_mb {
+        set.push(format!("ulimit -v {}", mb.saturating_mul(1024)));
+    }
+    if let Some(processes) = limits.processes {
+        set.push(format!("ulimit -u {processes}"));
+    }
+    if let Some(seconds) = limits.cpu_seconds {
+        set.push(format!("ulimit -t {seconds}"));
+    }
+    if set.is_empty() {
+        return None;
+    }
+    let set: Vec<String> = set
+        .into_iter()
+        .map(|s| format!("{s} 2>/dev/null"))
+        .collect();
+    Some(format!("{}; exec \"$0\" \"$@\"", set.join("; ")))
+}
+
+/// The cgroup a run was put in, removed when this drops: a cgroup directory
+/// left behind outlives the runner that made it.
+pub struct Confined(Option<PathBuf>);
+
+impl Drop for Confined {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_dir(path);
+        }
+    }
+}
+
+/// What can only be applied to a running child: on Linux a cgroup, when this
+/// user has one delegated. Everywhere else the ulimits are all there is.
+#[cfg(target_os = "linux")]
+pub fn confine_child(child: &tokio::process::Child, limits: &Limits) -> Confined {
+    Confined(child.id().and_then(|pid| cgroup_limits(pid, limits)))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn confine_child(_child: &tokio::process::Child, _limits: &Limits) -> Confined {
+    Confined(None)
+}
+
+/// Named for the pid rather than the task: a run is what the cgroup holds, and
+/// a pid needs no escaping to be a directory name.
+#[cfg(target_os = "linux")]
+fn cgroup_limits(pid: u32, limits: &Limits) -> Option<PathBuf> {
+    let path = Path::new("/sys/fs/cgroup").join(format!("lgtm-{pid}"));
+    if limits.memory_mb.is_none() && limits.processes.is_none() {
+        return None;
+    }
+    if let Err(err) = std::fs::create_dir(&path) {
+        tracing::debug!("no cgroup for this run ({err}); the ulimits still apply");
+        return None;
+    }
+    if let Some(mb) = limits.memory_mb {
+        let _ = std::fs::write(path.join("memory.max"), (mb * 1024 * 1024).to_string());
+    }
+    if let Some(processes) = limits.processes {
+        let _ = std::fs::write(path.join("pids.max"), processes.to_string());
+    }
+    // An empty cgroup limits nothing, so a run that cannot join it is better
+    // off without one.
+    if let Err(err) = std::fs::write(path.join("cgroup.procs"), pid.to_string()) {
+        tracing::debug!("cgroup {}: {err}", path.display());
+        let _ = std::fs::remove_dir(&path);
+        return None;
+    }
+    Some(path)
 }
 
 /// Without a sandbox the network policy is whatever the agent's own client
