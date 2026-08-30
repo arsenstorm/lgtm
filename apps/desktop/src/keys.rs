@@ -10,9 +10,11 @@ actions!(
         ToggleSidebar,
         SelectNext,
         SelectPrev,
+        ShowOverview,
         ShowActivity,
         ShowChanges,
-        ShowChecks,
+        ShowReview,
+        ShowNotes,
         ShowPlan,
         Submit,
         CloseOverlay,
@@ -46,10 +48,12 @@ fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("enter", PaletteRun, palette),
         KeyBinding::new("j", SelectNext, outside_inputs),
         KeyBinding::new("k", SelectPrev, outside_inputs),
-        KeyBinding::new("1", ShowActivity, outside_inputs),
-        KeyBinding::new("2", ShowChanges, outside_inputs),
-        KeyBinding::new("3", ShowChecks, outside_inputs),
-        KeyBinding::new("4", ShowPlan, outside_inputs),
+        KeyBinding::new("1", ShowOverview, outside_inputs),
+        KeyBinding::new("2", ShowActivity, outside_inputs),
+        KeyBinding::new("3", ShowChanges, outside_inputs),
+        KeyBinding::new("4", ShowReview, outside_inputs),
+        KeyBinding::new("5", ShowNotes, outside_inputs),
+        KeyBinding::new("6", ShowPlan, outside_inputs),
         KeyBinding::new("v", crate::review::MarkViewed, outside_inputs),
         KeyBinding::new("n", crate::review::NextFile, outside_inputs),
         KeyBinding::new("p", crate::review::PrevFile, outside_inputs),
@@ -79,12 +83,14 @@ mod tests {
     }
 
     #[test]
-    fn digits_one_to_four_switch_panes_outside_inputs() {
+    fn the_digits_switch_panes_in_tab_order_outside_inputs() {
         for (key, action) in [
-            ("1", "ShowActivity"),
-            ("2", "ShowChanges"),
-            ("3", "ShowChecks"),
-            ("4", "ShowPlan"),
+            ("1", "ShowOverview"),
+            ("2", "ShowActivity"),
+            ("3", "ShowChanges"),
+            ("4", "ShowReview"),
+            ("5", "ShowNotes"),
+            ("6", "ShowPlan"),
         ] {
             let binding = bound(key);
             assert!(
