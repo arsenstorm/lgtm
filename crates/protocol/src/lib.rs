@@ -608,6 +608,13 @@ pub struct Policy {
     /// Refuse auto-approve when the run cost more than this.
     #[serde(default)]
     pub budget_per_task_usd: Option<f64>,
+    /// Move a lost or failed task to another runner this many times.
+    #[serde(default)]
+    pub reassign: u32,
+    /// Stop scheduling new tasks in the repository once its last 24h of
+    /// `cost_usd` passes this.
+    #[serde(default)]
+    pub budget_daily_usd: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -860,6 +867,12 @@ pub struct Stats {
     pub retried_tasks: u32,
     pub cost_usd: f64,
     pub by_executor: Vec<ExecutorStats>,
+    /// The highest `[policy] budget_daily_usd` any repository in view
+    /// declared; `None` when none did.
+    pub budget_daily_usd: Option<f64>,
+    /// Cost over the last 24h across every repository in view, regardless
+    /// of `since`: "today" is always a real day, not the report's window.
+    pub spent_today: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

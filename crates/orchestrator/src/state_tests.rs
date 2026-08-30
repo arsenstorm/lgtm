@@ -3,8 +3,8 @@
 use super::*;
 use crate::commands::RetryInto;
 use lgtm_protocol::{
-    DependsOn, Executor, IssueRef, LinearRef, Plan, PlanStep, PullRequest, RunnerInfo, TaskKind,
-    TaskResult,
+    DependsOn, Executor, IssueRef, LinearRef, Plan, PlanStep, Policy, PullRequest, RunnerInfo,
+    TaskKind, TaskResult,
 };
 
 fn info(name: &str, slots: u32, executors: Vec<Executor>) -> RunnerInfo {
@@ -185,7 +185,7 @@ fn reconnect_within_grace_keeps_tasks() {
 }
 
 #[test]
-fn reconnect_missing_task_is_lost() {
+fn reconnect_missing_task_is_lost_and_reassigned_back_onto_the_only_runner() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let task = create(&mut state, Executor::Claude);
@@ -199,9 +199,20 @@ fn reconnect_missing_task_is_lost() {
         Conn { tx, conn_id: 2 },
     );
     assert!(changed.contains(&task.id));
-    assert_eq!(status(&state, &task.id), TaskStatus::RunnerLost);
+    assert!(
+        state.tasks[&task.id]
+            .events
+            .iter()
+            .any(|stored| matches!(stored.event, TaskEvent::RunnerLost)),
+        "the loss is still recorded even though it did not stick"
+    );
+    assert_eq!(
+        status(&state, &task.id),
+        TaskStatus::Queued,
+        "no other runner to move to: reassigned right back onto this one"
+    );
     assert!(state.tasks[&task.id].task.error.is_none());
-    assert!(state.runners["a"].running.is_empty());
+    assert!(state.runners["a"].running.contains(&task.id));
 }
 
 #[test]
@@ -638,7 +649,14 @@ fn retry_refuses_an_executor_the_runner_does_not_have() {
         .unwrap()
         .0
         .id;
-    state.apply_event(&id, TaskEvent::RunnerLost);
+    // Failed, not RunnerLost: without a policy a failure does not auto-reassign,
+    // so the task is still here for this manual retry to be refused.
+    state.apply_event(
+        &id,
+        TaskEvent::Failed {
+            error: "boom".into(),
+        },
+    );
 
     let into = RetryInto {
         runner: None,
@@ -650,7 +668,7 @@ fn retry_refuses_an_executor_the_runner_does_not_have() {
     ));
     assert_eq!(
         status(&state, &id),
-        TaskStatus::RunnerLost,
+        TaskStatus::Failed,
         "a refused retry leaves the task where it was"
     );
 }
@@ -679,6 +697,101 @@ fn retry_refuses_a_task_still_under_review() {
         state.retry(&id, same_place()),
         Err(CmdError::Conflict(_))
     ));
+}
+
+/// The `Requeued` events on a task, in order.
+fn requeues(state: &State, id: &str) -> Vec<TaskEvent> {
+    state.tasks[id]
+        .events
+        .iter()
+        .map(|stored| stored.event.clone())
+        .filter(|event| matches!(event, TaskEvent::Requeued { .. }))
+        .collect()
+}
+
+#[test]
+fn a_lost_task_is_reassigned_to_the_other_runner() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let _b = connect(&mut state, "b", 1, 2);
+    let id = create(&mut state, Executor::Claude).id;
+    let first = state.tasks[&id].task.runner.clone().unwrap();
+
+    let changed = state.apply_event(&id, TaskEvent::RunnerLost);
+    assert!(changed.contains(&id));
+    assert_eq!(
+        status(&state, &id),
+        TaskStatus::Queued,
+        "no policy at all still gets one reassign"
+    );
+    let second = state.tasks[&id].task.runner.clone().unwrap();
+    assert_ne!(first, second, "moved off the runner that lost it");
+    assert_eq!(requeues(&state, &id).len(), 1);
+}
+
+/// A completed run's result declaring `reassign` tries.
+fn result_with_reassign(reassign: u32) -> TaskResult {
+    TaskResult {
+        policy: Some(Policy {
+            reassign,
+            ..Policy::default()
+        }),
+        ..run_result()
+    }
+}
+
+#[test]
+fn a_failed_task_with_reassign_one_requeues_once_then_stays_failed() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Completed {
+            result: result_with_reassign(1),
+        },
+    );
+
+    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Failed {
+            error: "boom".into(),
+        },
+    );
+    assert_eq!(status(&state, &id), TaskStatus::Queued, "reassigned once");
+    assert_eq!(requeues(&state, &id).len(), 1);
+
+    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Failed {
+            error: "boom again".into(),
+        },
+    );
+    assert_eq!(
+        status(&state, &id),
+        TaskStatus::Failed,
+        "reassign budget already spent"
+    );
+    assert_eq!(requeues(&state, &id).len(), 1);
+}
+
+#[test]
+fn a_failed_task_without_the_policy_stays_failed() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Failed {
+            error: "boom".into(),
+        },
+    );
+    assert_eq!(status(&state, &id), TaskStatus::Failed);
+    assert!(requeues(&state, &id).is_empty());
 }
 
 #[test]
@@ -1400,4 +1513,96 @@ fn scrollback_caps_and_keeps_the_newest_output() {
     assert!(seen.len() <= SCROLLBACK_MAX, "{} bytes kept", seen.len());
     assert!(seen.contains("[99]"), "the newest output is gone");
     assert!(!seen.contains("[0]"), "the oldest output was not dropped");
+}
+
+/// A completed run's result reporting `cost_usd` and declaring
+/// `budget_daily_usd`.
+fn result_with_budget(cost_usd: f64, budget_daily_usd: Option<f64>) -> TaskResult {
+    TaskResult {
+        cost_usd,
+        policy: Some(Policy {
+            budget_daily_usd,
+            ..Policy::default()
+        }),
+        ..run_result()
+    }
+}
+
+#[test]
+fn schedule_skips_a_task_over_its_repositorys_daily_budget() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let done = create(&mut state, Executor::Claude).id;
+    state.apply_event(&done, TaskEvent::Started { model: None });
+    state.apply_event(
+        &done,
+        TaskEvent::Completed {
+            result: result_with_budget(60.0, Some(50.0)),
+        },
+    );
+    assert_eq!(
+        state.spent_last_day(&spec(Executor::Claude, None).repository),
+        60.0
+    );
+
+    let queued = create(&mut state, Executor::Claude).id;
+    assert_eq!(
+        state.tasks[&queued].task.runner, None,
+        "over budget, left in the queue"
+    );
+    assert_eq!(status(&state, &queued), TaskStatus::Queued);
+
+    let decisions: Vec<TaskEvent> = state.tasks[&queued]
+        .events
+        .iter()
+        .map(|stored| stored.event.clone())
+        .filter(|event| matches!(event, TaskEvent::PolicyDecision { .. }))
+        .collect();
+    assert_eq!(
+        decisions.len(),
+        1,
+        "recorded once, not once per schedule() call"
+    );
+    match &decisions[0] {
+        TaskEvent::PolicyDecision {
+            action,
+            allowed,
+            reasons,
+        } => {
+            assert_eq!(action.as_str(), "schedule");
+            assert!(!*allowed);
+            assert!(reasons[0].contains("daily budget"));
+        }
+        other => panic!("expected a PolicyDecision, got {other:?}"),
+    }
+
+    // Nothing frees a slot, so scheduling again must not repeat the decision.
+    state.schedule();
+    let count = state.tasks[&queued]
+        .events
+        .iter()
+        .filter(|stored| matches!(stored.event, TaskEvent::PolicyDecision { .. }))
+        .count();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn schedule_ignores_the_budget_once_spend_is_back_under_it() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let done = create(&mut state, Executor::Claude).id;
+    state.apply_event(&done, TaskEvent::Started { model: None });
+    state.apply_event(
+        &done,
+        TaskEvent::Completed {
+            result: result_with_budget(10.0, Some(50.0)),
+        },
+    );
+
+    let queued = create(&mut state, Executor::Claude).id;
+    assert_eq!(
+        state.tasks[&queued].task.runner.as_deref(),
+        Some("a"),
+        "under budget, scheduled as usual"
+    );
 }

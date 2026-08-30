@@ -111,7 +111,28 @@ pub fn compute(records: &[(&Task, &[StoredEvent])], since: u64) -> Stats {
     stats.median_execution_ms = median(&mut exec_ms);
     stats.median_queue_ms = median(&mut queue_ms);
     stats.by_executor.sort_by_key(|e| e.executor.binary());
+    record_budget(records, &mut stats);
     stats
+}
+
+/// The daily budget and today's spend against it, over every repository in
+/// view. Independent of `since`: "today" is always the real last 24h, not
+/// whatever window the rest of the report covers. Two repositories in view
+/// share one number, so a multi-repo report shows the higher of their
+/// declared budgets rather than a figure per repository.
+fn record_budget(records: &[(&Task, &[StoredEvent])], stats: &mut Stats) {
+    let day_ago = crate::state::now_ms().saturating_sub(24 * 60 * 60 * 1000);
+    for (task, _) in records.iter().copied() {
+        let Some(result) = task.result.as_ref() else {
+            continue;
+        };
+        if task.created_at >= day_ago {
+            stats.spent_today += result.cost_usd;
+        }
+        if let Some(budget) = result.policy.as_ref().and_then(|p| p.budget_daily_usd) {
+            stats.budget_daily_usd = Some(stats.budget_daily_usd.map_or(budget, |b| b.max(budget)));
+        }
+    }
 }
 
 #[cfg(test)]

@@ -112,6 +112,8 @@ fn every_message_round_trips() {
             max_diff_lines: Some(300),
             protected_files: vec!["migrations/*".into()],
             budget_per_task_usd: Some(2.0),
+            reassign: 1,
+            budget_daily_usd: Some(50.0),
         }),
         cost_usd: 0.42,
     };
