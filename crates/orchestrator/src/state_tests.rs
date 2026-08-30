@@ -1297,6 +1297,89 @@ fn pinned_runner_lacking_a_requirement_is_refused() {
     );
 }
 
+/// A goal, and a spec for a task under it.
+fn goal_spec(state: &mut State) -> (String, TaskSpec) {
+    let goal = state.create_goal("ship it".into(), "https://example.com/repo.git".into());
+    let mut spec = spec(Executor::Claude, None);
+    spec.goal = Some(goal.id.clone());
+    (goal.id, spec)
+}
+
+#[test]
+fn attention_blocks_a_goal_until_new_work_arrives() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 2, 1);
+    let (goal, spec) = goal_spec(&mut state);
+    let none = HashSet::new();
+    state.create_task(spec.clone()).unwrap();
+    assert_eq!(
+        state.goal_summary(&goal, &none).unwrap().status,
+        lgtm_protocol::GoalStatus::Running
+    );
+
+    assert!(state.set_attention(&goal, Some("which API?".into())));
+    assert_eq!(
+        state.goal_summary(&goal, &none).unwrap().status,
+        lgtm_protocol::GoalStatus::Blocked
+    );
+    assert_eq!(state.dirty_goals, vec![goal.clone()]);
+
+    state.create_task(spec).unwrap();
+    assert!(state.goals[&goal].attention.is_none());
+    assert_eq!(
+        state.goal_summary(&goal, &none).unwrap().status,
+        lgtm_protocol::GoalStatus::Running
+    );
+    assert!(!state.set_attention("nothing", None));
+}
+
+#[test]
+fn a_goal_whose_loop_is_running_reads_as_planning() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 2, 1);
+    let (goal, spec) = goal_spec(&mut state);
+    state.create_task(spec).unwrap();
+    let running = HashSet::from([goal.clone()]);
+    assert_eq!(
+        state.goal_summary(&goal, &running).unwrap().status,
+        lgtm_protocol::GoalStatus::Planning
+    );
+
+    // Attention outranks it: the loop stopped, whatever is still finishing.
+    state.set_attention(&goal, Some("which API?".into()));
+    assert_eq!(
+        state.goal_summary(&goal, &running).unwrap().status,
+        lgtm_protocol::GoalStatus::Blocked
+    );
+}
+
+#[test]
+fn the_model_table_fills_only_a_spec_that_named_none() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 3, 1);
+    state.models = HashMap::from([
+        ("plan".to_string(), "opus".to_string()),
+        ("run".to_string(), "sonnet".to_string()),
+    ]);
+
+    let (task, _) = state.create_task(spec(Executor::Claude, None)).unwrap();
+    assert_eq!(task.spec.model.as_deref(), Some("sonnet"));
+
+    let mut plan = spec(Executor::Claude, None);
+    plan.kind = TaskKind::Plan;
+    assert_eq!(
+        state.create_task(plan).unwrap().0.spec.model.as_deref(),
+        Some("opus")
+    );
+
+    let mut asked = spec(Executor::Claude, None);
+    asked.model = Some("haiku".into());
+    assert_eq!(
+        state.create_task(asked).unwrap().0.spec.model.as_deref(),
+        Some("haiku")
+    );
+}
+
 #[test]
 fn scrollback_caps_and_keeps_the_newest_output() {
     let mut state = State::default();

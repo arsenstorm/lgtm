@@ -29,6 +29,7 @@ use crate::persist::Stored;
 use crate::state::{now_ms, App, CmdError};
 use crate::stats;
 
+#[derive(Debug)]
 pub(super) struct ApiError(pub StatusCode, pub String);
 
 impl IntoResponse for ApiError {
@@ -81,6 +82,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/tasks/{id}/allow", post(allow))
         .route("/tasks/{id}/permissions", post(request_permission))
         .route("/tasks/{id}/scratchpad", post(scratchpad))
+        .route("/tasks/{id}/orchestrated", post(orchestrated))
         .route("/tasks/{id}/cancel", post(cancel))
         .route("/tasks/{id}/approve", post(approve))
         .route("/tasks/{id}/reject", post(reject))
@@ -96,6 +98,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/memories/{id}", delete(memories::delete_memory))
         .route("/goals", get(goals::list_goals).post(goals::create_goal))
         .route("/goals/{id}", get(goals::get_goal))
+        .route("/goals/{id}/attention", post(goals::set_attention))
         .route("/todos", get(todos::list_todos).post(todos::create_todo))
         .route("/todos/{id}", delete(todos::delete_todo))
         .route("/todos/{id}/done", post(todos::finish_todo))
@@ -396,6 +399,43 @@ async fn request_permission(
 }
 
 #[derive(Deserialize)]
+struct OrchestratedBody {
+    action: String,
+    #[serde(default)]
+    reason: String,
+    #[serde(default)]
+    applied: bool,
+    #[serde(default)]
+    note: String,
+}
+
+/// One step of the orchestration loop, on the event log of the task whose end
+/// started it. It records; it changes nothing.
+async fn orchestrated(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<OrchestratedBody>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let mut state = app.state.lock().unwrap();
+    if !state.tasks.contains_key(&id) {
+        return Err(CmdError::NotFound.into());
+    }
+    tracing::info!(task = %id, action = %body.action, applied = body.applied, "orchestrator step");
+    let changed = state.apply_event(
+        &id,
+        TaskEvent::Orchestrated {
+            action: body.action,
+            reason: body.reason,
+            applied: body.applied,
+            note: body.note,
+        },
+    );
+    app.persist_ids(&mut state, &changed);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
 struct ScratchpadBody {
     content: String,
 }
@@ -465,11 +505,20 @@ async fn cancel(
     Ok(Json(task))
 }
 
+/// Header the orchestration loop's MCP server sets on the calls it makes, so
+/// its approve is held to the policy a person may waive.
+const ORCHESTRATOR_HEADER: &str = "x-lgtm-orchestrator";
+
 async fn approve(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<Task>, ApiError> {
     let mut state = app.state.lock().unwrap();
+    if headers.contains_key(ORCHESTRATOR_HEADER) {
+        let task = state.tasks.get(&id).ok_or(CmdError::NotFound)?;
+        policy_clean(&task.task)?;
+    }
     let is_plan = state
         .tasks
         .get(&id)
@@ -493,6 +542,26 @@ async fn approve(
     Ok(Json(task))
 }
 
+/// What the checks and the review already cleared. A model can ask for an
+/// approval the diff has not earned; a person's approve is their own call.
+fn policy_clean(task: &Task) -> Result<(), ApiError> {
+    let result = task
+        .result
+        .as_ref()
+        .ok_or_else(|| conflict("task has no result".into()))?;
+    if result.validation_failed() {
+        return Err(conflict("checks failed".into()));
+    }
+    if result
+        .review
+        .as_ref()
+        .is_some_and(lgtm_protocol::Review::has_blocking)
+    {
+        return Err(conflict("blocking review findings".into()));
+    }
+    Ok(())
+}
+
 async fn reject(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
@@ -506,3 +575,7 @@ async fn reject(
     )?;
     Ok(Json(task))
 }
+
+#[cfg(test)]
+#[path = "api_tests.rs"]
+mod tests;

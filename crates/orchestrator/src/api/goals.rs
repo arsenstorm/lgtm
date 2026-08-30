@@ -82,17 +82,20 @@ pub(super) async fn create_goal(
         }
     };
     app.persist_ids(&mut state, &changed);
-    let summary = state.goal_summary(&goal.id).ok_or_else(not_found)?;
+    let summary = state
+        .goal_summary(&goal.id, &app.running_goals())
+        .ok_or_else(not_found)?;
     app.persist_goal(&summary.goal);
     Ok((StatusCode::CREATED, Json(summary)))
 }
 
 pub(super) async fn list_goals(State(app): State<Arc<App>>) -> Json<Vec<GoalSummary>> {
+    let running = app.running_goals();
     let state = app.state.lock().unwrap();
     let mut goals: Vec<GoalSummary> = state
         .goals
         .keys()
-        .filter_map(|id| state.goal_summary(id))
+        .filter_map(|id| state.goal_summary(id, &running))
         .collect();
     goals.sort_by_key(|summary| summary.goal.created_at);
     Json(goals)
@@ -102,8 +105,9 @@ pub(super) async fn get_goal(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
 ) -> Result<Json<GoalDetail>, ApiError> {
+    let running = app.running_goals();
     let state = app.state.lock().unwrap();
-    let summary = state.goal_summary(&id).ok_or_else(not_found)?;
+    let summary = state.goal_summary(&id, &running).ok_or_else(not_found)?;
     let tasks = state.goal_tasks(&id).into_iter().cloned().collect();
     Ok(Json(GoalDetail { summary, tasks }))
 }
@@ -123,4 +127,32 @@ pub(super) async fn get_goal_plans(
         .flat_map(|task| plan_versions(task, &state.tasks[&task.id].events))
         .collect();
     Ok(Json(versions))
+}
+
+/// Body of `POST /api/goals/:id/attention`; `None` clears it.
+#[derive(Deserialize)]
+pub(super) struct AttentionBody {
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// The orchestration loop saying it stopped and a person is needed. The next
+/// task under the goal clears it again.
+pub(super) async fn set_attention(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<AttentionBody>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let goal = {
+        let mut state = app.state.lock().unwrap();
+        if !state.set_attention(&id, body.reason) {
+            return Err(not_found());
+        }
+        state.goals.get(&id).cloned()
+    };
+    if let Some(goal) = goal {
+        app.persist_goal(&goal);
+    }
+    Ok(StatusCode::NO_CONTENT)
 }

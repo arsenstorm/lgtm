@@ -45,6 +45,21 @@ pub struct Retry {
     pub executor: Option<lgtm_protocol::Executor>,
 }
 
+/// Body of `POST /api/tasks/:id/orchestrated`: one step of the loop.
+#[derive(Serialize)]
+pub struct Orchestrated<'a> {
+    pub action: &'a str,
+    pub reason: &'a str,
+    pub applied: bool,
+    pub note: &'a str,
+}
+
+/// Body of `POST /api/goals/:id/attention`; `None` clears it.
+#[derive(Serialize)]
+pub(crate) struct Attention<'a> {
+    pub(crate) reason: Option<&'a str>,
+}
+
 /// Body of `POST /api/tasks/:id/scratchpad`.
 #[derive(Serialize)]
 pub(crate) struct Notes<'a> {

@@ -176,6 +176,7 @@ fn host(orchestrator: String, data_dir: PathBuf, embedded: bool) -> Option<Confi
         provision: None,
         webhook: None,
         orchestrate: None,
+        models: Vec::new(),
     };
     let ip = lgtm_orchestrator::local::advertised_ip();
     let join = settings::join_line(&format!("http://{ip}:{port}"), &token);

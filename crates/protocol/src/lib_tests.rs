@@ -456,6 +456,16 @@ fn tags_are_snake_case_type_fields() {
     assert_eq!(json, r#""awaiting_review""#);
 }
 
+fn sample_goal() -> Goal {
+    Goal {
+        id: "g1".into(),
+        objective: "ship it".into(),
+        repository: "https://example.com/r.git".into(),
+        created_at: 1,
+        attention: None,
+    }
+}
+
 /// `goal_status` borrows its tasks, so they have to outlive the call.
 fn goal_of(tasks: &[(TaskKind, TaskStatus)]) -> GoalStatus {
     let tasks: Vec<Task> = tasks
@@ -467,7 +477,7 @@ fn goal_of(tasks: &[(TaskKind, TaskStatus)]) -> GoalStatus {
             task
         })
         .collect();
-    goal_status(&tasks.iter().collect::<Vec<&Task>>())
+    goal_status(&sample_goal(), &tasks.iter().collect::<Vec<&Task>>())
 }
 
 fn sample_plan() -> Plan {
@@ -569,6 +579,18 @@ fn goal_status_derives_each_arm() {
         GoalStatus::Cancelled
     );
     assert_eq!(goal_of(&[(R, Failed), (R, Merged)]), GoalStatus::Blocked);
+}
+
+#[test]
+fn attention_outranks_every_other_arm() {
+    let goal = Goal {
+        attention: Some("needs a person".into()),
+        ..sample_goal()
+    };
+    let mut task = sample_task();
+    task.status = TaskStatus::Running;
+    assert_eq!(goal_status(&goal, &[&task]), GoalStatus::Blocked);
+    assert_eq!(goal_status(&goal, &[]), GoalStatus::Blocked);
 }
 
 /// A run task with this prompt, status, and error.

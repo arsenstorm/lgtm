@@ -26,8 +26,9 @@ use std::sync::{Arc, Mutex};
 
 use axum::routing::get;
 use axum::Router;
-use lgtm_protocol::{Executor, TaskStatus, LEGACY_WORKER_WS_PATH, RUNNER_WS_PATH};
+use lgtm_protocol::{TaskStatus, LEGACY_WORKER_WS_PATH, RUNNER_WS_PATH};
 
+pub use crate::orchestrate::Choice;
 use crate::state::{App, State, TaskRecord};
 
 pub struct ServeOptions {
@@ -40,9 +41,12 @@ pub struct ServeOptions {
     pub provision: Option<ProvisionOptions>,
     /// URL every event a person would want to see is POSTed to.
     pub webhook: Option<String>,
-    /// Model that decides the next step for a goal after one of its tasks
-    /// ends. `None` leaves every goal to its people.
-    pub orchestrate: Option<Executor>,
+    /// Model that drives a goal after one of its tasks ends. `None` leaves
+    /// every goal to its people.
+    pub orchestrate: Option<orchestrate::Choice>,
+    /// Model to run a task of each kind on (`plan`, `run`) when its spec
+    /// names none.
+    pub models: Vec<(String, String)>,
 }
 
 pub struct ProvisionOptions {
@@ -64,6 +68,7 @@ pub async fn serve_plain(bind: SocketAddr, token: String, data_dir: PathBuf) -> 
         provision: None,
         webhook: None,
         orchestrate: None,
+        models: Vec::new(),
     })
     .await
 }
@@ -71,7 +76,8 @@ pub async fn serve_plain(bind: SocketAddr, token: String, data_dir: PathBuf) -> 
 /// Binds `opts.bind` and serves until the process exits. Installing a tracing
 /// subscriber is the caller's job.
 pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
-    let state = load_state(&opts.data_dir, opts.provision.is_some())?;
+    let mut state = load_state(&opts.data_dir, opts.provision.is_some())?;
+    state.models = opts.models.into_iter().collect();
     let (persist_tx, persist_rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(persist::writer(opts.data_dir, persist_rx));
 
@@ -80,6 +86,7 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
     let linear = lgtm_linear::Linear::from_env();
     tracing::info!(enabled = linear.is_some(), "linear integration");
     tracing::info!(enabled = opts.webhook.is_some(), "webhook");
+    let scheme = if opts.tls.is_some() { "https" } else { "http" };
     let app = Arc::new(App {
         token: opts.token,
         state: Mutex::new(state),
@@ -87,7 +94,10 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
         github,
         linear,
         webhook: opts.webhook,
-        orchestrate: opts.orchestrate,
+        orchestrate: opts.orchestrate.and_then(orchestrate::pick),
+        // The loop runs beside the server, so it dials it back on loopback.
+        base_url: format!("{scheme}://127.0.0.1:{}", opts.bind.port()),
+        orchestrating: Mutex::new(Default::default()),
     });
     github::resume_ci_polls(&app);
     if let Some(provision) = opts.provision {
