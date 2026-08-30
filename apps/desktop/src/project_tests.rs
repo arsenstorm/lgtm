@@ -2,7 +2,7 @@ use super::goals::counts as goal_counts;
 use super::*;
 use lgtm_protocol::{BatchSummary, Executor, TaskKind, TaskSpec};
 
-fn task(repository: &str, status: TaskStatus) -> Task {
+pub(super) fn task(repository: &str, status: TaskStatus) -> Task {
     Task {
         id: "t".into(),
         spec: TaskSpec {

@@ -1,7 +1,10 @@
 //! The project page: one repository's overview, tasks, goals, and runners.
 
 mod goals;
+mod history;
+mod lists;
 mod overview;
+mod plans;
 
 use crate::app::LgtmApp;
 use crate::tasks::repo_slug;
@@ -20,7 +23,36 @@ pub enum ProjectTab {
     Overview,
     Tasks,
     Goals,
+    Plans,
+    Memories,
+    Todos,
+    History,
     Runners,
+}
+
+impl ProjectTab {
+    const ALL: [(ProjectTab, &'static str); 8] = [
+        (ProjectTab::Overview, "Overview"),
+        (ProjectTab::Tasks, "Tasks"),
+        (ProjectTab::Goals, "Goals"),
+        (ProjectTab::Plans, "Plans"),
+        (ProjectTab::Memories, "Memories"),
+        (ProjectTab::Todos, "TODOs"),
+        (ProjectTab::History, "History"),
+        (ProjectTab::Runners, "Runners"),
+    ];
+}
+
+/// The clone URL the sidebar's slug stands for. Memories and todos are keyed
+/// by URL, and only the slug reaches the page.
+pub fn repository_of(app: &LgtmApp, slug: &str) -> Option<String> {
+    app.tasks
+        .iter()
+        .map(|task| &task.spec.repository)
+        .chain(app.sessions.iter().map(|session| &session.repository))
+        .chain(app.goals.iter().map(|summary| &summary.goal.repository))
+        .find(|url| repo_slug(url) == slug)
+        .cloned()
 }
 
 /// Tasks in this project, in the order the app holds them (newest first).
@@ -108,29 +140,19 @@ fn header(app: &LgtmApp, slug: &str, t: &Tokens) -> Div {
 }
 
 fn tab_bar(tab: ProjectTab, cx: &mut Context<LgtmApp>) -> TabBar {
+    let at = ProjectTab::ALL
+        .iter()
+        .position(|(one, _)| *one == tab)
+        .unwrap_or(0);
     TabBar::new("project-tabs")
         .segmented()
         .text_size(px(TEXT_SECONDARY))
-        .selected_index(match tab {
-            ProjectTab::Overview => 0,
-            ProjectTab::Tasks => 1,
-            ProjectTab::Goals => 2,
-            ProjectTab::Runners => 3,
-        })
-        .children([
-            Tab::new().label("Overview"),
-            Tab::new().label("Tasks"),
-            Tab::new().label("Goals"),
-            Tab::new().label("Runners"),
-        ])
+        .selected_index(at)
+        .children(ProjectTab::ALL.map(|(_, label)| Tab::new().label(label)))
         .on_click(cx.listener(|this, index: &usize, _, cx| {
-            this.ui.project_tab = match index {
-                0 => ProjectTab::Overview,
-                1 => ProjectTab::Tasks,
-                2 => ProjectTab::Goals,
-                _ => ProjectTab::Runners,
-            };
-            cx.notify();
+            if let Some((tab, _)) = ProjectTab::ALL.get(*index) {
+                this.show_project_tab(*tab, cx);
+            }
         }))
 }
 
@@ -157,6 +179,10 @@ fn body(
             ProjectTab::Overview => overview::rows(app, slug, t, cx),
             ProjectTab::Tasks => task_rows(app, slug, t, cx),
             ProjectTab::Goals => goals::cards(app, slug, t, cx),
+            ProjectTab::Plans => plans::rows(app, t, cx),
+            ProjectTab::Memories => lists::memories(app, t, cx),
+            ProjectTab::Todos => lists::todos(app, t, cx),
+            ProjectTab::History => history::rows(app, slug, t, cx),
             ProjectTab::Runners => runner_rows(app, t),
         })
 }

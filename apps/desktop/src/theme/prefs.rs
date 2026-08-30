@@ -3,6 +3,7 @@
 
 use gpui::{px, App, Global, Hsla, Window};
 use gpui_component::{Theme, ThemeColor, ThemeMode};
+use lgtm_protocol::Executor;
 
 use super::{dark, light, Tokens, MONO_FONT, RADIUS_PILL, TEXT_BODY, TEXT_MONO, UI_FONT};
 
@@ -94,10 +95,118 @@ pub fn set_notify(on: bool, cx: &mut App) {
     persist("notify", on);
 }
 
+/// A harness choice in Settings. `Off` is only offered for orchestration; a
+/// default executor is only ever one of the two harnesses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pick {
+    Off,
+    Auto,
+    Claude,
+    Codex,
+}
+
+impl Pick {
+    pub const HARNESSES: [Pick; 2] = [Pick::Claude, Pick::Codex];
+    pub const REVIEW: [Pick; 3] = [Pick::Auto, Pick::Claude, Pick::Codex];
+    pub const ORCHESTRATE: [Pick; 4] = [Pick::Off, Pick::Auto, Pick::Claude, Pick::Codex];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Pick::Off => "Off",
+            Pick::Auto => "Auto",
+            Pick::Claude => "Claude",
+            Pick::Codex => "Codex",
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Pick::Off => "off",
+            Pick::Auto => "auto",
+            Pick::Claude => "claude",
+            Pick::Codex => "codex",
+        }
+    }
+
+    fn parse(word: &str, fallback: Pick) -> Pick {
+        match word {
+            "off" => Pick::Off,
+            "auto" => Pick::Auto,
+            "claude" => Pick::Claude,
+            "codex" => Pick::Codex,
+            _ => fallback,
+        }
+    }
+
+    /// The harness it names; `None` for the choices that name no harness.
+    pub fn executor(self) -> Option<Executor> {
+        match self {
+            Pick::Claude => Some(Executor::Claude),
+            Pick::Codex => Some(Executor::Codex),
+            Pick::Off | Pick::Auto => None,
+        }
+    }
+
+    pub fn of(executor: Executor) -> Pick {
+        match executor {
+            Executor::Claude => Pick::Claude,
+            Executor::Codex => Pick::Codex,
+        }
+    }
+}
+
+/// What Settings → Models holds: how a task the composer starts is run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Models {
+    pub executor: Executor,
+    /// Empty leaves the harness on its own default.
+    pub model: String,
+    pub review: Pick,
+    /// Nothing in the app reads this yet; only a hosted orchestrator would.
+    pub orchestrate: Pick,
+}
+
+impl Models {
+    fn stored() -> Self {
+        let table = config();
+        let word = |key: &str| {
+            table
+                .get(key)
+                .and_then(toml::Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        Models {
+            executor: Pick::parse(&word("default_executor"), Pick::Claude)
+                .executor()
+                .unwrap_or_default(),
+            model: word("default_model"),
+            review: Pick::parse(&word("review_executor"), Pick::Auto),
+            orchestrate: Pick::parse(&word("orchestrate"), Pick::Off),
+        }
+    }
+}
+
+struct DefaultModels(Models);
+impl Global for DefaultModels {}
+
+pub fn models(cx: &App) -> Models {
+    cx.global::<DefaultModels>().0.clone()
+}
+
+pub fn set_models(models: Models, cx: &mut App) {
+    persist("default_executor", Pick::of(models.executor).key());
+    persist("default_model", models.model.clone());
+    persist("review_executor", models.review.key());
+    persist("orchestrate", models.orchestrate.key());
+    cx.set_global(DefaultModels(models));
+}
+
 pub fn init(cx: &mut App) {
     gpui_component::init(cx);
     cx.set_global(Current(Pref::stored()));
     cx.set_global(Notify(stored_notify()));
+    cx.set_global(DefaultModels(Models::stored()));
     apply(None, cx);
 }
 

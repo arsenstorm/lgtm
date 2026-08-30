@@ -4,6 +4,7 @@ mod notes;
 mod overview;
 mod review_tab;
 mod tabs;
+mod terminal;
 
 use crate::app::{LgtmApp, Pane};
 use crate::labels::{header_preview, status_label};
@@ -72,6 +73,7 @@ fn body(
         Pane::Overview => scrolling(app, overview::overview(app, task, t, cx)),
         Pane::Review => scrolling(app, review_tab::review(app, task, t, cx)),
         Pane::Notes => scrolling(app, notes::notes(app, task, t, cx)),
+        Pane::Terminal => scrolling(app, terminal::terminal(app, t, cx)),
         Pane::Plan => scrolling(app, plan_pane(task, t)),
         Pane::Activity => scrolling(app, activity(app, t)),
     }
@@ -109,6 +111,7 @@ fn tabs_for(has_plan: bool) -> Vec<(Pane, &'static str)> {
         (Pane::Changes, "Changes"),
         (Pane::Review, "Review"),
         (Pane::Notes, "Notes"),
+        (Pane::Terminal, "Terminal"),
     ];
     if has_plan {
         tabs.push((Pane::Plan, "Plan"));
@@ -126,9 +129,8 @@ fn tab_bar(pane: Pane, has_plan: bool, cx: &mut Context<LgtmApp>) -> TabBar {
         .children(tabs.iter().map(|(_, label)| Tab::new().label(*label)))
         .on_click(cx.listener(move |this, index: &usize, _, cx| {
             if let Some((pane, _)) = tabs_for(has_plan).get(*index) {
-                this.pane = *pane;
+                this.show(*pane, cx);
             }
-            cx.notify();
         }))
 }
 
@@ -369,7 +371,7 @@ mod tests {
         };
         assert_eq!(
             labels(false),
-            vec!["Overview", "Activity", "Changes", "Review", "Notes"]
+            vec!["Overview", "Activity", "Changes", "Review", "Notes", "Terminal"]
         );
         assert_eq!(labels(true).last(), Some(&"Plan"));
     }

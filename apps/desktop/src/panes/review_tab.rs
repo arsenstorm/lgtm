@@ -72,7 +72,10 @@ pub(super) fn review(
 /// Hosts an agent asked for that a person hasn't granted yet, each with a
 /// button to grant it for the task's next run.
 fn requests(app: &LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let pending = pending_requests(&app.events, &task.spec);
+    let pending: Vec<(String, String)> = pending_requests(&app.events, &task.spec)
+        .into_iter()
+        .filter(|(target, _)| !app.ui.denied.contains(&denial(&task.id, target)))
+        .collect();
     let empty = pending.is_empty();
     div()
         .flex()
@@ -82,13 +85,25 @@ fn requests(app: &LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -
         .children(
             pending
                 .into_iter()
-                .map(|(target, reason)| request_row(target, reason, t, cx)),
+                .map(|(target, reason)| request_row(&task.id, target, reason, t, cx)),
         )
         .when(empty, |this| this.child(muted("No requests.", t)))
 }
 
-fn request_row(target: String, reason: String, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+/// What a denied request is remembered by, for this window only.
+fn denial(task: &str, host: &str) -> String {
+    format!("{task}:{host}")
+}
+
+fn request_row(
+    task: &str,
+    target: String,
+    reason: String,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Div {
     let host = target.clone();
+    let dismiss = denial(task, &target);
     div()
         .flex()
         .items_center()
@@ -110,6 +125,19 @@ fn request_row(target: String, reason: String, t: &Tokens, cx: &mut Context<Lgtm
                 .small()
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.act(Action::AllowHost(host.clone()), cx)
+                })),
+        )
+        // Denying is local to this window: the orchestrator has no
+        // `POST /api/tasks/:id/deny`, so nothing can be told about it and the
+        // request comes back with the next window.
+        .child(
+            Button::new(SharedString::from(format!("deny:{target}")))
+                .label("Deny")
+                .custom(danger_ghost(t, cx))
+                .small()
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.ui.denied.insert(dismiss.clone());
+                    cx.notify();
                 })),
         )
 }

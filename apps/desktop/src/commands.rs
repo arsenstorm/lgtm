@@ -1,11 +1,11 @@
 //! What the root view does in response to the network and the user.
 
-use crate::app::{LgtmApp, Overlay, Page, Pane, Stop, ERROR_TTL, STARTING};
+use crate::app::{LgtmApp, Overlay, Page, Pane, Shell, Stop, ERROR_TTL, STARTING};
 use crate::net::{self, Action, Msg};
 use crate::project::ProjectTab;
 use crate::{home, render, settings};
 use gpui::{Context, Window};
-use lgtm_protocol::{StoredEvent, Task, TaskStatus};
+use lgtm_protocol::{StoredEvent, Task, TaskStatus, Todo};
 
 impl LgtmApp {
     pub(crate) fn apply(&mut self, msg: Msg, cx: &mut Context<Self>) {
@@ -22,6 +22,11 @@ impl LgtmApp {
                 self.sessions = lists.sessions;
                 self.stats = lists.stats.or_else(|| self.stats.take());
                 self.link.reachable = true;
+                // The project page needs a clone URL, which the first poll to
+                // arrive is the only thing that can supply.
+                if self.project_stream.is_none() {
+                    self.watch_project(cx);
+                }
             }
             Msg::Lists(Err(_)) => self.link.reachable = false,
             Msg::Detail { generation, detail } => {
@@ -59,7 +64,36 @@ impl LgtmApp {
                     self.remember_events(id, events);
                 }
             }
-            Msg::Action(Ok(())) => net::refresh(self.client.clone(), self.tx.clone()),
+            Msg::Notes {
+                generation,
+                memories,
+                todos,
+            } => {
+                if generation != self.generation {
+                    return;
+                }
+                self.memories = memories;
+                self.todos = todos;
+            }
+            Msg::Plans { generation, plans } => {
+                if generation != self.generation {
+                    return;
+                }
+                self.plans = plans;
+            }
+            Msg::Terminal { generation, data } => {
+                if generation != self.generation {
+                    return;
+                }
+                if let Some(shell) = self.shell.as_mut() {
+                    shell.push(&data);
+                    self.ui.terminal_scroll.scroll_to_bottom();
+                }
+            }
+            Msg::Action(Ok(())) => {
+                net::refresh(self.client.clone(), self.tx.clone());
+                self.watch_project(cx);
+            }
             Msg::Opened(Ok(id)) => {
                 self.show_page(Page::Session(id), cx);
                 net::refresh(self.client.clone(), self.tx.clone());
@@ -155,8 +189,44 @@ impl LgtmApp {
             Stop::Task(id) => self.enter_task(id),
             Stop::Page(page) => self.enter_page(page),
         }
+        self.watch_project(cx);
         cx.notify();
         true
+    }
+
+    /// Keeps the open project tab fed: the list tabs poll, Plans fetches once,
+    /// every other tab reads what the window already has. Called again after
+    /// an action so its effect shows without waiting out the interval.
+    pub(crate) fn watch_project(&mut self, cx: &mut Context<Self>) {
+        if let Some(stream) = self.project_stream.take() {
+            stream.abort();
+        }
+        let (Page::Project(slug), None) = (&self.page, &self.selected) else {
+            return;
+        };
+        let Some(repository) = crate::project::repository_of(self, slug) else {
+            return;
+        };
+        let (client, tx) = (self.client.clone(), self.tx.clone());
+        self.project_stream = match self.ui.project_tab {
+            ProjectTab::Memories | ProjectTab::Todos => {
+                Some(net::watch_notes(client, repository, self.generation, tx))
+            }
+            ProjectTab::Plans => {
+                let goals = crate::project::goals_of(self, slug)
+                    .iter()
+                    .map(|summary| summary.goal.id.clone())
+                    .collect();
+                Some(net::fetch_plans(client, goals, self.generation, tx))
+            }
+            _ => None,
+        };
+        cx.notify();
+    }
+
+    pub fn show_project_tab(&mut self, tab: ProjectTab, cx: &mut Context<Self>) {
+        self.ui.project_tab = tab;
+        self.watch_project(cx);
     }
 
     fn already_at(&self, stop: &Stop) -> bool {
@@ -232,6 +302,11 @@ impl LgtmApp {
         let Some(id) = self.selected.clone() else {
             return;
         };
+        self.act_on(id, action, cx);
+    }
+
+    /// Acts on `id`, which is a memory's or a todo's as often as a task's.
+    pub fn act_on(&mut self, id: String, action: Action, cx: &mut Context<Self>) {
         net::act(self.client.clone(), id, action, self.tx.clone());
         cx.notify();
     }
@@ -361,9 +436,15 @@ impl LgtmApp {
     /// Sends the composer's text: one more message in the open thread, or a
     /// new thread when there is none.
     pub fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(todo) = self.promoting.take() {
+            self.submit_promotion(todo, window, cx);
+            return;
+        }
         let prompt = self.inputs.prompt.read(cx).value().to_string();
         let project = self.composer_project();
-        let Some(spec) = home::compose(&prompt, project.as_deref(), &self.composer.chips) else {
+        let models = crate::theme::models(cx);
+        let Some(spec) = home::compose(&prompt, project.as_deref(), &self.composer.chips, &models)
+        else {
             self.set_error("A prompt and a project are required.".into(), cx);
             return;
         };
@@ -377,6 +458,22 @@ impl LgtmApp {
             .update(cx, |state, cx| state.set_value("", window, cx));
         net::act(self.client.clone(), id, action, self.tx.clone());
         cx.notify();
+    }
+
+    /// Promotion is the endpoint's own job: it turns the todo's stored title
+    /// and description into the task, so the composer's text is only ever a
+    /// preview of what will run.
+    fn submit_promotion(&mut self, todo: String, window: &mut Window, cx: &mut Context<Self>) {
+        let models = crate::theme::models(cx);
+        let into = lgtm_client::PromoteTodo {
+            base_branch: home::branch_of(&self.composer.chips),
+            executor: models.executor,
+            runner: home::runner_of(&self.composer.chips),
+        };
+        self.inputs
+            .prompt
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.act_on(todo, Action::Promote(Box::new(into)), cx);
     }
 
     /// ⌘↩ sends the follow-up when one is open, otherwise starts a task.
@@ -402,8 +499,127 @@ impl LgtmApp {
         self.select(id, cx);
     }
 
+    /// Switching tabs attaches or detaches the shell: an unwatched terminal
+    /// has no reason to hold a socket open.
     pub(crate) fn show(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        if self.pane == pane {
+            return;
+        }
         self.pane = pane;
+        match pane {
+            Pane::Terminal => self.attach_shell(),
+            _ => self.detach_shell(),
+        }
+        cx.notify();
+    }
+
+    fn attach_shell(&mut self) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        self.detach_shell();
+        let (stream, input) =
+            net::attach_terminal(self.client.clone(), id, self.generation, self.tx.clone());
+        self.shell = Some(Shell {
+            output: String::new(),
+            input,
+            stream,
+        });
+    }
+
+    /// Detaching leaves the shell running on the runner; `Close` kills it.
+    fn detach_shell(&mut self) {
+        if let Some(shell) = self.shell.take() {
+            shell.stream.abort();
+        }
+    }
+
+    pub fn send_to_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let line = self.inputs.shell.read(cx).value().to_string();
+        self.inputs
+            .shell
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        if let Some(shell) = self.shell.as_ref() {
+            let _ = shell.input.send(format!("{line}\n"));
+        }
+        cx.notify();
+    }
+
+    /// Kills the shell and detaches; the tab starts a new one on reattach.
+    pub fn close_shell(&mut self, cx: &mut Context<Self>) {
+        self.detach_shell();
+        self.act(Action::CloseTerminal, cx);
+    }
+
+    pub fn add_memory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let content = self.inputs.memory.read(cx).value().trim().to_string();
+        let Some(repository) = self.open_repository() else {
+            return;
+        };
+        if content.is_empty() {
+            return;
+        }
+        self.inputs
+            .memory
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.act_on(
+            String::new(),
+            Action::AddMemory {
+                repository,
+                content,
+            },
+            cx,
+        );
+    }
+
+    pub fn add_todo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let title = self.inputs.todo.read(cx).value().trim().to_string();
+        let Some(repository) = self.open_repository() else {
+            return;
+        };
+        if title.is_empty() {
+            return;
+        }
+        self.inputs
+            .todo
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.act_on(String::new(), Action::AddTodo { repository, title }, cx);
+    }
+
+    /// Puts the todo in the composer, in its own project, and remembers it so
+    /// submitting promotes it rather than starting a loose task.
+    pub fn promote_todo(&mut self, todo: &Todo, window: &mut Window, cx: &mut Context<Self>) {
+        let text = match todo.description.trim() {
+            "" => todo.title.clone(),
+            description => format!("{}\n\n{description}", todo.title),
+        };
+        let project = todo.repository.clone().or_else(|| self.open_repository());
+        // Home first: leaving a page clears the pending promotion.
+        self.go_home(window, cx);
+        self.promoting = Some(todo.id.clone());
+        self.composer.project = project;
+        self.inputs
+            .prompt
+            .update(cx, |state, cx| state.set_value(text, window, cx));
+        cx.notify();
+    }
+
+    /// The clone URL of whatever the window is showing.
+    fn open_repository(&self) -> Option<String> {
+        match &self.page {
+            Page::Project(slug) => crate::project::repository_of(self, slug),
+            _ => self.composer_project(),
+        }
+    }
+
+    pub fn save_model(&mut self, cx: &mut Context<Self>) {
+        let model = self.inputs.model.read(cx).value().trim().to_string();
+        let mut models = crate::theme::models(cx);
+        if models.model == model {
+            return;
+        }
+        models.model = model;
+        crate::theme::set_models(models, cx);
         cx.notify();
     }
 
@@ -414,6 +630,11 @@ impl LgtmApp {
         self.overlaps.clear();
         self.session = None;
         self.session_events.clear();
+        self.memories.clear();
+        self.todos.clear();
+        self.plans.clear();
+        self.promoting = None;
+        self.detach_shell();
         self.ui.editing_notes = false;
     }
 

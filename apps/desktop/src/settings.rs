@@ -3,12 +3,13 @@
 
 use crate::app::LgtmApp;
 use crate::theme::{
-    modal_header, panel, scrim, section_label, tokens, Pref, Tokens, MONO_FONT, RADIUS, SPACE,
-    TEXT_MONO,
+    field, icon, modal_header, panel, scrim, section_label, tokens, Pick, Pref, Tokens, ICON,
+    MONO_FONT, RADIUS, RADIUS_PILL, SPACE, TEXT_MONO,
 };
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, relative, AnyElement, ClickEvent, ClipboardItem, Context, Div,
-    InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
+    InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Stateful,
     StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -19,7 +20,10 @@ use lgtm_diff::DiffStyle;
 const WIDTH: f32 = 640.;
 const MAX_BODY_H: f32 = 520.;
 /// Index of the Runners section among the dialog's scrolled children.
-pub const RUNNERS_SECTION: usize = 3;
+pub const RUNNERS_SECTION: usize = 4;
+/// One dropdown: its trigger, and the menu it opens.
+const TRIGGER_H: f32 = 28.;
+const MENU_W: f32 = 160.;
 
 /// `lgtm runner` takes a ws(s) URL; the app holds the http(s) one.
 fn ws_url(orchestrator: &str) -> String {
@@ -57,6 +61,7 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                         .track_scroll(&app.ui.settings_scroll)
                         .p(px(SPACE[2]))
                         .child(orchestrator(app, &t, cx))
+                        .child(models(app, &t, cx))
                         .child(appearance(app, &t, cx))
                         .child(notifications(&t, cx))
                         .child(runners(app, &t, cx))
@@ -145,6 +150,166 @@ fn embedded_row(embedded: bool, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                     cx.notify();
                 })),
         )
+}
+
+/// What a task the composer starts is run with. Orchestration is stored and
+/// shown, but only an orchestrator this app hosts would ever read it.
+fn models(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let held = crate::theme::models(cx);
+    section("Models", t)
+        .child(choice_row("Executor", t).child(dropdown(
+            "executor",
+            Pick::of(held.executor),
+            &Pick::HARNESSES,
+            app,
+            t,
+            cx,
+            |models, pick| models.executor = pick.executor().unwrap_or_default(),
+        )))
+        .child(
+            choice_row("Model", t).child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(field(&app.inputs.model, t).small()),
+            ),
+        )
+        .child(choice_row("Review", t).child(dropdown(
+            "review",
+            held.review,
+            &Pick::REVIEW,
+            app,
+            t,
+            cx,
+            |models, pick| models.review = pick,
+        )))
+        .child(choice_row("Orchestrate", t).child(dropdown(
+            "orchestrate",
+            held.orchestrate,
+            &Pick::ORCHESTRATE,
+            app,
+            t,
+            cx,
+            |models, pick| models.orchestrate = pick,
+        )))
+        .child(
+            div()
+                .pl(px(120. + SPACE[1]))
+                .text_color(t.muted_fg)
+                .child("Orchestration is stored only; this app does not run an orchestrator loop."),
+        )
+}
+
+/// A menu on a trigger: the app's own, since only one of these can be open and
+/// the choice list is four items at most.
+#[allow(clippy::too_many_arguments)]
+fn dropdown(
+    id: &'static str,
+    current: Pick,
+    options: &'static [Pick],
+    app: &LgtmApp,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+    set: fn(&mut crate::theme::Models, Pick),
+) -> Div {
+    let open = app.ui.settings_menu == Some(id);
+    div()
+        .relative()
+        .child(trigger(id, current, open, t, cx))
+        .when(open, |this| {
+            this.child(dismiss(id, cx))
+                .child(menu(id, current, options, t, cx, set))
+        })
+}
+
+fn trigger(
+    id: &'static str,
+    current: Pick,
+    open: bool,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Stateful<Div> {
+    div()
+        .id(SharedString::from(format!("trigger-{id}")))
+        .flex()
+        .items_center()
+        .gap(px(SPACE[0]))
+        .h(px(TRIGGER_H))
+        .w(px(MENU_W))
+        .px(px(SPACE[1]))
+        .rounded(px(RADIUS_PILL))
+        .bg(t.input_fill)
+        .cursor_pointer()
+        .hover(|this| this.bg(t.muted))
+        .child(div().flex_1().min_w_0().truncate().child(current.label()))
+        .child(icon("chevron-down", ICON, t.muted_fg))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            let was = this.ui.settings_menu == Some(id);
+            this.ui.settings_menu = (!was).then_some(id);
+            cx.notify();
+        }))
+        .when(open, |this| this.bg(t.muted))
+}
+
+fn menu(
+    id: &'static str,
+    current: Pick,
+    options: &'static [Pick],
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+    set: fn(&mut crate::theme::Models, Pick),
+) -> Div {
+    div()
+        .absolute()
+        .top(px(TRIGGER_H + SPACE[0]))
+        .left(px(0.))
+        .w(px(MENU_W))
+        .flex()
+        .flex_col()
+        .p(px(SPACE[0]))
+        .rounded(px(RADIUS))
+        .bg(t.popover)
+        .border_1()
+        .border_color(t.border)
+        .occlude()
+        .children(options.iter().map(|pick| {
+            let pick = *pick;
+            div()
+                .id(SharedString::from(format!("{id}-{}", pick.label())))
+                .flex()
+                .items_center()
+                .gap(px(SPACE[1]))
+                .h(px(TRIGGER_H))
+                .px(px(SPACE[1]))
+                .rounded(px(8.))
+                .cursor_pointer()
+                .hover(|this| this.bg(t.muted))
+                .child(div().flex_1().min_w_0().child(pick.label()))
+                .when(pick == current, |this| this.child(icon("check", 14., t.fg)))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    let mut models = crate::theme::models(cx);
+                    set(&mut models, pick);
+                    crate::theme::set_models(models, cx);
+                    this.ui.settings_menu = None;
+                    cx.notify();
+                }))
+        }))
+}
+
+/// A click anywhere else closes the open dropdown.
+fn dismiss(id: &'static str, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
+    div()
+        .id(SharedString::from(format!("dismiss-{id}")))
+        .absolute()
+        .top(px(-4000.))
+        .left(px(-4000.))
+        .w(px(8000.))
+        .h(px(8000.))
+        .occlude()
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.ui.settings_menu = None;
+            cx.notify();
+        }))
 }
 
 fn appearance(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
