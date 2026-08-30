@@ -546,13 +546,67 @@ impl State {
             .map(|runner| runner.info.name.clone())
     }
 
+    /// Sum of `result.cost_usd` over `repository`'s tasks created in the
+    /// last 24h.
+    pub fn spent_last_day(&self, repository: &str) -> f64 {
+        let since = now_ms().saturating_sub(24 * 60 * 60 * 1000);
+        self.tasks
+            .values()
+            .map(|rec| &rec.task)
+            .filter(|task| task.spec.repository == repository && task.created_at >= since)
+            .filter_map(|task| task.result.as_ref())
+            .map(|result| result.cost_usd)
+            .sum()
+    }
+
+    /// The `[policy] budget_daily_usd` the repository's most recently
+    /// completed task declared, if any. The setting lives in the
+    /// repository's own `.lgtm/config.toml`, not the orchestrator, so the
+    /// last run's report of it is the only copy the orchestrator ever sees.
+    fn declared_daily_budget(&self, repository: &str) -> Option<f64> {
+        self.tasks
+            .values()
+            .map(|rec| &rec.task)
+            .filter(|task| task.spec.repository == repository && task.result.is_some())
+            .max_by_key(|task| task.created_at)
+            .and_then(|task| task.result.as_ref())
+            .and_then(|result| result.policy.as_ref())
+            .and_then(|policy| policy.budget_daily_usd)
+    }
+
+    /// `None` when `id` is clear to schedule. `Some` when its repository has
+    /// spent past the daily budget its last completed task declared; the
+    /// ids inside are the ones to persist, non-empty only the first time,
+    /// the same way `github::record_ci` logs a policy decision only when it
+    /// changed rather than on every poll.
+    fn over_daily_budget(&mut self, id: &TaskId) -> Option<Vec<TaskId>> {
+        let repository = self.tasks.get(id)?.task.spec.repository.clone();
+        let budget = self.declared_daily_budget(&repository)?;
+        let spent = self.spent_last_day(&repository);
+        if spent <= budget {
+            return None;
+        }
+        let event = TaskEvent::PolicyDecision {
+            action: "schedule".into(),
+            allowed: false,
+            reasons: vec![format!("daily budget ${spent:.2} over ${budget:.2}")],
+        };
+        let repeat = Some(&event) == self.tasks[id].last_policy_decision("schedule");
+        Some(if repeat {
+            Vec::new()
+        } else {
+            self.apply_event(id, event)
+        })
+    }
+
     /// Queued, unassigned, and not waiting on any dependency.
     pub fn is_ready(&self, task: &Task) -> bool {
         task.status == TaskStatus::Queued && task.runner.is_none() && self.deps_met(&task.spec)
     }
 
     /// Assigns unassigned queued tasks, oldest first, and starts them.
-    /// Returns the ids it assigned.
+    /// Returns the ids to persist: every task it assigned, plus any it
+    /// recorded a daily-budget refusal on.
     pub fn schedule(&mut self) -> Vec<TaskId> {
         let mut queued: Vec<(u64, TaskId)> = self
             .tasks
@@ -561,8 +615,12 @@ impl State {
             .map(|rec| (rec.task.created_at, rec.task.id.clone()))
             .collect();
         queued.sort();
-        let mut assigned = Vec::new();
+        let mut changed = Vec::new();
         for (_, id) in queued {
+            if let Some(refused) = self.over_daily_budget(&id) {
+                changed.extend(refused);
+                continue;
+            }
             let Some(name) = self
                 .tasks
                 .get(&id)
@@ -584,9 +642,9 @@ impl State {
                 });
             }
             tracing::info!(task = %id, runner = %name, "task assigned");
-            assigned.push(id);
+            changed.push(id);
         }
-        assigned
+        changed
     }
 
     /// Queues a task and schedules it. Returns the task and the ids to persist.

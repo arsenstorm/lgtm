@@ -158,7 +158,8 @@ pub fn print_executions(execs: &[Execution], out: &mut impl Write) -> std::io::R
     Ok(())
 }
 
-/// `lgtm stats`: throughput, duration, and cost over the window.
+/// `lgtm stats`: throughput, duration, and cost over the window. The budget
+/// line only appears when some repository in view declared one.
 pub fn print_stats(stats: &Stats, out: &mut impl Write) -> std::io::Result<()> {
     let done = stats.approved + stats.merged;
     let dropped = stats.cancelled + stats.rejected;
@@ -182,6 +183,13 @@ pub fn print_stats(stats: &Stats, out: &mut impl Write) -> std::io::Result<()> {
     )?;
     writeln!(out, "{:<13}{}", "retried", stats.retried_tasks)?;
     writeln!(out, "{:<13}${:.2}", "cost", stats.cost_usd)?;
+    if let Some(budget) = stats.budget_daily_usd {
+        writeln!(
+            out,
+            "{:<13}${:.2} of ${:.2} today",
+            "budget", stats.spent_today, budget
+        )?;
+    }
     for entry in &stats.by_executor {
         writeln!(
             out,
@@ -645,6 +653,8 @@ mod tests {
                     failed: 0,
                 },
             ],
+            budget_daily_usd: None,
+            spent_today: 0.0,
         };
         let mut out = Vec::new();
         print_stats(&stats, &mut out).unwrap();
@@ -658,6 +668,20 @@ mod tests {
              claude       3 attempts, 2 completed, 1 failed\n\
              codex        1 attempts, 1 completed, 0 failed\n"
         );
+    }
+
+    #[test]
+    fn print_stats_shows_the_budget_line_only_when_one_was_declared() {
+        let stats = Stats {
+            budget_daily_usd: Some(100.0),
+            spent_today: 42.5,
+            ..Stats::default()
+        };
+        let mut out = Vec::new();
+        print_stats(&stats, &mut out).unwrap();
+        assert!(String::from_utf8(out)
+            .unwrap()
+            .contains("budget       $42.50 of $100.00 today\n"));
     }
 
     #[test]

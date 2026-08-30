@@ -1514,3 +1514,95 @@ fn scrollback_caps_and_keeps_the_newest_output() {
     assert!(seen.contains("[99]"), "the newest output is gone");
     assert!(!seen.contains("[0]"), "the oldest output was not dropped");
 }
+
+/// A completed run's result reporting `cost_usd` and declaring
+/// `budget_daily_usd`.
+fn result_with_budget(cost_usd: f64, budget_daily_usd: Option<f64>) -> TaskResult {
+    TaskResult {
+        cost_usd,
+        policy: Some(Policy {
+            budget_daily_usd,
+            ..Policy::default()
+        }),
+        ..run_result()
+    }
+}
+
+#[test]
+fn schedule_skips_a_task_over_its_repositorys_daily_budget() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let done = create(&mut state, Executor::Claude).id;
+    state.apply_event(&done, TaskEvent::Started { model: None });
+    state.apply_event(
+        &done,
+        TaskEvent::Completed {
+            result: result_with_budget(60.0, Some(50.0)),
+        },
+    );
+    assert_eq!(
+        state.spent_last_day(&spec(Executor::Claude, None).repository),
+        60.0
+    );
+
+    let queued = create(&mut state, Executor::Claude).id;
+    assert_eq!(
+        state.tasks[&queued].task.runner, None,
+        "over budget, left in the queue"
+    );
+    assert_eq!(status(&state, &queued), TaskStatus::Queued);
+
+    let decisions: Vec<TaskEvent> = state.tasks[&queued]
+        .events
+        .iter()
+        .map(|stored| stored.event.clone())
+        .filter(|event| matches!(event, TaskEvent::PolicyDecision { .. }))
+        .collect();
+    assert_eq!(
+        decisions.len(),
+        1,
+        "recorded once, not once per schedule() call"
+    );
+    match &decisions[0] {
+        TaskEvent::PolicyDecision {
+            action,
+            allowed,
+            reasons,
+        } => {
+            assert_eq!(action.as_str(), "schedule");
+            assert!(!*allowed);
+            assert!(reasons[0].contains("daily budget"));
+        }
+        other => panic!("expected a PolicyDecision, got {other:?}"),
+    }
+
+    // Nothing frees a slot, so scheduling again must not repeat the decision.
+    state.schedule();
+    let count = state.tasks[&queued]
+        .events
+        .iter()
+        .filter(|stored| matches!(stored.event, TaskEvent::PolicyDecision { .. }))
+        .count();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn schedule_ignores_the_budget_once_spend_is_back_under_it() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let done = create(&mut state, Executor::Claude).id;
+    state.apply_event(&done, TaskEvent::Started { model: None });
+    state.apply_event(
+        &done,
+        TaskEvent::Completed {
+            result: result_with_budget(10.0, Some(50.0)),
+        },
+    );
+
+    let queued = create(&mut state, Executor::Claude).id;
+    assert_eq!(
+        state.tasks[&queued].task.runner.as_deref(),
+        Some("a"),
+        "under budget, scheduled as usual"
+    );
+}

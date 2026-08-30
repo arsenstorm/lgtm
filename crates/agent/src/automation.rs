@@ -698,6 +698,7 @@ fn policy_of(policy: &PolicyConfig) -> Policy {
         protected_files: policy.protected_files.clone(),
         budget_per_task_usd: policy.budget_per_task_usd,
         reassign: policy.reassign,
+        budget_daily_usd: policy.budget_daily_usd,
     }
 }
 

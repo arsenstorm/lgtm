@@ -150,6 +150,7 @@ max_diff_lines = 300   # no auto-approve for a diff bigger than this
 protected_files = ["migrations/*", "Cargo.lock"]  # never auto-approved
 budget_per_task_usd = 2.0  # no auto-approve for a run that cost more
 reassign = 1  # move a lost or failed task to another runner this many times
+budget_daily_usd = 50.0
 
 [sandbox]
 profile = "standard"   # standard: stripped env, writes only to the worktree, secrets unreadable
