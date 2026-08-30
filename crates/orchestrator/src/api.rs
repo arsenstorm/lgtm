@@ -84,6 +84,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/tasks/{id}/scratchpad", post(scratchpad))
         .route("/tasks/{id}/orchestrated", post(orchestrated))
         .route("/tasks/{id}/cancel", post(cancel))
+        .route("/tasks/{id}/interrupt", post(interrupt))
         .route("/tasks/{id}/approve", post(approve))
         .route("/tasks/{id}/reject", post(reject))
         .route(
@@ -516,6 +517,16 @@ async fn cancel(
 ) -> Result<Json<Task>, ApiError> {
     let mut state = app.state.lock().unwrap();
     let task = state.cancel(&id)?;
+    app.persist_ids(&mut state, std::slice::from_ref(&id));
+    Ok(Json(task))
+}
+
+async fn interrupt(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+) -> Result<Json<Task>, ApiError> {
+    let mut state = app.state.lock().unwrap();
+    let task = state.interrupt(&id)?;
     app.persist_ids(&mut state, std::slice::from_ref(&id));
     Ok(Json(task))
 }

@@ -127,6 +127,17 @@ impl State {
         )
     }
 
+    /// SIGINT before the kill, unlike `cancel`; only a task with a process to
+    /// signal qualifies, so a queued task is refused rather than cancelled.
+    pub fn interrupt(&mut self, task_id: &str) -> Result<Task, CmdError> {
+        self.command(
+            task_id,
+            &[TaskStatus::Running],
+            "task is not running",
+            |task_id| OrchestratorMessage::Interrupt { task_id },
+        )
+    }
+
     /// Records a follow-up and hands it to the runner; the slot is taken again
     /// until the runner reports the run finished.
     pub fn message(

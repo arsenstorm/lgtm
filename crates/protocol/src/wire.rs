@@ -197,6 +197,10 @@ pub enum OrchestratorMessage {
     Cancel {
         task_id: TaskId,
     },
+    /// Ask the agent to stop gracefully: SIGINT, then a kill after a grace period.
+    Interrupt {
+        task_id: TaskId,
+    },
     /// Resume the task's agent session in its worktree with this follow-up.
     Message {
         task_id: TaskId,

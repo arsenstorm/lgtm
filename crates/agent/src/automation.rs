@@ -35,6 +35,10 @@ use crate::validate::{load_validation, run_validation, tail};
 /// Commit subject for the follow-up run that fixed the checks.
 const FIX_MESSAGE: &str = "fix failing checks";
 
+/// Time an interrupted agent gets to exit on its own before the kill a plain
+/// cancel goes straight to.
+const INTERRUPT_GRACE: Duration = Duration::from_secs(10);
+
 /// Told to a `Run` as the last paragraph of its prompt.
 const NOTES: &str = "\n\nKeep your working notes in .lgtm/scratchpad.md, or with the `scratchpad_write` tool: findings, open questions, decisions, and the files that matter. Whoever continues this task reads them first. Use `memory_propose` for a fact the next run should know, and `todo_create` for work you noticed but did not do.";
 
@@ -510,14 +514,39 @@ impl<'a> Run<'a> {
         Ok((tokio::spawn(out.run(stdout)), tokio::spawn(err.run(stderr))))
     }
 
-    /// The exit status, or why there is none: the task was cancelled, or the
-    /// run outlived the policy's timeout. Either way the child is killed.
+    /// The exit status, or why there is none: the task was cancelled or
+    /// interrupted, or the run outlived the policy's timeout. Either way the
+    /// child is killed, unless an interrupt already made it exit on its own.
     async fn wait_or_kill(&mut self, child: &mut tokio::process::Child) -> Result<Waited> {
+        // Registered only for the span of this wait: an interrupt can only
+        // ever reach a run that is actually being waited on.
+        let (interrupt_tx, mut interrupt_rx) = oneshot::channel();
+        self.ctx
+            .interrupt
+            .lock()
+            .expect("interrupt map poisoned")
+            .insert(self.task.id.clone(), interrupt_tx);
+        let interrupted;
         let waited = tokio::select! {
-            status = child.wait() => return Ok(Waited::Exited(status?)),
-            _ = &mut self.cancel => Waited::Cancelled,
-            _ = tokio::time::sleep(self.timeout) => Waited::TimedOut,
+            status = child.wait() => {
+                self.clear_interrupt();
+                return Ok(Waited::Exited(status?));
+            }
+            _ = &mut self.cancel => { interrupted = false; Waited::Cancelled }
+            _ = &mut interrupt_rx => { interrupted = true; Waited::Cancelled }
+            _ = tokio::time::sleep(self.timeout) => { interrupted = false; Waited::TimedOut }
         };
+        self.clear_interrupt();
+        if interrupted {
+            send_sigint(child);
+            // Grace period before the same kill a plain cancel goes straight to.
+            if tokio::time::timeout(INTERRUPT_GRACE, child.wait())
+                .await
+                .is_ok()
+            {
+                return Ok(waited);
+            }
+        }
         let _ = child.start_kill();
         let _ = child.wait().await;
         if matches!(waited, Waited::TimedOut) {
@@ -525,6 +554,14 @@ impl<'a> Run<'a> {
             self.ctx.emit(&self.task.id, TaskEvent::TimedOut { secs });
         }
         Ok(waited)
+    }
+
+    fn clear_interrupt(&self) {
+        self.ctx
+            .interrupt
+            .lock()
+            .expect("interrupt map poisoned")
+            .remove(&self.task.id);
     }
 
     fn pump(&self, stream: OutputStream, sinks: Sinks, executor: Executor) -> Pump {
@@ -588,6 +625,20 @@ impl Run<'_> {
         ]
     }
 }
+
+/// SIGINT to the child's process group, so its subprocesses see it too, not
+/// just the immediate one. Windows has no such signal, so an interrupted run
+/// there just falls straight through to the kill in `wait_or_kill`.
+#[cfg(unix)]
+fn send_sigint(child: &tokio::process::Child) {
+    let Some(pid) = child.id() else { return };
+    let _ = std::process::Command::new("kill")
+        .args(["-INT", "--", &format!("-{pid}")])
+        .status();
+}
+
+#[cfg(not(unix))]
+fn send_sigint(_child: &tokio::process::Child) {}
 
 fn args(opts: &RunOpts<'_>) -> Vec<String> {
     // A runner whose own path is unknowable can still run the agent; it

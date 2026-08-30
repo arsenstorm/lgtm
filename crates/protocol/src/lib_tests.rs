@@ -245,6 +245,9 @@ fn every_message_round_trips() {
         OrchestratorMessage::Cancel {
             task_id: "0123abcd".into(),
         },
+        OrchestratorMessage::Interrupt {
+            task_id: "0123abcd".into(),
+        },
         OrchestratorMessage::Message {
             task_id: "0123abcd".into(),
             text: "again".into(),

@@ -167,6 +167,11 @@ impl Client {
             .await
     }
 
+    pub async fn interrupt(&self, id: &str) -> anyhow::Result<lgtm_protocol::Task> {
+        self.post(&format!("/api/tasks/{id}/interrupt"), None::<&()>)
+            .await
+    }
+
     pub async fn approve(&self, id: &str) -> anyhow::Result<lgtm_protocol::Task> {
         self.post(&format!("/api/tasks/{id}/approve"), None::<&()>)
             .await
