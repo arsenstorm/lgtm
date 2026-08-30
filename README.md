@@ -55,7 +55,8 @@ to add it to the fleet.
   as `conflicted` and `lgtm tell <id> "…"` has the agent resolve it. The
   repository's checks are not run again after a clean rebase.
 - `lgtm terminal <id>` opens a shell in the task's worktree on its runner; it
-  stays open when you detach.
+  stays open when you detach. It is a shell of its own, not the agent's
+  session, and it does not resize.
 - `lgtm tasks`, `show`, `logs`, `diff`, and `runners` show what is going on.
 - Policy in the repository can retry, fix failing checks, and auto-approve
   or auto-merge.

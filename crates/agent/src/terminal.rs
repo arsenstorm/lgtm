@@ -1,9 +1,18 @@
 //! A shell in a task's worktree, owned by this runner so it outlives whoever
 //! attached to it.
 //
-// ponytail: this is a shell of its own, not the agent's session — the agent
-// runs piped, so handing over its own pty needs the runner to spawn it under
-// one first.
+// This is a shell of its own, not the agent's session. Running the agent
+// under `script` instead, so a person could watch it and take over, was
+// measured and rejected: the pty echoes the EOF that closes stdin as a
+// literal `^D\b\b` before the first byte of output, and ONLCR rewrites every
+// `\n` to `\r\n`, so the opening line of `claude --output-format stream-json`
+// and of `codex exec --json` stops parsing. `stty raw -echo` ahead of the
+// exec fixes the newlines but loses the race for the prefix.
+//
+// ponytail: running the agent here needs the runner to own the pty — openpty
+// FFI, `cfmakeraw` on the slave before exec. That fd is also the only way to
+// set the window size, so until then there is nothing for a resize message
+// to do and the terminal does not resize.
 
 use std::path::Path;
 use std::process::Stdio;
