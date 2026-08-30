@@ -123,6 +123,31 @@ pub struct NewGoal {
     pub plan: bool,
 }
 
+/// Body of `POST /api/sessions`.
+#[derive(Serialize)]
+pub struct NewSession<'a> {
+    pub repository: &'a str,
+    pub base_branch: &'a str,
+    pub title: &'a str,
+}
+
+/// Body of `POST /api/sessions/:id/messages`: one message of the thread, and
+/// the settings the task it becomes is run with.
+#[derive(Serialize)]
+pub struct SessionMessage<'a> {
+    pub text: &'a str,
+    pub executor: lgtm_protocol::Executor,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runner: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<lgtm_protocol::SandboxProfile>,
+    pub requirements: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_executor: Option<lgtm_protocol::Executor>,
+}
+
 /// Body of `GET /api/goals/:id`.
 #[derive(Deserialize, Clone, Debug)]
 pub struct GoalDetail {

@@ -3,7 +3,7 @@
 use crate::home::Chip;
 use crate::import::ImportForm;
 use crate::keys::{
-    CloseOverlay, NewTask, OpenPalette, PaletteNext, PalettePrev, PaletteRun, SelectNext,
+    CloseOverlay, NewSession, OpenPalette, PaletteNext, PalettePrev, PaletteRun, SelectNext,
     SelectPrev, ShowActivity, ShowChanges, ShowNotes, ShowOverview, ShowPlan, ShowReview, Submit,
     ToggleSidebar, CONTEXT,
 };
@@ -11,7 +11,7 @@ use crate::net::{self, Msg};
 use crate::project::ProjectTab;
 use crate::render::Line;
 use crate::theme::{tokens, SPACE, STATUS_H, TEXT_BODY, TEXT_SECONDARY, UI_FONT};
-use crate::{batches, home, import, palette, panes, project, settings, sidebar, titlebar};
+use crate::{batches, home, import, palette, panes, project, session, settings, sidebar, titlebar};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, AppContext as _, Context, Div, Entity, FocusHandle, Focusable,
@@ -20,7 +20,9 @@ use gpui::{
 };
 use gpui_component::input::{InputEvent, InputState};
 use lgtm_client::Client;
-use lgtm_protocol::{Batch, GoalSummary, Overlap, RunnerStatus, Stats, StoredEvent, Task};
+use lgtm_protocol::{
+    Batch, GoalSummary, Overlap, RunnerStatus, Session, SessionDetail, Stats, StoredEvent, Task,
+};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
@@ -45,8 +47,17 @@ pub enum Pane {
 pub enum Page {
     Home,
     Batches,
-    /// One repository, by the slug the sidebar groups tasks under.
+    /// One repository, by the slug the sidebar groups its sessions under.
     Project(String),
+    /// One chat thread, by session id.
+    Session(String),
+}
+
+/// One entry in the back/forward history: a task, or a page.
+#[derive(Clone, PartialEq, Eq)]
+pub enum Stop {
+    Task(String),
+    Page(Page),
 }
 
 /// The one modal that can be up at a time.
@@ -134,12 +145,14 @@ pub struct ComposerState {
 pub struct UiState {
     pub overlay: Overlay,
     pub palette_at: usize,
-    /// Batches whose task rows are unfolded.
+    /// Batches, and projects, whose rows are unfolded past the first few.
     pub expanded: HashSet<String>,
+    /// Project slugs whose session list is folded away.
+    pub collapsed: HashSet<String>,
     pub settings_scroll: ScrollHandle,
     pub sidebar_open: bool,
-    /// Tasks selected so far, and where in that list we are.
-    pub visited: Vec<String>,
+    /// Where the window has been, and where in that list we are.
+    pub visited: Vec<Stop>,
     pub visited_at: usize,
     pub show_follow_up: bool,
     /// The Notes tab is showing its editor rather than the stored notes.
@@ -148,6 +161,7 @@ pub struct UiState {
     pub task_scroll: ScrollHandle,
     pub content_scroll: ScrollHandle,
     pub project_scroll: ScrollHandle,
+    pub session_scroll: ScrollHandle,
     pub project_tab: ProjectTab,
     /// The titlebar's runner popover.
     pub runner_menu: bool,
@@ -159,6 +173,7 @@ impl Default for UiState {
             overlay: Overlay::None,
             palette_at: 0,
             expanded: HashSet::new(),
+            collapsed: HashSet::new(),
             settings_scroll: ScrollHandle::new(),
             sidebar_open: true,
             visited: Vec::new(),
@@ -169,6 +184,7 @@ impl Default for UiState {
             task_scroll: ScrollHandle::new(),
             content_scroll: ScrollHandle::new(),
             project_scroll: ScrollHandle::new(),
+            session_scroll: ScrollHandle::new(),
             project_tab: ProjectTab::default(),
             runner_menu: false,
         }
@@ -182,6 +198,12 @@ pub struct LgtmApp {
     pub runners: Vec<RunnerStatus>,
     pub batches: Vec<Batch>,
     pub goals: Vec<GoalSummary>,
+    pub sessions: Vec<Session>,
+    /// The open session, refreshed on the same tick as the lists.
+    pub session: Option<SessionDetail>,
+    /// Events per task of the open session, for the tasks whose detail has
+    /// been fetched. Kept after a task finishes so its turns do not vanish.
+    pub session_events: Vec<(String, Vec<StoredEvent>)>,
     /// Orchestrator-wide, and only refreshed on one poll in ten.
     pub stats: Option<Stats>,
     pub selected: Option<String>,
@@ -217,7 +239,7 @@ impl LgtmApp {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         net::poll(client.clone(), tx.clone());
 
-        let pump = pump(rx, window, cx);
+        let pump = pump(rx, cx);
 
         let focus = cx.focus_handle();
         window.focus(&focus);
@@ -228,6 +250,9 @@ impl LgtmApp {
             runners: Vec::new(),
             batches: Vec::new(),
             goals: Vec::new(),
+            sessions: Vec::new(),
+            session: None,
+            session_events: Vec::new(),
             stats: None,
             selected: None,
             page: Page::Home,
@@ -295,15 +320,11 @@ impl LgtmApp {
 /// Feeds network messages into the view until it is gone.
 fn pump(
     mut rx: tokio::sync::mpsc::UnboundedReceiver<Msg>,
-    window: &mut Window,
     cx: &mut Context<LgtmApp>,
 ) -> GpuiTask<()> {
-    cx.spawn_in(window, async move |this, cx| {
+    cx.spawn(async move |this, cx| {
         while let Some(msg) = rx.recv().await {
-            if this
-                .update_in(cx, |this, window, cx| this.apply(msg, window, cx))
-                .is_err()
-            {
+            if this.update(cx, |this, cx| this.apply(msg, cx)).is_err() {
                 return;
             }
         }
@@ -320,7 +341,7 @@ fn field(
 
 /// Every keyboard action the window answers to.
 fn bind_actions(root: Div, cx: &mut Context<LgtmApp>) -> Div {
-    root.on_action(cx.listener(|this, _: &NewTask, window, cx| this.go_home(window, cx)))
+    root.on_action(cx.listener(|this, _: &NewSession, window, cx| this.go_home(window, cx)))
         .on_action(cx.listener(|this, _: &OpenPalette, window, cx| this.open_palette(window, cx)))
         .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
         .on_action(cx.listener(|this, _: &Submit, window, cx| this.submit_action(window, cx)))
@@ -377,6 +398,7 @@ impl LgtmApp {
         match self.page.clone() {
             Page::Batches => batches::page(self, cx),
             Page::Project(slug) => project::page(self, &slug, cx),
+            Page::Session(_) => session::page(self, window, cx),
             Page::Home => home::home(self, window, cx),
         }
     }

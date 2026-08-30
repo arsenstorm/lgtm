@@ -5,7 +5,7 @@ use gpui::{actions, App, KeyBinding};
 actions!(
     lgtm,
     [
-        NewTask,
+        NewSession,
         OpenPalette,
         ToggleSidebar,
         SelectNext,
@@ -37,7 +37,7 @@ fn bindings() -> Vec<KeyBinding> {
     let outside_inputs = Some("Lgtm && !Input");
     let palette = Some(PALETTE_CONTEXT);
     vec![
-        KeyBinding::new("cmd-n", NewTask, anywhere),
+        KeyBinding::new("cmd-n", NewSession, anywhere),
         KeyBinding::new("cmd-k", OpenPalette, anywhere),
         KeyBinding::new("cmd-b", ToggleSidebar, anywhere),
         KeyBinding::new("cmd-enter", Submit, anywhere),

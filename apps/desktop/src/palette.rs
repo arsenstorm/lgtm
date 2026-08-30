@@ -14,7 +14,7 @@ use gpui::{
 };
 use gpui_component::input::Input;
 use gpui_component::Sizable as _;
-use lgtm_protocol::Task;
+use lgtm_protocol::{Session, Task};
 
 const WIDTH: f32 = 560.;
 const MAX_LIST_H: f32 = 380.;
@@ -23,7 +23,7 @@ const FOOTER: &str = "↑↓ navigate · ↩ open · esc close";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
-    NewTask,
+    NewSession,
     Batches,
     Settings,
     ToggleTheme,
@@ -32,7 +32,7 @@ pub enum Act {
 
 impl Act {
     const ALL: [(Act, &'static str); 5] = [
-        (Act::NewTask, "New task"),
+        (Act::NewSession, "New session"),
         (Act::Batches, "Batches"),
         (Act::Settings, "Settings"),
         (Act::ToggleTheme, "Toggle theme"),
@@ -43,6 +43,8 @@ impl Act {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Kind {
     Task(String),
+    /// A chat thread, by session id.
+    Session(String),
     /// A repository slug, as the project page keys them.
     Project(String),
     Repository(String),
@@ -93,7 +95,19 @@ fn item(kind: Kind, label: String, hint: String, query: &str) -> Option<Item> {
     })
 }
 
-pub fn build_groups(query: &str, tasks: &[Task], repos: &[String]) -> Vec<Group> {
+pub fn build_groups(
+    query: &str,
+    tasks: &[Task],
+    repos: &[String],
+    sessions: &[Session],
+) -> Vec<Group> {
+    let session_items = sessions.iter().map(|open| {
+        (
+            Kind::Session(open.id.clone()),
+            format!("Open session {}", crate::sidebar::session_title(open)),
+            repo_slug(&open.repository),
+        )
+    });
     let task_items = tasks.iter().map(|task| {
         let hint = format!(
             "{} · {}",
@@ -120,6 +134,7 @@ pub fn build_groups(query: &str, tasks: &[Task], repos: &[String]) -> Vec<Group>
         .iter()
         .map(|(act, label)| (Kind::Action(*act), (*label).to_string(), String::new()));
     [
+        group("Sessions", session_items, query),
         group("Tasks", task_items, query),
         group("Projects", project_items, query),
         group("Repositories", repo_items, query),
@@ -155,7 +170,7 @@ fn group(
 
 fn items(app: &LgtmApp, cx: &Context<LgtmApp>) -> Vec<Item> {
     let query = app.inputs.query.read(cx).value().to_string();
-    build_groups(&query, &app.tasks, &app.known_repositories())
+    build_groups(&query, &app.tasks, &app.known_repositories(), &app.sessions)
         .into_iter()
         .flat_map(|group| group.items)
         .collect()
@@ -181,12 +196,13 @@ fn activate(app: &mut LgtmApp, kind: Kind, window: &mut Window, cx: &mut Context
     app.close_overlay(window, cx);
     match kind {
         Kind::Task(id) => app.select(id, cx),
+        Kind::Session(id) => app.show_page(Page::Session(id), cx),
         Kind::Project(slug) => app.open_project(slug, None, cx),
         Kind::Repository(url) => {
             app.composer.project = Some(url);
             app.show_page(Page::Home, cx);
         }
-        Kind::Action(Act::NewTask) => app.go_home(window, cx),
+        Kind::Action(Act::NewSession) => app.go_home(window, cx),
         Kind::Action(Act::Batches) => app.show_page(Page::Batches, cx),
         Kind::Action(Act::Settings) => app.open_settings(cx),
         Kind::Action(Act::ToggleSidebar) => app.toggle_sidebar(cx),
@@ -205,7 +221,7 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
     let t = tokens(cx);
     let at = app.ui.palette_at;
     let query = app.inputs.query.read(cx).value().to_string();
-    let groups = build_groups(&query, &app.tasks, &app.known_repositories());
+    let groups = build_groups(&query, &app.tasks, &app.known_repositories(), &app.sessions);
 
     let rows = rows(groups, at, &t, cx);
 
@@ -414,13 +430,13 @@ mod tests {
             task("2", "ship the docs", "https://x/two.git"),
         ];
         let repos = vec!["https://x/one.git".to_string()];
-        let groups = build_groups("fix", &tasks, &repos);
+        let groups = build_groups("fix", &tasks, &repos, &[]);
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].title, "Tasks");
         assert_eq!(groups[0].items[0].kind, Kind::Task("1".into()));
         assert_eq!(groups[0].items[0].hint, "one · running");
 
-        let all = build_groups("", &tasks, &repos);
+        let all = build_groups("", &tasks, &repos, &[]);
         let titles: Vec<&str> = all.iter().map(|group| group.title).collect();
         assert_eq!(titles, vec!["Tasks", "Projects", "Repositories", "Actions"]);
         assert_eq!(all[1].items[0].kind, Kind::Project("one".into()));

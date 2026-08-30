@@ -19,7 +19,8 @@ use tokio_tungstenite::Connector;
 use types::{AllowHost, ErrorBody, FollowUp, NewMemory, NewTodo, Notes, PermissionRequest, Socket};
 pub use types::{
     BatchDetail, BatchRequest, BatchResponse, EventStream, FromIssue, FromLinear, GoalDetail,
-    IssuePreview, NewGoal, PromoteTodo, Retry, TaskDetail, TerminalStream,
+    IssuePreview, NewGoal, NewSession, PromoteTodo, Retry, SessionMessage, TaskDetail,
+    TerminalStream,
 };
 
 #[derive(Clone)]
@@ -313,6 +314,42 @@ impl Client {
 
     pub async fn goal(&self, id: &str) -> anyhow::Result<GoalDetail> {
         self.get(&format!("/api/goals/{id}")).await
+    }
+
+    pub async fn create_session(
+        &self,
+        body: &NewSession<'_>,
+    ) -> anyhow::Result<lgtm_protocol::Session> {
+        self.post("/api/sessions", Some(body)).await
+    }
+
+    /// Sessions in `repository`, or every one when it is `None`; newest first.
+    pub async fn sessions(
+        &self,
+        repository: Option<&str>,
+    ) -> anyhow::Result<Vec<lgtm_protocol::Session>> {
+        let mut req = self
+            .http
+            .get(format!("{}/api/sessions", self.base))
+            .bearer_auth(&self.token);
+        if let Some(repository) = repository {
+            req = req.query(&[("repository", repository)]);
+        }
+        Self::handle(req.send().await?).await
+    }
+
+    pub async fn session(&self, id: &str) -> anyhow::Result<lgtm_protocol::SessionDetail> {
+        self.get(&format!("/api/sessions/{id}")).await
+    }
+
+    /// Sends one message; the task it becomes comes back.
+    pub async fn send_message(
+        &self,
+        id: &str,
+        body: &SessionMessage<'_>,
+    ) -> anyhow::Result<lgtm_protocol::Task> {
+        self.post(&format!("/api/sessions/{id}/messages"), Some(body))
+            .await
     }
 
     /// Todos that apply to `repository`, or every one when it is `None`.

@@ -1,10 +1,9 @@
-//! How the chrome reads a task list: grouped by repository, aged, coloured.
+//! How the chrome reads a task: its repository, its age, its colour.
 
 use crate::labels::status_label;
 use crate::theme::Tokens;
 use gpui::Hsla;
 use lgtm_protocol::{BatchSource, GoalStatus, Task};
-use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_ms() -> u64 {
@@ -23,58 +22,6 @@ pub fn repo_slug(repository: &str) -> String {
         .next()
         .unwrap_or(repository);
     last.strip_suffix(".git").unwrap_or(last).to_string()
-}
-
-/// Tasks bucketed by repository slug, groups and rows newest-first, with every
-/// task's children directly after it.
-pub fn group_by_repo(tasks: &[Task]) -> Vec<(String, Vec<&Task>)> {
-    let mut newest: Vec<&Task> = tasks.iter().collect();
-    newest.sort_by_key(|task| std::cmp::Reverse(task.created_at));
-
-    let mut groups: Vec<(String, Vec<&Task>)> = Vec::new();
-    for task in newest {
-        let slug = repo_slug(&task.spec.repository);
-        match groups.iter_mut().find(|(name, _)| name == &slug) {
-            Some((_, rows)) => rows.push(task),
-            None => groups.push((slug, vec![task])),
-        }
-    }
-    for (_, rows) in &mut groups {
-        *rows = parents_first(rows);
-    }
-    groups
-}
-
-fn parents_first<'a>(rows: &[&'a Task]) -> Vec<&'a Task> {
-    let present: HashSet<&str> = rows.iter().map(|task| task.id.as_str()).collect();
-    let mut out = Vec::with_capacity(rows.len());
-    for task in rows {
-        // Emitted with its parent below; a child whose parent is in another
-        // repository has nothing to hang under, so it stays top level.
-        if task
-            .spec
-            .parent
-            .as_deref()
-            .is_some_and(|parent| present.contains(parent))
-        {
-            continue;
-        }
-        out.push(*task);
-        push_children(task, rows, &mut out);
-    }
-    out
-}
-
-fn push_children<'a>(parent: &Task, rows: &[&'a Task], out: &mut Vec<&'a Task>) {
-    if out.len() >= rows.len() {
-        return;
-    }
-    for task in rows {
-        if task.spec.parent.as_deref() == Some(parent.id.as_str()) {
-            out.push(*task);
-            push_children(task, rows, out);
-        }
-    }
 }
 
 /// Coarse age, one unit only: `12s`, `5m`, `2h`, `3d`.
@@ -124,43 +71,6 @@ pub fn batch_label(source: &BatchSource) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lgtm_protocol::{Executor, TaskKind, TaskSpec, TaskStatus};
-
-    fn task(id: &str, repo: &str, created_at: u64, parent: Option<&str>) -> Task {
-        Task {
-            id: id.into(),
-            spec: TaskSpec {
-                repository: repo.into(),
-                base_branch: "main".into(),
-                prompt: "p".into(),
-                executor: Executor::Claude,
-                runner: None,
-                issue: None,
-                linear: None,
-                kind: TaskKind::Run,
-                parent: parent.map(String::from),
-                depends_on: vec![],
-                depends_on_condition: Default::default(),
-                batch: None,
-                sandbox: None,
-                requirements: vec![],
-                goal: None,
-                review_executor: None,
-                model: None,
-                allowed_hosts: Vec::new(),
-                session: None,
-            },
-            status: TaskStatus::Queued,
-            runner: None,
-            created_at,
-            result: None,
-            error: None,
-            pull_request: None,
-            ci: None,
-            executions: Vec::new(),
-            scratchpad: String::new(),
-        }
-    }
 
     #[test]
     fn slug_drops_host_and_git_suffix() {
@@ -168,41 +78,6 @@ mod tests {
         assert_eq!(repo_slug("git@github.com:you/repo.git"), "repo");
         assert_eq!(repo_slug("https://github.com/you/repo/"), "repo");
         assert_eq!(repo_slug("repo"), "repo");
-    }
-
-    #[test]
-    fn groups_are_newest_first_within_and_across_repositories() {
-        let tasks = vec![
-            task("a", "https://x/one.git", 10, None),
-            task("b", "https://x/two.git", 30, None),
-            task("c", "https://x/one.git", 20, None),
-        ];
-        let groups = group_by_repo(&tasks);
-        assert_eq!(groups[0].0, "two");
-        assert_eq!(groups[1].0, "one");
-        let ids: Vec<&str> = groups[1].1.iter().map(|t| t.id.as_str()).collect();
-        assert_eq!(ids, vec!["c", "a"]);
-    }
-
-    #[test]
-    fn children_follow_their_parent_even_when_newer() {
-        let tasks = vec![
-            task("parent", "https://x/one.git", 10, None),
-            task("child", "https://x/one.git", 99, Some("parent")),
-            task("other", "https://x/one.git", 50, None),
-        ];
-        let ids: Vec<&str> = group_by_repo(&tasks)[0]
-            .1
-            .iter()
-            .map(|t| t.id.as_str())
-            .collect();
-        assert_eq!(ids, vec!["other", "parent", "child"]);
-    }
-
-    #[test]
-    fn orphan_child_stays_at_top_level() {
-        let tasks = vec![task("child", "https://x/one.git", 1, Some("elsewhere"))];
-        assert_eq!(group_by_repo(&tasks)[0].1.len(), 1);
     }
 
     #[test]

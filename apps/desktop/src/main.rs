@@ -15,6 +15,7 @@ mod panes;
 mod project;
 mod render;
 mod review;
+mod session;
 mod settings;
 mod sidebar;
 mod tasks;
