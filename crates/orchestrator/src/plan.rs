@@ -168,6 +168,7 @@ fn child_spec(spec: &TaskSpec, step: &PlanStep, depends_on: Vec<TaskId>, parent:
         sandbox: spec.sandbox,
         requirements: spec.requirements.clone(),
         goal: spec.goal.clone(),
+        review_executor: None,
     }
 }
 

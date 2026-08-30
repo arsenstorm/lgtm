@@ -289,6 +289,7 @@ fn create_task(
         batch: None,
         sandbox: subject.spec.sandbox,
         requirements: subject.spec.requirements,
+        review_executor: None,
         goal: Some(goal),
     };
     state.create_task(spec).map(|(_, changed)| changed)

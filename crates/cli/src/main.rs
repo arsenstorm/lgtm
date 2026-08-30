@@ -264,6 +264,7 @@ impl Target {
             sandbox: self.sandbox,
             requirements: self.requirements,
             goal: None,
+            review_executor: self.review_with,
         })
     }
 }
@@ -283,16 +284,16 @@ async fn run(
         _ => (issue, prompt),
     };
     let task = if let Some(issue) = issue {
-        client
-            .create_task_from_issue(
-                &issue,
-                &target.base,
-                target.agent,
-                target.on.as_deref(),
-                target.sandbox,
-                target.requirements,
-            )
-            .await?
+        let body = lgtm_client::FromIssue {
+            issue: &issue,
+            base_branch: &target.base,
+            executor: target.agent,
+            worker: target.on.as_deref(),
+            sandbox: target.sandbox,
+            requirements: target.requirements,
+            review_executor: target.review_with,
+        };
+        client.create_task_from_issue(&body).await?
     } else if let Some(linear) = linear {
         let repo = target.repo.map_or_else(default_repo, Ok)?;
         let body = FromLinear {
@@ -303,6 +304,7 @@ async fn run(
             worker: target.on.as_deref(),
             sandbox: target.sandbox,
             requirements: target.requirements,
+            review_executor: target.review_with,
         };
         client.create_task_from_linear(&body).await?
     } else if let Some(prompt) = prompt {

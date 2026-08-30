@@ -22,7 +22,7 @@ use crate::git::{branch_name, commit, mirror_path, session_path, SCRATCHPAD};
 use crate::plan::extract_plan;
 use crate::policy::{
     effective_sandbox, failed_names, fix_prompt, load_policy, parse_review, review_prompt,
-    review_warning, PolicyConfig,
+    review_warning, reviewer, PolicyConfig,
 };
 use crate::proc::{
     cost_buffer, cost_total, final_text, tail_buffer, tail_lines, text_buffer, Cost, Pump, Sinks,
@@ -75,6 +75,9 @@ struct RunOpts<'a> {
     answer: Option<Text>,
     /// Where the run's session id replaces the task's recorded one.
     session: Option<PathBuf>,
+    /// The harness for this spawn: the task's own for every pass but review,
+    /// which may run under the other one.
+    executor: Executor,
 }
 
 /// A finished run.
@@ -138,6 +141,7 @@ impl<'a> Run<'a> {
 /// The agent run for a task, and everything the repository's policy adds to it.
 pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> Result<()> {
     let policy = load_policy(run.worktree);
+    let available = crate::detect_executors();
     run.timeout = Duration::from_secs(policy.timeout_secs);
     run.sandbox = effective_sandbox(&run.task.spec, &policy);
     tracing::info!(profile = run.sandbox.as_str(), "sandbox profile");
@@ -156,7 +160,7 @@ pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> 
         Err(stop) => return run.stopped(stop),
     };
     if policy.review && !result.diff.is_empty() {
-        match run.review(&result.diff).await? {
+        match run.review(&result.diff, &policy, &available).await? {
             Ok(review) => result.review = Some(review),
             Err(stop) => return run.stopped(stop),
         }
@@ -208,6 +212,7 @@ impl Run<'_> {
             edits: false,
             answer: Some(answer.clone()),
             session: Some(self.session_path()),
+            executor: self.task.spec.executor,
         };
         let finish = match self.agent_run(opts).await? {
             Ran::Finished(finish) => finish,
@@ -240,6 +245,7 @@ impl Run<'_> {
                 edits: true,
                 answer: None,
                 session: Some(self.session_path()),
+                executor: self.task.spec.executor,
             };
             let finish = match self.agent_run(opts).await? {
                 Ran::Finished(finish) => finish,
@@ -285,6 +291,7 @@ impl Run<'_> {
                 edits: true,
                 answer: None,
                 session: Some(self.session_path()),
+                executor: self.task.spec.executor,
             };
             match self.agent_run(opts).await? {
                 Ran::Finished(_) => {}
@@ -308,7 +315,13 @@ impl Run<'_> {
         run_validation(self.worktree, checks).await
     }
 
-    async fn review(&mut self, diff: &str) -> Result<Result<Review, Ran>> {
+    async fn review(
+        &mut self,
+        diff: &str,
+        policy: &PolicyConfig,
+        available: &[Executor],
+    ) -> Result<Result<Review, Ran>> {
+        let used = reviewer(&self.task.spec, policy, available);
         let answer = text_buffer();
         let opts = RunOpts {
             prompt: &review_prompt(&self.task.spec.prompt, diff),
@@ -316,23 +329,26 @@ impl Run<'_> {
             edits: false,
             answer: Some(answer.clone()),
             session: None,
+            executor: used,
         };
         let finish = match self.agent_run(opts).await? {
             Ran::Finished(finish) => finish,
             stop => return Ok(Err(stop)),
         };
-        Ok(Ok(if finish.status.success() {
+        let mut review = if finish.status.success() {
             parse_review(&final_text(&answer))
         } else {
             review_warning(format!("reviewer exited with {}", finish.status))
-        }))
+        };
+        review.executor = Some(used);
+        Ok(Ok(review))
     }
 
     /// Spawns the executor, forwards its output, and waits. A `Ran` that is not
     /// `Finished` means the child was killed and nothing else has happened.
     async fn agent_run(&mut self, opts: RunOpts<'_>) -> Result<Ran> {
-        let path = which::which(self.binary())
-            .with_context(|| format!("{} not found on PATH", self.binary()))?;
+        let binary = opts.executor.binary();
+        let path = which::which(binary).with_context(|| format!("{binary} not found on PATH"))?;
         let mut child = self
             .command(&path, &opts)
             .spawn()
@@ -381,6 +397,7 @@ impl Run<'_> {
     ) -> Result<(JoinHandle<()>, JoinHandle<()>)> {
         let stdout = child.stdout.take().context("no stdout")?;
         let stderr = child.stderr.take().context("no stderr")?;
+        let executor = opts.executor;
         let out = self.pump(
             OutputStream::Stdout,
             Sinks {
@@ -389,6 +406,7 @@ impl Run<'_> {
                 cost: Some(self.cost.clone()),
                 ..Sinks::default()
             },
+            executor,
         );
         let err = self.pump(
             OutputStream::Stderr,
@@ -396,6 +414,7 @@ impl Run<'_> {
                 tail: Some(stderr_tail.clone()),
                 ..Sinks::default()
             },
+            executor,
         );
         Ok((tokio::spawn(out.run(stdout)), tokio::spawn(err.run(stderr))))
     }
@@ -417,12 +436,12 @@ impl Run<'_> {
         Ok(waited)
     }
 
-    fn pump(&self, stream: OutputStream, sinks: Sinks) -> Pump {
+    fn pump(&self, stream: OutputStream, sinks: Sinks, executor: Executor) -> Pump {
         Pump {
             ctx: self.ctx.clone(),
             task_id: self.task.id.clone(),
             stream,
-            executor: self.task.spec.executor,
+            executor,
             sinks,
         }
     }
@@ -435,7 +454,7 @@ impl Run<'_> {
             mirror: &mirror,
             home: &home,
         };
-        let wrapped = sandbox::wrap(self.sandbox, &paths, path, &self.args(opts));
+        let wrapped = sandbox::wrap(self.sandbox, &paths, path, &args(opts));
         let mut cmd = Command::new(wrapped.program);
         cmd.args(wrapped.args);
         if self.sandbox != SandboxProfile::Off {
@@ -450,7 +469,9 @@ impl Run<'_> {
             .kill_on_drop(true);
         cmd
     }
+}
 
+impl Run<'_> {
     /// What `lgtm mcp` reads to answer for this run.
     fn mcp_env(&self) -> [(&'static str, String); 4] {
         [
@@ -460,15 +481,15 @@ impl Run<'_> {
             ("LGTM_REPOSITORY", self.task.spec.repository.clone()),
         ]
     }
+}
 
-    fn args(&self, opts: &RunOpts<'_>) -> Vec<String> {
-        // A worker whose own path is unknowable can still run the agent; it
-        // just runs it without the LGTM tools.
-        let exe = std::env::current_exe().ok();
-        match self.task.spec.executor {
-            Executor::Claude => claude_args(opts, exe.as_deref()),
-            Executor::Codex => codex_args(opts, exe.as_deref()),
-        }
+fn args(opts: &RunOpts<'_>) -> Vec<String> {
+    // A worker whose own path is unknowable can still run the agent; it
+    // just runs it without the LGTM tools.
+    let exe = std::env::current_exe().ok();
+    match opts.executor {
+        Executor::Claude => claude_args(opts, exe.as_deref()),
+        Executor::Codex => codex_args(opts, exe.as_deref()),
     }
 }
 
@@ -627,6 +648,7 @@ mod tests {
             edits,
             answer: None,
             session: None,
+            executor: Executor::Claude,
         }
     }
 

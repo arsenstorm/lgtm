@@ -94,16 +94,21 @@ pub fn detect_capabilities() -> Vec<String> {
     tags
 }
 
+/// Which harnesses this machine can run, PATH probed once at startup.
+pub fn detect_executors() -> Vec<Executor> {
+    [Executor::Claude, Executor::Codex]
+        .into_iter()
+        .filter(|e| which::which(e.binary()).is_ok())
+        .collect()
+}
+
 /// Runs the worker until it exits on purpose (ephemeral done -> `Ok(())`) or
 /// the connector/CA fails to build (`Err`).
 pub async fn run(opts: WorkerOptions) -> Result<()> {
     // ring and aws-lc-rs can both be linked; rustls will not guess.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let executors: Vec<Executor> = [Executor::Claude, Executor::Codex]
-        .into_iter()
-        .filter(|e| which::which(e.binary()).is_ok())
-        .collect();
+    let executors = detect_executors();
     let capabilities = detect_capabilities();
     tracing::info!(
         "worker {} in {} executors {executors:?} slots {} capabilities {capabilities:?}",

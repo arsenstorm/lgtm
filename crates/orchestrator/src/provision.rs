@@ -146,6 +146,7 @@ mod tests {
                 sandbox: None,
                 requirements: Vec::new(),
                 goal: None,
+                review_executor: None,
             },
             status,
             worker: None,

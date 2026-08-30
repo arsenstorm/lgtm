@@ -30,6 +30,7 @@ fn seed(dir: &std::path::Path) {
             batch: None,
             sandbox: None,
             requirements: Vec::new(),
+            review_executor: None,
             goal: None,
         },
         status: TaskStatus::AwaitingReview,

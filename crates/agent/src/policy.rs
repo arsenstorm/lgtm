@@ -3,7 +3,9 @@
 
 use std::path::Path;
 
-use lgtm_protocol::{Finding, Review, SandboxProfile, Severity, TaskSpec, ValidationResult};
+use lgtm_protocol::{
+    Executor, Finding, Review, SandboxProfile, Severity, TaskSpec, ValidationResult,
+};
 
 /// How much of the diff the reviewer is shown.
 const DIFF_CHARS: usize = 60_000;
@@ -32,6 +34,16 @@ pub struct PolicyConfig {
     /// Kill an agent run that has been going this long.
     pub timeout_secs: u64,
     pub sandbox: SandboxProfile,
+    pub review_executor: ReviewExecutor,
+}
+
+/// The harness for the review pass. Defaults to `Auto` so a worker with both
+/// harnesses reviews under the one that didn't write the diff.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ReviewExecutor {
+    #[default]
+    Auto,
+    Fixed(Executor),
 }
 
 impl Default for PolicyConfig {
@@ -47,8 +59,27 @@ impl Default for PolicyConfig {
             budget_per_task_usd: None,
             timeout_secs: DEFAULT_TIMEOUT_SECS,
             sandbox: SandboxProfile::Standard,
+            review_executor: ReviewExecutor::Auto,
         }
     }
+}
+
+/// The task's own choice wins; then the repository's `[policy]
+/// review_executor`; otherwise the first available harness that isn't the
+/// one that implemented the task, falling back to that same harness when the
+/// worker has no other.
+pub fn reviewer(spec: &TaskSpec, policy: &PolicyConfig, available: &[Executor]) -> Executor {
+    if let Some(executor) = spec.review_executor {
+        return executor;
+    }
+    if let ReviewExecutor::Fixed(executor) = policy.review_executor {
+        return executor;
+    }
+    available
+        .iter()
+        .copied()
+        .find(|&executor| executor != spec.executor)
+        .unwrap_or(spec.executor)
 }
 
 /// The task's own `sandbox` wins; otherwise the repository's `[sandbox]
@@ -90,6 +121,7 @@ pub fn parse_policy(text: &str) -> PolicyConfig {
             "protected_files" => strings(&mut policy.protected_files, key, value),
             "budget_per_task_usd" => optional_money(&mut policy.budget_per_task_usd, key, value),
             "timeout_secs" => seconds(&mut policy.timeout_secs, key, value),
+            "review_executor" => review_executor(&mut policy.review_executor, key, value),
             _ => tracing::warn!("[policy] unknown key {key}, ignoring"),
         }
     }
@@ -165,6 +197,15 @@ fn flag(slot: &mut bool, key: &str, value: &toml::Value) {
     }
 }
 
+fn review_executor(slot: &mut ReviewExecutor, key: &str, value: &toml::Value) {
+    match value.as_str() {
+        Some("auto") => *slot = ReviewExecutor::Auto,
+        Some("claude") => *slot = ReviewExecutor::Fixed(Executor::Claude),
+        Some("codex") => *slot = ReviewExecutor::Fixed(Executor::Codex),
+        _ => tracing::warn!("[policy] {key} must be auto, claude or codex, ignoring"),
+    }
+}
+
 /// Asks the agent that just ran to fix the checks it broke, in its own session.
 pub fn fix_prompt(failed: &[&ValidationResult]) -> String {
     let blocks: Vec<String> = failed
@@ -227,6 +268,7 @@ pub fn review_warning(message: String) -> Review {
             line: None,
             message,
         }],
+        executor: None,
     }
 }
 
@@ -262,6 +304,7 @@ mod tests {
                 budget_per_task_usd: None,
                 timeout_secs: 120,
                 sandbox: SandboxProfile::Standard,
+                review_executor: ReviewExecutor::Auto,
             }
         );
     }
@@ -313,6 +356,74 @@ mod tests {
         assert_eq!(effective_sandbox(&spec, &policy), SandboxProfile::Off);
     }
 
+    #[test]
+    fn review_executor_config_reads_auto_claude_codex_and_bad_value_warns() {
+        assert_eq!(
+            parse_policy("[policy]\nreview_executor = \"auto\"\n").review_executor,
+            ReviewExecutor::Auto
+        );
+        assert_eq!(
+            parse_policy("[policy]\nreview_executor = \"claude\"\n").review_executor,
+            ReviewExecutor::Fixed(Executor::Claude)
+        );
+        assert_eq!(
+            parse_policy("[policy]\nreview_executor = \"codex\"\n").review_executor,
+            ReviewExecutor::Fixed(Executor::Codex)
+        );
+        assert_eq!(
+            parse_policy("[policy]\nreview_executor = \"gpt\"\n").review_executor,
+            ReviewExecutor::Auto
+        );
+    }
+
+    #[test]
+    fn reviewer_prefers_the_spec_over_the_policy() {
+        let mut spec = sample_spec();
+        spec.review_executor = Some(Executor::Codex);
+        let policy = PolicyConfig {
+            review_executor: ReviewExecutor::Fixed(Executor::Claude),
+            ..PolicyConfig::default()
+        };
+        assert_eq!(
+            reviewer(&spec, &policy, &[Executor::Claude]),
+            Executor::Codex
+        );
+    }
+
+    #[test]
+    fn reviewer_falls_back_to_a_fixed_policy() {
+        let spec = sample_spec();
+        let policy = PolicyConfig {
+            review_executor: ReviewExecutor::Fixed(Executor::Codex),
+            ..PolicyConfig::default()
+        };
+        assert_eq!(
+            reviewer(&spec, &policy, &[Executor::Claude, Executor::Codex]),
+            Executor::Codex
+        );
+    }
+
+    #[test]
+    fn reviewer_auto_picks_the_other_available_harness() {
+        let spec = sample_spec(); // executor: Claude
+        let policy = PolicyConfig::default();
+        assert_eq!(
+            reviewer(&spec, &policy, &[Executor::Claude, Executor::Codex]),
+            Executor::Codex
+        );
+    }
+
+    #[test]
+    fn reviewer_auto_falls_back_to_the_same_harness_alone() {
+        let spec = sample_spec(); // executor: Claude
+        let policy = PolicyConfig::default();
+        assert_eq!(
+            reviewer(&spec, &policy, &[Executor::Claude]),
+            Executor::Claude
+        );
+        assert_eq!(reviewer(&spec, &policy, &[]), Executor::Claude);
+    }
+
     fn sample_spec() -> TaskSpec {
         TaskSpec {
             repository: "r".into(),
@@ -329,6 +440,7 @@ mod tests {
             sandbox: None,
             requirements: vec![],
             goal: None,
+            review_executor: None,
         }
     }
 

@@ -51,6 +51,7 @@ fn candidate(number: u64) -> Candidate {
         batch: Some("b0000001".into()),
         sandbox: None,
         requirements: Vec::new(),
+        review_executor: None,
     };
     github_candidate(&issue(number), &repo(), input)
 }
@@ -65,6 +66,7 @@ fn github_candidate_builds_the_from_issue_shape() {
         batch: Some("b0000001".into()),
         sandbox: None,
         requirements: Vec::new(),
+        review_executor: None,
     };
     let candidate = github_candidate(&issue(12), &repo(), input);
     assert_eq!(candidate.key, "#12");

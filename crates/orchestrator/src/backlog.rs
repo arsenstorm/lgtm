@@ -49,6 +49,7 @@ pub struct SpecInput {
     pub batch: Option<String>,
     pub sandbox: Option<SandboxProfile>,
     pub requirements: Vec<String>,
+    pub review_executor: Option<Executor>,
 }
 
 impl SpecInput {
@@ -68,6 +69,7 @@ impl SpecInput {
             sandbox: self.sandbox,
             requirements: self.requirements,
             goal: None,
+            review_executor: self.review_executor,
         }
     }
 }
