@@ -95,6 +95,8 @@ pub enum Command {
     Reject { id: String },
     /// Cancel a queued or running task
     Cancel { id: String },
+    /// Ask a running task's agent to stop gracefully before it is killed
+    Interrupt { id: String },
     /// Merge a task's pull request
     Merge { id: String },
     /// Queue a task that ended badly as a fresh attempt, then stream it

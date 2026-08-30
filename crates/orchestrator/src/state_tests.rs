@@ -291,6 +291,34 @@ fn cancel_queued_task() {
 }
 
 #[test]
+fn interrupt_routes_to_the_running_task_runner() {
+    let mut state = State::default();
+    let mut a = connect(&mut state, "a", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+    state.apply_event(&id, TaskEvent::Started { model: None });
+    assert_eq!(status(&state, &id), TaskStatus::Running);
+
+    let task = state.interrupt(&id).unwrap();
+    assert_eq!(task.status, TaskStatus::Running, "not a status of its own");
+    let sent: Vec<OrchestratorMessage> = std::iter::from_fn(|| a.try_recv().ok()).collect();
+    assert!(sent
+        .iter()
+        .any(|msg| matches!(msg, OrchestratorMessage::Interrupt { task_id } if task_id == &id)));
+}
+
+#[test]
+fn interrupt_refuses_a_task_that_is_not_running() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let queued = create(&mut state, Executor::Claude);
+
+    assert!(matches!(
+        state.interrupt(&queued.id),
+        Err(CmdError::Conflict(_))
+    ));
+}
+
+#[test]
 fn apply_event_transitions() {
     let mut state = State::default();
     let _idle = connect(&mut state, "idle", 1, 1);

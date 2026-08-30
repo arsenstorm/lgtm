@@ -179,6 +179,7 @@ async fn task_command(client: &Client, command: Command) -> anyhow::Result<i32> 
         Command::Approve { id } => print_json(client.approve(&id).await?),
         Command::Reject { id } => print_json(client.reject(&id).await?),
         Command::Cancel { id } => print_json(client.cancel(&id).await?),
+        Command::Interrupt { id } => print_json(client.interrupt(&id).await?),
         Command::Merge { id } => print_json(client.merge(&id).await?),
         Command::Retry { id, on, agent } => {
             // The failure that made this worth retrying is already on record;

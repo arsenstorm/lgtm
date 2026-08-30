@@ -33,6 +33,9 @@ pub struct Ctx {
     pub token: String,
     pub tx: mpsc::UnboundedSender<RunnerMessage>,
     pub running: Mutex<HashMap<TaskId, oneshot::Sender<()>>>,
+    /// A task's interrupt sender, present only while `wait_or_kill` is
+    /// waiting on its child: that is the one place an interrupt can act.
+    pub interrupt: Mutex<HashMap<TaskId, oneshot::Sender<()>>>,
     /// Mirror path per task, so a discard after a restart of the task still
     /// knows which bare clone owns the worktree.
     pub mirrors: Mutex<HashMap<TaskId, PathBuf>>,
@@ -63,6 +66,7 @@ impl Ctx {
             token,
             tx,
             running: Mutex::new(HashMap::new()),
+            interrupt: Mutex::new(HashMap::new()),
             mirrors: Mutex::new(HashMap::new()),
             terminals: tokio::sync::Mutex::new(HashMap::new()),
             ephemeral,
@@ -335,6 +339,16 @@ async fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
                 .running
                 .lock()
                 .expect("running map poisoned")
+                .remove(&task_id);
+            if let Some(sender) = sender {
+                let _ = sender.send(());
+            }
+        }
+        OrchestratorMessage::Interrupt { task_id } => {
+            let sender = ctx
+                .interrupt
+                .lock()
+                .expect("interrupt map poisoned")
                 .remove(&task_id);
             if let Some(sender) = sender {
                 let _ = sender.send(());
