@@ -598,6 +598,7 @@ impl State {
             error: None,
             pull_request: None,
             ci: None,
+            pr_review: None,
             executions: Vec::new(),
             scratchpad: String::new(),
         };
@@ -717,7 +718,8 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
         | TaskEvent::PolicyDecision { .. }
         | TaskEvent::Orchestrated { .. }
         | TaskEvent::AutoApproved
-        | TaskEvent::AutoMerged => (None, false),
+        | TaskEvent::AutoMerged
+        | TaskEvent::PrReviewed { .. } => (None, false),
     };
     if let (Some(status), false) = (status, terminal) {
         task.status = status;

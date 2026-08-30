@@ -1,6 +1,7 @@
 use super::*;
 use lgtm_protocol::{
-    CiStatus, Executor, Finding, Plan, PullRequest, Review, TaskResult, TaskSpec, ValidationResult,
+    CiStatus, Executor, Finding, Plan, PrReview, PullRequest, Review, ReviewState, TaskResult,
+    TaskSpec, ValidationResult,
 };
 
 fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
@@ -43,6 +44,7 @@ fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
         error: None,
         pull_request: None,
         ci: None,
+        pr_review: None,
         executions: Vec::new(),
         scratchpad: String::new(),
     }
@@ -221,6 +223,18 @@ fn merges_only_once_ci_is_green() {
     let mut awaiting = mergeable(Some(CiState::Success));
     awaiting.status = TaskStatus::AwaitingReview;
     assert_eq!(decide(&awaiting), None, "auto_merge alone does not approve");
+}
+
+#[test]
+fn a_requested_change_refuses_the_merge_even_with_green_ci() {
+    let mut task = mergeable(Some(CiState::Success));
+    task.pr_review = Some(PrReview {
+        state: ReviewState::ChangesRequested,
+        url: "https://github.com/arsenstorm/lgtm/pull/12#pullrequestreview-1".into(),
+    });
+    let (allowed, reasons) = reasons(&task).unwrap();
+    assert!(!allowed);
+    assert!(reasons.contains(&"pr review requested changes".to_string()));
 }
 
 #[test]

@@ -45,6 +45,7 @@ fn sample_task() -> Task {
             state: CiState::Pending,
             url: "https://github.com/arsenstorm/lgtm/pull/12/checks".into(),
         }),
+        pr_review: None,
         executions: vec![Execution {
             attempt: 1,
             runner: "compute".into(),
@@ -669,10 +670,27 @@ fn attention_names_the_task_and_why() {
             },
             "add a /health endpoint: conflicts with main",
         ),
+        (
+            TaskEvent::PrReviewed {
+                state: ReviewState::ChangesRequested,
+                url: "https://github.com/o/r/pull/1#pullrequestreview-1".into(),
+            },
+            "add a /health endpoint: PR review requested changes",
+        ),
     ];
     for (event, expected) in cases {
         assert_eq!(attention(&task, &event).as_deref(), Some(expected));
     }
+}
+
+#[test]
+fn an_approved_review_wants_nobody() {
+    let task = attention_task("p", TaskStatus::Running, None);
+    let event = TaskEvent::PrReviewed {
+        state: ReviewState::Approved,
+        url: "https://github.com/o/r/pull/1#pullrequestreview-1".into(),
+    };
+    assert_eq!(attention(&task, &event), None);
 }
 
 #[test]

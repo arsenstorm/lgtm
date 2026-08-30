@@ -1,7 +1,9 @@
 //! What the repository's `[policy]` lets the orchestrator do on its own. Pure:
 //! the callers do the storing, the sending and the GitHub calls.
 
-use lgtm_protocol::{CiState, Policy, Severity, Task, TaskEvent, TaskKind, TaskResult, TaskStatus};
+use lgtm_protocol::{
+    CiState, Policy, ReviewState, Severity, Task, TaskEvent, TaskKind, TaskResult, TaskStatus,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AutoAction {
@@ -110,10 +112,18 @@ fn merge(task: &Task) -> Option<Decision> {
     if state == CiState::Pending {
         return None;
     }
+    let changes_requested = task
+        .pr_review
+        .as_ref()
+        .is_some_and(|review| review.state == ReviewState::ChangesRequested);
+    let mut reasons = vec![format!("ci {}", ci_word(state))];
+    if changes_requested {
+        reasons.push("pr review requested changes".into());
+    }
     Some(Decision {
         action: AutoAction::Merge,
-        allowed: state == CiState::Success,
-        reasons: vec![format!("ci {}", ci_word(state))],
+        allowed: state == CiState::Success && !changes_requested,
+        reasons,
     })
 }
 

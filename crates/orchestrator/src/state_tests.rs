@@ -729,6 +729,7 @@ fn linear_task(status: TaskStatus, from_linear: bool) -> Task {
         error: None,
         pull_request: None,
         ci: None,
+        pr_review: None,
         executions: Vec::new(),
         scratchpad: String::new(),
     }

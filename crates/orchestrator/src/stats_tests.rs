@@ -38,6 +38,7 @@ fn task(id: &str, status: TaskStatus, created_at: u64, executions: Vec<Execution
         error: None,
         pull_request: None,
         ci: None,
+        pr_review: None,
         executions,
         scratchpad: String::new(),
     }

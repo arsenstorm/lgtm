@@ -236,8 +236,9 @@ Tailscale with no TLS at all.
 
 You should not have to watch LGTM. The desktop app raises an OS notification
 when a task needs a person — ready for review, failed, timed out, runner
-lost, merged, asks for a permission, or conflicts with its base branch.
-Settings → Notifications turns it off; it is on by default.
+lost, merged, asks for a permission, conflicts with its base branch, or a
+pull request review requests changes. Settings → Notifications turns it off;
+it is on by default.
 
 `lgtm serve --webhook URL` (or `LGTM_WEBHOOK`) POSTs the same events, so
 Slack, email, or anything else can hang off one URL:

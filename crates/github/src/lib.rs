@@ -1,17 +1,19 @@
 //! Minimal GitHub REST client: issue lookup, pull request creation and
-//! merging, and check-run aggregation for CI status.
+//! merging, check-run aggregation for CI status, and pull request reviews.
 
 mod checks;
 mod refs;
+mod reviews;
 
 use std::process::Command;
 
 use anyhow::{anyhow, Context};
-use lgtm_protocol::{CiStatus, PullRequest};
+use lgtm_protocol::{CiStatus, PrReview, PullRequest};
 use serde::Deserialize;
 
 pub use checks::aggregate_checks;
 pub use refs::{parse_issue, parse_repo, Repo};
+pub use reviews::aggregate_reviews;
 
 const API_BASE: &str = "https://api.github.com";
 
@@ -175,6 +177,14 @@ impl GitHub {
             repo.owner, repo.repo
         );
         Ok(aggregate_checks(&runs, &fallback_url))
+    }
+
+    /// The pull request's human review state: [`aggregate_reviews`].
+    pub async fn pull_reviews(&self, repo: &Repo, number: u64) -> anyhow::Result<Option<PrReview>> {
+        let path = format!("/repos/{}/{}/pulls/{number}/reviews", repo.owner, repo.repo);
+        let reviews: Vec<serde_json::Value> =
+            Self::send_json(self.request(reqwest::Method::GET, &path)).await?;
+        Ok(aggregate_reviews(&reviews))
     }
 
     /// `mergeable` field of the pull request, `None` when GitHub hasn't
