@@ -95,6 +95,8 @@ async fn end_to_end() {
         slots: 1,
         ephemeral: false,
         capabilities: vec![],
+        cpu_cores: 0,
+        memory_mb: 0,
     };
     w.send(TMsg::Text(
         serde_json::to_string(&RunnerMessage::Hello {
@@ -343,6 +345,8 @@ async fn end_to_end() {
         slots: 1,
         ephemeral: false,
         capabilities: vec![],
+        cpu_cores: 0,
+        memory_mb: 0,
     };
     w1.send(TMsg::Text(
         serde_json::to_string(&RunnerMessage::Hello {
@@ -465,6 +469,8 @@ async fn end_to_end() {
         slots: 1,
         ephemeral: false,
         capabilities: vec![],
+        cpu_cores: 0,
+        memory_mb: 0,
     };
     bad.send(TMsg::Text(
         serde_json::to_string(&RunnerMessage::Hello {
@@ -489,6 +495,8 @@ async fn end_to_end() {
         slots: 1,
         ephemeral: false,
         capabilities: vec![],
+        cpu_cores: 0,
+        memory_mb: 0,
     };
     stale
         .send(TMsg::Text(
@@ -729,6 +737,8 @@ async fn a_message_becomes_a_task_under_its_session() {
                 slots: 1,
                 ephemeral: false,
                 capabilities: vec![],
+                cpu_cores: 0,
+                memory_mb: 0,
             },
             running: Vec::new(),
             version: PROTOCOL_VERSION,
@@ -813,6 +823,8 @@ async fn a_memory_reaches_the_runner() {
                 slots: 1,
                 ephemeral: false,
                 capabilities: vec![],
+                cpu_cores: 0,
+                memory_mb: 0,
             },
             running: Vec::new(),
             version: PROTOCOL_VERSION,
@@ -890,6 +902,8 @@ async fn a_goals_plan_is_listed_once_the_agent_completes_it() {
                 slots: 1,
                 ephemeral: false,
                 capabilities: Vec::new(),
+                cpu_cores: 0,
+                memory_mb: 0,
             },
             running: Vec::new(),
             version: PROTOCOL_VERSION,

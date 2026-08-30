@@ -48,6 +48,20 @@ pub struct ServeOptions {
     /// Model to run a task of each kind on (`plan`, `run`) when its spec
     /// names none.
     pub models: Vec<(String, String)>,
+    /// How the scheduler breaks a free-slot tie between candidate runners.
+    pub prefer: Prefer,
+}
+
+/// How `State::candidate` breaks a tie between runners with the same number
+/// of free slots.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Prefer {
+    /// Lowest runner name wins.
+    #[default]
+    Slots,
+    /// The runner with the lower median duration for the task's repository
+    /// over the last 7 days wins; a runner with no history sorts last.
+    Fastest,
 }
 
 pub struct ProvisionOptions {
@@ -70,6 +84,7 @@ pub async fn serve_plain(bind: SocketAddr, token: String, data_dir: PathBuf) -> 
         webhook: None,
         orchestrate: None,
         models: Vec::new(),
+        prefer: Prefer::default(),
     })
     .await
 }
@@ -79,6 +94,7 @@ pub async fn serve_plain(bind: SocketAddr, token: String, data_dir: PathBuf) -> 
 pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
     let mut state = load_state(&opts.data_dir, opts.provision.is_some())?;
     state.models = opts.models.into_iter().collect();
+    state.prefer = opts.prefer;
     let (persist_tx, persist_rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(persist::writer(opts.data_dir, persist_rx));
 

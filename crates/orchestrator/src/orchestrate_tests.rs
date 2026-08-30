@@ -18,6 +18,8 @@ fn connect(state: &mut State) -> mpsc::UnboundedReceiver<lgtm_protocol::Orchestr
             slots: 4,
             ephemeral: false,
             capabilities: Vec::new(),
+            cpu_cores: 0,
+            memory_mb: 0,
         },
         Vec::new(),
         Conn { tx, conn_id: 1 },

@@ -78,6 +78,8 @@ fn every_message_round_trips() {
         slots: 2,
         ephemeral: true,
         capabilities: vec!["os:windows".into(), "docker".into()],
+        cpu_cores: 8,
+        memory_mb: 32_768,
     };
     let result = TaskResult {
         branch: "lgtm/0123abcd".into(),
@@ -308,6 +310,8 @@ fn phase_one_frames_still_parse() {
     assert_eq!(info.slots, 1);
     assert!(!info.ephemeral);
     assert!(info.capabilities.is_empty());
+    assert_eq!(info.cpu_cores, 0);
+    assert_eq!(info.memory_mb, 0);
     let hello: RunnerMessage = serde_json::from_str(
         r#"{"type":"hello","token":"t","info":{"name":"w","os":"linux","arch":"x86_64","executors":[]}}"#,
     )
@@ -469,20 +473,42 @@ fn sandbox_profile_round_trips_through_its_wire_name() {
     assert_eq!(SandboxProfile::parse("x"), None);
 }
 
-#[test]
-fn has_all_requires_every_requirement_in_capabilities() {
-    let info = RunnerInfo {
+fn runner(capabilities: Vec<String>, cpu_cores: u32, memory_mb: u64) -> RunnerInfo {
+    RunnerInfo {
         name: "w".into(),
         os: "linux".into(),
         arch: "x86_64".into(),
         executors: vec![],
         slots: 1,
         ephemeral: false,
-        capabilities: vec!["os:linux".into(), "docker".into()],
-    };
+        capabilities,
+        cpu_cores,
+        memory_mb,
+    }
+}
+
+#[test]
+fn has_all_requires_every_requirement_in_capabilities() {
+    let info = runner(vec!["os:linux".into(), "docker".into()], 0, 0);
     assert!(info.has_all(&[]));
     assert!(info.has_all(&["docker".into()]));
     assert!(!info.has_all(&["node".into()]));
+}
+
+#[test]
+fn has_all_compares_memory_mb_and_cpu_cores_numerically() {
+    let info = runner(vec![], 8, 16_384);
+    assert!(info.has_all(&["cpu_cores:8".into(), "memory_mb:16384".into()]));
+    assert!(info.has_all(&["cpu_cores:4".into(), "memory_mb:1024".into()]));
+    assert!(!info.has_all(&["cpu_cores:16".into()]));
+    assert!(!info.has_all(&["memory_mb:32768".into()]));
+}
+
+#[test]
+fn has_all_never_matches_a_malformed_number() {
+    let info = runner(vec![], 8, 16_384);
+    assert!(!info.has_all(&["cpu_cores:many".into()]));
+    assert!(!info.has_all(&["memory_mb:".into()]));
 }
 
 #[test]

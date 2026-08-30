@@ -63,6 +63,8 @@ async fn end_to_end() {
         slots: 1,
         ephemeral: false,
         capabilities: vec![],
+        cpu_cores: 0,
+        memory_mb: 0,
     };
     w.send(TMsg::Text(
         serde_json::to_string(&RunnerMessage::Hello {

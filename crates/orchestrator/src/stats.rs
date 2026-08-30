@@ -2,8 +2,8 @@
 //! the caller hands over the store's tasks and events.
 
 use lgtm_protocol::{
-    Execution, ExecutionStatus, Executor, ExecutorStats, Stats, StoredEvent, Task, TaskEvent,
-    TaskStatus,
+    Execution, ExecutionStatus, Executor, ExecutorStats, RunnerStats, Stats, StoredEvent, Task,
+    TaskEvent, TaskStatus,
 };
 
 /// Counts `tasks` by status, folding `ChangesRequested` into running and
@@ -55,22 +55,45 @@ fn record_executor(
     }
 }
 
+/// `by_runner`'s row for `execution.runner` gains an attempt (and a failure,
+/// and its duration in `runner_ms`), creating both on first sight so the two
+/// vectors stay index-aligned.
 fn record_executions(
     executions: &[Execution],
     exec_ms: &mut Vec<u64>,
     by_executor: &mut Vec<ExecutorStats>,
+    by_runner: &mut Vec<RunnerStats>,
+    runner_ms: &mut Vec<Vec<u64>>,
 ) {
     for execution in executions {
+        let idx = match by_runner.iter().position(|r| r.runner == execution.runner) {
+            Some(idx) => idx,
+            None => {
+                by_runner.push(RunnerStats {
+                    runner: execution.runner.clone(),
+                    ..Default::default()
+                });
+                runner_ms.push(Vec::new());
+                by_runner.len() - 1
+            }
+        };
+        by_runner[idx].attempts += 1;
+        if execution.status == ExecutionStatus::Failed {
+            by_runner[idx].failed += 1;
+        }
         if let Some(finished) = execution.finished_at {
-            exec_ms.push(finished.saturating_sub(execution.started_at));
+            let duration = finished.saturating_sub(execution.started_at);
+            exec_ms.push(duration);
+            runner_ms[idx].push(duration);
         }
         record_executor(by_executor, execution.executor, execution.status);
     }
 }
 
 /// Middle value of a sorted copy; 0 for an empty set (there is nothing to
-/// report yet, not a division by zero to hide).
-fn median(values: &mut [u64]) -> u64 {
+/// report yet, not a division by zero to hide). `pub(crate)` so `state.rs`'s
+/// `median_for` can reuse it rather than sort medians its own way.
+pub(crate) fn median(values: &mut [u64]) -> u64 {
     if values.is_empty() {
         return 0;
     }
@@ -90,6 +113,7 @@ pub fn compute(records: &[(&Task, &[StoredEvent])], since: u64) -> Stats {
     };
     let mut exec_ms = Vec::new();
     let mut queue_ms = Vec::new();
+    let mut runner_ms = Vec::new();
 
     let filtered = records
         .iter()
@@ -105,12 +129,22 @@ pub fn compute(records: &[(&Task, &[StoredEvent])], since: u64) -> Stats {
         if let Some(started) = first_started_at(events) {
             queue_ms.push(started.saturating_sub(task.created_at));
         }
-        record_executions(&task.executions, &mut exec_ms, &mut stats.by_executor);
+        record_executions(
+            &task.executions,
+            &mut exec_ms,
+            &mut stats.by_executor,
+            &mut stats.by_runner,
+            &mut runner_ms,
+        );
     }
 
     stats.median_execution_ms = median(&mut exec_ms);
     stats.median_queue_ms = median(&mut queue_ms);
     stats.by_executor.sort_by_key(|e| e.executor.binary());
+    for (entry, ms) in stats.by_runner.iter_mut().zip(runner_ms.iter_mut()) {
+        entry.median_ms = median(ms);
+    }
+    stats.by_runner.sort_by(|a, b| a.runner.cmp(&b.runner));
     record_budget(records, &mut stats);
     stats
 }

@@ -17,7 +17,8 @@ use lgtm_protocol::{BatchSource, TaskKind, TaskSpec};
 
 use crate::cli::{BacklogCommand, Cli, Command, MemoryCommand, Target, TodoCommand};
 use crate::table::{
-    ci_str, print_goal_table, print_memory_table, print_task_table, print_todo_table, status_str,
+    ci_str, mem_gb_cell, print_goal_table, print_memory_table, print_task_table, print_todo_table,
+    status_str,
 };
 
 fn now_ms() -> u64 {
@@ -236,8 +237,8 @@ fn print_json(value: impl serde::Serialize) -> anyhow::Result<i32> {
 
 async fn runners(client: &Client) -> anyhow::Result<i32> {
     println!(
-        "{:<16}{:<8}{:<8}{:<16}{:<10}{:<8}CAPABILITIES",
-        "NAME", "OS", "ARCH", "EXECUTORS", "KIND", "SLOTS"
+        "{:<16}{:<8}{:<8}{:<16}{:<10}{:<8}{:<6}{:<8}CAPABILITIES",
+        "NAME", "OS", "ARCH", "EXECUTORS", "KIND", "SLOTS", "CPU", "MEM"
     );
     for w in client.runners().await? {
         let executors = w
@@ -255,8 +256,16 @@ async fn runners(client: &Client) -> anyhow::Result<i32> {
         };
         let capabilities = w.info.capabilities.join(" ");
         println!(
-            "{:<16}{:<8}{:<8}{:<16}{:<10}{:<8}{}",
-            w.info.name, w.info.os, w.info.arch, executors, kind, slots, capabilities
+            "{:<16}{:<8}{:<8}{:<16}{:<10}{:<8}{:<6}{:<8}{}",
+            w.info.name,
+            w.info.os,
+            w.info.arch,
+            executors,
+            kind,
+            slots,
+            w.info.cpu_cores,
+            mem_gb_cell(w.info.memory_mb),
+            capabilities
         );
     }
     Ok(0)

@@ -1,6 +1,7 @@
 //! Shared state and every status transition, kept free of I/O so it can be
 //! tested without sockets or files.
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -165,6 +166,8 @@ pub struct State {
     pub models: HashMap<String, String>,
     /// Goals whose stored copy is behind, drained by [`App::persist_ids`].
     pub(crate) dirty_goals: Vec<String>,
+    /// How `candidate` breaks a free-slot tie.
+    pub prefer: crate::Prefer,
 }
 
 pub struct TaskRecord {
@@ -588,9 +591,43 @@ impl State {
             .max_by(|a, b| {
                 a.free_slots()
                     .cmp(&b.free_slots())
-                    .then_with(|| b.info.name.cmp(&a.info.name))
+                    .then_with(|| self.free_slot_tie_break(spec, a, b))
             })
             .map(|runner| runner.info.name.clone())
+    }
+
+    /// Breaks a free-slot tie between `a` and `b`: under `Prefer::Fastest`,
+    /// the lower median duration for `spec`'s repository wins, a runner with
+    /// no history sorting last; both fall back to the lowest name.
+    fn free_slot_tie_break(&self, spec: &TaskSpec, a: &RunnerConn, b: &RunnerConn) -> Ordering {
+        if self.prefer == crate::Prefer::Fastest {
+            let a_ms = self.median_for(&a.info.name, &spec.repository);
+            let b_ms = self.median_for(&b.info.name, &spec.repository);
+            match (a_ms, b_ms) {
+                (Some(a_ms), Some(b_ms)) => return b_ms.cmp(&a_ms),
+                (Some(_), None) => return Ordering::Greater,
+                (None, Some(_)) => return Ordering::Less,
+                (None, None) => {}
+            }
+        }
+        b.info.name.cmp(&a.info.name)
+    }
+
+    /// Median duration, in ms, of `runner`'s finished executions for tasks in
+    /// `repository` created in the last 7 days. `None` with no such
+    /// execution, so an unknown runner can sort last rather than at zero.
+    pub fn median_for(&self, runner: &str, repository: &str) -> Option<u64> {
+        let since = now_ms().saturating_sub(7 * 24 * 60 * 60 * 1000);
+        let mut ms: Vec<u64> = self
+            .tasks
+            .values()
+            .map(|rec| &rec.task)
+            .filter(|task| task.spec.repository == repository && task.created_at >= since)
+            .flat_map(|task| task.executions.iter())
+            .filter(|e| e.runner == runner)
+            .filter_map(|e| e.finished_at.map(|f| f.saturating_sub(e.started_at)))
+            .collect();
+        (!ms.is_empty()).then(|| crate::stats::median(&mut ms))
     }
 
     /// Sum of `result.cost_usd` over `repository`'s tasks created in the

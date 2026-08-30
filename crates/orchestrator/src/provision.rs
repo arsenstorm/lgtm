@@ -114,6 +114,8 @@ mod tests {
                     slots,
                     ephemeral,
                     capabilities: Vec::new(),
+                    cpu_cores: 0,
+                    memory_mb: 0,
                 },
                 running: HashSet::new(),
                 conn: Some(Conn { tx, conn_id: 1 }),
