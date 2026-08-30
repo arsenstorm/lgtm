@@ -35,6 +35,8 @@ to add it to the fleet.
 
 - `lgtm run` a prompt, a GitHub issue (`--issue`), or a Linear issue
   (`--linear`); `lgtm plan` proposes dependent steps instead of a diff.
+- `--agent codex` is a first-class executor alongside Claude: planning,
+  follow-ups that resume the same thread, and the review pass all work.
 - `lgtm backlog github` and `lgtm backlog linear` import a whole labelled
   backlog as one batch of tasks.
 - `lgtm tell <id> "…"` sends a follow-up to a task that is awaiting review.

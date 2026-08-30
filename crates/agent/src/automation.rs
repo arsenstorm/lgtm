@@ -68,8 +68,8 @@ struct RunOpts<'a> {
     prompt: &'a str,
     /// Agent session to continue, when the run belongs to an earlier one.
     resume: Option<String>,
-    /// Claude's `--permission-mode`; the reviewer must not edit.
-    permission: &'a str,
+    /// Whether the run may change files; the reviewer must not.
+    edits: bool,
     /// Set to collect the agent's final answer.
     answer: Option<Text>,
     /// Where the run's session id replaces the task's recorded one.
@@ -204,7 +204,7 @@ impl Run<'_> {
         let opts = RunOpts {
             prompt,
             resume: None,
-            permission: "default",
+            edits: false,
             answer: Some(answer.clone()),
             session: Some(self.session_path()),
         };
@@ -236,7 +236,7 @@ impl Run<'_> {
             let opts = RunOpts {
                 prompt,
                 resume: session.take(),
-                permission: "acceptEdits",
+                edits: true,
                 answer: None,
                 session: Some(self.session_path()),
             };
@@ -281,7 +281,7 @@ impl Run<'_> {
             let opts = RunOpts {
                 prompt: &fix_prompt(&failed),
                 resume: recorded_session(self.ctx, &self.task.id).await,
-                permission: "acceptEdits",
+                edits: true,
                 answer: None,
                 session: Some(self.session_path()),
             };
@@ -312,7 +312,7 @@ impl Run<'_> {
         let opts = RunOpts {
             prompt: &review_prompt(&self.task.spec.prompt, diff),
             resume: None,
-            permission: "default",
+            edits: false,
             answer: Some(answer.clone()),
             session: None,
         };
@@ -421,6 +421,7 @@ impl Run<'_> {
             ctx: self.ctx.clone(),
             task_id: self.task.id.clone(),
             stream,
+            executor: self.task.spec.executor,
             sinks,
         }
     }
@@ -449,21 +450,10 @@ impl Run<'_> {
     }
 
     fn args(&self, opts: &RunOpts<'_>) -> Vec<String> {
-        let mut args: Vec<String> = match self.task.spec.executor {
-            Executor::Claude => vec!["-p".into(), opts.prompt.into()],
-            Executor::Codex => return vec!["exec".into(), opts.prompt.into()],
-        };
-        if let Some(session) = opts.resume.as_ref() {
-            args.extend(["--resume".to_string(), session.clone()]);
+        match self.task.spec.executor {
+            Executor::Claude => claude_args(opts),
+            Executor::Codex => codex_args(opts),
         }
-        args.extend([
-            "--output-format".into(),
-            "stream-json".into(),
-            "--verbose".into(),
-            "--permission-mode".into(),
-            opts.permission.into(),
-        ]);
-        args
     }
 }
 
@@ -473,6 +463,43 @@ fn capped(content: &str) -> String {
         end -= 1;
     }
     content[..end].to_string()
+}
+
+fn claude_args(opts: &RunOpts<'_>) -> Vec<String> {
+    let mut args = vec!["-p".to_string(), opts.prompt.to_string()];
+    if let Some(session) = opts.resume.as_ref() {
+        args.extend(["--resume".to_string(), session.clone()]);
+    }
+    args.extend([
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--verbose".to_string(),
+        "--permission-mode".to_string(),
+        if opts.edits { "acceptEdits" } else { "default" }.to_string(),
+    ]);
+    args
+}
+
+/// `codex exec resume` takes no `--sandbox`, so the mode goes through `-c`,
+/// which both forms accept. Codex has no `--full-auto` any more; the editing
+/// mode it stood for is `workspace-write`.
+fn codex_args(opts: &RunOpts<'_>) -> Vec<String> {
+    let mut args = vec!["exec".to_string()];
+    if let Some(session) = opts.resume.as_ref() {
+        args.extend(["resume".to_string(), session.clone()]);
+    }
+    let mode = if opts.edits {
+        "workspace-write"
+    } else {
+        "read-only"
+    };
+    args.extend([
+        "--json".to_string(),
+        "-c".to_string(),
+        format!("sandbox_mode=\"{mode}\""),
+        opts.prompt.to_string(),
+    ]);
+    args
 }
 
 fn policy_of(policy: &PolicyConfig) -> Policy {
@@ -532,5 +559,58 @@ mod tests {
         assert_eq!(capped("short"), "short");
         let long = "é".repeat(NOTES_MAX);
         assert_eq!(capped(&long), "é".repeat(NOTES_MAX / 2));
+    }
+
+    fn opts(resume: Option<&str>, edits: bool) -> RunOpts<'static> {
+        RunOpts {
+            prompt: "do the thing",
+            resume: resume.map(str::to_string),
+            edits,
+            answer: None,
+            session: None,
+        }
+    }
+
+    #[test]
+    fn a_fresh_codex_run_is_json_and_sandboxed_by_its_edit_rights() {
+        assert_eq!(
+            codex_args(&opts(None, true)),
+            [
+                "exec",
+                "--json",
+                "-c",
+                "sandbox_mode=\"workspace-write\"",
+                "do the thing"
+            ]
+        );
+        assert_eq!(
+            codex_args(&opts(None, false))[3],
+            "sandbox_mode=\"read-only\""
+        );
+    }
+
+    #[test]
+    fn a_codex_follow_up_resumes_the_thread() {
+        assert_eq!(
+            codex_args(&opts(Some("01a04eb1"), true)),
+            [
+                "exec",
+                "resume",
+                "01a04eb1",
+                "--json",
+                "-c",
+                "sandbox_mode=\"workspace-write\"",
+                "do the thing"
+            ]
+        );
+    }
+
+    #[test]
+    fn claude_edit_rights_pick_the_permission_mode() {
+        let editing = claude_args(&opts(Some("abc-123"), true));
+        assert!(editing.ends_with(&["--permission-mode".to_string(), "acceptEdits".to_string()]));
+        assert!(editing[2..4] == ["--resume".to_string(), "abc-123".to_string()]);
+        let reviewing = claude_args(&opts(None, false));
+        assert!(reviewing.ends_with(&["--permission-mode".to_string(), "default".to_string()]));
     }
 }
