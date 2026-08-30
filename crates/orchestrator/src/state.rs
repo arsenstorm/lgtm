@@ -62,6 +62,13 @@ impl App {
                 });
             }
             rec.written = rec.events.len();
+            for (name, bytes) in std::mem::take(&mut rec.artefacts) {
+                let _ = self.persist.send(Persist::Artefact {
+                    task_id: rec.task.id.clone(),
+                    name,
+                    bytes,
+                });
+            }
         }
         for id in std::mem::take(&mut state.dirty_goals) {
             if let Some(goal) = state.goals.get(&id) {
@@ -182,6 +189,9 @@ pub struct TaskRecord {
     /// none yet; a task loaded from disk brings its whole history as already
     /// written, so `persist_ids` only ever appends what is new.
     written: usize,
+    /// Artefact bytes taken off their events, waiting for the same
+    /// `persist_ids` that writes the events they came with.
+    artefacts: Vec<(String, Vec<u8>)>,
 }
 
 impl TaskRecord {
@@ -197,6 +207,7 @@ impl TaskRecord {
             scrollback: VecDeque::new(),
             scrollback_len: 0,
             written,
+            artefacts: Vec::new(),
         }
     }
 
@@ -778,6 +789,9 @@ impl State {
 
     /// Records a runner event, applies its status transition, and reschedules
     /// if it freed a slot. Returns the ids to persist.
+    ///
+    /// An artefact's bytes are taken off the event first, so what is stored,
+    /// broadcast and served back is the name and the size.
     pub fn apply_event(&mut self, task_id: &str, event: TaskEvent) -> Vec<TaskId> {
         let Some(rec) = self.tasks.get_mut(task_id) else {
             tracing::warn!(task = %task_id, "event for unknown task, ignoring");
@@ -785,7 +799,7 @@ impl State {
         };
         let stored = StoredEvent {
             at: now_ms(),
-            event,
+            event: split_artefact(&mut rec.artefacts, event),
         };
         rec.events.push(stored.clone());
         let terminal = rec.task.status.is_terminal();
@@ -867,6 +881,27 @@ impl State {
     }
 }
 
+/// Takes an artefact's payload off the event and queues the bytes for the
+/// next `persist_ids`. A payload that is not base64 is dropped: the event
+/// still records that the run produced the file.
+fn split_artefact(queued: &mut Vec<(String, Vec<u8>)>, mut event: TaskEvent) -> TaskEvent {
+    let TaskEvent::Artefact {
+        name, bytes_base64, ..
+    } = &mut event
+    else {
+        return event;
+    };
+    let payload = std::mem::take(bytes_base64);
+    if payload.is_empty() {
+        return event;
+    }
+    match lgtm_protocol::decode_base64(&payload) {
+        Some(bytes) => queued.push((name.clone(), bytes)),
+        None => tracing::error!(name, "artefact payload is not base64"),
+    }
+    event
+}
+
 /// Moves the task's status for `event` and says whether the run ended. A
 /// runner that reconnects may keep reporting on a task we already failed;
 /// the event is kept but a terminal status is left alone.
@@ -913,6 +948,7 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
         | TaskEvent::PermissionRequested { .. }
         | TaskEvent::HostAllowed { .. }
         | TaskEvent::Retry { .. }
+        | TaskEvent::Artefact { .. }
         | TaskEvent::PolicyDecision { .. }
         | TaskEvent::Orchestrated { .. }
         | TaskEvent::AutoApproved

@@ -1,5 +1,6 @@
 //! lgtm runner agent: connects out to the orchestrator and runs coding tasks.
 
+mod artefacts;
 mod automation;
 mod connection;
 mod git;

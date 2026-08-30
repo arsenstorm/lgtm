@@ -57,6 +57,7 @@ fn sample_task() -> Task {
             error: None,
             cost_usd: 0.42,
             validation: Vec::new(),
+            artefacts: Vec::new(),
         }],
         scratchpad: "## Findings\n- the parser is in src/parse.rs\n".into(),
     }

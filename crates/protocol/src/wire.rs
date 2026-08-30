@@ -50,6 +50,16 @@ pub enum TaskEvent {
     Scratchpad {
         content: String,
     },
+    /// A file the run left in `.lgtm/artefacts/` for whoever reviews it.
+    /// `bytes_base64` only travels from the runner: the orchestrator writes
+    /// the payload to a file of its own, so what is stored and served back is
+    /// the name and the size.
+    Artefact {
+        name: String,
+        size: usize,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        bytes_base64: String,
+    },
     /// The repository's checks are about to run; results arrive in
     /// `Completed`.
     Validating {
@@ -242,4 +252,89 @@ pub enum OrchestratorMessage {
     TerminalClose {
         task_id: TaskId,
     },
+}
+
+/// One file a run left for the reviewer, as the API lists it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Artefact {
+    pub name: String,
+    pub size: usize,
+}
+
+/// The sanitised form of an artefact file name, or `None` when nothing usable
+/// is left. The runner sanitises with it and the orchestrator validates with
+/// it, so a name that reaches a file path is never the runner's word alone.
+pub fn artefact_name(raw: &str) -> Option<String> {
+    let name: String = raw
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let usable = name.len() <= 128 && name.trim_matches(['.', '-', '_']).chars().next().is_some();
+    usable.then_some(name)
+}
+
+/// Decodes what [`TaskEvent::Artefact`] carries. Padding and length are
+/// checked because the bytes are written to a file, not shown to a person.
+pub fn decode_base64(text: &str) -> Option<Vec<u8>> {
+    let bytes = text.as_bytes();
+    if !bytes.len().is_multiple_of(4) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    for chunk in bytes.chunks(4) {
+        let pad = chunk.iter().filter(|c| **c == b'=').count();
+        let mut n = 0u32;
+        for c in chunk {
+            n = (n << 6) | u32::from(sextet(*c)?);
+        }
+        let full = n.to_be_bytes();
+        out.extend_from_slice(&full[1..4 - pad]);
+    }
+    Some(out)
+}
+
+fn sextet(c: u8) -> Option<u8> {
+    match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        b'=' => Some(0),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artefact_names_are_reduced_to_a_file_name() {
+        assert_eq!(artefact_name("shot.png").as_deref(), Some("shot.png"));
+        assert_eq!(
+            artefact_name("../etc/passwd").as_deref(),
+            Some("..-etc-passwd")
+        );
+        assert_eq!(artefact_name("a b.png").as_deref(), Some("a-b.png"));
+        assert_eq!(artefact_name(".."), None);
+        assert_eq!(artefact_name(""), None);
+        assert_eq!(artefact_name(&"x".repeat(129)), None);
+    }
+
+    #[test]
+    fn base64_round_trips_and_rejects_junk() {
+        assert_eq!(decode_base64("TWFu").unwrap(), b"Man");
+        assert_eq!(decode_base64("TWE=").unwrap(), b"Ma");
+        assert_eq!(decode_base64("TQ==").unwrap(), b"M");
+        assert_eq!(decode_base64("").unwrap(), b"");
+        assert_eq!(decode_base64("TWF"), None);
+        assert_eq!(decode_base64("TW!="), None);
+    }
 }

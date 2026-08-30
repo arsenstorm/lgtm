@@ -143,6 +143,7 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
             Ok(0)
         }
         Command::Why { sha } => why(client, &sha).await,
+        Command::Artefacts { id, get, out } => artefacts(client, &id, get, out).await,
         Command::Backlog { command } => backlog_command(client, command).await,
         Command::Memory { command } => memory_command(client, command).await,
         Command::Todo { command } => todo_command(client, command).await,
@@ -379,6 +380,26 @@ async fn plans(client: &Client, id: &str) -> anyhow::Result<i32> {
         Err(err) => return Err(err),
     };
     render::print_plan_versions(&versions, &mut std::io::stdout())?;
+    Ok(0)
+}
+
+/// Prints one line per artefact, or saves the one `--get` names.
+async fn artefacts(
+    client: &Client,
+    id: &str,
+    get: Option<String>,
+    out: Option<std::path::PathBuf>,
+) -> anyhow::Result<i32> {
+    let Some(name) = get else {
+        for artefact in client.artefacts(id).await? {
+            println!("{}\t{} bytes", artefact.name, artefact.size);
+        }
+        return Ok(0);
+    };
+    let out = out.ok_or_else(|| anyhow::anyhow!("--get needs --out"))?;
+    let bytes = client.artefact(id, &name).await?;
+    std::fs::write(&out, bytes)?;
+    println!("wrote {}", out.display());
     Ok(0)
 }
 

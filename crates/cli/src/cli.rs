@@ -89,6 +89,16 @@ pub enum Command {
     Diff { id: String },
     /// Answer why a commit was introduced, from LGTM's own records
     Why { sha: String },
+    /// List the files a task's runs left for the reviewer
+    Artefacts {
+        id: String,
+        /// Save this one instead of listing.
+        #[arg(long)]
+        get: Option<String>,
+        /// Where to write it; required with --get.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Approve a task: push its branch, or create a plan's tasks
     Approve { id: String },
     /// Reject a task and discard its branch

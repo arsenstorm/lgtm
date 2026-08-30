@@ -14,7 +14,7 @@ use crate::theme::{tokens, SPACE, STATUS_H, TEXT_BODY, TEXT_SECONDARY, UI_FONT};
 use crate::{batches, home, import, palette, panes, project, session, settings, sidebar, titlebar};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, AppContext as _, Context, Div, Entity, FocusHandle, Focusable,
+    div, px, App, AppContext as _, Context, Div, Entity, FocusHandle, Focusable, ImageFormat,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle, Styled as _,
     Subscription, Task as GpuiTask, Window,
 };
@@ -24,7 +24,8 @@ use lgtm_protocol::{
     Batch, GoalSummary, Memory, Overlap, PlanVersion, RunnerStatus, Session, SessionDetail, Stats,
     StoredEvent, Task, Todo,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
@@ -264,6 +265,10 @@ pub struct LgtmApp {
     pub events: Vec<StoredEvent>,
     /// Live tasks touching the same files, as the detail call reported them.
     pub overlaps: Vec<Overlap>,
+    /// Artefact images by task and name, fetched once when the Review tab
+    /// first asks for one. `None` records an artefact that has been asked for
+    /// and has nothing to draw, so it is never asked for twice.
+    pub artefacts: HashMap<(String, String), Option<Arc<gpui::Image>>>,
 
     pub inputs: Inputs,
     pub import: ImportForm,
@@ -313,6 +318,7 @@ impl LgtmApp {
             lines: Vec::new(),
             events: Vec::new(),
             overlaps: Vec::new(),
+            artefacts: HashMap::new(),
             inputs: Inputs::new(window, cx),
             import: ImportForm::new(window, cx),
             composer: ComposerState::default(),
@@ -542,5 +548,16 @@ impl Render for LgtmApp {
             .when(overlay == Overlay::Import, |this| {
                 this.child(import::modal(self, cx))
             })
+    }
+}
+
+/// The image formats gpui decodes from bytes. Anything else is an artefact
+/// the Review tab only names.
+pub fn artefact_format(name: &str) -> Option<ImageFormat> {
+    match name.rsplit_once('.')?.1.to_ascii_lowercase().as_str() {
+        "png" => Some(ImageFormat::Png),
+        "jpg" | "jpeg" => Some(ImageFormat::Jpeg),
+        "gif" => Some(ImageFormat::Gif),
+        _ => None,
     }
 }

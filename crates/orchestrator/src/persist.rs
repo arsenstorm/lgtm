@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use lgtm_protocol::{Batch, Goal, Memory, Overlap, Session, StoredEvent, Task, TaskId, Todo};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::state::TaskRecord;
 
@@ -33,7 +33,10 @@ pub struct Stored {
 /// One thing to write. The writer owns every directory it writes into.
 pub enum Persist {
     Task(Box<Task>),
-    Event { task_id: TaskId, event: StoredEvent },
+    Event {
+        task_id: TaskId,
+        event: StoredEvent,
+    },
     Batch(Batch),
     Memory(Memory),
     RemoveMemory(String),
@@ -41,6 +44,20 @@ pub enum Persist {
     Todo(Todo),
     RemoveTodo(String),
     Session(Session),
+    /// An artefact's bytes, split off the event that carried them: the event
+    /// log is text a person reads, and these are binaries.
+    Artefact {
+        task_id: TaskId,
+        name: String,
+        bytes: Vec<u8>,
+    },
+    /// Reads an artefact back. The writer owns the data directory, so a
+    /// request handler asks it rather than holding a path of its own.
+    ReadArtefact {
+        task_id: TaskId,
+        name: String,
+        reply: oneshot::Sender<Option<Vec<u8>>>,
+    },
 }
 
 impl From<&TaskRecord> for Stored {
@@ -64,10 +81,23 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
     let goals = dir.join("goals");
     let todos = dir.join("todos");
     let sessions = dir.join("sessions");
+    let artefacts = dir.join("artefacts");
     while let Some(item) = rx.recv().await {
         match item {
             Persist::Task(task) => save(&tasks, &task),
             Persist::Event { task_id, event } => append_event(&tasks, &task_id, &event),
+            Persist::Artefact {
+                task_id,
+                name,
+                bytes,
+            } => write_artefact(&artefacts, &task_id, &name, &bytes),
+            Persist::ReadArtefact {
+                task_id,
+                name,
+                reply,
+            } => {
+                let _ = reply.send(read_artefact(&artefacts, &task_id, &name));
+            }
             Persist::Batch(batch) => save_batch(&batches, &batch),
             Persist::Memory(memory) => save_memory(&memories, &memory),
             Persist::RemoveMemory(id) => remove_by_id(&memories, "memory", &id),
@@ -130,6 +160,35 @@ fn append_event(dir: &Path, task_id: &str, event: &StoredEvent) {
     if let Err(err) = append_json_line(dir, &stem, event) {
         tracing::error!(kind = "event", id = task_id, %err, "failed to persist record");
     }
+}
+
+/// `<dir>/<task>/<name>`, or `None` for an id or a name that has no business
+/// being part of a path.
+fn artefact_path(dir: &Path, task_id: &str, name: &str) -> Option<PathBuf> {
+    let stem = file_stem(task_id)?;
+    let safe = lgtm_protocol::artefact_name(name)?;
+    (safe == name).then(|| dir.join(stem).join(safe))
+}
+
+pub fn write_artefact(dir: &Path, task_id: &str, name: &str, bytes: &[u8]) {
+    let Some(path) = artefact_path(dir, task_id, name) else {
+        tracing::error!(
+            kind = "artefact",
+            id = task_id,
+            name,
+            "refusing to persist record with unsafe name"
+        );
+        return;
+    };
+    let written = std::fs::create_dir_all(path.parent().unwrap_or(dir))
+        .and_then(|()| std::fs::write(&path, bytes));
+    if let Err(err) = written {
+        tracing::error!(kind = "artefact", id = task_id, name, %err, "failed to persist record");
+    }
+}
+
+fn read_artefact(dir: &Path, task_id: &str, name: &str) -> Option<Vec<u8>> {
+    std::fs::read(artefact_path(dir, task_id, name)?).ok()
 }
 
 fn append_json_line<T: Serialize>(dir: &Path, stem: &str, value: &T) -> std::io::Result<()> {
@@ -417,6 +476,18 @@ mod tests {
         assert!(dir.join("0123abcd.events.jsonl").exists());
         // The migrated layout must itself be readable, not just written.
         assert_eq!(load_all(&dir)[0].events.len(), 2);
+    }
+
+    #[test]
+    fn an_artefact_round_trips_through_a_file_of_its_own() {
+        let dir = temp_dir("artefact");
+
+        write_artefact(&dir, "0123abcd", "shot.png", b"Man");
+        write_artefact(&dir, "0123abcd", "../shot.png", b"Man");
+
+        assert_eq!(read_artefact(&dir, "0123abcd", "shot.png").unwrap(), b"Man");
+        assert!(read_artefact(&dir, "0123abcd", "../shot.png").is_none());
+        assert!(read_artefact(&dir, "0123abcd", "missing.png").is_none());
     }
 
     #[test]

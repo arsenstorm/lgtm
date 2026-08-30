@@ -533,6 +533,25 @@ impl Client {
         self.get(&format!("/api/goals/{id}/plans")).await
     }
 
+    /// The files a task's runs left for the reviewer.
+    pub async fn artefacts(&self, id: &str) -> anyhow::Result<Vec<lgtm_protocol::Artefact>> {
+        self.get(&format!("/api/tasks/{id}/artefacts")).await
+    }
+
+    /// One artefact's bytes, as the runner sent them.
+    pub async fn artefact(&self, id: &str, name: &str) -> anyhow::Result<Vec<u8>> {
+        let resp = self
+            .http
+            .get(format!("{}/api/tasks/{id}/artefacts/{name}", self.base))
+            .bearer_auth(&self.token)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            return Err(Self::failure(resp).await);
+        }
+        Ok(resp.bytes().await?.to_vec())
+    }
+
     /// Why the commit at `sha` exists, from LGTM's own records.
     pub async fn provenance(&self, sha: &str) -> anyhow::Result<lgtm_protocol::Provenance> {
         self.get(&format!("/api/provenance/{sha}")).await

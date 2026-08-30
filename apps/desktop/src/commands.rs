@@ -90,6 +90,12 @@ impl LgtmApp {
                     self.ui.terminal_scroll.scroll_to_bottom();
                 }
             }
+            Msg::Artefact { task, name, bytes } => {
+                let image = crate::app::artefact_format(&name)
+                    .filter(|_| !bytes.is_empty())
+                    .map(|format| std::sync::Arc::new(gpui::Image::from_bytes(format, bytes)));
+                self.artefacts.insert((task, name), image);
+            }
             Msg::Action(Ok(())) => {
                 net::refresh(self.client.clone(), self.tx.clone());
                 self.watch_project(cx);
@@ -192,6 +198,21 @@ impl LgtmApp {
         self.watch_project(cx);
         cx.notify();
         true
+    }
+
+    /// Fetches an artefact's bytes the first time the Review tab asks for
+    /// them. The entry is claimed before the request goes out, so a tab that
+    /// renders many times over asks once.
+    pub(crate) fn want_artefact(&mut self, name: String) {
+        let Some(task) = self.selected.clone() else {
+            return;
+        };
+        let key = (task.clone(), name.clone());
+        if self.artefacts.contains_key(&key) {
+            return;
+        }
+        self.artefacts.insert(key, None);
+        net::fetch_artefact(self.client.clone(), task, name, self.tx.clone());
     }
 
     /// Keeps the open project tab fed: the list tabs poll, Plans fetches once,
@@ -628,6 +649,7 @@ impl LgtmApp {
         self.lines.clear();
         self.events.clear();
         self.overlaps.clear();
+        self.artefacts.clear();
         self.session = None;
         self.session_events.clear();
         self.memories.clear();
