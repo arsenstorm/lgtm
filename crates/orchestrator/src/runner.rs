@@ -123,16 +123,15 @@ impl State {
     }
 
     /// End of the grace period: the runner never came back, so its tasks are
-    /// lost and the entry goes away. A no-op if it reconnected since.
-    pub fn expire_runner(&mut self, name: &str, generation: u64) -> Vec<TaskId> {
-        let Some(runner) = self.runners.get(name) else {
-            return Vec::new();
-        };
+    /// lost and the entry goes away. `None` if it reconnected since, so the
+    /// caller can tell that from a runner that expired with nothing running.
+    pub fn expire_runner(&mut self, name: &str, generation: u64) -> Option<Vec<TaskId>> {
+        let runner = self.runners.get(name)?;
         if runner.is_connected() || runner.generation != generation {
-            return Vec::new();
+            return None;
         }
         tracing::info!(runner = %name, "runner grace period expired");
-        self.remove_runner(name)
+        Some(self.remove_runner(name))
     }
 
     /// The runner said it is exiting on purpose, so there is nothing to wait

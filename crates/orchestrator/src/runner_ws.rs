@@ -286,7 +286,9 @@ fn disconnect(app: &Arc<App>, name: &str, conn_id: u64) {
     tokio::spawn(async move {
         tokio::time::sleep(GRACE).await;
         let mut state = app.state.lock().unwrap();
-        let changed = state.expire_runner(&name, generation);
-        app.persist_ids(&mut state, &changed);
+        if let Some(changed) = state.expire_runner(&name, generation) {
+            app.persist_ids(&mut state, &changed);
+            crate::notify::deliver_runner(&app, &name, "disconnected");
+        }
     });
 }

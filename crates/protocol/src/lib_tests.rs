@@ -654,6 +654,21 @@ fn attention_names_the_task_and_why() {
             TaskEvent::AutoMerged,
             "add a /health endpoint: merged by policy",
         ),
+        (
+            TaskEvent::PermissionRequested {
+                kind: "network".into(),
+                target: "registry.internal".into(),
+                reason: "install a private package".into(),
+            },
+            "add a /health endpoint: asks for registry.internal",
+        ),
+        (
+            TaskEvent::Conflicted {
+                base: "main".into(),
+                files: vec!["src/lib.rs".into()],
+            },
+            "add a /health endpoint: conflicts with main",
+        ),
     ];
     for (event, expected) in cases {
         assert_eq!(attention(&task, &event).as_deref(), Some(expected));
@@ -712,6 +727,15 @@ fn only_a_changed_status_wants_a_person() {
     assert_eq!(
         attention_for_status(&failed, TaskStatus::Running).as_deref(),
         Some("p: failed: boom")
+    );
+}
+
+#[test]
+fn a_conflicted_status_names_the_base_branch() {
+    let task = attention_task("p", TaskStatus::Conflicted, None);
+    assert_eq!(
+        attention_for_status(&task, TaskStatus::Running).as_deref(),
+        Some("p: conflicts with main")
     );
 }
 

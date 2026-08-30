@@ -18,11 +18,27 @@ fn payload(task: &Task, line: &str) -> Value {
     })
 }
 
+fn runner_payload(name: &str, why: &str) -> Value {
+    json!({ "runner": name, "line": format!("runner {name} {why}") })
+}
+
 /// One client for the process: reqwest pools connections, and a fresh client
 /// per event would throw the pool away every time.
 fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(reqwest::Client::new)
+}
+
+fn post(url: String, body: Value) {
+    tokio::spawn(async move {
+        match client().post(&url).json(&body).send().await {
+            Ok(response) if !response.status().is_success() => {
+                tracing::warn!(%url, status = %response.status(), "webhook refused the event");
+            }
+            Err(err) => tracing::warn!(%url, %err, "webhook delivery failed"),
+            Ok(_) => {}
+        }
+    });
 }
 
 /// Posts `task` and `event` to the configured webhook, if there is one and the
@@ -35,16 +51,16 @@ pub fn deliver(app: &Arc<App>, task: &Task, event: &TaskEvent) {
     let Some(line) = attention(task, event) else {
         return;
     };
-    let body = payload(task, &line);
-    tokio::spawn(async move {
-        match client().post(&url).json(&body).send().await {
-            Ok(response) if !response.status().is_success() => {
-                tracing::warn!(%url, status = %response.status(), "webhook refused the event");
-            }
-            Err(err) => tracing::warn!(%url, %err, "webhook delivery failed"),
-            Ok(_) => {}
-        }
-    });
+    post(url, payload(task, &line));
+}
+
+/// Posts a runner-level notice to the webhook: not every event has a task to
+/// hang off, and a runner going away for good is one of them.
+pub fn deliver_runner(app: &Arc<App>, name: &str, why: &str) {
+    let Some(url) = app.webhook.clone() else {
+        return;
+    };
+    post(url, runner_payload(name, why));
 }
 
 #[cfg(test)]
@@ -96,5 +112,12 @@ mod tests {
         assert_eq!(body["status"], "awaiting_review");
         assert_eq!(body["repository"], "https://github.com/o/r.git");
         assert_eq!(body["line"], "add a /health endpoint: ready for review");
+    }
+
+    #[test]
+    fn a_runner_notice_names_the_runner_and_the_reason() {
+        let body = runner_payload("a", "disconnected");
+        assert_eq!(body["runner"], "a");
+        assert_eq!(body["line"], "runner a disconnected");
     }
 }

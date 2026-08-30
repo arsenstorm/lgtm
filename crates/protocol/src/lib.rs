@@ -460,6 +460,8 @@ pub fn attention(task: &Task, event: &TaskEvent) -> Option<String> {
         TaskEvent::TimedOut { secs } => format!("timed out after {secs}s"),
         TaskEvent::RunnerLost => "runner lost".to_string(),
         TaskEvent::AutoMerged => "merged by policy".to_string(),
+        TaskEvent::PermissionRequested { target, .. } => format!("asks for {target}"),
+        TaskEvent::Conflicted { base, .. } => format!("conflicts with {base}"),
         _ => return None,
     };
     Some(line(task, &why))
@@ -477,6 +479,7 @@ pub fn attention_for_status(task: &Task, previous: TaskStatus) -> Option<String>
         TaskStatus::TimedOut => "timed out".to_string(),
         TaskStatus::RunnerLost => "runner lost".to_string(),
         TaskStatus::Merged => "merged".to_string(),
+        TaskStatus::Conflicted => format!("conflicts with {}", task.spec.base_branch),
         _ => return None,
     };
     Some(line(task, &why))

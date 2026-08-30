@@ -236,7 +236,8 @@ Tailscale with no TLS at all.
 
 You should not have to watch LGTM. The desktop app raises an OS notification
 when a task needs a person — ready for review, failed, timed out, runner
-lost, merged. Settings → Notifications turns it off; it is on by default.
+lost, merged, asks for a permission, or conflicts with its base branch.
+Settings → Notifications turns it off; it is on by default.
 
 `lgtm serve --webhook URL` (or `LGTM_WEBHOOK`) POSTs the same events, so
 Slack, email, or anything else can hang off one URL:
@@ -247,6 +248,16 @@ Slack, email, or anything else can hang off one URL:
   "status": "awaiting_review",
   "repository": "https://github.com/you/repo.git",
   "line": "add a /health endpoint: ready for review"
+}
+```
+
+A runner that disconnects for good posts without a task, since it may have
+been running several:
+
+```json
+{
+  "runner": "box-1",
+  "line": "runner box-1 disconnected"
 }
 ```
 
