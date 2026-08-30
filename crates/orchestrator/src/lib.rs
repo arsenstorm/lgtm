@@ -82,7 +82,9 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
     let (persist_tx, persist_rx) = tokio::sync::mpsc::unbounded_channel();
     tokio::spawn(persist::writer(opts.data_dir, persist_rx));
 
-    let github = lgtm_github::GitHub::from_env();
+    let github_app = lgtm_github::GithubApp::from_env();
+    tracing::info!(enabled = github_app.is_some(), "github app");
+    let github = lgtm_github::GitHub::from_env().map(|gh| gh.with_app(github_app));
     tracing::info!(enabled = github.is_some(), "github integration");
     let linear = lgtm_linear::Linear::from_env();
     tracing::info!(enabled = linear.is_some(), "linear integration");
