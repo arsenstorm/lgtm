@@ -1,14 +1,16 @@
 //! What the `standard` profile means in practice: the agent runs with a
 //! stripped environment, may write only where its work belongs, and cannot
 //! read the host's secrets, and spends no more memory, processes or CPU than
-//! the repository allows. macOS confines with `sandbox-exec`, Linux with
-//! `bubblewrap`; everywhere else only the environment allowlist applies.
+//! the repository allows. `custom` is `standard` with the repository's own
+//! `readable`/`writable`/`denied` paths layered on. macOS confines with
+//! `sandbox-exec`, Linux with `bubblewrap`; everywhere else only the
+//! environment allowlist applies.
 
 use std::path::{Path, PathBuf};
 
 use lgtm_protocol::SandboxProfile;
 
-use crate::policy::Limits;
+use crate::policy::{CustomPaths, Limits};
 
 pub struct Paths<'a> {
     pub worktree: &'a Path,
@@ -141,6 +143,7 @@ pub fn wrap(
     paths: &Paths,
     network: Network,
     limits: &Limits,
+    custom: &CustomPaths,
     program: &Path,
     args: &[String],
 ) -> Wrapped {
@@ -154,12 +157,21 @@ pub fn wrap(
         SandboxProfile::Strict => {
             tracing::warn!("strict isolation is not implemented yet; running the standard profile");
         }
-        SandboxProfile::Standard => {}
+        SandboxProfile::Standard | SandboxProfile::Custom => {}
     }
     // The limits go on inside the sandbox, so they bind the agent and the
     // sandbox binds the shell that sets them.
     let limited = limited(limits, program, args);
-    match confine(paths, network, &limited.program, &limited.args) {
+    let no_paths = CustomPaths::default();
+    // A repository's [sandbox] readable/writable/denied stay in the config
+    // whichever profile is active; only `custom` itself applies them, so
+    // switching back to `standard` needs no edit to un-name them.
+    let custom = if profile == SandboxProfile::Custom {
+        custom
+    } else {
+        &no_paths
+    };
+    match confine(paths, network, custom, &limited.program, &limited.args) {
         Ok(wrapped) => wrapped,
         Err(reason) => {
             tracing::warn!(
@@ -286,13 +298,14 @@ fn unenforced(network: Network) -> &'static str {
 fn confine(
     paths: &Paths,
     network: Network,
+    custom: &CustomPaths,
     program: &Path,
     args: &[String],
 ) -> Result<Wrapped, String> {
     let tmpdir = std::env::var_os("TMPDIR").map(PathBuf::from);
     let mut wrapped = vec![
         "-p".to_string(),
-        seatbelt_profile(paths, tmpdir.as_deref(), network),
+        seatbelt_profile(paths, tmpdir.as_deref(), custom, network),
         program.display().to_string(),
     ];
     wrapped.extend_from_slice(args);
@@ -306,13 +319,14 @@ fn confine(
 fn confine(
     paths: &Paths,
     network: Network,
+    custom: &CustomPaths,
     program: &Path,
     args: &[String],
 ) -> Result<Wrapped, String> {
     let bwrap = which::which("bwrap").map_err(|_| "bwrap not found".to_string())?;
     Ok(Wrapped {
         program: bwrap,
-        args: bwrap_args(paths, program, args, network),
+        args: bwrap_args(paths, program, args, custom, network),
     })
 }
 
@@ -320,6 +334,7 @@ fn confine(
 fn confine(
     _paths: &Paths,
     _network: Network,
+    _custom: &CustomPaths,
     _program: &Path,
     _args: &[String],
 ) -> Result<Wrapped, String> {
@@ -328,16 +343,30 @@ fn confine(
 
 /// The seatbelt profile for a run. Paths are canonicalized because seatbelt
 /// matches the real path and `/tmp` is a symlink to `/private/tmp`.
-pub fn seatbelt_profile(paths: &Paths, tmpdir: Option<&Path>, network: Network) -> String {
-    let writes = subpaths(&writable_roots(paths, tmpdir));
-    let reads = subpaths(&secret_paths(paths));
+pub fn seatbelt_profile(
+    paths: &Paths,
+    tmpdir: Option<&Path>,
+    custom: &CustomPaths,
+    network: Network,
+) -> String {
+    let writes = subpaths(&writable_roots(paths, tmpdir, &custom.writable));
+    let reads = subpaths(&secret_paths(paths, &custom.denied));
+    // Ordered after the deny above: seatbelt applies the later of two
+    // matching rules, so this is what lets a `readable` path back in when a
+    // `denied` parent would otherwise cover it too.
+    let allow_reads = readable_paths(custom);
+    let allow_reads = match allow_reads.is_empty() {
+        true => String::new(),
+        false => format!("(allow file-read*{})\n", subpaths(&allow_reads)),
+    };
     format!(
         "(version 1)\n\
          (allow default)\n\
          (deny file-write*)\n\
          (allow file-write*{writes} (literal \"/dev/null\") \
          (regex #\"^/dev/tty\") (regex #\"^/dev/std\"))\n\
-         (deny file-read*{reads})\n{}",
+         (deny file-read*{reads})\n\
+         {allow_reads}{}",
         seatbelt_network(network)
     )
 }
@@ -358,7 +387,13 @@ fn seatbelt_network(network: Network) -> String {
 
 /// The bubblewrap argv for a run: everything readable, writes only to the
 /// roots that exist, secrets shadowed by an empty tmpfs or `/dev/null`.
-pub fn bwrap_args(paths: &Paths, program: &Path, args: &[String], network: Network) -> Vec<String> {
+pub fn bwrap_args(
+    paths: &Paths,
+    program: &Path,
+    args: &[String],
+    custom: &CustomPaths,
+    network: Network,
+) -> Vec<String> {
     let mut argv = strings(&["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"]);
     // ponytail: an allowlist on Linux is only the proxy variables, which a
     // determined process can ignore. Upgrade: a network namespace with a veth
@@ -366,14 +401,19 @@ pub fn bwrap_args(paths: &Paths, program: &Path, args: &[String], network: Netwo
     if network == Network::Blocked {
         argv.push("--unshare-net".to_string());
     }
-    for root in existing(writable_roots(paths, None)) {
+    for root in existing(writable_roots(paths, None, &custom.writable)) {
         argv.extend(strings(&["--bind", &root, &root]));
     }
-    for secret in existing(secret_paths(paths)) {
+    for secret in existing(secret_paths(paths, &custom.denied)) {
         match Path::new(&secret).is_dir() {
             true => argv.extend(strings(&["--tmpfs", &secret])),
             false => argv.extend(strings(&["--ro-bind", "/dev/null", &secret])),
         }
+    }
+    // After the shadows above: the whole root is already read-only, so this
+    // only matters when a `denied` parent just hid one of these paths back.
+    for readable in existing(readable_paths(custom)) {
+        argv.extend(strings(&["--ro-bind", &readable, &readable]));
     }
     argv.extend(strings(&["--die-with-parent", "--unshare-pid", "--chdir"]));
     argv.push(paths.worktree.display().to_string());
@@ -383,16 +423,23 @@ pub fn bwrap_args(paths: &Paths, program: &Path, args: &[String], network: Netwo
     argv
 }
 
-fn writable_roots(paths: &Paths, tmpdir: Option<&Path>) -> Vec<String> {
+fn writable_roots(paths: &Paths, tmpdir: Option<&Path>, custom: &[String]) -> Vec<String> {
     let mut roots = vec![paths.worktree.to_path_buf(), paths.mirror.to_path_buf()];
     roots.extend(HOME_WRITES.iter().map(|dir| paths.home.join(dir)));
     roots.extend(TMP_ROOTS.iter().map(PathBuf::from));
     roots.extend(tmpdir.map(Path::to_path_buf));
+    roots.extend(custom.iter().map(PathBuf::from));
     real_all(roots)
 }
 
-fn secret_paths(paths: &Paths) -> Vec<String> {
-    real_all(SECRETS.iter().map(|name| paths.home.join(name)).collect())
+fn secret_paths(paths: &Paths, custom: &[String]) -> Vec<String> {
+    let mut denies: Vec<PathBuf> = SECRETS.iter().map(|name| paths.home.join(name)).collect();
+    denies.extend(custom.iter().map(PathBuf::from));
+    real_all(denies)
+}
+
+fn readable_paths(custom: &CustomPaths) -> Vec<String> {
+    real_all(custom.readable.iter().map(PathBuf::from).collect())
 }
 
 fn real_all(paths: Vec<PathBuf>) -> Vec<String> {

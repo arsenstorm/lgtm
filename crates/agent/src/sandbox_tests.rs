@@ -36,6 +36,7 @@ fn seatbelt_profile_allows_the_roots_and_denies_the_secrets() {
     let profile = seatbelt_profile(
         &paths,
         Some(Path::new("/scratch/tmp")),
+        &CustomPaths::default(),
         Network::Unrestricted,
     );
 
@@ -49,6 +50,33 @@ fn seatbelt_profile_allows_the_roots_and_denies_the_secrets() {
     assert!(profile.contains("(deny file-read*"));
     assert!(profile.contains("(subpath \"/home/\\\"quoted\\\"/.ssh\")"));
     assert!(profile.contains("(literal \"/dev/null\")"));
+}
+
+#[test]
+fn seatbelt_profile_merges_the_custom_paths_and_orders_the_readable_allow_last() {
+    let home = PathBuf::from("/home/me");
+    let paths = Paths {
+        worktree: Path::new("/work/tree"),
+        mirror: Path::new("/data/repo.git"),
+        home: &home,
+    };
+    let custom = CustomPaths {
+        readable: vec!["/data/secret/public.json".to_string()],
+        writable: vec!["/data/scratch".to_string()],
+        denied: vec!["/data/secret".to_string()],
+    };
+    let profile = seatbelt_profile(&paths, None, &custom, Network::Unrestricted);
+
+    assert!(profile.contains("(subpath \"/data/scratch\")"));
+    assert!(profile.contains("(subpath \"/data/secret\")"));
+    assert!(profile.contains("(subpath \"/data/secret/public.json\")"));
+    let deny_at = profile
+        .find("(deny file-read*")
+        .expect("deny file-read line");
+    let allow_at = profile
+        .rfind("(allow file-read*")
+        .expect("allow file-read line");
+    assert!(deny_at < allow_at, "{profile}");
 }
 
 #[test]
@@ -68,6 +96,7 @@ fn off_runs_the_program_unchanged() {
             processes: Some(256),
             cpu_seconds: Some(3600),
         },
+        &CustomPaths::default(),
         Path::new("/usr/bin/claude"),
         &args,
     );
@@ -169,10 +198,12 @@ fn bwrap_argv_binds_the_worktree_over_a_read_only_root() {
         mirror: &worktree,
         home: Path::new("/home/me"),
     };
+    let no_custom = CustomPaths::default();
     let argv = bwrap_args(
         &paths,
         Path::new("/usr/bin/claude"),
         &["-p".to_string()],
+        &no_custom,
         Network::Unrestricted,
     );
 
@@ -183,12 +214,64 @@ fn bwrap_argv_binds_the_worktree_over_a_read_only_root() {
     assert!(joined.ends_with("-- /usr/bin/claude -p"));
     assert!(!joined.contains("--unshare-net"));
 
-    let blocked = bwrap_args(&paths, Path::new("/usr/bin/claude"), &[], Network::Blocked);
+    let blocked = bwrap_args(
+        &paths,
+        Path::new("/usr/bin/claude"),
+        &[],
+        &no_custom,
+        Network::Blocked,
+    );
     assert!(blocked.contains(&"--unshare-net".to_string()));
     // Best effort until a netns lands: the proxy is only an environment hint.
-    let proxied = bwrap_args(&paths, Path::new("/usr/bin/claude"), &[], Network::Proxy(1));
+    let proxied = bwrap_args(
+        &paths,
+        Path::new("/usr/bin/claude"),
+        &[],
+        &no_custom,
+        Network::Proxy(1),
+    );
     assert!(!proxied.contains(&"--unshare-net".to_string()));
     fs::remove_dir_all(&worktree).ok();
+}
+
+#[test]
+fn bwrap_argv_denies_before_it_restores_a_readable_path() {
+    let base = scratch("bwrap-custom");
+    let worktree = base.join("worktree");
+    let denied = base.join("denied");
+    let readable = denied.join("keep");
+    fs::create_dir_all(&worktree).expect("worktree");
+    fs::create_dir_all(&readable).expect("readable");
+    let paths = Paths {
+        worktree: &worktree,
+        mirror: &worktree,
+        home: Path::new("/home/me"),
+    };
+    let custom = CustomPaths {
+        readable: vec![readable.display().to_string()],
+        writable: Vec::new(),
+        denied: vec![denied.display().to_string()],
+    };
+    let argv = bwrap_args(
+        &paths,
+        Path::new("/usr/bin/claude"),
+        &[],
+        &custom,
+        Network::Unrestricted,
+    );
+
+    let deny_at = argv
+        .iter()
+        .position(|arg| arg == &denied.display().to_string())
+        .expect("denied path bound");
+    let allow_at = argv
+        .iter()
+        .position(|arg| arg == &readable.display().to_string())
+        .expect("readable path bound");
+    assert!(deny_at < allow_at, "{argv:?}");
+    assert_eq!(argv[deny_at - 1], "--tmpfs");
+    assert_eq!(argv[allow_at - 1], "--ro-bind");
+    fs::remove_dir_all(&base).ok();
 }
 
 #[test]
@@ -198,7 +281,7 @@ fn the_seatbelt_profile_says_what_each_network_mode_may_reach() {
         mirror: Path::new("/data/repo.git"),
         home: Path::new("/home/me"),
     };
-    let profile = |network| seatbelt_profile(&paths, None, network);
+    let profile = |network| seatbelt_profile(&paths, None, &CustomPaths::default(), network);
     assert!(!profile(Network::Unrestricted).contains("network"));
     assert!(profile(Network::Blocked).contains("(deny network*)"));
     let proxied = profile(Network::Proxy(51234));
@@ -227,8 +310,10 @@ fn seatbelt_denies_writes_outside_the_worktree_and_reads_of_secrets() {
     let worktree = base.join("worktree");
     let outside = base.join("outside");
     let home = base.join("home");
+    let custom_writable = base.join("custom-writable");
     fs::create_dir_all(&worktree).expect("worktree");
     fs::create_dir_all(&outside).expect("outside");
+    fs::create_dir_all(&custom_writable).expect("custom writable");
     fs::create_dir_all(home.join(".ssh")).expect("ssh dir");
     fs::write(home.join(".ssh").join("id_test"), "secret").expect("key");
     let paths = Paths {
@@ -236,12 +321,24 @@ fn seatbelt_denies_writes_outside_the_worktree_and_reads_of_secrets() {
         mirror: &worktree,
         home: &home,
     };
-    let profile = seatbelt_profile(&paths, None, Network::Unrestricted);
+    let custom = CustomPaths {
+        readable: Vec::new(),
+        writable: vec![custom_writable.display().to_string()],
+        denied: Vec::new(),
+    };
+    let profile = seatbelt_profile(&paths, None, &custom, Network::Unrestricted);
 
     assert!(sh(&profile, &format!("touch {}/ok", worktree.display())));
     assert!(worktree.join("ok").exists());
     assert!(!sh(&profile, &format!("touch {}/nope", outside.display())));
     assert!(!outside.join("nope").exists());
+    // The one path this profile's [sandbox] writable named, outside the
+    // worktree and mirror both.
+    assert!(sh(
+        &profile,
+        &format!("touch {}/ok", custom_writable.display())
+    ));
+    assert!(custom_writable.join("ok").exists());
     assert!(!sh(
         &profile,
         &format!("cat {}/.ssh/id_test", home.display())

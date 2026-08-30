@@ -386,8 +386,9 @@ fn parse_executor(s: &str) -> Result<Executor, String> {
 }
 
 fn parse_sandbox(s: &str) -> Result<SandboxProfile, String> {
-    SandboxProfile::parse(s)
-        .ok_or_else(|| format!("invalid sandbox '{s}', expected 'off', 'standard' or 'strict'"))
+    SandboxProfile::parse(s).ok_or_else(|| {
+        format!("invalid sandbox '{s}', expected 'off', 'standard', 'strict' or 'custom'")
+    })
 }
 
 fn parse_depends_on(s: &str) -> Result<DependsOn, String> {
