@@ -16,8 +16,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
-    Executor, OrchestratorMessage, SandboxProfile, Task, TaskKind, TaskSpec, TaskStatus,
-    WorkerStatus,
+    plan_versions, Executor, OrchestratorMessage, PlanVersion, SandboxProfile, Task, TaskKind,
+    TaskSpec, TaskStatus, WorkerStatus,
 };
 use serde::Deserialize;
 
@@ -65,6 +65,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/tasks/{id}", get(get_task))
         .route("/tasks/{id}/merge", post(merge))
         .route("/tasks/{id}/events", get(events::events))
+        .route("/tasks/{id}/plans", get(get_task_plans))
         .route("/tasks/{id}/message", post(message))
         .route("/tasks/{id}/retry", post(retry))
         .route("/tasks/{id}/cancel", post(cancel))
@@ -86,6 +87,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/todos/{id}", delete(todos::delete_todo))
         .route("/todos/{id}/done", post(todos::finish_todo))
         .route("/todos/{id}/promote", post(todos::promote_todo))
+        .route("/goals/{id}/plans", get(goals::get_goal_plans))
         .layer(middleware::from_fn_with_state(app, auth))
 }
 
@@ -304,6 +306,18 @@ async fn get_task(
         task: rec.task.clone(),
         events: rec.events.clone(),
     }))
+}
+
+async fn get_task_plans(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<PlanVersion>>, ApiError> {
+    let state = app.state.lock().unwrap();
+    let rec = state
+        .tasks
+        .get(&id)
+        .ok_or(ApiError(StatusCode::NOT_FOUND, "task not found".into()))?;
+    Ok(Json(plan_versions(&rec.task, &rec.events)))
 }
 
 async fn cancel(

@@ -69,6 +69,11 @@ pub enum Command {
     Tasks,
     /// Print a task, its events, checks, and review
     Show { id: String },
+    /// List a plan's versions: a goal's plan tasks, or one plan task.
+    Plans {
+        /// A goal id or a plan task id.
+        id: String,
+    },
     /// Print a task's rendered output
     Logs { id: String },
     /// Print a task's diff

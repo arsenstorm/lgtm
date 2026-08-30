@@ -778,3 +778,133 @@ async fn a_memory_reaches_the_worker() {
     assert_eq!(memories, vec![memory]);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test]
+async fn a_goals_plan_is_listed_once_the_agent_completes_it() {
+    let dir = std::env::temp_dir().join(format!("lgtm-plans-{}", std::process::id()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    tokio::spawn(lgtm_orchestrator::serve_plain(
+        addr,
+        "tok".into(),
+        dir.clone(),
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+
+    let mut w = ws(&format!("ws://{addr}{WORKER_WS_PATH}"), false).await;
+    w.send(TMsg::Text(
+        serde_json::to_string(&WorkerMessage::Hello {
+            token: "tok".into(),
+            info: WorkerInfo {
+                name: "w1".into(),
+                os: "linux".into(),
+                arch: "x86_64".into(),
+                executors: vec![Executor::Claude],
+                slots: 1,
+                ephemeral: false,
+                capabilities: Vec::new(),
+            },
+            running: Vec::new(),
+            version: PROTOCOL_VERSION,
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
+    w.next().await.unwrap().unwrap();
+
+    let r = http
+        .post(format!("{base}/api/goals"))
+        .bearer_auth("tok")
+        .json(&serde_json::json!({
+            "objective": "ship the health endpoint",
+            "repository": "r",
+            "base_branch": "main",
+            "executor": "claude",
+            "plan": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let created: GoalSummary = r.json().await.unwrap();
+
+    let start = w.next().await.unwrap().unwrap();
+    let OrchestratorMessage::Start { task, .. } =
+        serde_json::from_str(start.to_text().unwrap()).unwrap()
+    else {
+        panic!()
+    };
+
+    let mut ev = ws(&format!("ws://{addr}/api/tasks/{}/events", task.id), true).await;
+    let plan = Plan {
+        steps: vec![PlanStep {
+            key: "a".into(),
+            title: "do a".into(),
+            prompt: "do a".into(),
+            depends_on: Vec::new(),
+        }],
+    };
+    let result = TaskResult {
+        branch: format!("lgtm/{}", task.id),
+        diff: String::new(),
+        changed_files: Vec::new(),
+        validation: Vec::new(),
+        plan: Some(plan),
+        review: None,
+        policy: None,
+        cost_usd: 0.0,
+    };
+    w.send(TMsg::Text(
+        serde_json::to_string(&WorkerMessage::Event {
+            task_id: task.id.clone(),
+            event: TaskEvent::Completed { result },
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
+    let completed: StoredEvent =
+        serde_json::from_str(ev.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+    assert!(matches!(completed.event, TaskEvent::Completed { .. }));
+
+    let versions: Vec<PlanVersion> = http
+        .get(format!("{base}/api/goals/{}/plans", created.goal.id))
+        .bearer_auth("tok")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].status, PlanStatus::AwaitingApproval);
+    assert_eq!(versions[0].task, task.id);
+
+    let task_versions: Vec<PlanVersion> = http
+        .get(format!("{base}/api/tasks/{}/plans", task.id))
+        .bearer_auth("tok")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(task_versions, versions);
+
+    assert_eq!(
+        http.get(format!("{base}/api/tasks/nope/plans"))
+            .bearer_auth("tok")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}

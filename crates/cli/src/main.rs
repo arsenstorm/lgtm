@@ -125,6 +125,7 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
             print_task_table(client.tasks().await?);
             Ok(0)
         }
+        Command::Plans { id } => plans(client, &id).await,
         Command::Backlog { command } => backlog_command(client, command).await,
         Command::Memory { command } => memory_command(client, command).await,
         Command::Todo { command } => todo_command(client, command).await,
@@ -303,6 +304,18 @@ async fn goal(
     run::announce_and_stream(client, task).await
 }
 
+/// `id` is a goal id, unless the orchestrator says it isn't one: an id could
+/// also name a plan task directly.
+async fn plans(client: &Client, id: &str) -> anyhow::Result<i32> {
+    let versions = match client.goal_plans(id).await {
+        Ok(versions) => versions,
+        Err(err) if err.to_string().starts_with("404") => client.task_plans(id).await?,
+        Err(err) => return Err(err),
+    };
+    render::print_plan_versions(&versions, &mut std::io::stdout())?;
+    Ok(0)
+}
+
 async fn show(client: &Client, id: &str) -> anyhow::Result<i32> {
     let detail = client.task(id).await?;
     println!("{}", serde_json::to_string_pretty(&detail.task)?);
@@ -315,6 +328,9 @@ async fn show(client: &Client, id: &str) -> anyhow::Result<i32> {
     if let Some(linear) = &detail.task.spec.linear {
         println!("linear: {}", linear.url);
     }
+    let plan_version = lgtm_protocol::plan_versions(&detail.task, &detail.events)
+        .into_iter()
+        .next_back();
     for e in detail.events {
         println!("{} {}", e.at, serde_json::to_string(&e.event)?);
     }
@@ -327,6 +343,13 @@ async fn show(client: &Client, id: &str) -> anyhow::Result<i32> {
         }
         render::print_cost(result.cost_usd, &mut stdout)?;
         if let Some(plan) = &result.plan {
+            if let Some(version) = &plan_version {
+                println!(
+                    "plan v{} ({})",
+                    version.version,
+                    table::wire_str(version.status)
+                );
+            }
             render::print_plan(plan, &mut stdout)?;
         }
     }
