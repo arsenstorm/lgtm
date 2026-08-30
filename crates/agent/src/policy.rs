@@ -8,8 +8,12 @@ use lgtm_protocol::{Finding, Review, Severity, ValidationResult};
 /// How much of the diff the reviewer is shown.
 const DIFF_CHARS: usize = 60_000;
 
+/// An hour: long enough for real work, short enough that a wedged agent does
+/// not hold a slot overnight.
+const DEFAULT_TIMEOUT_SECS: u64 = 3600;
+
 /// What the repository asked the worker to do beyond running the agent once.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PolicyConfig {
     /// Extra agent runs after a crash.
     pub retry: u32,
@@ -19,6 +23,21 @@ pub struct PolicyConfig {
     pub review: bool,
     pub auto_approve: bool,
     pub auto_merge: bool,
+    /// Kill an agent run that has been going this long.
+    pub timeout_secs: u64,
+}
+
+impl Default for PolicyConfig {
+    fn default() -> Self {
+        Self {
+            retry: 0,
+            fix_checks: 0,
+            review: false,
+            auto_approve: false,
+            auto_merge: false,
+            timeout_secs: DEFAULT_TIMEOUT_SECS,
+        }
+    }
 }
 
 pub fn load_policy(worktree: &Path) -> PolicyConfig {
@@ -49,6 +68,7 @@ pub fn parse_policy(text: &str) -> PolicyConfig {
             "review" => flag(&mut policy.review, key, value),
             "auto_approve" => flag(&mut policy.auto_approve, key, value),
             "auto_merge" => flag(&mut policy.auto_merge, key, value),
+            "timeout_secs" => seconds(&mut policy.timeout_secs, key, value),
             _ => tracing::warn!("[policy] unknown key {key}, ignoring"),
         }
     }
@@ -57,6 +77,13 @@ pub fn parse_policy(text: &str) -> PolicyConfig {
 
 fn count(slot: &mut u32, key: &str, value: &toml::Value) {
     match value.as_integer().and_then(|n| u32::try_from(n).ok()) {
+        Some(n) => *slot = n,
+        None => tracing::warn!("[policy] {key} must be a non-negative integer, ignoring"),
+    }
+}
+
+fn seconds(slot: &mut u64, key: &str, value: &toml::Value) {
+    match value.as_integer().and_then(|n| u64::try_from(n).ok()) {
         Some(n) => *slot = n,
         None => tracing::warn!("[policy] {key} must be a non-negative integer, ignoring"),
     }
@@ -150,8 +177,9 @@ mod tests {
 
     #[test]
     fn reads_the_keys_it_knows_and_ignores_the_rest() {
-        let policy =
-            parse_policy("[policy]\nretry = 2\nreview = true\nauto_merge = true\nsomething = 1\n");
+        let policy = parse_policy(
+            "[policy]\nretry = 2\nreview = true\nauto_merge = true\ntimeout_secs = 120\nsomething = 1\n",
+        );
         assert_eq!(
             policy,
             PolicyConfig {
@@ -160,14 +188,18 @@ mod tests {
                 review: true,
                 auto_approve: false,
                 auto_merge: true,
+                timeout_secs: 120,
             }
         );
     }
 
     #[test]
     fn wrong_types_keep_the_default() {
-        let policy = parse_policy("[policy]\nretry = \"x\"\nfix_checks = -1\nreview = \"yes\"\n");
+        let policy = parse_policy(
+            "[policy]\nretry = \"x\"\nfix_checks = -1\nreview = \"yes\"\ntimeout_secs = -1\n",
+        );
         assert_eq!(policy, PolicyConfig::default());
+        assert_eq!(policy.timeout_secs, DEFAULT_TIMEOUT_SECS);
     }
 
     fn check(name: &str) -> ValidationResult {

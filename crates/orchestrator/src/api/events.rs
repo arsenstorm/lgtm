@@ -48,7 +48,11 @@ pub(super) async fn events(
 fn is_final(event: &TaskEvent) -> bool {
     matches!(
         event,
-        TaskEvent::Completed { .. } | TaskEvent::Failed { .. } | TaskEvent::Cancelled
+        TaskEvent::Completed { .. }
+            | TaskEvent::Failed { .. }
+            | TaskEvent::TimedOut { .. }
+            | TaskEvent::RunnerLost
+            | TaskEvent::Cancelled
     )
 }
 

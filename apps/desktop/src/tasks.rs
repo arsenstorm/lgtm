@@ -93,7 +93,7 @@ pub fn status_color(task: &Task, tasks: &[Task], t: &Tokens) -> Hsla {
         "awaiting_review" => t.warning,
         "running" => t.info,
         "approved" | "merged" => t.success,
-        "failed" | "rejected" | "cancelled" => t.danger,
+        "failed" | "timed_out" | "runner_lost" | "rejected" | "cancelled" => t.danger,
         _ => t.muted_fg,
     }
 }

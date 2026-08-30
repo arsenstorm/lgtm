@@ -63,6 +63,7 @@ test = "cargo test --workspace"
 retry = 1          # extra agent runs after a crash
 fix_checks = 2     # follow-up runs that try to fix failing checks
 review = true      # review the finished diff with a second agent run
+timeout_secs = 3600  # kill an agent run after this long
 auto_approve = false
 auto_merge = false
 ```

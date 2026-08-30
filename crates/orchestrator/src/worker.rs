@@ -86,7 +86,7 @@ impl State {
         tracing::info!(worker = %name, tasks = restored.len(), "worker connected");
         let mut changed = Vec::new();
         for id in previous.difference(&restored) {
-            changed.extend(self.fail_unfinished(id, "lost on worker"));
+            changed.extend(self.lose_unfinished(id));
         }
         changed.extend(self.schedule());
         changed
@@ -128,7 +128,7 @@ impl State {
             return Vec::new();
         }
         tracing::info!(worker = %name, "worker grace period expired");
-        self.remove_worker(name, "worker disconnected")
+        self.remove_worker(name)
     }
 
     /// The worker said it is exiting on purpose, so there is nothing to wait
@@ -144,17 +144,17 @@ impl State {
             return Vec::new();
         }
         tracing::info!(worker = %name, "worker said goodbye");
-        self.remove_worker(name, "worker exited")
+        self.remove_worker(name)
     }
 
-    /// Forgets the worker and fails whatever it still had running.
-    fn remove_worker(&mut self, name: &str, error: &str) -> Vec<TaskId> {
+    /// Forgets the worker and loses whatever it still had running.
+    fn remove_worker(&mut self, name: &str) -> Vec<TaskId> {
         let Some(worker) = self.workers.remove(name) else {
             return Vec::new();
         };
         let mut changed = Vec::new();
         for id in worker.running {
-            changed.extend(self.fail_unfinished(&id, error));
+            changed.extend(self.lose_unfinished(&id));
         }
         changed
     }

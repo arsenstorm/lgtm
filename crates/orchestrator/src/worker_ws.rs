@@ -20,6 +20,10 @@ const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a worker's tasks survive its socket, so a restarting agent or a
 /// flaky network does not throw away work that is still running.
 const GRACE: Duration = Duration::from_secs(30);
+/// A ping every `PING`, and a socket that has said nothing for `READ_TIMEOUT`
+/// is gone: three missed pings, so one slow moment does not drop a worker.
+const PING: Duration = Duration::from_secs(15);
+const READ_TIMEOUT: Duration = Duration::from_secs(45);
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
 use crate::state::{App, Conn};
@@ -51,11 +55,16 @@ async fn run(app: Arc<App>, socket: WebSocket) {
     }
 
     let writer = tokio::spawn(write_all(sink, rx));
-    while let Some(Ok(frame)) = stream.next().await {
+    loop {
+        let Ok(frame) = tokio::time::timeout(READ_TIMEOUT, stream.next()).await else {
+            tracing::warn!(worker = %info.name, "no frame in {READ_TIMEOUT:?}, dropping socket");
+            break;
+        };
         let text = match frame {
-            Message::Text(text) => text,
-            Message::Close(_) => break,
-            _ => continue,
+            Some(Ok(Message::Text(text))) => text,
+            Some(Ok(Message::Close(_))) | None => break,
+            Some(Ok(_)) => continue,
+            Some(Err(_)) => break,
         };
         if handle(&app, &info, conn_id, &text) {
             break;
@@ -69,11 +78,22 @@ async fn write_all(
     mut sink: SplitSink<WebSocket, Message>,
     mut rx: mpsc::UnboundedReceiver<OrchestratorMessage>,
 ) {
-    while let Some(msg) = rx.recv().await {
-        let Ok(text) = serde_json::to_string(&msg) else {
-            continue;
+    // From now plus one period: an immediate first tick would race the
+    // hello ack for the first frame on the socket.
+    let start = tokio::time::Instant::now() + PING;
+    let mut ping = tokio::time::interval_at(start, PING);
+    loop {
+        let frame = tokio::select! {
+            msg = rx.recv() => match msg {
+                Some(msg) => match serde_json::to_string(&msg) {
+                    Ok(text) => Message::Text(text.into()),
+                    Err(_) => continue,
+                },
+                None => break,
+            },
+            _ = ping.tick() => Message::Ping(Vec::new().into()),
         };
-        if sink.send(Message::Text(text.into())).await.is_err() {
+        if sink.send(frame).await.is_err() {
             break;
         }
     }

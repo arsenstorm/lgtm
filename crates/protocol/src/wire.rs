@@ -46,6 +46,12 @@ pub enum TaskEvent {
     Failed {
         error: String,
     },
+    /// The agent ran past the repository's timeout and was killed.
+    TimedOut {
+        secs: u64,
+    },
+    /// The worker's socket expired with this task still running.
+    RunnerLost,
     Cancelled,
     /// Task branch pushed to origin after approval. `sha` is the branch head.
     Pushed {

@@ -259,14 +259,11 @@ impl State {
         Ok((self.tasks[&id].task.clone(), changed))
     }
 
-    pub(crate) fn fail_unfinished(&mut self, id: &TaskId, error: &str) -> Vec<TaskId> {
+    pub(crate) fn lose_unfinished(&mut self, id: &TaskId) -> Vec<TaskId> {
         match self.tasks.get(id) {
-            Some(rec) if !rec.task.status.is_terminal() => self.apply_event(
-                id,
-                TaskEvent::Failed {
-                    error: error.into(),
-                },
-            ),
+            Some(rec) if !rec.task.status.is_terminal() => {
+                self.apply_event(id, TaskEvent::RunnerLost)
+            }
             _ => Vec::new(),
         }
     }
@@ -301,7 +298,11 @@ impl State {
         // Only the transition itself, never a late event repeating it.
         if !terminal {
             match status {
-                TaskStatus::Failed | TaskStatus::Cancelled | TaskStatus::Rejected => {
+                TaskStatus::Failed
+                | TaskStatus::TimedOut
+                | TaskStatus::RunnerLost
+                | TaskStatus::Cancelled
+                | TaskStatus::Rejected => {
                     changed.extend(self.fail_dependents(task_id));
                 }
                 TaskStatus::Approved => changed.extend(self.schedule()),
@@ -331,6 +332,8 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
             }
             (Some(TaskStatus::Failed), true)
         }
+        TaskEvent::TimedOut { .. } => (Some(TaskStatus::TimedOut), true),
+        TaskEvent::RunnerLost => (Some(TaskStatus::RunnerLost), true),
         TaskEvent::Cancelled => (Some(TaskStatus::Cancelled), true),
         TaskEvent::Pushed { .. } => (Some(TaskStatus::Approved), false),
         TaskEvent::Discarded => (Some(TaskStatus::Rejected), false),

@@ -66,6 +66,10 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
         TaskEvent::AutoApproved => vec![Line::new(Kind::Status, "approved by policy")],
         TaskEvent::AutoMerged => vec![Line::new(Kind::Status, "merged by policy")],
         TaskEvent::Failed { error } => vec![Line::new(Kind::Status, format!("failed: {error}"))],
+        TaskEvent::TimedOut { secs } => {
+            vec![Line::new(Kind::Status, format!("timed out after {secs}s"))]
+        }
+        TaskEvent::RunnerLost => vec![Line::new(Kind::Status, "runner lost")],
         TaskEvent::Cancelled => vec![Line::new(Kind::Status, "cancelled")],
         TaskEvent::Pushed { branch, .. } => {
             vec![Line::new(Kind::Status, format!("pushed {branch}"))]

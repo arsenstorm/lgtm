@@ -184,28 +184,30 @@ fn reconnect_missing_task_is_lost() {
         Conn { tx, conn_id: 2 },
     );
     assert!(changed.contains(&task.id));
-    assert_eq!(status(&state, &task.id), TaskStatus::Failed);
-    assert_eq!(
-        state.tasks[&task.id].task.error.as_deref(),
-        Some("lost on worker")
-    );
+    assert_eq!(status(&state, &task.id), TaskStatus::RunnerLost);
+    assert!(state.tasks[&task.id].task.error.is_none());
     assert!(state.workers["a"].running.is_empty());
 }
 
 #[test]
-fn grace_expiry_fails_tasks() {
+fn grace_expiry_loses_tasks_and_their_dependents() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let task = create(&mut state, Executor::Claude);
     state.apply_event(&task.id, TaskEvent::Started);
+    let mut waiting = spec(Executor::Claude, None);
+    waiting.depends_on = vec![task.id.clone()];
+    let waiting = state.create_task(waiting).unwrap().0;
 
     let generation = state.disconnect("a", 1).unwrap();
     let changed = state.expire_worker("a", generation);
-    assert_eq!(changed, vec![task.id.clone()]);
-    assert_eq!(status(&state, &task.id), TaskStatus::Failed);
+    assert!(changed.contains(&task.id) && changed.contains(&waiting.id));
+    assert_eq!(status(&state, &task.id), TaskStatus::RunnerLost);
+    assert!(state.tasks[&task.id].task.error.is_none());
+    assert_eq!(status(&state, &waiting.id), TaskStatus::Failed);
     assert_eq!(
-        state.tasks[&task.id].task.error.as_deref(),
-        Some("worker disconnected")
+        state.tasks[&waiting.id].task.error.as_deref(),
+        Some(format!("dependency {} failed", task.id).as_str())
     );
     assert!(!state.workers.contains_key("a"));
 }
@@ -775,4 +777,23 @@ fn terminal_status_survives_late_events() {
     assert_eq!(status(&state, &id), TaskStatus::Cancelled);
     assert!(state.tasks[&id].task.error.is_none());
     assert_eq!(state.tasks[&id].events.len(), 2);
+}
+
+#[test]
+fn timeout_ends_the_task_and_frees_the_slot() {
+    let mut state = State::default();
+    let _a = connect(&mut state, "a", 1, 1);
+    let task = create(&mut state, Executor::Claude);
+    state.apply_event(&task.id, TaskEvent::Started);
+    let queued = create(&mut state, Executor::Claude);
+    assert_eq!(queued.worker, None);
+
+    let changed = state.apply_event(&task.id, TaskEvent::TimedOut { secs: 60 });
+    assert_eq!(status(&state, &task.id), TaskStatus::TimedOut);
+    assert!(changed.contains(&queued.id));
+    assert_eq!(
+        state.tasks[&queued.id].task.worker.as_deref(),
+        Some("a"),
+        "the freed slot took the backlog"
+    );
 }
