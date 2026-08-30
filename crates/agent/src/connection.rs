@@ -8,7 +8,9 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
-use lgtm_protocol::{OrchestratorMessage, TaskEvent, TaskId, WorkerInfo, WorkerMessage};
+use lgtm_protocol::{
+    OrchestratorMessage, TaskEvent, TaskId, WorkerInfo, WorkerMessage, PROTOCOL_VERSION,
+};
 use rustls_pki_types::{pem::PemObject, CertificateDer};
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
@@ -147,6 +149,19 @@ enum Ended {
     Done,
 }
 
+/// The orchestrator refused this worker's hello; retrying would only repeat
+/// the refusal, so the caller must give up instead of reconnecting.
+#[derive(Debug)]
+pub struct Rejected(pub String);
+
+impl std::fmt::Display for Rejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "orchestrator rejected this worker: {}", self.0)
+    }
+}
+
+impl std::error::Error for Rejected {}
+
 /// How to reach the orchestrator and who this worker says it is.
 pub struct Link {
     pub url: String,
@@ -167,6 +182,7 @@ pub async fn run(
         match session(&link, &ctx, &mut rx).await {
             Ok(Ended::Done) => return Ok(()),
             Ok(Ended::Disconnected) => tracing::warn!("disconnected"),
+            Err(err) if err.downcast_ref::<Rejected>().is_some() => return Err(err),
             Err(err) => tracing::warn!("connection failed: {err:#}"),
         }
         tokio::time::sleep(RETRY).await;
@@ -214,12 +230,14 @@ async fn handshake(link: &Link, ctx: &Arc<Ctx>) -> Result<Socket> {
         token: link.token.clone(),
         info: link.info.clone(),
         running,
+        version: PROTOCOL_VERSION,
     };
     ws.send(Message::Text(serde_json::to_string(&hello)?.into()))
         .await?;
     match ws.next().await {
         Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
             Ok(OrchestratorMessage::HelloAck) => {}
+            Ok(OrchestratorMessage::Rejected { reason }) => return Err(Rejected(reason).into()),
             _ => bail!("expected hello_ack, got {text}"),
         },
         other => bail!("expected hello_ack, got {other:?}"),
@@ -263,6 +281,8 @@ fn receive(
 fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
     match msg {
         OrchestratorMessage::HelloAck => {}
+        // Only ever arrives during handshake, handled there.
+        OrchestratorMessage::Rejected { .. } => {}
         OrchestratorMessage::Start { task } => {
             let (cancel_tx, cancel_rx) = oneshot::channel();
             ctx.running

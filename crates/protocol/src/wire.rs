@@ -75,6 +75,9 @@ pub enum WorkerMessage {
         info: WorkerInfo,
         #[serde(default)]
         running: Vec<TaskId>,
+        /// `PROTOCOL_VERSION` of the worker; 0 from workers that predate it.
+        #[serde(default)]
+        version: u32,
     },
     Event {
         task_id: TaskId,
@@ -89,6 +92,11 @@ pub enum WorkerMessage {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OrchestratorMessage {
     HelloAck,
+    /// Sent instead of `HelloAck` and followed by a close; the worker must
+    /// not retry.
+    Rejected {
+        reason: String,
+    },
     Start {
         task: Box<Task>,
     },

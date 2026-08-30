@@ -10,7 +10,7 @@ use axum::response::Response;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use lgtm_protocol::{
-    OrchestratorMessage, TaskEvent, TaskId, TaskStatus, WorkerInfo, WorkerMessage,
+    OrchestratorMessage, TaskEvent, TaskId, TaskStatus, WorkerInfo, WorkerMessage, PROTOCOL_VERSION,
 };
 use tokio::sync::mpsc;
 
@@ -113,16 +113,42 @@ async fn hello(
         token,
         info,
         running,
+        version,
     }) = serde_json::from_str::<WorkerMessage>(&text)
     else {
         return None;
     };
+    authorize(app, sink, &info, &token, version).await?;
+    Some((info, running))
+}
+
+/// `None` when the worker was refused, having already been told why and closed.
+async fn authorize(
+    app: &App,
+    sink: &mut SplitSink<WebSocket, Message>,
+    info: &WorkerInfo,
+    token: &str,
+    version: u32,
+) -> Option<()> {
     if token != app.token {
         tracing::warn!(worker = %info.name, "worker presented a bad token");
         let _ = sink.send(Message::Close(None)).await;
         return None;
     }
-    Some((info, running))
+    if version != PROTOCOL_VERSION {
+        tracing::warn!(worker = %info.name, %version, "worker speaks a different protocol version");
+        let msg = OrchestratorMessage::Rejected {
+            reason: format!(
+                "protocol version {version}, this orchestrator speaks {PROTOCOL_VERSION}"
+            ),
+        };
+        if let Ok(text) = serde_json::to_string(&msg) {
+            let _ = sink.send(Message::Text(text.into())).await;
+        }
+        let _ = sink.send(Message::Close(None)).await;
+        return None;
+    }
+    Some(())
 }
 
 /// Approves a completed task the policy says needs no one to look at it. The
