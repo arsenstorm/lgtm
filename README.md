@@ -124,6 +124,9 @@ budget_per_task_usd = 2.0  # no auto-approve for a run that cost more
 profile = "standard"   # standard: stripped env, writes only to the worktree, secrets unreadable
 network = "unrestricted"  # unrestricted, none, or allowlist
 allowed_hosts = ["github.com", "api.anthropic.com", "crates.io"]  # what allowlist may reach
+memory_mb = 4096       # address space one run may map; unset means no limit
+processes = 256        # processes and threads the run's user may have; unset means no limit
+cpu_seconds = 3600     # CPU time before the run is killed; unset means no limit
 ```
 
 `standard` runs the agent with only the variables it needs — a token in the
@@ -137,6 +140,18 @@ login; the host's secrets (`.ssh`, `.aws`, `.gnupg`, `.config/gh`, `.netrc`,
 readable, because that is where claude keeps its own token and denying it only
 logs the agent out. `strict` runs as `standard` until the container boundary
 lands.
+
+`memory_mb`, `processes` and `cpu_seconds` cap what one run may spend; each is
+unset by default, and an unset one is no limit. On macOS and Linux the run
+starts behind a shell that sets the matching `ulimit` inside the sandbox, so
+the limits bind the agent and everything it spawns. A limit the kernel refuses
+is skipped rather than fatal: Darwin does not enforce an address-space limit at
+all, so `memory_mb` is a Linux limit in practice while `processes` and
+`cpu_seconds` hold on both. On Linux, when this user has a delegated cgroup v2
+tree, the run also gets a `lgtm-<pid>` cgroup with `memory.max` and `pids.max`,
+removed when the run ends; without delegation the `ulimit`s are all there is.
+On Windows nothing is enforced — a Job Object needs `windows-sys`, which is not
+a dependency here — and the environment allowlist is all a run gets.
 
 `network` decides where a run may go: `unrestricted` (the default), `none`, or
 `allowlist`. Under `allowlist` the runner starts an HTTP proxy on the loopback

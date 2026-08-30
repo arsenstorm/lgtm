@@ -22,7 +22,7 @@ use crate::git::{branch_name, commit, mirror_path, session_path, SCRATCHPAD};
 use crate::plan::extract_plan;
 use crate::policy::{
     effective_sandbox, failed_names, fix_prompt, load_policy, parse_review, review_prompt,
-    review_warning, reviewer, NetworkPolicy, PolicyConfig,
+    review_warning, reviewer, Limits, NetworkPolicy, PolicyConfig,
 };
 use crate::proc::{
     cost_buffer, cost_total, final_text, tail_buffer, tail_lines, text_buffer, Cost, Pump, Sinks,
@@ -123,6 +123,8 @@ pub struct Run<'a> {
     /// What the sandbox enforces for the run that is about to start: a port
     /// only once that run's proxy is listening.
     network: Network,
+    /// What the run may consume, known with the timeout and the profile.
+    limits: Limits,
     /// The notes as last seen, so an unchanged scratchpad sends nothing.
     notes: String,
 }
@@ -151,6 +153,7 @@ impl<'a> Run<'a> {
             sandbox: SandboxProfile::default(),
             allowed_hosts: None,
             network: Network::Unrestricted,
+            limits: Limits::default(),
             notes: task.scratchpad.clone(),
         }
     }
@@ -162,6 +165,7 @@ pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> 
     let available = crate::detect_executors();
     run.timeout = Duration::from_secs(policy.timeout_secs);
     run.sandbox = effective_sandbox(&run.task.spec, &policy);
+    run.limits = policy.limits;
     // An allowlist stays blocked until its proxy is listening: a run that
     // cannot be restricted must not run unrestricted instead.
     (run.allowed_hosts, run.network) = match &policy.network {
@@ -392,6 +396,7 @@ impl<'a> Run<'a> {
             .command(&path, &opts)
             .spawn()
             .with_context(|| format!("spawn {}", path.display()))?;
+        let _confined = sandbox::confine_child(&child, &self.limits);
         self.ctx.emit(
             &self.task.id,
             TaskEvent::Started {
@@ -535,7 +540,14 @@ impl<'a> Run<'a> {
             mirror: &mirror,
             home: &home,
         };
-        sandbox::wrap(self.sandbox, &paths, self.network, path, &args(opts))
+        sandbox::wrap(
+            self.sandbox,
+            &paths,
+            self.network,
+            &self.limits,
+            path,
+            &args(opts),
+        )
     }
 
     fn command(&self, path: &Path, opts: &RunOpts<'_>) -> Command {
