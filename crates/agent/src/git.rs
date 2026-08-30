@@ -190,6 +190,10 @@ pub async fn rebase_onto(
     token: Option<&str>,
 ) -> Result<Result<(), Vec<String>>> {
     let worktree_s = worktree.display().to_string();
+    // An empty remote has nothing to rebase onto; the first push creates it.
+    if base_ref(worktree, base).await.is_none() {
+        return Ok(Ok(()));
+    }
     // The mirror is a bare clone with no fetch refspec of its own, so
     // `origin/<base>` only moves when the refspec is spelled out.
     let refspec = format!("+refs/heads/{base}:refs/remotes/origin/{base}");
@@ -234,23 +238,37 @@ pub async fn add_worktree(
         // `worktree remove` fails on a directory git never registered.
         let _ = tokio::fs::remove_dir_all(worktree).await;
     }
-    git(
-        &[
-            "-C",
-            &mirror.display().to_string(),
-            "worktree",
-            "add",
-            "-b",
-            branch,
-            &worktree.display().to_string(),
-            &format!("origin/{base_branch}"),
-        ],
-        None,
-    )
-    .await?;
+    let mirror_s = mirror.display().to_string();
+    let worktree_s = worktree.display().to_string();
+    let mut args = vec!["-C", &mirror_s, "worktree", "add"];
+    // A repository with no commits yet has no `origin/<base>` to start from;
+    // an orphan worktree lets the agent make the first commit.
+    let start = base_ref(mirror, base_branch).await;
+    match &start {
+        Some(start) => args.extend(["-b", branch, &worktree_s, start]),
+        None => args.extend(["--orphan", "-b", branch, &worktree_s]),
+    }
+    git(&args, None).await?;
     exclude(worktree, SCRATCHPAD).await?;
     Ok(())
 }
+
+/// `origin/<base>` when the mirror has it; `None` for an empty repository.
+pub async fn base_ref(repo: &Path, base_branch: &str) -> Option<String> {
+    let name = format!("origin/{base_branch}");
+    let repo_s = repo.display().to_string();
+    git(
+        &["-C", &repo_s, "rev-parse", "--verify", "--quiet", &name],
+        None,
+    )
+    .await
+    .ok()
+    .map(|_| name)
+}
+
+/// The tree every diff is taken against when there is no base: git's empty
+/// tree, so the whole first commit shows as added.
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 /// Keeps `pattern` out of every commit made in the worktree. The mirror's
 /// exclude file is shared by its worktrees, so the line is written once.
@@ -323,9 +341,10 @@ pub async fn commit(
         args.extend_from_slice(&["commit", "-q", "-m", &message]);
         git(&args, cwd).await?;
     }
-    let range = format!("origin/{base_branch}...{branch}");
-    let diff = git(&["diff", &range], cwd).await?;
-    let names = git(&["diff", "--name-only", &range], cwd).await?;
+    let range = diff_range(base_ref(worktree, base_branch).await, branch);
+    let range: Vec<&str> = range.iter().map(String::as_str).collect();
+    let diff = git(&[&["diff"], &range[..]].concat(), cwd).await?;
+    let names = git(&[&["diff", "--name-only"], &range[..]].concat(), cwd).await?;
     Ok(TaskResult {
         branch: branch.to_string(),
         diff,
@@ -336,6 +355,15 @@ pub async fn commit(
         policy: None,
         cost_usd: 0.0,
     })
+}
+
+/// `origin/<base>...<branch>`, or the whole branch against the empty tree
+/// when the repository had no base to branch from.
+fn diff_range(base: Option<String>, branch: &str) -> Vec<String> {
+    match base {
+        Some(base) => vec![format!("{base}...{branch}")],
+        None => vec![EMPTY_TREE.to_string(), branch.to_string()],
+    }
 }
 
 pub fn commit_message(prompt: &str) -> String {
@@ -353,6 +381,52 @@ pub fn commit_message(prompt: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `git init --bare` twice: an empty origin and a mirror cloned from it,
+    /// the shape a first task in a new repository sees.
+    async fn empty_mirror() -> (PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!("lgtm-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let origin = root.join("origin.git");
+        let mirror = root.join("mirror.git");
+        git(
+            &["init", "--bare", "-q", &origin.display().to_string()],
+            None,
+        )
+        .await
+        .unwrap();
+        git(
+            &[
+                "clone",
+                "--bare",
+                "-q",
+                &origin.display().to_string(),
+                &mirror.display().to_string(),
+            ],
+            None,
+        )
+        .await
+        .unwrap();
+        (root, mirror)
+    }
+
+    #[tokio::test]
+    async fn a_task_in_an_empty_repository_gets_an_orphan_worktree_and_a_full_diff() {
+        let (root, mirror) = empty_mirror().await;
+        let worktree = root.join("wt");
+        assert_eq!(base_ref(&mirror, "main").await, None);
+        add_worktree(&mirror, &worktree, "lgtm/t", "main")
+            .await
+            .unwrap();
+        std::fs::write(worktree.join("README.md"), "hi\n").unwrap();
+        let result = commit("add a readme", "main", "lgtm/t", &worktree)
+            .await
+            .unwrap();
+        assert_eq!(result.changed_files, vec!["README.md".to_string()]);
+        assert!(result.diff.contains("+hi"), "{}", result.diff);
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn slugs_repository_urls() {
