@@ -1,12 +1,12 @@
 //! Turns a `TaskEvent` into the lines the Activity tab shows.
 //!
 //! Same rules as the CLI's `render`, returning lines instead of writing them,
-//! so each line can carry a kind the UI colours by.
+//! so each line can carry a kind the UI colours by. What the agent did comes
+//! in as its own events, so raw stdout is only shown when it is not
+//! stream-json, plus the failed `result` line.
 
 use lgtm_protocol::{OutputStream, TaskEvent};
 use serde_json::Value;
-
-const TOOL_DETAIL_MAX: usize = 100;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -44,6 +44,13 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
             stream: OutputStream::Stdout,
             line,
         } => render_stdout(line),
+        TaskEvent::Command { command } => vec![Line::new(Kind::Tool, format!("$ {command}"))],
+        TaskEvent::FileChanged { path } => vec![Line::new(Kind::Tool, format!("~ {path}"))],
+        TaskEvent::Progress { text } => vec![Line::new(Kind::Text, text.clone())],
+        TaskEvent::Validating { names } => vec![Line::new(
+            Kind::Status,
+            format!("running checks: {}", names.join(", ")),
+        )],
         TaskEvent::Completed { result } => {
             let changed = result.changed_files.len();
             let total = result.validation.len();
@@ -83,34 +90,8 @@ fn render_stdout(line: &str) -> Vec<Line> {
         return vec![Line::new(Kind::Text, line)];
     };
     match value.get("type").and_then(Value::as_str) {
-        Some("assistant") => render_assistant(&value),
         Some("result") => render_result(&value),
         _ => Vec::new(),
-    }
-}
-
-fn render_assistant(value: &Value) -> Vec<Line> {
-    let Some(blocks) = value.pointer("/message/content").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    blocks.iter().filter_map(assistant_line).collect()
-}
-
-fn assistant_line(block: &Value) -> Option<Line> {
-    let text = |key: &str| block.get(key).and_then(Value::as_str).unwrap_or("");
-    match text("type") {
-        "text" if !text("text").is_empty() => Some(Line::new(Kind::Text, text("text"))),
-        "tool_use" => {
-            let name = text("name");
-            let detail = block.get("input").map(tool_detail).unwrap_or_default();
-            let line = if detail.is_empty() {
-                format!("▸ {name}")
-            } else {
-                format!("▸ {name} {detail}")
-            };
-            Some(Line::new(Kind::Tool, line))
-        }
-        _ => None,
     }
 }
 
@@ -124,22 +105,6 @@ fn render_result(value: &Value) -> Vec<Line> {
     }
     let result = value.get("result").and_then(Value::as_str).unwrap_or("");
     vec![Line::new(Kind::Stderr, format!("! {result}"))]
-}
-
-/// First present of command/file_path/pattern/description, truncated.
-fn tool_detail(input: &Value) -> String {
-    let raw = input
-        .get("command")
-        .or_else(|| input.get("file_path"))
-        .or_else(|| input.get("pattern"))
-        .or_else(|| input.get("description"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if raw.chars().count() > TOOL_DETAIL_MAX {
-        raw.chars().take(TOOL_DETAIL_MAX).collect()
-    } else {
-        raw.to_string()
-    }
 }
 
 #[cfg(test)]
@@ -159,16 +124,40 @@ mod tests {
         assert!(stdout(line).is_empty());
     }
 
+    /// The runner sends the same content as `Progress` and `Command`, so
+    /// rendering the raw line would show all of it twice.
     #[test]
-    fn assistant_text_is_a_text_line() {
-        let line = r#"{"type":"assistant","message":{"model":"claude-x","id":"m","type":"message","role":"assistant","content":[{"type":"text","text":"Hi."}],"stop_reason":null},"parent_tool_use_id":null,"session_id":"a"}"#;
-        assert_eq!(stdout(line), vec![Line::new(Kind::Text, "Hi.")]);
+    fn assistant_stdout_is_silent() {
+        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi."},{"type":"tool_use","id":"t","name":"Bash","input":{"command":"ls -la"}}]},"session_id":"a"}"#;
+        assert!(stdout(line).is_empty());
     }
 
     #[test]
-    fn tool_use_shows_command() {
-        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t","name":"Bash","input":{"command":"ls -la","description":"List files"}}]},"session_id":"a"}"#;
-        assert_eq!(stdout(line), vec![Line::new(Kind::Tool, "▸ Bash ls -la")]);
+    fn structured_events_each_have_their_own_line() {
+        assert_eq!(
+            render(&TaskEvent::Progress {
+                text: "Looking.".into()
+            }),
+            vec![Line::new(Kind::Text, "Looking.")]
+        );
+        assert_eq!(
+            render(&TaskEvent::Command {
+                command: "ls -la".into()
+            }),
+            vec![Line::new(Kind::Tool, "$ ls -la")]
+        );
+        assert_eq!(
+            render(&TaskEvent::FileChanged {
+                path: "src/a.rs".into()
+            }),
+            vec![Line::new(Kind::Tool, "~ src/a.rs")]
+        );
+        assert_eq!(
+            render(&TaskEvent::Validating {
+                names: vec!["test".into(), "lint".into()]
+            }),
+            vec![Line::new(Kind::Status, "running checks: test, lint")]
+        );
     }
 
     #[test]

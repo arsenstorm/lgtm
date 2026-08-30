@@ -1,18 +1,15 @@
 //! Turns a `TaskEvent` into the lines a human watches scroll by.
 //!
-//! Agent stdout is `claude -p --output-format stream-json`: one JSON object
-//! per line. We only surface the parts a human cares about (assistant text,
-//! tool calls, failed results) and stay silent on the rest (system/user
-//! bookkeeping, rate-limit pings, successful results already implied by
-//! `Completed`).
+//! What the agent did arrives as its own events (`Progress`, `Command`,
+//! `FileChanged`, `Validating`), so agent stdout is echoed only when it is
+//! not stream-json, plus the failed `result` line. The rest of that stream is
+//! bookkeeping no human wants to read.
 
 use lgtm_protocol::{
     Execution, ExecutionStatus, OutputStream, Plan, Review, Severity, TaskEvent, ValidationResult,
 };
 use serde_json::Value;
 use std::io::Write;
-
-const TOOL_DETAIL_MAX: usize = 100;
 
 pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
     match event {
@@ -26,6 +23,12 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
             stream: OutputStream::Stdout,
             line,
         } => render_stdout(line, out),
+        TaskEvent::Command { command } => writeln!(out, "$ {command}"),
+        TaskEvent::FileChanged { path } => writeln!(out, "~ {path}"),
+        TaskEvent::Progress { text } => writeln!(out, "{text}"),
+        TaskEvent::Validating { names } => {
+            writeln!(out, "running checks: {}", names.join(", "))
+        }
         TaskEvent::Completed { result } => {
             if let Some(plan) = &result.plan {
                 return writeln!(out, "plan: {} steps", plan.steps.len());
@@ -160,37 +163,9 @@ fn render_stdout(line: &str, out: &mut impl Write) -> std::io::Result<()> {
         return writeln!(out, "{line}");
     };
     match value.get("type").and_then(Value::as_str) {
-        Some("assistant") => render_assistant(&value, out),
         Some("result") => render_result(&value, out),
         _ => Ok(()),
     }
-}
-
-fn render_assistant(value: &Value, out: &mut impl Write) -> std::io::Result<()> {
-    let Some(blocks) = value.pointer("/message/content").and_then(Value::as_array) else {
-        return Ok(());
-    };
-    for block in blocks {
-        match block.get("type").and_then(Value::as_str) {
-            Some("text") => {
-                let text = block.get("text").and_then(Value::as_str).unwrap_or("");
-                if !text.is_empty() {
-                    writeln!(out, "{text}")?;
-                }
-            }
-            Some("tool_use") => {
-                let name = block.get("name").and_then(Value::as_str).unwrap_or("");
-                let detail = block.get("input").map(tool_detail).unwrap_or_default();
-                if detail.is_empty() {
-                    writeln!(out, "▸ {name}")?;
-                } else {
-                    writeln!(out, "▸ {name} {detail}")?;
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(())
 }
 
 fn render_result(value: &Value, out: &mut impl Write) -> std::io::Result<()> {
@@ -205,35 +180,22 @@ fn render_result(value: &Value, out: &mut impl Write) -> std::io::Result<()> {
     writeln!(out, "! {result}")
 }
 
-/// First present of command/file_path/pattern/description, truncated.
-fn tool_detail(input: &Value) -> String {
-    let raw = input
-        .get("command")
-        .or_else(|| input.get("file_path"))
-        .or_else(|| input.get("pattern"))
-        .or_else(|| input.get("description"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if raw.chars().count() > TOOL_DETAIL_MAX {
-        raw.chars().take(TOOL_DETAIL_MAX).collect()
-    } else {
-        raw.to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use lgtm_protocol::{Finding, OutputStream, TaskEvent};
 
+    fn rendered(event: &TaskEvent) -> String {
+        let mut out = Vec::new();
+        render(event, &mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
     fn render_line(line: &str) -> String {
-        let event = TaskEvent::Output {
+        rendered(&TaskEvent::Output {
             stream: OutputStream::Stdout,
             line: line.to_string(),
-        };
-        let mut out = Vec::new();
-        render(&event, &mut out).unwrap();
-        String::from_utf8(out).unwrap()
+        })
     }
 
     #[test]
@@ -242,16 +204,40 @@ mod tests {
         assert_eq!(render_line(line), "");
     }
 
+    /// The runner sends the same content as `Progress` and `Command`, so
+    /// echoing the raw line would print all of it twice.
     #[test]
-    fn assistant_text_is_printed() {
-        let line = r#"{"type":"assistant","message":{"model":"claude-x","id":"m","type":"message","role":"assistant","content":[{"type":"text","text":"Hi."}],"stop_reason":null},"parent_tool_use_id":null,"session_id":"a"}"#;
-        assert_eq!(render_line(line), "Hi.\n");
+    fn assistant_stdout_is_silent() {
+        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi."},{"type":"tool_use","id":"t","name":"Bash","input":{"command":"ls -la"}}]},"session_id":"a"}"#;
+        assert_eq!(render_line(line), "");
     }
 
     #[test]
-    fn tool_use_shows_command() {
-        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t","name":"Bash","input":{"command":"ls -la","description":"List files"}}]},"session_id":"a"}"#;
-        assert_eq!(render_line(line), "▸ Bash ls -la\n");
+    fn structured_events_each_have_their_own_line() {
+        assert_eq!(
+            rendered(&TaskEvent::Progress {
+                text: "Looking.".into()
+            }),
+            "Looking.\n"
+        );
+        assert_eq!(
+            rendered(&TaskEvent::Command {
+                command: "ls -la".into()
+            }),
+            "$ ls -la\n"
+        );
+        assert_eq!(
+            rendered(&TaskEvent::FileChanged {
+                path: "src/a.rs".into()
+            }),
+            "~ src/a.rs\n"
+        );
+        assert_eq!(
+            rendered(&TaskEvent::Validating {
+                names: vec!["test".into(), "lint".into()]
+            }),
+            "running checks: test, lint\n"
+        );
     }
 
     #[test]
