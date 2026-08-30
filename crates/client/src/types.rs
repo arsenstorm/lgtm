@@ -13,6 +13,8 @@ pub(crate) struct ErrorBody {
 pub struct TaskDetail {
     pub task: lgtm_protocol::Task,
     pub events: Vec<lgtm_protocol::StoredEvent>,
+    #[serde(default)]
+    pub overlaps: Vec<lgtm_protocol::Overlap>,
 }
 
 #[derive(Serialize)]

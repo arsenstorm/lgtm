@@ -90,7 +90,7 @@ pub fn relative_age(created_at: u64, now: u64) -> String {
 
 pub fn status_color(task: &Task, tasks: &[Task], t: &Tokens) -> Hsla {
     match status_label(task, tasks) {
-        "awaiting_review" => t.warning,
+        "awaiting_review" | "conflicted" => t.warning,
         "running" => t.info,
         "approved" | "merged" => t.success,
         "failed" | "timed_out" | "runner_lost" | "rejected" | "cancelled" => t.danger,

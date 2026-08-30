@@ -95,6 +95,11 @@ pub enum TaskEvent {
     /// The worker's socket expired with this task still running.
     RunnerLost,
     Cancelled,
+    /// Rebasing onto `base` before the push stopped on these files.
+    Conflicted {
+        base: String,
+        files: Vec<String>,
+    },
     /// Task branch pushed to origin after approval. `sha` is the branch head.
     Pushed {
         branch: String,

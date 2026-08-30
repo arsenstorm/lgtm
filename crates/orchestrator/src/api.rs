@@ -16,8 +16,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
-    plan_versions, Executor, OrchestratorMessage, PlanVersion, SandboxProfile, Stats, Task,
-    TaskEvent, TaskKind, TaskSpec, TaskStatus, WorkerStatus,
+    overlaps, plan_versions, Executor, OrchestratorMessage, PlanVersion, SandboxProfile, Stats,
+    Task, TaskEvent, TaskKind, TaskSpec, TaskStatus, WorkerStatus,
 };
 use serde::Deserialize;
 
@@ -353,9 +353,10 @@ async fn get_task(
         .tasks
         .get(&id)
         .ok_or(ApiError(StatusCode::NOT_FOUND, "task not found".into()))?;
+    let others: Vec<&Task> = state.tasks.values().map(|rec| &rec.task).collect();
     Ok(Json(Stored {
-        task: rec.task.clone(),
-        events: rec.events.clone(),
+        overlaps: overlaps(&rec.task, &others),
+        ..Stored::from(rec)
     }))
 }
 

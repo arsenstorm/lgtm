@@ -3,12 +3,32 @@
 
 use lgtm_protocol::{Executor, OrchestratorMessage, Task, TaskEvent, TaskId, TaskSpec, TaskStatus};
 
-use crate::state::{CmdError, PrPlan, State, TITLE_MAX};
+use crate::state::{CmdError, PrPlan, State, TaskRecord, TITLE_MAX};
 
 /// Where a retried task should run. `None` keeps what the spec already says.
 pub struct RetryInto {
     pub worker: Option<String>,
     pub executor: Option<Executor>,
+}
+
+/// What a follow-up to a conflicted task has to say before the developer's own
+/// words: the agent is in the worktree and only it can resolve the rebase.
+/// `None` for a task whose branch still applies.
+fn conflict_prefix(rec: &TaskRecord) -> Option<String> {
+    if rec.task.status != TaskStatus::Conflicted {
+        return None;
+    }
+    rec.events
+        .iter()
+        .rev()
+        .find_map(|stored| match &stored.event {
+            TaskEvent::Conflicted { base, files } => Some(format!(
+                "The branch conflicts with {base} on: {}. Rebase onto origin/{base}, \
+                 resolve the conflicts, finish the rebase, then continue with: ",
+                files.join(", ")
+            )),
+            _ => None,
+        })
 }
 
 impl State {
@@ -115,9 +135,13 @@ impl State {
         text: String,
     ) -> Result<(Task, Vec<TaskId>), CmdError> {
         let rec = self.tasks.get(task_id).ok_or(CmdError::NotFound)?;
-        if rec.task.status != TaskStatus::AwaitingReview {
+        if !matches!(
+            rec.task.status,
+            TaskStatus::AwaitingReview | TaskStatus::Conflicted
+        ) {
             return Err(CmdError::Conflict("task is not awaiting review".into()));
         }
+        let prefix = conflict_prefix(rec).unwrap_or_default();
         let name = rec.task.worker.clone().unwrap_or_default();
         let repository = rec.task.spec.repository.clone();
         let connected = self
@@ -129,13 +153,14 @@ impl State {
                 "worker {name} is not connected"
             )));
         }
-        let changed = self.apply_event(task_id, TaskEvent::Message { text: text.clone() });
+        let instruction = format!("{prefix}{text}");
+        let changed = self.apply_event(task_id, TaskEvent::Message { text });
         let memories = self.memories_for(&repository);
         if let Some(worker) = self.workers.get_mut(&name) {
             worker.running.insert(task_id.to_string());
             worker.send(OrchestratorMessage::Message {
                 task_id: task_id.to_string(),
-                text,
+                text: instruction,
                 memories,
             });
         }

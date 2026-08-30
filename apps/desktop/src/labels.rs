@@ -29,6 +29,7 @@ pub fn status_label(task: &Task, tasks: &[Task]) -> &'static str {
         TaskStatus::Running => "running",
         TaskStatus::AwaitingReview => "awaiting_review",
         TaskStatus::ChangesRequested => "changes_requested",
+        TaskStatus::Conflicted => "conflicted",
         TaskStatus::Approved => "approved",
         TaskStatus::Merged => "merged",
         TaskStatus::Rejected => "rejected",

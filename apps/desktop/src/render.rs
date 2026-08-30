@@ -105,6 +105,10 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
         }
         TaskEvent::RunnerLost => vec![Line::new(Kind::Status, "runner lost")],
         TaskEvent::Cancelled => vec![Line::new(Kind::Status, "cancelled")],
+        TaskEvent::Conflicted { base, files } => vec![Line::new(
+            Kind::Status,
+            format!("conflicted with {base}: {}", files.join(", ")),
+        )],
         TaskEvent::Pushed { branch, .. } => {
             vec![Line::new(Kind::Status, format!("pushed {branch}"))]
         }

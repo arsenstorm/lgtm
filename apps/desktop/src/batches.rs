@@ -28,7 +28,7 @@ pub fn counts(batch: &str, tasks: &[Task]) -> Vec<(&'static str, usize)> {
         .filter(|task| task.spec.batch.as_deref() == Some(batch))
     {
         let state = match status_label(task, tasks) {
-            "awaiting_review" => "review",
+            "awaiting_review" | "conflicted" => "review",
             "rejected" | "cancelled" => "failed",
             other => other,
         };

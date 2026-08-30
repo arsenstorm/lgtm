@@ -49,6 +49,7 @@ fn is_final(event: &TaskEvent) -> bool {
     matches!(
         event,
         TaskEvent::Completed { .. }
+            | TaskEvent::Conflicted { .. }
             | TaskEvent::Failed { .. }
             | TaskEvent::TimedOut { .. }
             | TaskEvent::RunnerLost

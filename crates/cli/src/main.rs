@@ -351,6 +351,13 @@ async fn plans(client: &Client, id: &str) -> anyhow::Result<i32> {
 async fn show(client: &Client, id: &str) -> anyhow::Result<i32> {
     let detail = client.task(id).await?;
     println!("{}", serde_json::to_string_pretty(&detail.task)?);
+    for overlap in &detail.overlaps {
+        println!(
+            "overlaps with {}: {}",
+            overlap.task,
+            overlap.files.join(", ")
+        );
+    }
     if let Some(pr) = &detail.task.pull_request {
         println!("pr: {}", pr.url);
     }

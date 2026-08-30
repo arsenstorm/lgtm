@@ -92,6 +92,9 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
         TaskEvent::TimedOut { secs } => writeln!(out, "timed out after {secs}s"),
         TaskEvent::RunnerLost => writeln!(out, "runner lost"),
         TaskEvent::Cancelled => writeln!(out, "cancelled"),
+        TaskEvent::Conflicted { base, files } => {
+            writeln!(out, "conflicted with {base}: {}", files.join(", "))
+        }
         TaskEvent::Pushed { branch, .. } => writeln!(out, "pushed {branch}"),
         TaskEvent::Discarded => writeln!(out, "discarded"),
     }

@@ -13,7 +13,7 @@ fn count_status(stats: &mut Stats, status: TaskStatus) {
     let counter = match status {
         TaskStatus::Queued => &mut stats.queued,
         TaskStatus::Running | TaskStatus::ChangesRequested => &mut stats.running,
-        TaskStatus::AwaitingReview => &mut stats.awaiting_review,
+        TaskStatus::AwaitingReview | TaskStatus::Conflicted => &mut stats.awaiting_review,
         TaskStatus::Approved => &mut stats.approved,
         TaskStatus::Merged => &mut stats.merged,
         TaskStatus::Failed | TaskStatus::TimedOut | TaskStatus::RunnerLost => &mut stats.failed,

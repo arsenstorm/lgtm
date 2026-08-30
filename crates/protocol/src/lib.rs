@@ -77,6 +77,9 @@ pub enum TaskStatus {
     AwaitingReview,
     /// A follow-up was sent; the run for it has not started yet.
     ChangesRequested,
+    /// The branch no longer rebases onto its base; a follow-up asks the agent
+    /// to resolve it.
+    Conflicted,
     Approved,
     /// The pull request was merged from LGTM.
     Merged,
@@ -326,7 +329,12 @@ pub fn goal_status(tasks: &[&Task]) -> GoalStatus {
         )
     }) {
         GoalStatus::Running
-    } else if any(|t| t.status == TaskStatus::AwaitingReview) {
+    } else if any(|t| {
+        matches!(
+            t.status,
+            TaskStatus::AwaitingReview | TaskStatus::Conflicted
+        )
+    }) {
         GoalStatus::Review
     } else if all(|t| matches!(t.status, TaskStatus::Approved | TaskStatus::Merged)) {
         GoalStatus::Completed
@@ -576,6 +584,46 @@ pub struct Task {
     /// person can pick up where it stopped.
     #[serde(default)]
     pub scratchpad: String,
+}
+
+/// Files another unfinished task in the same repository has changed too.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Overlap {
+    pub task: TaskId,
+    pub files: Vec<String>,
+}
+
+fn changed_files(task: &Task) -> &[String] {
+    match &task.result {
+        Some(result) => &result.changed_files,
+        None => &[],
+    }
+}
+
+/// Where `task` and the other live tasks in its repository touched the same
+/// files, so two agents racing on one piece of code shows up before the pull
+/// request does. Derived from what the tasks already report, never stored.
+// ponytail: a scan of every other task's files per task; both lists are short,
+// and an index by path is the upgrade if a repository ever runs many at once.
+pub fn overlaps(task: &Task, others: &[&Task]) -> Vec<Overlap> {
+    let mine = changed_files(task);
+    others
+        .iter()
+        .filter(|other| other.id != task.id && other.spec.repository == task.spec.repository)
+        .filter(|other| !other.status.is_terminal())
+        .filter_map(|other| {
+            let mut files: Vec<String> = changed_files(other)
+                .iter()
+                .filter(|path| mine.contains(path))
+                .cloned()
+                .collect();
+            files.sort();
+            (!files.is_empty()).then(|| Overlap {
+                task: other.id.clone(),
+                files,
+            })
+        })
+        .collect()
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
