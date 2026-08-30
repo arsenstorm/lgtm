@@ -10,6 +10,9 @@ use tokio::process::Command;
 /// git identity of its own.
 pub const IDENTITY: [&str; 4] = ["-c", "user.name=lgtm", "-c", "user.email=lgtm@localhost"];
 
+/// The agent's working notes, relative to the worktree.
+pub const SCRATCHPAD: &str = ".lgtm/scratchpad.md";
+
 /// Runs git and returns trimmed stdout, or an error naming the command and its stderr.
 pub async fn git(args: &[&str], cwd: Option<&Path>) -> Result<String> {
     let mut cmd = Command::new("git");
@@ -140,7 +143,43 @@ pub async fn add_worktree(
         None,
     )
     .await?;
+    exclude(worktree, SCRATCHPAD).await?;
     Ok(())
+}
+
+/// Keeps `pattern` out of every commit made in the worktree. The mirror's
+/// exclude file is shared by its worktrees, so the line is written once.
+pub async fn exclude(worktree: &Path, pattern: &str) -> Result<()> {
+    let worktree_s = worktree.display().to_string();
+    let found = git(
+        &["-C", &worktree_s, "rev-parse", "--git-path", "info/exclude"],
+        None,
+    )
+    .await?;
+    let path = worktree.join(found);
+    let current = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+    let Some(text) = with_line(&current, pattern) else {
+        return Ok(());
+    };
+    if let Some(dir) = path.parent() {
+        tokio::fs::create_dir_all(dir).await?;
+    }
+    tokio::fs::write(&path, text)
+        .await
+        .with_context(|| format!("write {}", path.display()))
+}
+
+/// The file with `line` appended, or `None` when it is already there.
+fn with_line(current: &str, line: &str) -> Option<String> {
+    if current.lines().any(|existing| existing == line) {
+        return None;
+    }
+    let sep = if current.is_empty() || current.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    Some(format!("{current}{sep}{line}\n"))
 }
 
 /// Removes the worktree and its branch, running both even when the first
@@ -216,6 +255,20 @@ mod tests {
         assert_eq!(slug("git@github.com:arsenstorm/olos.git"), "olos");
         assert_eq!(slug(""), "repo");
         assert_eq!(slug("https://x/y/we ird.git"), "we-ird");
+    }
+
+    #[test]
+    fn exclude_writes_its_line_once() {
+        assert_eq!(with_line("", SCRATCHPAD).unwrap(), ".lgtm/scratchpad.md\n");
+        assert_eq!(
+            with_line("*.log", SCRATCHPAD).unwrap(),
+            "*.log\n.lgtm/scratchpad.md\n"
+        );
+        assert_eq!(
+            with_line("*.log\n", SCRATCHPAD).unwrap(),
+            "*.log\n.lgtm/scratchpad.md\n"
+        );
+        assert_eq!(with_line("*.log\n.lgtm/scratchpad.md\n", SCRATCHPAD), None);
     }
 
     #[test]

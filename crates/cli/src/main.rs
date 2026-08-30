@@ -169,6 +169,7 @@ async fn task_command(client: &Client, command: Command) -> anyhow::Result<i32> 
             eprintln!("retrying {id}");
             run::stream(client, &id, from).await
         }
+        Command::Pad { id, set } => pad(client, &id, set).await,
         Command::Tell { id, message } => {
             // Events already delivered by a prior `run`/`tell` shouldn't replay.
             let from = client.task(&id).await?.events.len();
@@ -178,6 +179,25 @@ async fn task_command(client: &Client, command: Command) -> anyhow::Result<i32> 
         }
         _ => unreachable!("handled by run_command"),
     }
+}
+
+/// `--set -` reads the notes from stdin, so an editor or a pipe can write them.
+async fn pad(client: &Client, id: &str, set: Option<String>) -> anyhow::Result<i32> {
+    let Some(set) = set else {
+        let notes = client.task(id).await?.task.scratchpad;
+        match notes.trim_end() {
+            "" => println!("no notes"),
+            notes => println!("{notes}"),
+        }
+        return Ok(0);
+    };
+    let content = match set.as_str() {
+        "-" => std::io::read_to_string(std::io::stdin())?,
+        text => text.to_string(),
+    };
+    client.set_scratchpad(id, &content).await?;
+    println!("notes updated");
+    Ok(0)
 }
 
 fn print_json(value: impl serde::Serialize) -> anyhow::Result<i32> {

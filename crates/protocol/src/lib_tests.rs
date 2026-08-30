@@ -51,6 +51,7 @@ fn sample_task() -> Task {
             cost_usd: 0.42,
             validation: Vec::new(),
         }],
+        scratchpad: "## Findings\n- the parser is in src/parse.rs\n".into(),
     }
 }
 
@@ -125,6 +126,9 @@ fn every_message_round_trips() {
         },
         TaskEvent::Progress {
             text: "reading the config".into(),
+        },
+        TaskEvent::Scratchpad {
+            content: "- the parser is in src/parse.rs\n".into(),
         },
         TaskEvent::Validating {
             names: vec!["test".into(), "lint".into()],
@@ -260,6 +264,7 @@ fn phase_one_frames_still_parse() {
     assert!(task.spec.parent.is_none() && task.spec.depends_on.is_empty());
     assert!(task.spec.batch.is_none() && task.spec.goal.is_none());
     assert!(task.executions.is_empty());
+    assert!(task.scratchpad.is_empty());
     assert!(task.spec.sandbox.is_none());
     assert!(task.spec.requirements.is_empty());
     let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();

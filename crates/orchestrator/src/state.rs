@@ -413,6 +413,7 @@ impl State {
             pull_request: None,
             ci: None,
             executions: Vec::new(),
+            scratchpad: String::new(),
         };
         let id = task.id.clone();
         tracing::info!(task = %id, "task created");
@@ -495,6 +496,11 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
                 task.error = Some(error.clone());
             }
             (Some(TaskStatus::Failed), true)
+        }
+        // Notes are not status: a task that already ended keeps the last ones.
+        TaskEvent::Scratchpad { content } => {
+            task.scratchpad = content.clone();
+            (None, false)
         }
         TaskEvent::TimedOut { .. } => (Some(TaskStatus::TimedOut), true),
         TaskEvent::RunnerLost => (Some(TaskStatus::RunnerLost), true),

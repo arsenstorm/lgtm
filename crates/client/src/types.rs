@@ -29,6 +29,12 @@ pub struct Retry {
     pub executor: Option<lgtm_protocol::Executor>,
 }
 
+/// Body of `POST /api/tasks/:id/scratchpad`.
+#[derive(Serialize)]
+pub(crate) struct Notes<'a> {
+    pub(crate) content: &'a str,
+}
+
 /// Body of `POST /api/memories`.
 #[derive(Serialize)]
 pub(crate) struct NewMemory<'a> {

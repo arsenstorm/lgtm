@@ -16,8 +16,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
-    plan_versions, Executor, OrchestratorMessage, PlanVersion, SandboxProfile, Task, TaskKind,
-    TaskSpec, TaskStatus, WorkerStatus,
+    plan_versions, Executor, OrchestratorMessage, PlanVersion, SandboxProfile, Task, TaskEvent,
+    TaskKind, TaskSpec, TaskStatus, WorkerStatus,
 };
 use serde::Deserialize;
 
@@ -68,6 +68,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/tasks/{id}/plans", get(get_task_plans))
         .route("/tasks/{id}/message", post(message))
         .route("/tasks/{id}/retry", post(retry))
+        .route("/tasks/{id}/scratchpad", post(scratchpad))
         .route("/tasks/{id}/cancel", post(cancel))
         .route("/tasks/{id}/approve", post(approve))
         .route("/tasks/{id}/reject", post(reject))
@@ -282,6 +283,31 @@ async fn retry(
             executor: body.executor,
         },
     )?;
+    app.persist_ids(&state, &changed);
+    Ok(Json(task))
+}
+
+#[derive(Deserialize)]
+struct ScratchpadBody {
+    content: String,
+}
+
+/// A person rewriting the notes the agent kept; reading them is `GET /tasks/:id`.
+async fn scratchpad(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<ScratchpadBody>, JsonRejection>,
+) -> Result<Json<Task>, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let mut state = app.state.lock().unwrap();
+    if !state.tasks.contains_key(&id) {
+        return Err(CmdError::NotFound.into());
+    }
+    let event = TaskEvent::Scratchpad {
+        content: body.content,
+    };
+    let changed = state.apply_event(&id, event);
+    let task = state.tasks.get(&id).ok_or(CmdError::NotFound)?.task.clone();
     app.persist_ids(&state, &changed);
     Ok(Json(task))
 }

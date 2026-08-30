@@ -7,7 +7,7 @@ use anyhow::{bail, Result};
 use lgtm_protocol::{knowledge_block, Memory, Task, TaskEvent, TaskId, TaskKind};
 use tokio::sync::oneshot;
 
-use crate::automation::{execute, recorded_session, Run};
+use crate::automation::{execute, recorded_session, restore_notes, with_notes, Run};
 use crate::connection::Ctx;
 use crate::git::{
     add_worktree, branch_name, fetch, git, mirror_path, remove_worktree, session_path, task_path,
@@ -66,13 +66,18 @@ async fn run(
 
     let mirror = prepare_repo(task, ctx).await?;
     add_worktree(&mirror, &worktree, &branch, &task.spec.base_branch).await?;
+    restore_notes(&worktree, &task.scratchpad).await?;
 
     let prompt = match task.spec.kind {
         TaskKind::Plan => planning_prompt(&task.spec.prompt),
         TaskKind::Run => task.spec.prompt.clone(),
     };
     // A follow-up resumes this session, which already saw the block.
-    let prompt = format!("{}{prompt}", knowledge_block(memories));
+    let prompt = format!(
+        "{}{}",
+        knowledge_block(memories),
+        with_notes(&prompt, task.spec.kind)
+    );
     execute(Run::new(task, &worktree, ctx, cancel), &prompt, None).await
 }
 

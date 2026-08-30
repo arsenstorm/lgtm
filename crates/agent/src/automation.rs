@@ -17,7 +17,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use crate::connection::Ctx;
-use crate::git::{branch_name, commit, mirror_path, session_path};
+use crate::git::{branch_name, commit, mirror_path, session_path, SCRATCHPAD};
 use crate::plan::extract_plan;
 use crate::policy::{
     effective_sandbox, failed_names, fix_prompt, load_policy, parse_review, review_prompt,
@@ -32,6 +32,36 @@ use crate::validate::{load_validation, run_validation, tail};
 
 /// Commit subject for the follow-up run that fixed the checks.
 const FIX_MESSAGE: &str = "fix failing checks";
+
+/// Told to a `Run` as the last paragraph of its prompt.
+const NOTES: &str = "\n\nKeep your working notes in .lgtm/scratchpad.md: findings, open questions, decisions, and the files that matter. Whoever continues this task reads that file first.";
+
+/// The notes travel over the socket and are stored with the task, so a file
+/// that ran away is truncated rather than carried.
+const NOTES_MAX: usize = 64 * 1024;
+
+/// A plan produces no diff and no follow-up runs, so it has nothing to hand on.
+pub fn with_notes(prompt: &str, kind: TaskKind) -> String {
+    match kind {
+        TaskKind::Plan => prompt.to_string(),
+        TaskKind::Run => format!("{prompt}{NOTES}"),
+    }
+}
+
+/// Puts the task's notes back in the worktree, so a retry on another worker
+/// starts from what the last run wrote down.
+pub async fn restore_notes(worktree: &Path, notes: &str) -> Result<()> {
+    if notes.is_empty() {
+        return Ok(());
+    }
+    let path = worktree.join(SCRATCHPAD);
+    if let Some(dir) = path.parent() {
+        tokio::fs::create_dir_all(dir).await?;
+    }
+    tokio::fs::write(&path, notes)
+        .await
+        .with_context(|| format!("write {}", path.display()))
+}
 
 /// What one spawn of the executor is asked to do.
 struct RunOpts<'a> {
@@ -80,6 +110,8 @@ pub struct Run<'a> {
     /// The profile every run of this task is confined by, known at the same
     /// point as the timeout.
     sandbox: SandboxProfile,
+    /// The notes as last seen, so an unchanged scratchpad sends nothing.
+    notes: String,
 }
 
 impl<'a> Run<'a> {
@@ -97,6 +129,7 @@ impl<'a> Run<'a> {
             cost: cost_buffer(),
             timeout: Duration::from_secs(3600),
             sandbox: SandboxProfile::default(),
+            notes: task.scratchpad.clone(),
         }
     }
 }
@@ -307,7 +340,10 @@ impl Run<'_> {
 
         let stderr_tail = tail_buffer();
         let (pump_out, pump_err) = self.spawn_pumps(&mut child, opts, &stderr_tail)?;
-        let status = match self.wait_or_kill(&mut child).await? {
+        let waited = self.wait_or_kill(&mut child).await?;
+        // Also for a cancel or a timeout: that is when the notes matter most.
+        self.after_run().await;
+        let status = match waited {
             Waited::Exited(status) => status,
             Waited::Cancelled => return Ok(Ran::Cancelled),
             Waited::TimedOut => return Ok(Ran::TimedOut),
@@ -317,6 +353,21 @@ impl Run<'_> {
             status,
             stderr_tail: tail(&tail_lines(&stderr_tail)),
         }))
+    }
+
+    /// Publishes the scratchpad the run left behind. A run that wrote nothing
+    /// leaves the notes the task already carries standing.
+    async fn after_run(&mut self) {
+        let Ok(content) = tokio::fs::read_to_string(self.worktree.join(SCRATCHPAD)).await else {
+            return;
+        };
+        let content = capped(&content);
+        if content.is_empty() || content == self.notes {
+            return;
+        }
+        self.notes = content.clone();
+        self.ctx
+            .emit(&self.task.id, TaskEvent::Scratchpad { content });
     }
 
     /// Forwards stdout and stderr; stdout also feeds the answer, cost, and
@@ -416,6 +467,14 @@ impl Run<'_> {
     }
 }
 
+fn capped(content: &str) -> String {
+    let mut end = NOTES_MAX.min(content.len());
+    while !content.is_char_boundary(end) {
+        end -= 1;
+    }
+    content[..end].to_string()
+}
+
 fn policy_of(policy: &PolicyConfig) -> Policy {
     Policy {
         auto_approve: policy.auto_approve,
@@ -453,5 +512,25 @@ fn planned(branch: &str, text: &str, policy: &PolicyConfig, cost_usd: f64) -> Ta
         Err(err) => TaskEvent::Failed {
             error: format!("{err:#}"),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_run_is_told_about_the_scratchpad() {
+        let run = with_notes("do the thing", TaskKind::Run);
+        assert!(run.starts_with("do the thing\n\nKeep your working notes"));
+        assert!(run.contains(".lgtm/scratchpad.md"));
+        assert_eq!(with_notes("do the thing", TaskKind::Plan), "do the thing");
+    }
+
+    #[test]
+    fn notes_are_capped_on_a_char_boundary() {
+        assert_eq!(capped("short"), "short");
+        let long = "é".repeat(NOTES_MAX);
+        assert_eq!(capped(&long), "é".repeat(NOTES_MAX / 2));
     }
 }

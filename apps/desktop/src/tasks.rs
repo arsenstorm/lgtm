@@ -138,6 +138,7 @@ mod tests {
             pull_request: None,
             ci: None,
             executions: Vec::new(),
+            scratchpad: String::new(),
         }
     }
 

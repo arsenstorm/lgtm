@@ -609,6 +609,7 @@ fn linear_task(status: TaskStatus, from_linear: bool) -> Task {
         pull_request: None,
         ci: None,
         executions: Vec::new(),
+        scratchpad: String::new(),
     }
 }
 
@@ -885,6 +886,38 @@ fn unknown_dependency_is_refused() {
         state.check_eligible(&spec).unwrap_err(),
         "unknown dependency deadbeef"
     );
+}
+
+#[test]
+fn scratchpad_is_kept_even_once_the_task_ended() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+
+    state.apply_event(
+        &id,
+        TaskEvent::Scratchpad {
+            content: "the parser is in src/parse.rs".into(),
+        },
+    );
+    assert_eq!(
+        state.tasks[&id].task.scratchpad,
+        "the parser is in src/parse.rs"
+    );
+    assert_eq!(status(&state, &id), TaskStatus::Queued);
+
+    state.apply_event(&id, TaskEvent::Cancelled);
+    state.apply_event(
+        &id,
+        TaskEvent::Scratchpad {
+            content: "and the cancel came mid-run".into(),
+        },
+    );
+    assert_eq!(
+        state.tasks[&id].task.scratchpad,
+        "and the cancel came mid-run"
+    );
+    assert_eq!(status(&state, &id), TaskStatus::Cancelled);
 }
 
 #[test]

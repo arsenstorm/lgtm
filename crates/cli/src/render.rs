@@ -29,6 +29,7 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
         TaskEvent::Command { command } => writeln!(out, "$ {command}"),
         TaskEvent::FileChanged { path } => writeln!(out, "~ {path}"),
         TaskEvent::Progress { text } => writeln!(out, "{text}"),
+        TaskEvent::Scratchpad { .. } => writeln!(out, "notes updated"),
         TaskEvent::Validating { names } => {
             writeln!(out, "running checks: {}", names.join(", "))
         }
