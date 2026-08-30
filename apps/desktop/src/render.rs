@@ -88,6 +88,15 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
             Kind::Status,
             policy_decision(action, *allowed, reasons),
         )],
+        TaskEvent::Orchestrated {
+            action,
+            reason,
+            applied,
+            note,
+        } => vec![Line::new(
+            Kind::Status,
+            orchestrated(action, reason, *applied, note),
+        )],
         TaskEvent::AutoApproved => vec![Line::new(Kind::Status, "approved by policy")],
         TaskEvent::AutoMerged => vec![Line::new(Kind::Status, "merged by policy")],
         TaskEvent::Failed { error } => vec![Line::new(Kind::Status, format!("failed: {error}"))],
@@ -100,6 +109,14 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
             vec![Line::new(Kind::Status, format!("pushed {branch}"))]
         }
         TaskEvent::Discarded => vec![Line::new(Kind::Status, "discarded")],
+    }
+}
+
+fn orchestrated(action: &str, reason: &str, applied: bool, note: &str) -> String {
+    if applied {
+        format!("orchestrator: {action} — {reason}")
+    } else {
+        format!("orchestrator wanted {action} ({reason}); not applied: {note}")
     }
 }
 

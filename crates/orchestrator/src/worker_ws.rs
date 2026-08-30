@@ -218,6 +218,13 @@ fn apply(app: &Arc<App>, task_id: &str, event: TaskEvent) {
     // Only cloned when there is somewhere to send it: an event carries the
     // whole diff.
     let for_webhook = app.webhook.is_some().then(|| event.clone());
+    let ended = matches!(
+        event,
+        TaskEvent::Completed { .. }
+            | TaskEvent::Failed { .. }
+            | TaskEvent::TimedOut { .. }
+            | TaskEvent::RunnerLost
+    );
     let (previous, plan) = {
         let mut state = app.state.lock().unwrap();
         let previous = state.tasks.get(task_id).map(|rec| rec.task.status);
@@ -241,6 +248,11 @@ fn apply(app: &Arc<App>, task_id: &str, event: TaskEvent) {
     }
     if let Some(plan) = plan {
         crate::github::open_pull_request(app.clone(), task_id.to_string(), plan);
+    }
+    // A task with no goal, or one policy has already moved on, is refused
+    // when the decision is applied; nothing needs to be checked twice here.
+    if ended && app.orchestrate.is_some() {
+        tokio::spawn(crate::orchestrate::run(app.clone(), task_id.to_string()));
     }
 }
 

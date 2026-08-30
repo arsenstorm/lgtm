@@ -165,6 +165,10 @@ pub struct ServeArgs {
     /// POST every event a person would want to see to this URL.
     #[arg(long, env = "LGTM_WEBHOOK")]
     pub webhook: Option<String>,
+    /// Let this model decide the next step for a goal each time one of its
+    /// tasks ends: `claude` or `codex`. Off when not given.
+    #[arg(long, env = "LGTM_ORCHESTRATE", value_parser = parse_executor)]
+    pub orchestrate: Option<Executor>,
 }
 
 #[derive(Args)]

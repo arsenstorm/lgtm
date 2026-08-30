@@ -56,6 +56,20 @@ to add it to the fleet.
 - The desktop app (`apps/desktop`) lists tasks and shows activity, a
   coloured diff, checks, and plans in a review pane.
 
+## Orchestration
+
+```sh
+lgtm serve --orchestrate claude   # or codex; off when the flag is absent
+```
+
+Each time a task under a goal ends, a model reads the goal, its tasks, and
+what that task did, and decides one next step: approve it, retry it, send it
+a follow-up, create a task the goal still needs, or wait for a person. LGTM
+checks the decision before acting — it approves only what the checks and the
+review already cleared, and it refuses a new task that depends on work
+outside the goal. Every decision, refusal and failure is on the task's event
+log (`lgtm logs <id>`). Tasks that belong to no goal are never touched.
+
 ## Repository config
 
 A repository can declare its checks and its policy in `.lgtm/config.toml`.

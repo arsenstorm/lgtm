@@ -71,6 +71,21 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
                 writeln!(out, "policy: no auto-{action}: {}", reasons.join("; "))
             }
         }
+        TaskEvent::Orchestrated {
+            action,
+            reason,
+            applied,
+            note,
+        } => {
+            if *applied {
+                writeln!(out, "orchestrator: {action} — {reason}")
+            } else {
+                writeln!(
+                    out,
+                    "orchestrator wanted {action} ({reason}); not applied: {note}"
+                )
+            }
+        }
         TaskEvent::AutoApproved => writeln!(out, "approved by policy"),
         TaskEvent::AutoMerged => writeln!(out, "merged by policy"),
         TaskEvent::Failed { error } => writeln!(out, "failed: {error}"),

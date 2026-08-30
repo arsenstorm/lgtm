@@ -8,6 +8,7 @@ mod github;
 mod linear;
 pub mod local;
 mod notify;
+mod orchestrate;
 mod persist;
 mod plan;
 mod policy;
@@ -25,7 +26,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::routing::get;
 use axum::Router;
-use lgtm_protocol::{TaskStatus, WORKER_WS_PATH};
+use lgtm_protocol::{Executor, TaskStatus, WORKER_WS_PATH};
 
 use crate::state::{App, State, TaskRecord};
 
@@ -39,6 +40,9 @@ pub struct ServeOptions {
     pub provision: Option<ProvisionOptions>,
     /// URL every event a person would want to see is POSTed to.
     pub webhook: Option<String>,
+    /// Model that decides the next step for a goal after one of its tasks
+    /// ends. `None` leaves every goal to its people.
+    pub orchestrate: Option<Executor>,
 }
 
 pub struct ProvisionOptions {
@@ -59,6 +63,7 @@ pub async fn serve_plain(bind: SocketAddr, token: String, data_dir: PathBuf) -> 
         tls: None,
         provision: None,
         webhook: None,
+        orchestrate: None,
     })
     .await
 }
@@ -82,6 +87,7 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
         github,
         linear,
         webhook: opts.webhook,
+        orchestrate: opts.orchestrate,
     });
     github::resume_ci_polls(&app);
     if let Some(provision) = opts.provision {
