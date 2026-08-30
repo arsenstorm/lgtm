@@ -460,6 +460,12 @@ pub fn attention(task: &Task, event: &TaskEvent) -> Option<String> {
         TaskEvent::TimedOut { secs } => format!("timed out after {secs}s"),
         TaskEvent::RunnerLost => "runner lost".to_string(),
         TaskEvent::AutoMerged => "merged by policy".to_string(),
+        TaskEvent::PermissionRequested { target, .. } => format!("asks for {target}"),
+        TaskEvent::Conflicted { base, .. } => format!("conflicts with {base}"),
+        TaskEvent::PrReviewed {
+            state: ReviewState::ChangesRequested,
+            ..
+        } => "PR review requested changes".to_string(),
         _ => return None,
     };
     Some(line(task, &why))
@@ -477,6 +483,7 @@ pub fn attention_for_status(task: &Task, previous: TaskStatus) -> Option<String>
         TaskStatus::TimedOut => "timed out".to_string(),
         TaskStatus::RunnerLost => "runner lost".to_string(),
         TaskStatus::Merged => "merged".to_string(),
+        TaskStatus::Conflicted => format!("conflicts with {}", task.spec.base_branch),
         _ => return None,
     };
     Some(line(task, &why))
@@ -524,6 +531,19 @@ pub struct CiStatus {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct PullRequest {
     pub number: u64,
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewState {
+    Approved,
+    ChangesRequested,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PrReview {
+    pub state: ReviewState,
     pub url: String,
 }
 
@@ -665,6 +685,9 @@ pub struct Task {
     pub pull_request: Option<PullRequest>,
     #[serde(default)]
     pub ci: Option<CiStatus>,
+    /// The latest human review on the pull request, when GitHub reported one.
+    #[serde(default)]
+    pub pr_review: Option<PrReview>,
     #[serde(default)]
     pub executions: Vec<Execution>,
     /// The agent's own notes from `.lgtm/scratchpad.md`, kept so a retry or a

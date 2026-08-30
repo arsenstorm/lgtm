@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Executor, Memory, RunnerInfo, Task, TaskId, TaskResult};
+use crate::{Executor, Memory, ReviewState, RunnerInfo, Task, TaskId, TaskResult};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -128,6 +128,11 @@ pub enum TaskEvent {
     },
     /// Worktree and branch removed after rejection.
     Discarded,
+    /// GitHub reported a review on the pull request.
+    PrReviewed {
+        state: ReviewState,
+        url: String,
+    },
 }
 
 /// An event with the orchestrator's receipt time, unix milliseconds.

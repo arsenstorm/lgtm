@@ -7,8 +7,8 @@
 
 use lgtm_agent::codex_error;
 use lgtm_protocol::{
-    Execution, ExecutionStatus, OutputStream, Plan, PlanVersion, Review, Severity, Stats,
-    TaskEvent, ValidationResult,
+    Execution, ExecutionStatus, OutputStream, Plan, PlanVersion, Review, ReviewState, Severity,
+    Stats, TaskEvent, ValidationResult,
 };
 use serde_json::Value;
 use std::io::Write;
@@ -105,6 +105,16 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
         }
         TaskEvent::Pushed { branch, .. } => writeln!(out, "pushed {branch}"),
         TaskEvent::Discarded => writeln!(out, "discarded"),
+        TaskEvent::PrReviewed { state, url } => {
+            writeln!(out, "pr review: {} {url}", review_word(*state))
+        }
+    }
+}
+
+fn review_word(state: ReviewState) -> &'static str {
+    match state {
+        ReviewState::Approved => "approved",
+        ReviewState::ChangesRequested => "changes requested",
     }
 }
 
@@ -436,6 +446,24 @@ mod tests {
     #[test]
     fn non_json_line_is_echoed() {
         assert_eq!(render_line("plain text output"), "plain text output\n");
+    }
+
+    #[test]
+    fn pr_reviewed_names_the_state_and_the_url() {
+        assert_eq!(
+            rendered(&TaskEvent::PrReviewed {
+                state: lgtm_protocol::ReviewState::Approved,
+                url: "https://github.com/o/r/pull/1#pullrequestreview-1".into(),
+            }),
+            "pr review: approved https://github.com/o/r/pull/1#pullrequestreview-1\n"
+        );
+        assert_eq!(
+            rendered(&TaskEvent::PrReviewed {
+                state: lgtm_protocol::ReviewState::ChangesRequested,
+                url: "https://github.com/o/r/pull/1#pullrequestreview-2".into(),
+            }),
+            "pr review: changes requested https://github.com/o/r/pull/1#pullrequestreview-2\n"
+        );
     }
 
     #[test]

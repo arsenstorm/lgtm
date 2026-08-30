@@ -418,6 +418,7 @@ mod tests {
             error: None,
             pull_request: None,
             ci: None,
+            pr_review: None,
             executions: Vec::new(),
             scratchpad: String::new(),
         }

@@ -106,6 +106,13 @@ fn pairs(
     if let Some(result) = task.result.as_ref() {
         out.push(("Cost", text(format!("${:.2}", result.cost_usd), t)));
     }
+    if let Some(review) = task.pr_review.as_ref() {
+        let word = match review.state {
+            lgtm_protocol::ReviewState::Approved => "approved",
+            lgtm_protocol::ReviewState::ChangesRequested => "changes requested",
+        };
+        out.push(("PR review", text(format!("{word} {}", review.url), t)));
+    }
     out
 }
 

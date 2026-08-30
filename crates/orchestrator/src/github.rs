@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lgtm_github::Repo;
-use lgtm_protocol::{CiState, CiStatus, Task, TaskEvent, TaskId, TaskStatus};
+use lgtm_protocol::{CiState, CiStatus, PrReview, Task, TaskEvent, TaskId, TaskStatus};
 
 use crate::policy::Decision;
 use crate::state::{App, CmdError, PrPlan};
@@ -29,7 +29,8 @@ pub fn open_pull_request(app: Arc<App>, task_id: TaskId, plan: PrPlan) {
                 return record_error(&app, &task_id, format!("pull request: {err:#}"));
             }
         };
-        tracing::info!(task = %task_id, pull = pr.number, "pull request opened");
+        let number = pr.number;
+        tracing::info!(task = %task_id, pull = number, "pull request opened");
         {
             let mut state = app.state.lock().unwrap();
             if let Some(rec) = state.tasks.get_mut(&task_id) {
@@ -39,7 +40,7 @@ pub fn open_pull_request(app: Arc<App>, task_id: TaskId, plan: PrPlan) {
         }
         crate::linear::after_transition(&app, &task_id, TaskStatus::Approved, true);
         if !plan.sha.is_empty() {
-            poll_ci(app, task_id, plan.pull.repo, plan.sha);
+            poll_ci(app, task_id, plan.pull.repo, number, plan.sha);
         }
     });
 }
@@ -153,9 +154,9 @@ async fn auto_merge(app: &Arc<App>, task_id: &TaskId) {
     }
 }
 
-/// Follows the checks for one pushed sha until they settle, the task leaves
-/// `Approved`, or GitHub keeps failing.
-pub fn poll_ci(app: Arc<App>, task_id: TaskId, repo: Repo, sha: String) {
+/// Follows the checks and human reviews for one pushed sha until the checks
+/// settle, the task leaves `Approved`, or GitHub keeps failing.
+pub fn poll_ci(app: Arc<App>, task_id: TaskId, repo: Repo, number: u64, sha: String) {
     let Some(github) = app.github.clone() else {
         return;
     };
@@ -165,7 +166,17 @@ pub fn poll_ci(app: Arc<App>, task_id: TaskId, repo: Repo, sha: String) {
             let done = match github.checks(&repo, &sha).await {
                 Ok(status) => {
                     errors = 0;
-                    settle(&app, &task_id, status).await
+                    // A transient failure here must not read as "review cleared":
+                    // `None` here means the poll learned nothing, not that GitHub
+                    // reported no review.
+                    let review = match github.pull_reviews(&repo, number).await {
+                        Ok(review) => Some(review),
+                        Err(err) => {
+                            tracing::warn!(task = %task_id, %err, "failed to read pull request reviews");
+                            None
+                        }
+                    };
+                    settle(&app, &task_id, status, review).await
                 }
                 Err(err) => {
                     errors += 1;
@@ -181,11 +192,16 @@ pub fn poll_ci(app: Arc<App>, task_id: TaskId, repo: Repo, sha: String) {
     });
 }
 
-/// Records one reading of the checks and merges if policy says so. `true`
-/// when polling can stop: the checks settled or the task moved on.
-async fn settle(app: &Arc<App>, task_id: &TaskId, status: CiStatus) -> bool {
+/// Records one reading of the checks and reviews and merges if policy says
+/// so. `true` when polling can stop: the checks settled or the task moved on.
+async fn settle(
+    app: &Arc<App>,
+    task_id: &TaskId,
+    status: CiStatus,
+    pr_review: Option<Option<PrReview>>,
+) -> bool {
     let settled = status.state != CiState::Pending;
-    let Some(merge) = record_ci(app, task_id, status) else {
+    let Some(merge) = record_ci(app, task_id, status, pr_review) else {
         return true;
     };
     if merge {
@@ -194,25 +210,62 @@ async fn settle(app: &Arc<App>, task_id: &TaskId, status: CiStatus) -> bool {
     settled
 }
 
-/// Stores this reading of the checks and what policy made of it, logging the
-/// decision only when it changed: the checks are polled in a loop. `None` when
-/// the task is gone or has moved on and polling can stop.
-fn record_ci(app: &Arc<App>, task_id: &TaskId, status: CiStatus) -> Option<bool> {
+/// Stores this reading of the checks and reviews and what policy made of the
+/// checks, logging each only when it changed: both are polled in a loop.
+/// `None` when the task is gone or has moved on and polling can stop.
+fn record_ci(
+    app: &Arc<App>,
+    task_id: &TaskId,
+    status: CiStatus,
+    pr_review: Option<Option<PrReview>>,
+) -> Option<bool> {
     let mut state = app.state.lock().unwrap();
     let rec = state.tasks.get_mut(task_id)?;
     if rec.task.status != TaskStatus::Approved {
         return None;
     }
     rec.task.ci = Some(status);
+    // `Some(new_review)` only when this poll actually read the reviews and
+    // that reading differs from what is stored; a review dismissed back to
+    // nothing is not itself an event worth a line in the log.
+    let new_review = pr_review
+        .filter(|review| *review != rec.task.pr_review)
+        .and_then(|review| {
+            rec.task.pr_review = review.clone();
+            review
+        });
     let decision = crate::policy::decide(&rec.task);
     let event = decision.as_ref().map(Decision::event);
     let repeat = event.as_ref() == rec.last_policy_decision("merge");
     app.persist_ids(&mut state, std::slice::from_ref(task_id));
+    if let Some(review) = new_review {
+        deliver_review(app, &mut state, task_id, review);
+    }
     if let Some(event) = event.filter(|_| !repeat) {
         let changed = state.apply_event(task_id, event);
         app.persist_ids(&mut state, &changed);
     }
     Some(decision.is_some_and(|decision| decision.allowed))
+}
+
+/// Applies and delivers `PrReviewed`: `attention` only speaks up for
+/// `ChangesRequested`, but the log and the Overview tab want a record of an
+/// approval too.
+fn deliver_review(
+    app: &Arc<App>,
+    state: &mut crate::state::State,
+    task_id: &TaskId,
+    review: PrReview,
+) {
+    let event = TaskEvent::PrReviewed {
+        state: review.state,
+        url: review.url,
+    };
+    let changed = state.apply_event(task_id, event.clone());
+    app.persist_ids(state, &changed);
+    if let Some(task) = state.tasks.get(task_id).map(|rec| rec.task.clone()) {
+        crate::notify::deliver(app, &task, &event);
+    }
 }
 
 /// After a restart, picks up polling for tasks whose pull request is open and
@@ -221,7 +274,7 @@ pub fn resume_ci_polls(app: &Arc<App>) {
     if app.github.is_none() {
         return;
     }
-    let pending: Vec<(TaskId, Repo, String)> = {
+    let pending: Vec<(TaskId, Repo, u64, String)> = {
         let state = app.state.lock().unwrap();
         state
             .tasks
@@ -237,12 +290,13 @@ pub fn resume_ci_polls(app: &Arc<App>) {
             })
             .filter_map(|rec| {
                 let repo = lgtm_github::parse_repo(&rec.task.spec.repository)?;
-                Some((rec.task.id.clone(), repo, rec.pushed_sha()?))
+                let number = rec.task.pull_request.as_ref()?.number;
+                Some((rec.task.id.clone(), repo, number, rec.pushed_sha()?))
             })
             .collect()
     };
     tracing::info!(tasks = pending.len(), "resuming ci polling");
-    for (id, repo, sha) in pending {
-        poll_ci(app.clone(), id, repo, sha);
+    for (id, repo, number, sha) in pending {
+        poll_ci(app.clone(), id, repo, number, sha);
     }
 }

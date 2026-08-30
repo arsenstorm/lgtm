@@ -175,8 +175,12 @@ fn reconnect_within_grace_keeps_tasks() {
     assert_eq!(status(&state, &task.id), TaskStatus::Running);
     assert!(state.runners["a"].running.contains(&task.id));
 
-    state.expire_runner("a", stale);
-    assert!(state.runners.contains_key("a"), "the old timer is a no-op");
+    assert_eq!(
+        state.expire_runner("a", stale),
+        None,
+        "the old timer is a no-op"
+    );
+    assert!(state.runners.contains_key("a"));
     assert_eq!(status(&state, &task.id), TaskStatus::Running);
 }
 
@@ -211,7 +215,7 @@ fn grace_expiry_loses_tasks_and_their_dependents() {
     let waiting = state.create_task(waiting).unwrap().0;
 
     let generation = state.disconnect("a", 1).unwrap();
-    let changed = state.expire_runner("a", generation);
+    let changed = state.expire_runner("a", generation).unwrap();
     assert!(changed.contains(&task.id) && changed.contains(&waiting.id));
     assert_eq!(status(&state, &task.id), TaskStatus::RunnerLost);
     assert!(state.tasks[&task.id].task.error.is_none());
@@ -725,6 +729,7 @@ fn linear_task(status: TaskStatus, from_linear: bool) -> Task {
         error: None,
         pull_request: None,
         ci: None,
+        pr_review: None,
         executions: Vec::new(),
         scratchpad: String::new(),
     }

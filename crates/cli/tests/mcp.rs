@@ -44,6 +44,7 @@ fn seed(dir: &std::path::Path) {
         error: None,
         pull_request: None,
         ci: None,
+        pr_review: None,
         executions: Vec::new(),
         scratchpad: String::new(),
     };

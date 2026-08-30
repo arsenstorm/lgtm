@@ -21,6 +21,7 @@ fn task(id: &str, status: TaskStatus, spec: TaskSpec) -> Task {
         error: None,
         pull_request: None,
         ci: None,
+        pr_review: None,
         executions: Vec::new(),
         scratchpad: String::new(),
     }

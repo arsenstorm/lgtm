@@ -127,6 +127,16 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
             vec![Line::new(Kind::Status, format!("pushed {branch}"))]
         }
         TaskEvent::Discarded => vec![Line::new(Kind::Status, "discarded")],
+        TaskEvent::PrReviewed { state, url } => vec![Line::new(
+            Kind::Status,
+            format!(
+                "pr review: {} {url}",
+                match state {
+                    lgtm_protocol::ReviewState::Approved => "approved",
+                    lgtm_protocol::ReviewState::ChangesRequested => "changes requested",
+                }
+            ),
+        )],
     }
 }
 
