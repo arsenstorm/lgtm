@@ -275,6 +275,7 @@ mod tests {
                 objective: "ship the health endpoint\nand the docs".into(),
                 repository: "https://github.com/arsenstorm/lgtm.git".into(),
                 created_at: 1,
+                attention: None,
             },
             status: lgtm_protocol::GoalStatus::Running,
             tasks: lgtm_protocol::BatchSummary {

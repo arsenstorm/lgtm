@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
+use lgtm_orchestrator::Choice;
 use lgtm_protocol::{DependsOn, Executor, SandboxProfile, TaskId};
 
 #[derive(Parser)]
@@ -180,10 +181,16 @@ pub struct ServeArgs {
     /// POST every event a person would want to see to this URL.
     #[arg(long, env = "LGTM_WEBHOOK")]
     pub webhook: Option<String>,
-    /// Let this model decide the next step for a goal each time one of its
-    /// tasks ends: `claude` or `codex`. Off when not given.
-    #[arg(long, env = "LGTM_ORCHESTRATE", value_parser = parse_executor)]
-    pub orchestrate: Option<Executor>,
+    /// Let this model drive a goal each time one of its tasks ends:
+    /// `claude`, `codex`, or `auto` for whichever this machine has. Off when
+    /// not given.
+    #[arg(long, env = "LGTM_ORCHESTRATE", value_parser = parse_orchestrate)]
+    pub orchestrate: Option<Choice>,
+    /// Model to run a task of a kind on when its spec names none, e.g.
+    /// `plan=opus`. Repeatable. `LGTM_MODELS="plan=opus,run=sonnet"` when
+    /// the flag is absent.
+    #[arg(long = "model-for", value_delimiter = ',')]
+    pub model_for: Vec<String>,
 }
 
 #[derive(Args)]
@@ -354,6 +361,13 @@ pub struct BatchFlags {
     /// the harness's own default.
     #[arg(long)]
     pub model: Option<String>,
+}
+
+fn parse_orchestrate(s: &str) -> Result<Choice, String> {
+    match s {
+        "auto" => Ok(Choice::Auto),
+        other => parse_executor(other).map(Choice::One),
+    }
 }
 
 fn parse_executor(s: &str) -> Result<Executor, String> {

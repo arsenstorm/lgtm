@@ -66,16 +66,45 @@ to add it to the fleet.
 ## Orchestration
 
 ```sh
+lgtm serve --orchestrate auto     # claude if this machine has it, else codex
 lgtm serve --orchestrate claude   # or codex; off when the flag is absent
 ```
 
-Each time a task under a goal ends, a model reads the goal, its tasks, and
-what that task did, and decides one next step: approve it, retry it, send it
-a follow-up, create a task the goal still needs, or wait for a person. LGTM
-checks the decision before acting — it approves only what the checks and the
-review already cleared, and it refuses a new task that depends on work
-outside the goal. Every decision, refusal and failure is on the task's event
-log (`lgtm logs <id>`). Tasks that belong to no goal are never touched.
+Each time a task under a goal ends, a model is given the LGTM tools over MCP
+and takes a few steps toward the goal: it inspects the goal and the task that
+ended, then creates dependent work, sends a follow-up, retries, approves, or
+calls `wait` because a person is needed. It finishes with one paragraph for
+the developer, which lands on the ended task's event log (`lgtm logs <id>`)
+along with every step it took. Tasks that belong to no goal are never
+touched.
+
+| Tool | What it does |
+| --- | --- |
+| `goal_inspect` | The objective, the status, and one line per task. |
+| `task_inspect` | One task's attempts, checks, findings and activity. |
+| `task_create` | Add work the goal needs, optionally behind others. |
+| `task_message` | Tell a task's agent to fix something itself. |
+| `task_retry` | Requeue a task that crashed or timed out. |
+| `task_approve` | Approve and push a task. |
+| `runner_list` | The connected runners. |
+| `wait` | Stop and leave the goal to a person. |
+
+Every one of them goes through the same HTTP endpoint a person uses, so LGTM
+validates each the same way — `task_approve` is refused unless the checks
+passed and no blocking review finding is left, which a person's own approve
+may waive. `wait` marks the goal for attention, which shows as blocked until
+the next task or message under it.
+
+A model can be pinned per kind of task, for the goals a plan should think
+harder about than the work:
+
+```sh
+lgtm serve --model-for plan=opus --model-for run=sonnet
+# or LGTM_MODELS="plan=opus,run=sonnet"
+```
+
+A task created without a model of its own gets the one for its kind. The
+review model is a separate setting the runner does not honour yet.
 
 ## Agent tools
 

@@ -16,12 +16,18 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
-use types::{AllowHost, ErrorBody, FollowUp, NewMemory, NewTodo, Notes, PermissionRequest, Socket};
+use types::{
+    AllowHost, Attention, ErrorBody, FollowUp, NewMemory, NewTodo, Notes, PermissionRequest, Socket,
+};
 pub use types::{
     BatchDetail, BatchRequest, BatchResponse, EventStream, FromIssue, FromLinear, GoalDetail,
-    IssuePreview, NewGoal, NewSession, PromoteTodo, Retry, SessionMessage, TaskDetail,
-    TerminalStream,
+    IssuePreview, NewGoal, NewSession, Orchestrated, PromoteTodo, Retry, SessionMessage,
+    TaskDetail, TerminalStream,
 };
+
+/// Marks a call as the orchestration loop's, not a person's. Only `approve`
+/// reads it, and only to hold the loop to the checks and the review.
+pub const ORCHESTRATOR_HEADER: &str = "X-LGTM-Orchestrator";
 
 #[derive(Clone)]
 pub struct Client {
@@ -166,6 +172,48 @@ impl Client {
             .await
     }
 
+    /// Approve, held to what the checks and the review cleared.
+    pub async fn approve_as_orchestrator(&self, id: &str) -> anyhow::Result<lgtm_protocol::Task> {
+        let resp = self
+            .http
+            .post(format!("{}/api/tasks/{id}/approve", self.base))
+            .bearer_auth(&self.token)
+            .header(ORCHESTRATOR_HEADER, "1")
+            .send()
+            .await?;
+        Self::handle(resp).await
+    }
+
+    /// Records one step of the orchestration loop on the task's event log.
+    /// The 204 carries no body.
+    pub async fn orchestrated(&self, id: &str, step: &Orchestrated<'_>) -> anyhow::Result<()> {
+        self.no_content(&format!("/api/tasks/{id}/orchestrated"), step)
+            .await
+    }
+
+    /// Records why the loop left a goal to a person, or clears it with `None`.
+    pub async fn set_attention(&self, goal: &str, reason: Option<&str>) -> anyhow::Result<()> {
+        self.no_content(
+            &format!("/api/goals/{goal}/attention"),
+            &Attention { reason },
+        )
+        .await
+    }
+
+    async fn no_content(&self, path: &str, body: &impl Serialize) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .post(format!("{}{path}", self.base))
+            .bearer_auth(&self.token)
+            .json(body)
+            .send()
+            .await?;
+        if resp.status().is_success() {
+            return Ok(());
+        }
+        Err(Self::failure(resp).await)
+    }
+
     pub async fn reject(&self, id: &str) -> anyhow::Result<lgtm_protocol::Task> {
         self.post(&format!("/api/tasks/{id}/reject"), None::<&()>)
             .await
@@ -199,21 +247,15 @@ impl Client {
         target: &str,
         reason: &str,
     ) -> anyhow::Result<()> {
-        let resp = self
-            .http
-            .post(format!("{}/api/tasks/{id}/permissions", self.base))
-            .bearer_auth(&self.token)
-            .json(&PermissionRequest {
+        self.no_content(
+            &format!("/api/tasks/{id}/permissions"),
+            &PermissionRequest {
                 kind,
                 target,
                 reason,
-            })
-            .send()
-            .await?;
-        if resp.status().is_success() {
-            return Ok(());
-        }
-        Err(Self::failure(resp).await)
+            },
+        )
+        .await
     }
 
     pub async fn set_scratchpad(

@@ -1,7 +1,7 @@
 //! Shared state and every status transition, kept free of I/O so it can be
 //! tested without sockets or files.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -37,6 +37,10 @@ pub struct App {
     /// Model that decides the next step for a goal, off unless
     /// `serve --orchestrate` named one.
     pub orchestrate: Option<lgtm_protocol::Executor>,
+    /// Where the orchestration loop's own tools reach this orchestrator.
+    pub base_url: String,
+    /// Goals whose loop is running right now, so the API can say so.
+    pub orchestrating: Mutex<HashSet<String>>,
 }
 
 impl App {
@@ -56,6 +60,16 @@ impl App {
             }
             rec.written = rec.events.len();
         }
+        for id in std::mem::take(&mut state.dirty_goals) {
+            if let Some(goal) = state.goals.get(&id) {
+                self.persist_goal(goal);
+            }
+        }
+    }
+
+    /// The goals whose loop is running, for [`State::goal_summary`].
+    pub fn running_goals(&self) -> HashSet<String> {
+        self.orchestrating.lock().unwrap().clone()
     }
 
     /// A bearer token for a one-time push, or `None` to leave it to the
@@ -121,6 +135,11 @@ pub struct State {
     /// Accept tasks no connected runner can run, because provisioning is on
     /// and a runner for them is a queue away.
     pub queue_without_runners: bool,
+    /// Model to run a task of each kind on (`plan`, `run`) when its spec
+    /// names none.
+    pub models: HashMap<String, String>,
+    /// Goals whose stored copy is behind, drained by [`App::persist_ids`].
+    pub(crate) dirty_goals: Vec<String>,
 }
 
 pub struct TaskRecord {
@@ -241,6 +260,14 @@ pub enum CmdError {
     Conflict(String),
 }
 
+/// How `[policy] models` names a kind.
+pub fn kind_key(kind: lgtm_protocol::TaskKind) -> &'static str {
+    match kind {
+        lgtm_protocol::TaskKind::Plan => "plan",
+        lgtm_protocol::TaskKind::Run => "run",
+    }
+}
+
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -310,10 +337,24 @@ impl State {
             objective,
             repository,
             created_at: now_ms(),
+            attention: None,
         };
         tracing::info!(goal = %goal.id, "goal created");
         self.goals.insert(goal.id.clone(), goal.clone());
         goal
+    }
+
+    /// Records why the loop stopped for a person, or clears it with `None`.
+    /// Returns whether the goal exists.
+    pub fn set_attention(&mut self, id: &str, reason: Option<String>) -> bool {
+        let Some(goal) = self.goals.get_mut(id) else {
+            return false;
+        };
+        if goal.attention != reason {
+            goal.attention = reason;
+            self.dirty_goals.push(id.to_string());
+        }
+        true
     }
 
     /// The goal's tasks, oldest first. `spec.goal` is the only record of
@@ -414,11 +455,17 @@ impl State {
         Some(todo.clone())
     }
 
-    pub fn goal_summary(&self, id: &str) -> Option<GoalSummary> {
+    /// `running` names the goals whose orchestration loop is mid-step; those
+    /// read as `Planning` because the next task may not exist yet.
+    pub fn goal_summary(&self, id: &str, running: &HashSet<String>) -> Option<GoalSummary> {
         let goal = self.goals.get(id)?;
         let tasks = self.goal_tasks(id);
+        let status = match running.contains(id) && goal.attention.is_none() {
+            true => lgtm_protocol::GoalStatus::Planning,
+            false => goal_status(goal, &tasks),
+        };
         Some(GoalSummary {
-            status: goal_status(&tasks),
+            status,
             tasks: crate::backlog::summary(&tasks, self),
             goal: goal.clone(),
         })
@@ -532,8 +579,15 @@ impl State {
     }
 
     /// Queues a task and schedules it. Returns the task and the ids to persist.
-    pub fn create_task(&mut self, spec: TaskSpec) -> Result<(Task, Vec<TaskId>), String> {
+    pub fn create_task(&mut self, mut spec: TaskSpec) -> Result<(Task, Vec<TaskId>), String> {
         self.check_eligible(&spec)?;
+        if spec.model.is_none() {
+            spec.model = self.models.get(kind_key(spec.kind)).cloned();
+        }
+        // Work arriving is the answer the loop was waiting for.
+        if let Some(goal) = spec.goal.clone() {
+            self.set_attention(&goal, None);
+        }
         let task = Task {
             id: self.new_id(),
             spec,

@@ -29,6 +29,7 @@ pub async fn serve(args: ServeArgs, token: Option<String>) -> anyhow::Result<i32
         data_dir,
         provision: provision_options(&args, tls.is_some(), bind_addr),
         orchestrate: args.orchestrate,
+        models: models(&args.model_for),
         tls,
         webhook: args.webhook.clone(),
     };
@@ -68,6 +69,21 @@ pub async fn runner(
     })
     .await?;
     Ok(0)
+}
+
+/// The model table: `--model-for plan=opus` when given, else `LGTM_MODELS`
+/// (`plan=opus,run=sonnet`). Anything that is not a `kind=model` pair is
+/// skipped rather than failing a server start.
+fn models(flags: &[String]) -> Vec<(String, String)> {
+    let env = std::env::var("LGTM_MODELS").unwrap_or_default();
+    let from_env: Vec<String> = env.split(',').map(str::to_string).collect();
+    let pairs: &[String] = if flags.is_empty() { &from_env } else { flags };
+    pairs
+        .iter()
+        .filter_map(|pair| pair.split_once('='))
+        .map(|(kind, model)| (kind.trim().to_string(), model.trim().to_string()))
+        .filter(|(kind, model)| !kind.is_empty() && !model.is_empty())
+        .collect()
 }
 
 fn provision_options(
@@ -128,6 +144,19 @@ fn init_tracing() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_model_table_keeps_only_kind_equals_model_pairs() {
+        assert_eq!(
+            models(&["plan=opus".into(), " run = sonnet ".into(), "junk".into()]),
+            [
+                ("plan".to_string(), "opus".to_string()),
+                ("run".to_string(), "sonnet".to_string())
+            ]
+        );
+        // No flags and no LGTM_MODELS in this process: nothing is configured.
+        assert!(models(&[]).is_empty());
+    }
 
     #[test]
     fn default_public_url_swaps_unreachable_bind_host() {

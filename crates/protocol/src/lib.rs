@@ -331,6 +331,10 @@ pub struct Goal {
     pub repository: String,
     /// Unix milliseconds.
     pub created_at: u64,
+    /// Why the orchestration loop stopped and left the goal to a person.
+    /// Cleared by the next message or task under the goal.
+    #[serde(default)]
+    pub attention: Option<String>,
 }
 
 impl Memory {
@@ -383,10 +387,12 @@ pub struct GoalSummary {
 }
 
 /// Derived from the goal's tasks, so it is never stored.
-pub fn goal_status(tasks: &[&Task]) -> GoalStatus {
+pub fn goal_status(goal: &Goal, tasks: &[&Task]) -> GoalStatus {
     let any = |f: fn(&Task) -> bool| tasks.iter().any(|task| f(task));
     let all = |f: fn(&Task) -> bool| tasks.iter().all(|task| f(task));
-    if tasks.is_empty() {
+    if goal.attention.is_some() {
+        GoalStatus::Blocked
+    } else if tasks.is_empty() {
         GoalStatus::Draft
     } else if any(|t| t.spec.kind == TaskKind::Plan && !t.status.is_terminal()) {
         GoalStatus::Planning
