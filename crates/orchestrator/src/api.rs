@@ -9,22 +9,23 @@ mod todos;
 use std::sync::Arc;
 
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{Path, Request, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{header::AUTHORIZATION, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use lgtm_protocol::{
-    plan_versions, Executor, OrchestratorMessage, PlanVersion, SandboxProfile, Task, TaskEvent,
-    TaskKind, TaskSpec, TaskStatus, WorkerStatus,
+    plan_versions, Executor, OrchestratorMessage, PlanVersion, SandboxProfile, Stats, Task,
+    TaskEvent, TaskKind, TaskSpec, TaskStatus, WorkerStatus,
 };
 use serde::Deserialize;
 
 use crate::backlog::{self, SpecInput};
 use crate::commands::RetryInto;
 use crate::persist::Stored;
-use crate::state::{App, CmdError};
+use crate::state::{now_ms, App, CmdError};
+use crate::stats;
 
 pub(super) struct ApiError(pub StatusCode, pub String);
 
@@ -59,6 +60,7 @@ impl From<crate::github::MergeError> for ApiError {
 pub fn router(app: Arc<App>) -> Router<Arc<App>> {
     Router::new()
         .route("/workers", get(workers))
+        .route("/stats", get(stats))
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/from-issue", post(create_task_from_issue))
         .route("/tasks/from-linear", post(create_task_from_linear))
@@ -119,6 +121,29 @@ async fn workers(State(app): State<Arc<App>>) -> Json<Vec<WorkerStatus>> {
         .collect();
     out.sort_by(|a, b| a.info.name.cmp(&b.info.name));
     Json(out)
+}
+
+/// A week is the default window: long enough to trust, short enough to load
+/// without paging.
+const DEFAULT_STATS_WINDOW_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+#[derive(Deserialize)]
+struct StatsQuery {
+    #[serde(default)]
+    since: Option<u64>,
+}
+
+async fn stats(State(app): State<Arc<App>>, Query(query): Query<StatsQuery>) -> Json<Stats> {
+    let state = app.state.lock().unwrap();
+    let since = query
+        .since
+        .unwrap_or_else(|| now_ms().saturating_sub(DEFAULT_STATS_WINDOW_MS));
+    let records: Vec<(&Task, &[lgtm_protocol::StoredEvent])> = state
+        .tasks
+        .values()
+        .map(|rec| (&rec.task, rec.events.as_slice()))
+        .collect();
+    Json(stats::compute(&records, since))
 }
 
 async fn create_task(

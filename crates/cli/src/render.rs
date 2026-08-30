@@ -6,8 +6,8 @@
 //! bookkeeping no human wants to read.
 
 use lgtm_protocol::{
-    Execution, ExecutionStatus, OutputStream, Plan, PlanVersion, Review, Severity, TaskEvent,
-    ValidationResult,
+    Execution, ExecutionStatus, OutputStream, Plan, PlanVersion, Review, Severity, Stats,
+    TaskEvent, ValidationResult,
 };
 use serde_json::Value;
 use std::io::Write;
@@ -81,6 +81,12 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
     }
 }
 
+/// `{m}m{s}s`, the duration format used wherever we print one.
+fn duration(ms: u64) -> String {
+    let secs = ms / 1000;
+    format!("{}m{}s", secs / 60, secs % 60)
+}
+
 /// Renders one line per attempt. Silent for a task that was attempted once,
 /// where the task's own status and result already say everything.
 pub fn print_executions(execs: &[Execution], out: &mut impl Write) -> std::io::Result<()> {
@@ -95,19 +101,54 @@ pub fn print_executions(execs: &[Execution], out: &mut impl Write) -> std::io::R
             ExecutionStatus::Failed => "failed",
             ExecutionStatus::Cancelled => "cancelled",
         };
-        let secs = exec
+        let ms = exec
             .finished_at
             .unwrap_or(exec.started_at)
-            .saturating_sub(exec.started_at)
-            / 1000;
+            .saturating_sub(exec.started_at);
         writeln!(
             out,
-            "attempt {}: {status} on {} ({}) {}m{}s",
+            "attempt {}: {status} on {} ({}) {}",
             exec.attempt,
             exec.worker,
             exec.executor.binary(),
-            secs / 60,
-            secs % 60,
+            duration(ms),
+        )?;
+    }
+    Ok(())
+}
+
+/// `lgtm stats`: throughput, duration, and cost over the window.
+pub fn print_stats(stats: &Stats, out: &mut impl Write) -> std::io::Result<()> {
+    let done = stats.approved + stats.merged;
+    let dropped = stats.cancelled + stats.rejected;
+    let open = stats.running + stats.queued + stats.awaiting_review;
+    writeln!(
+        out,
+        "{:<13}{}   ({done} done, {} failed, {dropped} dropped, {open} open)",
+        "tasks", stats.tasks, stats.failed,
+    )?;
+    writeln!(
+        out,
+        "{:<13}{}",
+        "median run",
+        duration(stats.median_execution_ms)
+    )?;
+    writeln!(
+        out,
+        "{:<13}{}",
+        "median queue",
+        duration(stats.median_queue_ms)
+    )?;
+    writeln!(out, "{:<13}{}", "retried", stats.retried_tasks)?;
+    writeln!(out, "{:<13}${:.2}", "cost", stats.cost_usd)?;
+    for entry in &stats.by_executor {
+        writeln!(
+            out,
+            "{:<13}{} attempts, {} completed, {} failed",
+            entry.executor.binary(),
+            entry.attempts,
+            entry.completed,
+            entry.failed,
         )?;
     }
     Ok(())
@@ -445,6 +486,52 @@ mod tests {
             "\n\
              attempt 1: failed on w1 (claude) 1m30s\n\
              attempt 2: running on w1 (claude) 0m0s\n"
+        );
+    }
+
+    #[test]
+    fn print_stats_renders_every_field() {
+        let stats = Stats {
+            since: 0,
+            tasks: 5,
+            queued: 1,
+            running: 1,
+            awaiting_review: 1,
+            approved: 1,
+            merged: 1,
+            failed: 0,
+            cancelled: 0,
+            rejected: 0,
+            median_execution_ms: 90_000,
+            median_queue_ms: 5_000,
+            retried_tasks: 2,
+            cost_usd: 12.5,
+            by_executor: vec![
+                lgtm_protocol::ExecutorStats {
+                    executor: lgtm_protocol::Executor::Claude,
+                    attempts: 3,
+                    completed: 2,
+                    failed: 1,
+                },
+                lgtm_protocol::ExecutorStats {
+                    executor: lgtm_protocol::Executor::Codex,
+                    attempts: 1,
+                    completed: 1,
+                    failed: 0,
+                },
+            ],
+        };
+        let mut out = Vec::new();
+        print_stats(&stats, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "tasks        5   (2 done, 0 failed, 0 dropped, 3 open)\n\
+             median run   1m30s\n\
+             median queue 0m5s\n\
+             retried      2\n\
+             cost         $12.50\n\
+             claude       3 attempts, 2 completed, 1 failed\n\
+             codex        1 attempts, 1 completed, 0 failed\n"
         );
     }
 

@@ -12,6 +12,7 @@ mod plan;
 mod policy;
 mod provision;
 mod state;
+mod stats;
 mod todo;
 pub mod token;
 mod worker;
