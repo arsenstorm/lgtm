@@ -489,6 +489,9 @@ impl State {
             status: TodoStatus::Open,
             created_at: now_ms(),
             task: None,
+            priority: lgtm_protocol::Priority::default(),
+            assignee: None,
+            blockers: Vec::new(),
         };
         tracing::info!(todo = %todo.id, "todo added");
         self.todos.insert(todo.id.clone(), todo.clone());

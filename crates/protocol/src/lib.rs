@@ -5,6 +5,8 @@
 
 mod wire;
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 pub use wire::*;
@@ -534,6 +536,15 @@ pub enum TodoStatus {
     Done,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Priority {
+    Low,
+    #[default]
+    Medium,
+    High,
+}
+
 /// A note about work to do; not yet a task, and cheaper than one.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Todo {
@@ -549,6 +560,53 @@ pub struct Todo {
     /// The task it was promoted into, which moves it to `InProgress`.
     #[serde(default)]
     pub task: Option<TaskId>,
+    #[serde(default)]
+    pub priority: Priority,
+    #[serde(default)]
+    pub assignee: Option<String>,
+    /// Ids of other todos that must be `Done` first.
+    #[serde(default)]
+    pub blockers: Vec<String>,
+}
+
+impl Todo {
+    /// `blocked` is derived rather than a `TodoStatus` variant: a blocker
+    /// finishing later would otherwise mean rewriting every todo it blocked.
+    pub fn is_blocked(&self, todos: &HashMap<String, Todo>) -> bool {
+        self.blockers.iter().any(|id| {
+            todos
+                .get(id)
+                .is_some_and(|blocker| blocker.status != TodoStatus::Done)
+        })
+    }
+}
+
+/// A partial update for `PATCH /todos/:id`. A field absent from the request
+/// body leaves that part of the todo unchanged; `assignee`'s outer `Option`
+/// carries that distinction (`None` = unchanged) while the inner one clears
+/// the assignee (`Some(None)`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct TodoPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<Priority>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
+    pub assignee: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blockers: Option<Vec<String>>,
+}
+
+/// Wraps a present value in `Some` so `Option<Option<T>>` can tell "absent"
+/// (the `#[serde(default)]` on the field) from "present and null".
+fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

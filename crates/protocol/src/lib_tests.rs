@@ -421,7 +421,71 @@ fn todo_round_trips() {
         status: TodoStatus::InProgress,
         created_at: 1,
         task: Some("11111111".into()),
+        priority: Priority::High,
+        assignee: Some("arsen".into()),
+        blockers: vec!["22222222".into()],
     });
+}
+
+#[test]
+fn todo_without_new_fields_defaults() {
+    let todo: Todo = serde_json::from_str(
+        r#"{"id":"0123abcd","repository":null,"title":"t","status":"open","created_at":1}"#,
+    )
+    .unwrap();
+    assert_eq!(todo.priority, Priority::Medium);
+    assert_eq!(todo.assignee, None);
+    assert!(todo.blockers.is_empty());
+}
+
+#[test]
+fn todo_is_blocked_only_by_an_unfinished_blocker() {
+    let mut blocker = Todo {
+        id: "blocker1".into(),
+        repository: None,
+        title: "t".into(),
+        description: String::new(),
+        status: TodoStatus::Open,
+        created_at: 1,
+        task: None,
+        priority: Priority::Medium,
+        assignee: None,
+        blockers: Vec::new(),
+    };
+    let todo = Todo {
+        id: "todo1".into(),
+        repository: None,
+        title: "t".into(),
+        description: String::new(),
+        status: TodoStatus::Open,
+        created_at: 1,
+        task: None,
+        priority: Priority::Medium,
+        assignee: None,
+        blockers: vec![blocker.id.clone()],
+    };
+    let mut todos = HashMap::new();
+    todos.insert(blocker.id.clone(), blocker.clone());
+    assert!(todo.is_blocked(&todos));
+
+    blocker.status = TodoStatus::Done;
+    todos.insert(blocker.id.clone(), blocker);
+    assert!(!todo.is_blocked(&todos));
+}
+
+#[test]
+fn todo_patch_round_trips_and_distinguishes_absent_from_clearing() {
+    round_trip(TodoPatch {
+        priority: Some(Priority::High),
+        assignee: Some(Some("arsen".into())),
+        blockers: Some(vec!["11111111".into()]),
+    });
+
+    let absent: TodoPatch = serde_json::from_str("{}").unwrap();
+    assert_eq!(absent.assignee, None);
+
+    let cleared: TodoPatch = serde_json::from_str(r#"{"assignee":null}"#).unwrap();
+    assert_eq!(cleared.assignee, Some(None));
 }
 
 #[test]

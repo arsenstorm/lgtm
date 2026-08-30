@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 use lgtm_orchestrator::{Choice, Prefer};
-use lgtm_protocol::{DependsOn, Executor, SandboxProfile, TaskId};
+use lgtm_protocol::{DependsOn, Executor, Priority, SandboxProfile, TaskId};
 
 #[derive(Parser)]
 #[command(name = "lgtm", version)]
@@ -328,6 +328,13 @@ pub enum TodoCommand {
         /// Longer text below the title.
         #[arg(long)]
         description: Option<String>,
+        #[arg(long, default_value = "medium", value_parser = parse_priority)]
+        priority: Priority,
+        #[arg(long)]
+        assignee: Option<String>,
+        /// Id of a todo that must be done first. Repeatable.
+        #[arg(long = "blocked-by")]
+        blocked_by: Vec<String>,
     },
     /// List todos.
     List {
@@ -336,6 +343,19 @@ pub enum TodoCommand {
     },
     /// Mark a todo done.
     Done { id: String },
+    /// Change a todo's priority, assignee, or blockers. Omitted flags leave
+    /// that part unchanged.
+    Edit {
+        id: String,
+        #[arg(long, value_parser = parse_priority)]
+        priority: Option<Priority>,
+        #[arg(long)]
+        assignee: Option<String>,
+        /// Id of a todo that must be done first. Repeatable; replaces the
+        /// current list when given.
+        #[arg(long = "blocked-by")]
+        blocked_by: Vec<String>,
+    },
     /// Turn a todo into a task and stream its output.
     Promote {
         id: String,
@@ -413,6 +433,17 @@ fn parse_sandbox(s: &str) -> Result<SandboxProfile, String> {
     SandboxProfile::parse(s).ok_or_else(|| {
         format!("invalid sandbox '{s}', expected 'off', 'standard', 'strict' or 'custom'")
     })
+}
+
+fn parse_priority(s: &str) -> Result<Priority, String> {
+    match s {
+        "low" => Ok(Priority::Low),
+        "medium" => Ok(Priority::Medium),
+        "high" => Ok(Priority::High),
+        other => Err(format!(
+            "invalid priority '{other}', expected 'low', 'medium' or 'high'"
+        )),
+    }
 }
 
 fn parse_depends_on(s: &str) -> Result<DependsOn, String> {

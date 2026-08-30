@@ -205,6 +205,9 @@ pub(crate) struct NewTodo<'a> {
     pub(crate) repository: Option<&'a str>,
     pub(crate) title: &'a str,
     pub(crate) description: &'a str,
+    pub(crate) priority: lgtm_protocol::Priority,
+    pub(crate) assignee: Option<&'a str>,
+    pub(crate) blockers: &'a [String],
 }
 
 /// Body of `POST /api/todos/:id/promote`.

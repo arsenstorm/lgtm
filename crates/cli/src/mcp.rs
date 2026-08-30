@@ -146,6 +146,9 @@ async fn call(name: &str, args: &Value, client: &Client, env: &Env) -> Result<St
                     repository,
                     string(args, "title")?,
                     text(args, "description"),
+                    lgtm_protocol::Priority::default(),
+                    None,
+                    &[],
                 )
                 .await?;
             Ok(todo.id)

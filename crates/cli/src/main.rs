@@ -13,7 +13,7 @@ use std::path::Path;
 use clap::Parser;
 use lgtm_client::{Client, FromIssue, FromLinear, NewGoal, PromoteTodo};
 use lgtm_orchestrator::token::{data_dir, resolve_token};
-use lgtm_protocol::{BatchSource, TaskKind, TaskSpec};
+use lgtm_protocol::{BatchSource, TaskKind, TaskSpec, TodoPatch};
 
 use crate::cli::{BacklogCommand, Cli, Command, MemoryCommand, Target, TodoCommand};
 use crate::table::{
@@ -471,12 +471,18 @@ async fn todo_command(client: &Client, command: TodoCommand) -> anyhow::Result<i
             repo,
             title,
             description,
+            priority,
+            assignee,
+            blocked_by,
         } => {
             let todo = client
                 .create_todo(
                     repo.as_deref(),
                     &title,
                     description.as_deref().unwrap_or(""),
+                    priority,
+                    assignee.as_deref(),
+                    &blocked_by,
                 )
                 .await?;
             println!("todo {} added", todo.id);
@@ -487,6 +493,20 @@ async fn todo_command(client: &Client, command: TodoCommand) -> anyhow::Result<i
         TodoCommand::Done { id } => {
             client.finish_todo(&id).await?;
             println!("todo {id} done");
+        }
+        TodoCommand::Edit {
+            id,
+            priority,
+            assignee,
+            blocked_by,
+        } => {
+            let patch = TodoPatch {
+                priority,
+                assignee: assignee.map(Some),
+                blockers: (!blocked_by.is_empty()).then_some(blocked_by),
+            };
+            client.update_todo(&id, &patch).await?;
+            println!("todo {id} updated");
         }
         TodoCommand::Promote { id, target } => {
             let body = PromoteTodo {

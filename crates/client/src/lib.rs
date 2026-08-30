@@ -118,6 +118,21 @@ impl Client {
         Self::handle(resp).await
     }
 
+    async fn patch<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &impl Serialize,
+    ) -> anyhow::Result<T> {
+        let resp = self
+            .http
+            .patch(format!("{}{path}", self.base))
+            .bearer_auth(&self.token)
+            .json(body)
+            .send()
+            .await?;
+        Self::handle(resp).await
+    }
+
     async fn handle<T: DeserializeOwned>(resp: reqwest::Response) -> anyhow::Result<T> {
         if resp.status().is_success() {
             return Ok(resp.json().await?);
@@ -450,11 +465,15 @@ impl Client {
         Self::handle(req.send().await?).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_todo(
         &self,
         repository: Option<&str>,
         title: &str,
         description: &str,
+        priority: lgtm_protocol::Priority,
+        assignee: Option<&str>,
+        blockers: &[String],
     ) -> anyhow::Result<lgtm_protocol::Todo> {
         self.post(
             "/api/todos",
@@ -462,6 +481,9 @@ impl Client {
                 repository,
                 title,
                 description,
+                priority,
+                assignee,
+                blockers,
             }),
         )
         .await
@@ -470,6 +492,14 @@ impl Client {
     pub async fn finish_todo(&self, id: &str) -> anyhow::Result<lgtm_protocol::Todo> {
         self.post(&format!("/api/todos/{id}/done"), None::<&()>)
             .await
+    }
+
+    pub async fn update_todo(
+        &self,
+        id: &str,
+        patch: &lgtm_protocol::TodoPatch,
+    ) -> anyhow::Result<lgtm_protocol::Todo> {
+        self.patch(&format!("/api/todos/{id}"), patch).await
     }
 
     pub async fn promote_todo(
