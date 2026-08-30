@@ -56,6 +56,7 @@ fn spec(executor: Executor, runner: Option<&str>) -> TaskSpec {
         review_executor: None,
         model: None,
         allowed_hosts: Vec::new(),
+        session: None,
     }
 }
 
@@ -1146,6 +1147,47 @@ fn unknown_dependency_is_refused() {
     assert_eq!(
         state.check_eligible(&spec).unwrap_err(),
         "unknown dependency deadbeef"
+    );
+}
+
+#[test]
+fn unknown_session_is_refused() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let mut task_spec = spec(Executor::Claude, None);
+    task_spec.session = Some("deadbeef".into());
+    assert_eq!(
+        state.check_eligible(&task_spec).unwrap_err(),
+        "unknown session deadbeef"
+    );
+}
+
+#[test]
+fn session_tasks_come_back_in_creation_order() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let session = state.create_session(
+        "https://example.com/repo.git".into(),
+        "main".into(),
+        String::new(),
+    );
+
+    let mut first = spec(Executor::Claude, None);
+    first.session = Some(session.id.clone());
+    let first = state.create_task(first).unwrap().0;
+    // Millisecond timestamps tie within one test tick, so force the order
+    // `session_tasks` is meant to prove instead of racing the clock.
+    state.tasks.get_mut(&first.id).unwrap().task.created_at = 1;
+
+    let mut second = spec(Executor::Claude, None);
+    second.session = Some(session.id.clone());
+    let second = state.create_task(second).unwrap().0;
+    state.tasks.get_mut(&second.id).unwrap().task.created_at = 2;
+
+    let tasks = state.session_tasks(&session.id);
+    assert_eq!(
+        tasks.iter().map(|t| &t.id).collect::<Vec<_>>(),
+        vec![&first.id, &second.id]
     );
 }
 

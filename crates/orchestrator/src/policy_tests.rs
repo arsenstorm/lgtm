@@ -25,6 +25,7 @@ fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
             review_executor: None,
             model: None,
             allowed_hosts: Vec::new(),
+            session: None,
         },
         status,
         runner: Some("w".into()),

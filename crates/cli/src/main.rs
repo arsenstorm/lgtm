@@ -281,6 +281,7 @@ impl Target {
             review_executor: self.review_with,
             model: self.model,
             allowed_hosts: Vec::new(),
+            session: self.session,
         })
     }
 }

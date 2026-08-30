@@ -74,6 +74,7 @@ impl SpecInput {
             review_executor: self.review_executor,
             model: self.model,
             allowed_hosts: Vec::new(),
+            session: None,
         }
     }
 }

@@ -230,6 +230,9 @@ pub struct TaskSpec {
     /// Hosts a person allowed for this task on top of the repository's allowlist.
     #[serde(default)]
     pub allowed_hosts: Vec<String>,
+    /// The chat thread this task was sent from.
+    #[serde(default)]
+    pub session: Option<String>,
 }
 
 impl TaskSpec {
@@ -337,6 +340,25 @@ impl Memory {
     }
 }
 
+/// One chat thread in a repository; each message in it becomes a task.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Session {
+    pub id: String,
+    pub repository: String,
+    pub base_branch: String,
+    /// The first message, cut to 60 chars; empty until one is sent.
+    pub title: String,
+    /// Unix milliseconds.
+    pub created_at: u64,
+}
+
+/// Body of `GET /api/sessions/:id`: the thread is its tasks in creation order.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SessionDetail {
+    pub session: Session,
+    pub tasks: Vec<Task>,
+}
+
 /// The block prepended to an agent prompt, or empty when there is nothing.
 pub fn knowledge_block(memories: &[Memory]) -> String {
     if memories.is_empty() {
@@ -394,10 +416,15 @@ pub fn goal_status(tasks: &[&Task]) -> GoalStatus {
 /// How much of the prompt a notification line carries.
 const TITLE_LEN: usize = 60;
 
+/// The first line of `text`, cut to [`TITLE_LEN`] characters.
+pub fn first_line_title(text: &str) -> String {
+    let first = text.lines().next().unwrap_or_default().trim();
+    first.chars().take(TITLE_LEN).collect()
+}
+
 /// The first line of the prompt, cut to [`TITLE_LEN`] characters.
 fn title(task: &Task) -> String {
-    let first = task.spec.prompt.lines().next().unwrap_or_default().trim();
-    first.chars().take(TITLE_LEN).collect()
+    first_line_title(&task.spec.prompt)
 }
 
 fn line(task: &Task, why: &str) -> String {

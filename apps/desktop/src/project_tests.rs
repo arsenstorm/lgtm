@@ -24,6 +24,7 @@ fn task(repository: &str, status: TaskStatus) -> Task {
             model: None,
             goal: None,
             allowed_hosts: Vec::new(),
+            session: None,
         },
         status,
         runner: None,

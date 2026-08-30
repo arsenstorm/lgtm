@@ -35,6 +35,7 @@ fn seed(dir: &std::path::Path) {
             model: None,
             goal: None,
             allowed_hosts: Vec::new(),
+            session: None,
         },
         status: TaskStatus::AwaitingReview,
         runner: None,

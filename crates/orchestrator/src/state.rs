@@ -6,8 +6,8 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
-    goal_status, Batch, Goal, GoalSummary, Memory, OrchestratorMessage, StoredEvent, Task,
-    TaskEvent, TaskId, TaskSpec, TaskStatus, Todo, TodoStatus,
+    first_line_title, goal_status, Batch, Goal, GoalSummary, Memory, OrchestratorMessage, Session,
+    StoredEvent, Task, TaskEvent, TaskId, TaskSpec, TaskStatus, Todo, TodoStatus,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -81,6 +81,10 @@ impl App {
         let _ = self.persist.send(Persist::Goal(goal.clone()));
     }
 
+    pub fn persist_session(&self, session: &Session) {
+        let _ = self.persist.send(Persist::Session(session.clone()));
+    }
+
     pub fn persist_todo(&self, todo: &Todo) {
         let _ = self.persist.send(Persist::Todo(todo.clone()));
     }
@@ -110,6 +114,8 @@ pub struct State {
     pub memories: HashMap<String, Memory>,
     /// Goals, by id. A task points back with `spec.goal`.
     pub goals: HashMap<String, Goal>,
+    /// Chat threads, by id. A task points back with `spec.session`.
+    pub sessions: HashMap<String, Session>,
     /// Lightweight notes about work to do, by id.
     pub todos: HashMap<String, Todo>,
     /// Accept tasks no connected runner can run, because provisioning is on
@@ -323,6 +329,54 @@ impl State {
         tasks
     }
 
+    pub(crate) fn new_session_id(&self) -> String {
+        std::iter::repeat_with(random_id)
+            .find(|id| !self.sessions.contains_key(id))
+            .unwrap_or_default()
+    }
+
+    pub fn create_session(
+        &mut self,
+        repository: String,
+        base_branch: String,
+        title: String,
+    ) -> Session {
+        let session = Session {
+            id: self.new_session_id(),
+            repository,
+            base_branch,
+            title,
+            created_at: now_ms(),
+        };
+        tracing::info!(session = %session.id, "session created");
+        self.sessions.insert(session.id.clone(), session.clone());
+        session
+    }
+
+    /// The session's tasks, oldest first. `spec.session` is the only record
+    /// of membership, so nothing has to be kept in step with it.
+    pub fn session_tasks(&self, id: &str) -> Vec<&Task> {
+        let mut tasks: Vec<&Task> = self
+            .tasks
+            .values()
+            .map(|rec| &rec.task)
+            .filter(|task| task.spec.session.as_deref() == Some(id))
+            .collect();
+        tasks.sort_by_key(|task| task.created_at);
+        tasks
+    }
+
+    /// Only the first message names a session, so a title is set once.
+    /// Returns the updated session to persist, or `None` if it already had one.
+    pub fn fill_session_title(&mut self, id: &str, text: &str) -> Option<Session> {
+        let session = self.sessions.get_mut(id)?;
+        if !session.title.is_empty() {
+            return None;
+        }
+        session.title = first_line_title(text);
+        Some(session.clone())
+    }
+
     fn new_todo_id(&self) -> String {
         std::iter::repeat_with(random_id)
             .find(|id| !self.todos.contains_key(id))
@@ -384,6 +438,13 @@ impl State {
             .filter(|id| !self.goals.contains_key(*id))
         {
             return Err(format!("unknown goal {id}"));
+        }
+        if let Some(id) = spec
+            .session
+            .as_ref()
+            .filter(|id| !self.sessions.contains_key(*id))
+        {
+            return Err(format!("unknown session {id}"));
         }
         if let Some(name) = &spec.runner {
             let runner = self

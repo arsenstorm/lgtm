@@ -238,6 +238,9 @@ pub struct Target {
     /// What every `--after` id must have reached before this task starts.
     #[arg(long, default_value = "approved", value_parser = parse_depends_on)]
     pub after_condition: DependsOn,
+    /// Chat session to file this task under.
+    #[arg(long)]
+    pub session: Option<String>,
 }
 
 #[derive(Subcommand)]

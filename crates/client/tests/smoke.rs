@@ -49,6 +49,7 @@ async fn end_to_end() {
         review_executor: None,
         model: None,
         allowed_hosts: Vec::new(),
+        session: None,
     };
     let err = client.create_task(&spec).await.unwrap_err();
     assert!(err.to_string().contains("no eligible runner"), "{err}");
