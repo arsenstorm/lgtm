@@ -61,6 +61,7 @@ async fn end_to_end() {
         requirements: vec![],
         goal: None,
         review_executor: None,
+        model: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -155,7 +156,7 @@ async fn end_to_end() {
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {
             task_id: task.id.clone(),
-            event: TaskEvent::Started,
+            event: TaskEvent::Started { model: None },
         })
         .unwrap()
         .into(),
@@ -164,7 +165,7 @@ async fn end_to_end() {
     .unwrap();
     let first: StoredEvent =
         serde_json::from_str(ev.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
-    assert_eq!(first.event, TaskEvent::Started);
+    assert_eq!(first.event, TaskEvent::Started { model: None });
 
     let result = TaskResult {
         branch: format!("lgtm/{}", task.id),
@@ -270,7 +271,7 @@ async fn end_to_end() {
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {
             task_id: task2.id.clone(),
-            event: TaskEvent::Started,
+            event: TaskEvent::Started { model: None },
         })
         .unwrap()
         .into(),
@@ -762,6 +763,7 @@ async fn a_memory_reaches_the_worker() {
         requirements: vec![],
         goal: None,
         review_executor: None,
+        model: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))

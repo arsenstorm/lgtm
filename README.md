@@ -34,7 +34,8 @@ to add it to the fleet.
 ## What you can do
 
 - `lgtm run` a prompt, a GitHub issue (`--issue`), or a Linear issue
-  (`--linear`); `lgtm plan` proposes dependent steps instead of a diff.
+  (`--linear`); `--model` picks the harness's model, `lgtm plan` proposes
+  dependent steps instead of a diff.
 - `--agent codex` is a first-class executor alongside Claude: planning,
   follow-ups that resume the same thread, and the review pass all work.
 - `lgtm backlog github` and `lgtm backlog linear` import a whole labelled

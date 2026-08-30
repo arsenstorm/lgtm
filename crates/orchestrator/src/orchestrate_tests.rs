@@ -41,6 +41,7 @@ fn spec(goal: Option<String>) -> TaskSpec {
         sandbox: None,
         requirements: Vec::new(),
         review_executor: None,
+        model: None,
         goal,
     }
 }
@@ -138,7 +139,7 @@ fn will_not_approve_a_task_whose_checks_failed() {
     let mut state = State::default();
     let _worker = connect(&mut state);
     let (_goal, id) = goal_task(&mut state);
-    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(&id, TaskEvent::Started { model: None });
     state.apply_event(
         &id,
         TaskEvent::Completed {
@@ -247,7 +248,7 @@ fn the_prompt_carries_the_goal_the_subject_and_the_shapes() {
     let mut state = State::default();
     let _worker = connect(&mut state);
     let (_goal, id) = goal_task(&mut state);
-    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(&id, TaskEvent::Started { model: None });
     state.apply_event(
         &id,
         TaskEvent::Command {

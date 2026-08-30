@@ -187,6 +187,9 @@ pub struct TaskSpec {
     /// Harness for the review pass; `None` defers to `[policy] review_executor`, then auto.
     #[serde(default)]
     pub review_executor: Option<Executor>,
+    /// Passed to the harness as its model flag; `None` is the harness default.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 impl TaskSpec {
@@ -558,6 +561,9 @@ pub struct Execution {
     pub attempt: u32,
     pub worker: String,
     pub executor: Executor,
+    /// The model the task asked for; the harness default when `None`.
+    #[serde(default)]
+    pub model: Option<String>,
     /// Unix milliseconds.
     pub started_at: u64,
     pub finished_at: Option<u64>,

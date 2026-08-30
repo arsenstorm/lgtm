@@ -20,6 +20,7 @@ fn spec() -> TaskSpec {
         requirements: Vec::new(),
         goal: None,
         review_executor: None,
+        model: None,
     }
 }
 
@@ -65,6 +66,7 @@ fn execution(
         attempt,
         worker: worker.into(),
         executor,
+        model: None,
         started_at,
         finished_at,
         status,
@@ -77,7 +79,7 @@ fn execution(
 fn started(at: u64) -> StoredEvent {
     StoredEvent {
         at,
-        event: TaskEvent::Started,
+        event: TaskEvent::Started { model: None },
     }
 }
 

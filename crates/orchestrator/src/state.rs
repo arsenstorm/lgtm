@@ -508,7 +508,7 @@ impl State {
 fn transition(task: &mut Task, event: &TaskEvent) -> bool {
     let terminal = task.status.is_terminal();
     let (status, finished) = match event {
-        TaskEvent::Started => (Some(TaskStatus::Running), false),
+        TaskEvent::Started { .. } => (Some(TaskStatus::Running), false),
         TaskEvent::Completed { result } => {
             if !terminal {
                 task.result = Some(result.clone());

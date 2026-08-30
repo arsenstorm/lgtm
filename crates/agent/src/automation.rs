@@ -78,6 +78,8 @@ struct RunOpts<'a> {
     /// The harness for this spawn: the task's own for every pass but review,
     /// which may run under the other one.
     executor: Executor,
+    /// `None` runs the harness's own default model.
+    model: Option<&'a str>,
 }
 
 /// A finished run.
@@ -171,7 +173,7 @@ pub async fn execute(mut run: Run<'_>, prompt: &str, resume: Option<String>) -> 
     Ok(())
 }
 
-impl Run<'_> {
+impl<'a> Run<'a> {
     /// Ends the task after a run that produced no exit status.
     fn stopped(&self, stop: Ran) -> Result<()> {
         if matches!(stop, Ran::Cancelled) {
@@ -203,6 +205,12 @@ impl Run<'_> {
         branch_name(&self.task.id)
     }
 
+    // Tied to the task's own lifetime, not `&self`'s: `RunOpts` borrows it
+    // across an `&mut self` call in `agent_run`.
+    fn model(&self) -> Option<&'a str> {
+        self.task.spec.model.as_deref()
+    }
+
     /// A plan run leaves nothing behind to retry into, so it runs once.
     async fn plan(&mut self, prompt: &str, policy: &PolicyConfig) -> Result<()> {
         let answer = text_buffer();
@@ -213,6 +221,7 @@ impl Run<'_> {
             answer: Some(answer.clone()),
             session: Some(self.session_path()),
             executor: self.task.spec.executor,
+            model: self.model(),
         };
         let finish = match self.agent_run(opts).await? {
             Ran::Finished(finish) => finish,
@@ -246,6 +255,7 @@ impl Run<'_> {
                 answer: None,
                 session: Some(self.session_path()),
                 executor: self.task.spec.executor,
+                model: self.model(),
             };
             let finish = match self.agent_run(opts).await? {
                 Ran::Finished(finish) => finish,
@@ -292,6 +302,7 @@ impl Run<'_> {
                 answer: None,
                 session: Some(self.session_path()),
                 executor: self.task.spec.executor,
+                model: self.model(),
             };
             match self.agent_run(opts).await? {
                 Ran::Finished(_) => {}
@@ -330,6 +341,7 @@ impl Run<'_> {
             answer: Some(answer.clone()),
             session: None,
             executor: used,
+            model: self.model(),
         };
         let finish = match self.agent_run(opts).await? {
             Ran::Finished(finish) => finish,
@@ -353,7 +365,12 @@ impl Run<'_> {
             .command(&path, &opts)
             .spawn()
             .with_context(|| format!("spawn {}", path.display()))?;
-        self.ctx.emit(&self.task.id, TaskEvent::Started);
+        self.ctx.emit(
+            &self.task.id,
+            TaskEvent::Started {
+                model: self.task.spec.model.clone(),
+            },
+        );
 
         let stderr_tail = tail_buffer();
         let (pump_out, pump_err) = self.spawn_pumps(&mut child, opts, &stderr_tail)?;
@@ -516,6 +533,9 @@ fn claude_args(opts: &RunOpts<'_>, exe: Option<&Path>) -> Vec<String> {
     if let Some(session) = opts.resume.as_ref() {
         args.extend(["--resume".to_string(), session.clone()]);
     }
+    if let Some(model) = opts.model {
+        args.extend(["--model".to_string(), model.to_string()]);
+    }
     args.extend([
         "--output-format".to_string(),
         "stream-json".to_string(),
@@ -567,6 +587,9 @@ fn codex_args(opts: &RunOpts<'_>, exe: Option<&Path>) -> Vec<String> {
             "-c".to_string(),
             "mcp_servers.lgtm.args=[\"mcp\"]".to_string(),
         ]);
+    }
+    if let Some(model) = opts.model {
+        args.extend(["-m".to_string(), model.to_string()]);
     }
     args.push(opts.prompt.to_string());
     args
@@ -649,6 +672,7 @@ mod tests {
             answer: None,
             session: None,
             executor: Executor::Claude,
+            model: None,
         }
     }
 
@@ -719,5 +743,27 @@ mod tests {
                 "do the thing"
             ]
         );
+    }
+
+    #[test]
+    fn a_requested_model_becomes_the_harness_flag() {
+        let mut with_model = opts(None, true);
+        with_model.model = Some("opus");
+        assert!(claude_args(&with_model, None).contains(&"--model".to_string()));
+        assert!(claude_args(&with_model, None).contains(&"opus".to_string()));
+        assert_eq!(
+            codex_args(&with_model, None),
+            [
+                "exec",
+                "--json",
+                "-c",
+                "sandbox_mode=\"workspace-write\"",
+                "-m",
+                "opus",
+                "do the thing"
+            ]
+        );
+        assert!(!claude_args(&opts(None, true), None).contains(&"--model".to_string()));
+        assert!(!codex_args(&opts(None, true), None).contains(&"-m".to_string()));
     }
 }

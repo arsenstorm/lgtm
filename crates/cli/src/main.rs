@@ -10,7 +10,7 @@ mod upgrade;
 use std::path::Path;
 
 use clap::Parser;
-use lgtm_client::{Client, FromLinear, NewGoal, PromoteTodo};
+use lgtm_client::{Client, FromIssue, FromLinear, NewGoal, PromoteTodo};
 use lgtm_orchestrator::token::{data_dir, resolve_token};
 use lgtm_protocol::{BatchSource, TaskKind, TaskSpec};
 
@@ -265,6 +265,7 @@ impl Target {
             requirements: self.requirements,
             goal: None,
             review_executor: self.review_with,
+            model: self.model,
         })
     }
 }
@@ -284,7 +285,7 @@ async fn run(
         _ => (issue, prompt),
     };
     let task = if let Some(issue) = issue {
-        let body = lgtm_client::FromIssue {
+        let body = FromIssue {
             issue: &issue,
             base_branch: &target.base,
             executor: target.agent,
@@ -292,6 +293,7 @@ async fn run(
             sandbox: target.sandbox,
             requirements: target.requirements,
             review_executor: target.review_with,
+            model: target.model,
         };
         client.create_task_from_issue(&body).await?
     } else if let Some(linear) = linear {
@@ -305,6 +307,7 @@ async fn run(
             sandbox: target.sandbox,
             requirements: target.requirements,
             review_executor: target.review_with,
+            model: target.model,
         };
         client.create_task_from_linear(&body).await?
     } else if let Some(prompt) = prompt {

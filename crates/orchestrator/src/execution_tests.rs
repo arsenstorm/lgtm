@@ -22,6 +22,7 @@ fn running() -> Task {
             requirements: Vec::new(),
             goal: None,
             review_executor: None,
+            model: None,
         },
         status: TaskStatus::Running,
         worker: Some("w1".into()),
@@ -32,6 +33,12 @@ fn running() -> Task {
         ci: None,
         executions: Vec::new(),
         scratchpad: String::new(),
+    }
+}
+
+fn started(model: Option<&str>) -> TaskEvent {
+    TaskEvent::Started {
+        model: model.map(str::to_string),
     }
 }
 
@@ -58,7 +65,7 @@ fn completed(cost: f64) -> TaskEvent {
 #[test]
 fn started_opens_the_first_attempt() {
     let mut task = running();
-    record(&mut task, &TaskEvent::Started, 10);
+    record(&mut task, &started(None), 10);
     let exec = &task.executions[0];
     assert_eq!(exec.attempt, 1);
     assert_eq!(exec.worker, "w1");
@@ -69,10 +76,17 @@ fn started_opens_the_first_attempt() {
 }
 
 #[test]
+fn started_copies_the_requested_model_onto_the_attempt() {
+    let mut task = running();
+    record(&mut task, &started(Some("opus")), 10);
+    assert_eq!(task.executions[0].model.as_deref(), Some("opus"));
+}
+
+#[test]
 fn a_second_started_stays_in_the_open_attempt() {
     let mut task = running();
-    record(&mut task, &TaskEvent::Started, 10);
-    record(&mut task, &TaskEvent::Started, 20);
+    record(&mut task, &started(None), 10);
+    record(&mut task, &started(None), 20);
     assert_eq!(task.executions.len(), 1);
     assert_eq!(task.executions[0].started_at, 10);
 }
@@ -80,7 +94,7 @@ fn a_second_started_stays_in_the_open_attempt() {
 #[test]
 fn retry_closes_the_attempt_and_the_next_started_opens_another() {
     let mut task = running();
-    record(&mut task, &TaskEvent::Started, 10);
+    record(&mut task, &started(None), 10);
     record(
         &mut task,
         &TaskEvent::Retry {
@@ -89,7 +103,7 @@ fn retry_closes_the_attempt_and_the_next_started_opens_another() {
         },
         20,
     );
-    record(&mut task, &TaskEvent::Started, 30);
+    record(&mut task, &started(None), 30);
     assert_eq!(task.executions.len(), 2);
     let first = &task.executions[0];
     assert_eq!(first.status, ExecutionStatus::Failed);
@@ -102,7 +116,7 @@ fn retry_closes_the_attempt_and_the_next_started_opens_another() {
 #[test]
 fn completed_copies_cost_and_validation() {
     let mut task = running();
-    record(&mut task, &TaskEvent::Started, 10);
+    record(&mut task, &started(None), 10);
     record(&mut task, &completed(0.42), 20);
     let exec = &task.executions[0];
     assert_eq!(exec.status, ExecutionStatus::Completed);
@@ -114,7 +128,7 @@ fn completed_copies_cost_and_validation() {
 #[test]
 fn failed_and_cancelled_close_the_running_attempt() {
     let mut task = running();
-    record(&mut task, &TaskEvent::Started, 10);
+    record(&mut task, &started(None), 10);
     record(
         &mut task,
         &TaskEvent::Failed {
@@ -126,7 +140,7 @@ fn failed_and_cancelled_close_the_running_attempt() {
     assert_eq!(task.executions[0].error.as_deref(), Some("boom"));
 
     let mut task = running();
-    record(&mut task, &TaskEvent::Started, 10);
+    record(&mut task, &started(None), 10);
     record(&mut task, &TaskEvent::Cancelled, 20);
     assert_eq!(task.executions[0].status, ExecutionStatus::Cancelled);
     assert_eq!(task.executions[0].finished_at, Some(20));
@@ -138,7 +152,7 @@ fn an_end_without_an_open_attempt_records_nothing() {
     record(&mut task, &completed(0.42), 20);
     assert!(task.executions.is_empty());
 
-    record(&mut task, &TaskEvent::Started, 10);
+    record(&mut task, &started(None), 10);
     record(&mut task, &completed(0.42), 20);
     record(&mut task, &completed(9.99), 30);
     assert_eq!(task.executions.len(), 1);

@@ -52,6 +52,7 @@ fn spec(executor: Executor, worker: Option<&str>) -> TaskSpec {
         requirements: Vec::new(),
         goal: None,
         review_executor: None,
+        model: None,
     }
 }
 
@@ -155,7 +156,7 @@ fn reconnect_within_grace_keeps_tasks() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let task = create(&mut state, Executor::Claude);
-    state.apply_event(&task.id, TaskEvent::Started);
+    state.apply_event(&task.id, TaskEvent::Started { model: None });
 
     let stale = state.disconnect("a", 1).unwrap();
     assert!(!state.workers["a"].is_connected());
@@ -180,7 +181,7 @@ fn reconnect_missing_task_is_lost() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let task = create(&mut state, Executor::Claude);
-    state.apply_event(&task.id, TaskEvent::Started);
+    state.apply_event(&task.id, TaskEvent::Started { model: None });
     state.disconnect("a", 1).unwrap();
 
     let (tx, _rx) = mpsc::unbounded_channel();
@@ -200,7 +201,7 @@ fn grace_expiry_loses_tasks_and_their_dependents() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let task = create(&mut state, Executor::Claude);
-    state.apply_event(&task.id, TaskEvent::Started);
+    state.apply_event(&task.id, TaskEvent::Started { model: None });
     let mut waiting = spec(Executor::Claude, None);
     waiting.depends_on = vec![task.id.clone()];
     let waiting = state.create_task(waiting).unwrap().0;
@@ -277,7 +278,7 @@ fn apply_event_transitions() {
     let id = create(&mut state, Executor::Claude).id;
     assert!(state.workers["idle"].running.contains(&id));
 
-    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(&id, TaskEvent::Started { model: None });
     assert_eq!(status(&state, &id), TaskStatus::Running);
 
     let result = TaskResult {
@@ -359,7 +360,7 @@ fn pull_request_plan_needs_github_and_approval() {
 
     // Not approved yet, and not on GitHub, are both nothing to open.
     let running = create(&mut state, Executor::Claude).id;
-    state.apply_event(&running, TaskEvent::Started);
+    state.apply_event(&running, TaskEvent::Started { model: None });
     assert_eq!(status(&state, &running), TaskStatus::Running);
     assert!(state.pull_request_plan(&running, true).is_none());
     let elsewhere = create(&mut state, Executor::Claude).id;
@@ -414,7 +415,7 @@ fn message_requires_awaiting_review() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
-    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(&id, TaskEvent::Started { model: None });
     assert_eq!(status(&state, &id), TaskStatus::Running);
 
     assert!(matches!(
@@ -456,7 +457,7 @@ fn message_requires_awaiting_review() {
         "slot taken again for the follow-up"
     );
 
-    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(&id, TaskEvent::Started { model: None });
     assert_eq!(status(&state, &id), TaskStatus::Running);
 
     state.apply_event(&id, TaskEvent::Completed { result });
@@ -484,7 +485,7 @@ fn a_conflict_becomes_work_for_the_agent() {
     let mut state = State::default();
     let mut a = connect(&mut state, "a", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
-    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(&id, TaskEvent::Started { model: None });
     state.apply_event(
         &id,
         TaskEvent::Completed {
@@ -536,7 +537,7 @@ fn retry_queues_a_failed_task_as_a_second_attempt() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
-    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(&id, TaskEvent::Started { model: None });
     state.apply_event(
         &id,
         TaskEvent::Failed {
@@ -558,7 +559,7 @@ fn retry_queues_a_failed_task_as_a_second_attempt() {
         }
     ));
 
-    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(&id, TaskEvent::Started { model: None });
     assert_eq!(status(&state, &id), TaskStatus::Running);
     let executions = &state.tasks[&id].task.executions;
     assert_eq!(executions.len(), 2);
@@ -751,7 +752,7 @@ fn planned(state: &mut State, steps: Vec<PlanStep>) -> TaskId {
     let mut spec = spec(Executor::Claude, None);
     spec.kind = TaskKind::Plan;
     let id = state.create_task(spec).unwrap().0.id;
-    state.apply_event(&id, TaskEvent::Started);
+    state.apply_event(&id, TaskEvent::Started { model: None });
     state.apply_event(
         &id,
         TaskEvent::Completed {
@@ -784,7 +785,7 @@ fn children(state: &State, parent: &str) -> Vec<Task> {
 
 /// Drives a child task to `Approved` the way a worker and a reviewer would.
 fn approve(state: &mut State, id: &str) {
-    state.apply_event(id, TaskEvent::Started);
+    state.apply_event(id, TaskEvent::Started { model: None });
     state.apply_event(
         id,
         TaskEvent::Completed {
@@ -1002,7 +1003,7 @@ fn timeout_ends_the_task_and_frees_the_slot() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let task = create(&mut state, Executor::Claude);
-    state.apply_event(&task.id, TaskEvent::Started);
+    state.apply_event(&task.id, TaskEvent::Started { model: None });
     let queued = create(&mut state, Executor::Claude);
     assert_eq!(queued.worker, None);
 

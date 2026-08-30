@@ -46,6 +46,7 @@ async fn end_to_end() {
         requirements: vec![],
         goal: None,
         review_executor: None,
+        model: None,
     };
     let err = client.create_task(&spec).await.unwrap_err();
     assert!(err.to_string().contains("no eligible worker"), "{err}");
@@ -92,7 +93,7 @@ async fn end_to_end() {
     w.send(TMsg::Text(
         serde_json::to_string(&WorkerMessage::Event {
             task_id: task.id.clone(),
-            event: TaskEvent::Started,
+            event: TaskEvent::Started { model: None },
         })
         .unwrap()
         .into(),
@@ -100,7 +101,7 @@ async fn end_to_end() {
     .await
     .unwrap();
     let event = events.next().await.unwrap();
-    assert_eq!(event.event, TaskEvent::Started);
+    assert_eq!(event.event, TaskEvent::Started { model: None });
 
     std::fs::remove_dir_all(&dir).ok();
 }

@@ -54,6 +54,7 @@ pub struct FromIssue<'a> {
     pub sandbox: Option<lgtm_protocol::SandboxProfile>,
     pub requirements: Vec<String>,
     pub review_executor: Option<lgtm_protocol::Executor>,
+    pub model: Option<String>,
 }
 
 /// Body of `POST /api/batches`.
@@ -71,6 +72,7 @@ pub struct BatchRequest {
     pub sandbox: Option<lgtm_protocol::SandboxProfile>,
     pub requirements: Vec<String>,
     pub review_executor: Option<lgtm_protocol::Executor>,
+    pub model: Option<String>,
 }
 
 /// One issue found for a batch, previewed before (or instead of) import.
@@ -125,6 +127,7 @@ pub struct FromLinear<'a> {
     pub sandbox: Option<lgtm_protocol::SandboxProfile>,
     pub requirements: Vec<String>,
     pub review_executor: Option<lgtm_protocol::Executor>,
+    pub model: Option<String>,
 }
 
 pub struct EventStream {

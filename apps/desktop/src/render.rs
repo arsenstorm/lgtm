@@ -35,7 +35,7 @@ impl Line {
 
 pub fn render(event: &TaskEvent) -> Vec<Line> {
     match event {
-        TaskEvent::Started => vec![Line::new(Kind::Status, "agent started")],
+        TaskEvent::Started { .. } => vec![Line::new(Kind::Status, "agent started")],
         TaskEvent::Message { text } => vec![Line::new(Kind::Message, format!("> {text}"))],
         TaskEvent::Output {
             stream: OutputStream::Stderr,

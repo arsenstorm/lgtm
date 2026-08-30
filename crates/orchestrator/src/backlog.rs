@@ -50,6 +50,7 @@ pub struct SpecInput {
     pub sandbox: Option<SandboxProfile>,
     pub requirements: Vec<String>,
     pub review_executor: Option<Executor>,
+    pub model: Option<String>,
 }
 
 impl SpecInput {
@@ -70,6 +71,7 @@ impl SpecInput {
             requirements: self.requirements,
             goal: None,
             review_executor: self.review_executor,
+            model: self.model,
         }
     }
 }

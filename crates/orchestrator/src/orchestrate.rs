@@ -290,6 +290,7 @@ fn create_task(
         sandbox: subject.spec.sandbox,
         requirements: subject.spec.requirements,
         review_executor: None,
+        model: None,
         goal: Some(goal),
     };
     state.create_task(spec).map(|(_, changed)| changed)

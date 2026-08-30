@@ -20,6 +20,7 @@ fn task(repository: &str, status: TaskStatus) -> Task {
             sandbox: None,
             requirements: vec![],
             review_executor: None,
+            model: None,
             goal: None,
         },
         status,

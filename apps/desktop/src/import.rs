@@ -102,6 +102,7 @@ impl ImportForm {
             sandbox: None,
             requirements: vec![],
             review_executor: None,
+            model: None,
         })
     }
 }

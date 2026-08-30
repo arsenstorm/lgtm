@@ -58,6 +58,7 @@ fn first_spec(body: GoalRequest, goal: String) -> TaskSpec {
         requirements: Vec::new(),
         goal: Some(goal),
         review_executor: None,
+        model: None,
     }
 }
 

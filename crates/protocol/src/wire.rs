@@ -18,7 +18,12 @@ pub enum OutputStream {
 pub enum TaskEvent {
     /// Worktree is ready and the agent process has been spawned. Sent again
     /// for every follow-up run.
-    Started,
+    Started {
+        /// The task spec's requested model, carried through so it lands on
+        /// the execution without the runner needing the store.
+        #[serde(default)]
+        model: Option<String>,
+    },
     /// A follow-up from the developer, recorded before the run it triggers.
     Message {
         text: String,
