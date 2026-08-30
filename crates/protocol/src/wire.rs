@@ -177,6 +177,10 @@ pub enum OrchestratorMessage {
     /// Push `lgtm/<task-id>` to origin.
     Push {
         task_id: TaskId,
+        /// Bearer token for this push; `None` leaves it to the worker's own
+        /// git credentials.
+        #[serde(default)]
+        token: Option<String>,
     },
     /// Remove the worktree and branch.
     Discard {

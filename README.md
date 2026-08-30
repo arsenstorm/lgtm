@@ -187,7 +187,11 @@ Delivery is best effort: a webhook nobody answers is logged and dropped.
 
 Every orchestrator API call and worker connection carries a shared token.
 `lgtm serve --tls-cert/--tls-key` serves over TLS; see
-[docs/remote-workers.md](docs/remote-workers.md).
+[docs/remote-workers.md](docs/remote-workers.md). With a `GITHUB_TOKEN` set
+on the orchestrator, workers push with a per-push token handed over for
+that one push and need no GitHub credentials of their own — the agent
+process never receives it — though the mirror clone at the start of a run
+still uses the worker's own credentials.
 
 ## Docs
 

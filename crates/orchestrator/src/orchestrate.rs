@@ -206,10 +206,15 @@ fn last_json_block(text: &str) -> Option<&str> {
 
 /// Performs `decision` if the state still allows it. `Err` is the refusal a
 /// reader sees on the event log; it is never a reason to stop the loop.
-pub fn apply(state: &mut State, task_id: &str, decision: &Decision) -> Result<Vec<TaskId>, String> {
+pub fn apply(
+    state: &mut State,
+    task_id: &str,
+    decision: &Decision,
+    github: Option<&lgtm_github::GitHub>,
+) -> Result<Vec<TaskId>, String> {
     match decision {
         Decision::Wait { .. } => Ok(Vec::new()),
-        Decision::Approve { .. } => approve(state, task_id),
+        Decision::Approve { .. } => approve(state, task_id, github),
         Decision::Retry { .. } => state
             .retry(
                 task_id,
@@ -235,7 +240,11 @@ pub fn apply(state: &mut State, task_id: &str, decision: &Decision) -> Result<Ve
 
 /// The same cleanliness policy demands of itself, checked here because the
 /// model can ask for an approval the diff has not earned.
-fn approve(state: &mut State, task_id: &str) -> Result<Vec<TaskId>, String> {
+fn approve(
+    state: &mut State,
+    task_id: &str,
+    github: Option<&lgtm_github::GitHub>,
+) -> Result<Vec<TaskId>, String> {
     let task = state.tasks.get(task_id).ok_or("unknown task")?.task.clone();
     if task.status != TaskStatus::AwaitingReview {
         return Err(format!("task is {}", status_word(task.status)));
@@ -247,12 +256,13 @@ fn approve(state: &mut State, task_id: &str) -> Result<Vec<TaskId>, String> {
     if result.review.as_ref().is_some_and(Review::has_blocking) {
         return Err("blocking review findings".into());
     }
+    let token = crate::state::push_token(github, &task);
     state
         .command(
             task_id,
             &[TaskStatus::AwaitingReview],
             "task is not awaiting review",
-            |task_id| OrchestratorMessage::Push { task_id },
+            |task_id| OrchestratorMessage::Push { task_id, token },
         )
         .map(|_| Vec::new())
         .map_err(refusal)
@@ -327,10 +337,11 @@ pub async fn run(app: Arc<App>, task_id: String) {
 fn act(app: &App, task_id: &str, decision: &Decision) {
     let (action, reason) = described(decision);
     let mut state = app.state.lock().unwrap();
-    let (applied, note, mut changed) = match apply(&mut state, task_id, decision) {
-        Ok(changed) => (true, String::new(), changed),
-        Err(note) => (false, note, Vec::new()),
-    };
+    let (applied, note, mut changed) =
+        match apply(&mut state, task_id, decision, app.github.as_ref()) {
+            Ok(changed) => (true, String::new(), changed),
+            Err(note) => (false, note, Vec::new()),
+        };
     tracing::info!(task = %task_id, %action, applied, %note, "orchestrator decided");
     changed.extend(state.apply_event(
         task_id,

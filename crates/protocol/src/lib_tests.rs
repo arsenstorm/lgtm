@@ -235,6 +235,11 @@ fn every_message_round_trips() {
         },
         OrchestratorMessage::Push {
             task_id: "0123abcd".into(),
+            token: None,
+        },
+        OrchestratorMessage::Push {
+            task_id: "0123abcd".into(),
+            token: Some("ghs_abc".into()),
         },
         OrchestratorMessage::Discard {
             task_id: "0123abcd".into(),
