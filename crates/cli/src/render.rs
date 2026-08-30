@@ -32,6 +32,7 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
         TaskEvent::FileChanged { path } => writeln!(out, "~ {path}"),
         TaskEvent::Progress { text } => writeln!(out, "{text}"),
         TaskEvent::Scratchpad { .. } => writeln!(out, "notes updated"),
+        TaskEvent::Artefact { name, size, .. } => writeln!(out, "artefact: {name} ({size} bytes)"),
         TaskEvent::Validating { names } => {
             writeln!(out, "running checks: {}", names.join(", "))
         }
@@ -662,6 +663,7 @@ mod tests {
             error: None,
             cost_usd: 0.0,
             validation: Vec::new(),
+            artefacts: Vec::new(),
         }
     }
 

@@ -49,6 +49,10 @@ pub fn render(event: &TaskEvent) -> Vec<Line> {
         TaskEvent::FileChanged { path } => vec![Line::new(Kind::Tool, format!("~ {path}"))],
         TaskEvent::Progress { text } => vec![Line::new(Kind::Text, text.clone())],
         TaskEvent::Scratchpad { .. } => vec![Line::new(Kind::Status, "notes updated")],
+        TaskEvent::Artefact { name, size, .. } => vec![Line::new(
+            Kind::Status,
+            format!("artefact: {name} ({size} bytes)"),
+        )],
         TaskEvent::Validating { names } => vec![Line::new(
             Kind::Status,
             format!("running checks: {}", names.join(", ")),

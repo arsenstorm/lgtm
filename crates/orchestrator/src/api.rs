@@ -1,5 +1,6 @@
 //! Authenticated HTTP + WebSocket surface under `/api`.
 
+mod artefacts;
 mod batches;
 mod events;
 mod goals;
@@ -76,6 +77,8 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
             "/tasks/{id}/terminal",
             get(terminal::attach).delete(terminal::close),
         )
+        .route("/tasks/{id}/artefacts", get(artefacts::list))
+        .route("/tasks/{id}/artefacts/{name}", get(artefacts::get))
         .route("/tasks/{id}/plans", get(get_task_plans))
         .route("/tasks/{id}/message", post(message))
         .route("/tasks/{id}/retry", post(retry))

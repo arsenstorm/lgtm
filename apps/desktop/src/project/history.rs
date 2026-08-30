@@ -128,6 +128,7 @@ mod tests {
             error: None,
             cost_usd: 0.0,
             validation: vec![],
+            artefacts: vec![],
         }
     }
 

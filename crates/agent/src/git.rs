@@ -68,7 +68,7 @@ const BASE64_ALPHABET: &[u8; 64] =
 
 /// No crate in the workspace speaks base64; the alphabet is small enough to
 /// spell out here.
-fn base64_encode(bytes: &[u8]) -> String {
+pub fn base64_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let b = [
@@ -250,6 +250,7 @@ pub async fn add_worktree(
     }
     git(&args, None).await?;
     exclude(worktree, SCRATCHPAD).await?;
+    exclude(worktree, &format!("{}/", crate::artefacts::DIR)).await?;
     Ok(())
 }
 

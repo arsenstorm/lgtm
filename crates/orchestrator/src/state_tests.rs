@@ -76,6 +76,7 @@ fn finished_execution(runner: &str, started_at: u64, finished_at: u64) -> Execut
         runner: runner.into(),
         executor: Executor::Claude,
         model: None,
+        artefacts: Vec::new(),
         started_at,
         finished_at: Some(finished_at),
         status: ExecutionStatus::Completed,
@@ -327,6 +328,43 @@ fn cancel_queued_task() {
     let cancelled = state.cancel(&queued.id).unwrap();
     assert_eq!(cancelled.status, TaskStatus::Cancelled);
     assert_eq!(status(&state, &queued.id), TaskStatus::Cancelled);
+}
+
+/// The event log is text a person reads: the payload comes off the event and
+/// only the writer ever holds the bytes.
+#[test]
+fn an_artefact_leaves_its_bytes_behind() {
+    let mut state = State::default();
+    let _idle = connect(&mut state, "idle", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+
+    state.apply_event(
+        &id,
+        TaskEvent::Artefact {
+            name: "shot.png".into(),
+            size: 3,
+            bytes_base64: "TWFu".into(),
+        },
+    );
+
+    let rec = &state.tasks[&id];
+    let TaskEvent::Artefact {
+        bytes_base64, size, ..
+    } = &rec.events.last().unwrap().event
+    else {
+        panic!("not an artefact");
+    };
+    assert!(bytes_base64.is_empty());
+    assert_eq!(*size, 3);
+    assert_eq!(
+        rec.artefacts,
+        vec![("shot.png".to_string(), b"Man".to_vec())]
+    );
+
+    let dir = std::env::temp_dir().join(format!("lgtm-artefact-test-{}", now_ms()));
+    crate::persist::write_artefact(&dir, &id, "shot.png", &rec.artefacts[0].1);
+    assert!(dir.join(&id).join("shot.png").exists());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

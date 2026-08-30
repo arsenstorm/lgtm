@@ -32,6 +32,9 @@ pub fn record(task: &mut Task, event: &TaskEvent, now: u64) {
             finish(exec, ExecutionStatus::Failed, now);
             exec.error = Some("runner lost".into());
         }
+        TaskEvent::Artefact { name, .. } if !exec.artefacts.contains(name) => {
+            exec.artefacts.push(name.clone())
+        }
         TaskEvent::Cancelled => finish(exec, ExecutionStatus::Cancelled, now),
         TaskEvent::Completed { result } => {
             finish(exec, ExecutionStatus::Completed, now);
@@ -63,6 +66,7 @@ fn start(task: &mut Task, model: Option<String>, now: u64) {
         error: None,
         cost_usd: 0.0,
         validation: Vec::new(),
+        artefacts: Vec::new(),
     });
 }
 

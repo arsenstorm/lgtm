@@ -77,6 +77,7 @@ fn execution(
         error: None,
         cost_usd: 0.0,
         validation: Vec::new(),
+        artefacts: Vec::new(),
     }
 }
 

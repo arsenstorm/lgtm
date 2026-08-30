@@ -17,8 +17,9 @@ use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
+use crate::artefacts;
 use crate::connection::Ctx;
-use crate::git::{branch_name, commit, mirror_path, session_path, SCRATCHPAD};
+use crate::git::{base64_encode, branch_name, commit, mirror_path, session_path, SCRATCHPAD};
 use crate::plan::extract_plan;
 use crate::policy::{
     effective_sandbox, failed_names, fix_prompt, load_policy, parse_review, review_prompt,
@@ -40,7 +41,7 @@ const FIX_MESSAGE: &str = "fix failing checks";
 const INTERRUPT_GRACE: Duration = Duration::from_secs(10);
 
 /// Told to a `Run` as the last paragraph of its prompt.
-const NOTES: &str = "\n\nKeep your working notes in .lgtm/scratchpad.md, or with the `scratchpad_write` tool: findings, open questions, decisions, and the files that matter. Whoever continues this task reads them first. Use `memory_propose` for a fact the next run should know, and `todo_create` for work you noticed but did not do.";
+const NOTES: &str = "\n\nKeep your working notes in .lgtm/scratchpad.md, or with the `scratchpad_write` tool: findings, open questions, decisions, and the files that matter. Whoever continues this task reads them first. Use `memory_propose` for a fact the next run should know, and `todo_create` for work you noticed but did not do. Put screenshots or generated files for the reviewer in .lgtm/artefacts/.";
 
 /// The notes travel over the socket and are stored with the task, so a file
 /// that ran away is truncated rather than carried.
@@ -134,6 +135,9 @@ pub struct Run<'a> {
     paths: CustomPaths,
     /// The notes as last seen, so an unchanged scratchpad sends nothing.
     notes: String,
+    /// Name and content hash of every artefact sent, so a file that survives
+    /// a follow-up run is not sent again.
+    artefacts: Vec<(String, u64)>,
 }
 
 /// The allowlist proxy serving one run: the task that accepts on it, and the
@@ -163,6 +167,7 @@ impl<'a> Run<'a> {
             limits: Limits::default(),
             paths: CustomPaths::default(),
             notes: task.scratchpad.clone(),
+            artefacts: Vec::new(),
         }
     }
 }
@@ -418,6 +423,7 @@ impl<'a> Run<'a> {
         let waited = self.wait_or_kill(&mut child).await?;
         // Also for a cancel or a timeout: that is when the notes matter most.
         self.after_run().await;
+        self.send_artefacts().await;
         self.close_proxy(proxy);
         let status = match waited {
             Waited::Exited(status) => status,
@@ -480,6 +486,23 @@ impl<'a> Run<'a> {
         self.notes = content.clone();
         self.ctx
             .emit(&self.task.id, TaskEvent::Scratchpad { content });
+    }
+
+    /// Publishes the files the run left for the reviewer.
+    async fn send_artefacts(&mut self) {
+        for (name, bytes) in artefacts::collect(self.worktree).await {
+            if !artefacts::changed(&mut self.artefacts, &name, &bytes) {
+                continue;
+            }
+            self.ctx.emit(
+                &self.task.id,
+                TaskEvent::Artefact {
+                    size: bytes.len(),
+                    bytes_base64: base64_encode(&bytes),
+                    name,
+                },
+            );
+        }
     }
 
     /// Forwards stdout and stderr; stdout also feeds the answer, cost, and

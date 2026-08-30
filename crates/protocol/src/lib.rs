@@ -769,6 +769,9 @@ pub struct Execution {
     /// reports one sum across attempts.
     pub cost_usd: f64,
     pub validation: Vec<ValidationResult>,
+    /// Names of the files this attempt left for the reviewer.
+    #[serde(default)]
+    pub artefacts: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

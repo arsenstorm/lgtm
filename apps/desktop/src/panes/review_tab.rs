@@ -7,14 +7,16 @@ use crate::net::Action;
 use crate::theme::{field, icon, section_label, Tokens, SPACE, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
-    ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _, Styled as _,
+    div, img, px, AnyElement, ClickEvent, Context, Div, Image, InteractiveElement as _,
+    IntoElement, ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _,
+    Styled as _,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::Sizable as _;
 use lgtm_protocol::{
     pending_requests, Finding, Severity, StoredEvent, Task, TaskEvent, TaskStatus, ValidationResult,
 };
+use std::sync::Arc;
 
 pub(super) fn review(
     app: &LgtmApp,
@@ -64,9 +66,88 @@ pub(super) fn review(
                     )
                 }),
         )
+        .child(artefacts(app, t, cx))
         .child(requests(app, task, t, cx))
         .children(actions(app, task, t, cx))
         .into_any_element()
+}
+
+/// The files the runs left for whoever reviews the task. The events carry
+/// only a name and a size; an image's bytes are fetched once, on the first
+/// render that wants them.
+fn artefacts(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let found = latest(&app.events);
+    let empty = found.is_empty();
+    let task = app.selected.clone().unwrap_or_default();
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(SPACE[0]))
+        .child(section_label("Artefacts", t))
+        .children(found.into_iter().map(|(name, size)| {
+            let held = app.artefacts.get(&(task.clone(), name.clone()));
+            if held.is_none() && crate::app::artefact_format(&name).is_some() {
+                fetch(name.clone(), cx);
+            }
+            artefact_row(&name, size, held.cloned().flatten(), t)
+        }))
+        .when(empty, |this| this.child(muted("No artefacts.", t)))
+}
+
+/// The app is borrowed for the whole render, so the request is made once it
+/// is free again.
+fn fetch(name: String, cx: &mut Context<LgtmApp>) {
+    let view = cx.entity();
+    cx.defer(move |cx| {
+        view.update(cx, |this, cx| {
+            this.want_artefact(name);
+            cx.notify();
+        })
+    });
+}
+
+/// One entry per name, the last event's size: a run that overwrites its
+/// screenshot every time has one artefact, not one per run.
+fn latest(events: &[StoredEvent]) -> Vec<(String, usize)> {
+    let mut out: Vec<(String, usize)> = Vec::new();
+    for stored in events {
+        let TaskEvent::Artefact { name, size, .. } = &stored.event else {
+            continue;
+        };
+        match out.iter_mut().find(|(known, _)| known == name) {
+            Some(entry) => entry.1 = *size,
+            None => out.push((name.clone(), *size)),
+        }
+    }
+    out
+}
+
+fn artefact_row(name: &str, size: usize, image: Option<Arc<Image>>, t: &Tokens) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(SPACE[0]))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(SPACE[1]))
+                .child(div().text_color(t.fg).child(name.to_string()))
+                .child(
+                    div()
+                        .text_size(px(TEXT_SECONDARY))
+                        .text_color(t.muted_fg)
+                        .child(size_label(size)),
+                ),
+        )
+        .children(image.map(|image| img(image).max_w_full().max_h(px(320.))))
+}
+
+fn size_label(size: usize) -> String {
+    if size < 1024 {
+        return format!("{size} B");
+    }
+    format!("{:.1} kB", size as f32 / 1024.0)
 }
 
 /// Hosts an agent asked for that a person hasn't granted yet, each with a
@@ -263,6 +344,23 @@ mod tests {
 
     fn stored(event: TaskEvent) -> StoredEvent {
         StoredEvent { at: 0, event }
+    }
+
+    #[test]
+    fn an_artefact_sent_twice_is_listed_once() {
+        let artefact = |size| {
+            stored(TaskEvent::Artefact {
+                name: "shot.png".into(),
+                size,
+                bytes_base64: String::new(),
+            })
+        };
+
+        let found = latest(&[artefact(3), artefact(2)]);
+
+        assert_eq!(found, vec![("shot.png".into(), 2)]);
+        assert!(crate::app::artefact_format("shot.png").is_some());
+        assert!(crate::app::artefact_format("notes.txt").is_none());
     }
 
     #[test]

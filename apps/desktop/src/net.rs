@@ -76,6 +76,12 @@ pub enum Msg {
         generation: u64,
         data: String,
     },
+    /// One artefact's bytes, empty when it could not be fetched.
+    Artefact {
+        task: String,
+        name: String,
+        bytes: Vec<u8>,
+    },
     /// A session to open: one just created, with or without a first message.
     Opened(Result<String, String>),
     /// A dry run's issue list, or the batch an import created.
@@ -387,6 +393,15 @@ pub fn fetch_plans(
         plans.sort_by_key(|plan| std::cmp::Reverse(plan.created_at));
         let _ = tx.send(Msg::Plans { generation, plans });
     })
+}
+
+/// One artefact's bytes. Fetched once, when the Review tab first shows it:
+/// the file only changes when the task runs again, which brings a new event.
+pub fn fetch_artefact(client: Client, task: String, name: String, tx: Sender) {
+    runtime().spawn(async move {
+        let bytes = client.artefact(&task, &name).await.unwrap_or_default();
+        let _ = tx.send(Msg::Artefact { task, name, bytes });
+    });
 }
 
 /// Attaches to the task's shell. The returned sender writes to it; dropping
