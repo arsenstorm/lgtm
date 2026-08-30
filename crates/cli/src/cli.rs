@@ -87,6 +87,8 @@ pub enum Command {
     Logs { id: String },
     /// Print a task's diff
     Diff { id: String },
+    /// Answer why a commit was introduced, from LGTM's own records
+    Why { sha: String },
     /// Approve a task: push its branch, or create a plan's tasks
     Approve { id: String },
     /// Reject a task and discard its branch

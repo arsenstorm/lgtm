@@ -7,8 +7,8 @@
 
 use lgtm_agent::codex_error;
 use lgtm_protocol::{
-    Execution, ExecutionStatus, OutputStream, Plan, PlanVersion, Review, ReviewState, Severity,
-    Stats, TaskEvent, ValidationResult,
+    first_line_title, Execution, ExecutionStatus, OutputStream, Plan, PlanVersion, Provenance,
+    Review, ReviewState, Severity, Stats, TaskEvent, ValidationResult,
 };
 use serde_json::Value;
 use std::io::Write;
@@ -291,6 +291,84 @@ pub fn print_plan_versions(versions: &[PlanVersion], out: &mut impl Write) -> st
         for line in String::from_utf8_lossy(&steps).lines() {
             writeln!(out, "  {line}")?;
         }
+    }
+    Ok(())
+}
+
+/// Coarse enough that clock skew of a few seconds never shows: "just now",
+/// then whole minutes, hours, or days.
+fn relative_age(at_ms: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    let secs = now.saturating_sub(at_ms) / 1000;
+    match secs {
+        0..=59 => "just now".to_string(),
+        60..=3599 => format!("{}m ago", secs / 60),
+        3600..=86_399 => format!("{}h ago", secs / 3600),
+        _ => format!("{}d ago", secs / 86_400),
+    }
+}
+
+/// `lgtm why <sha>`: everything LGTM's own records say about why a commit
+/// exists. `sha` is what the caller asked about, not stored on `Provenance`
+/// itself — the API already spends it as the route's path parameter.
+pub fn print_provenance(
+    sha: &str,
+    provenance: &Provenance,
+    out: &mut impl Write,
+) -> std::io::Result<()> {
+    writeln!(out, "commit   {sha}")?;
+    writeln!(
+        out,
+        "task     {}  {}",
+        provenance.task.id,
+        first_line_title(&provenance.task.spec.prompt)
+    )?;
+    if let Some(goal) = &provenance.goal {
+        writeln!(out, "goal     {}  {}", goal.id, goal.objective)?;
+    }
+    if let Some(plan) = &provenance.plan {
+        writeln!(out, "plan     v{}  {}", plan.version, wire_str(plan.status))?;
+    }
+    let model = provenance
+        .task
+        .spec
+        .model
+        .as_deref()
+        .map_or(String::new(), |m| format!(" {m}"));
+    writeln!(
+        out,
+        "runner   {}  {}{model}",
+        provenance.task.runner.as_deref().unwrap_or("-"),
+        provenance.task.spec.executor.binary()
+    )?;
+    if let Some(review) = &provenance.review {
+        let blocking = review
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Blocking)
+            .count();
+        let by = review
+            .executor
+            .map_or(String::new(), |e| format!(" by {}", e.binary()));
+        writeln!(
+            out,
+            "review   {} findings ({blocking} blocking){by}",
+            review.findings.len()
+        )?;
+    }
+    for decision in &provenance.decisions {
+        let mut line = Vec::new();
+        render(&decision.event, &mut line)?;
+        write!(out, "policy   {}", String::from_utf8_lossy(&line))?;
+    }
+    if let Some(approval) = &provenance.approval {
+        let by = match approval.event {
+            TaskEvent::AutoApproved => "by policy",
+            _ => "by a person",
+        };
+        writeln!(out, "approved {by} at {}", relative_age(approval.at))?;
     }
     Ok(())
 }
@@ -696,5 +774,133 @@ mod tests {
         let mut out = Vec::new();
         print_cost(0.42, &mut out).unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "cost: $0.42\n");
+    }
+
+    fn provenance_task(model: Option<&str>) -> lgtm_protocol::Task {
+        lgtm_protocol::Task {
+            id: "abc12345".into(),
+            spec: lgtm_protocol::TaskSpec {
+                repository: "https://example.com/repo.git".into(),
+                base_branch: "main".into(),
+                prompt: "add a /health endpoint\n\ndetails".into(),
+                executor: lgtm_protocol::Executor::Codex,
+                runner: None,
+                issue: None,
+                linear: None,
+                kind: lgtm_protocol::TaskKind::Run,
+                parent: None,
+                depends_on: Vec::new(),
+                depends_on_condition: Default::default(),
+                batch: None,
+                sandbox: None,
+                requirements: Vec::new(),
+                goal: None,
+                review_executor: None,
+                model: model.map(str::to_string),
+                allowed_hosts: Vec::new(),
+                session: None,
+            },
+            status: lgtm_protocol::TaskStatus::Approved,
+            runner: Some("w1".into()),
+            created_at: 0,
+            result: None,
+            error: None,
+            pull_request: None,
+            ci: None,
+            pr_review: None,
+            executions: Vec::new(),
+            scratchpad: String::new(),
+        }
+    }
+
+    #[test]
+    fn print_provenance_renders_every_section() {
+        let approved_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+            - 3_600_000;
+        let provenance = Provenance {
+            task: provenance_task(Some("gpt-5-codex")),
+            goal: Some(lgtm_protocol::Goal {
+                id: "g1".into(),
+                objective: "ship health checks".into(),
+                repository: "https://example.com/repo.git".into(),
+                created_at: 0,
+                attention: None,
+            }),
+            plan: Some(lgtm_protocol::PlanVersion {
+                task: "plan1".into(),
+                goal: Some("g1".into()),
+                version: 2,
+                status: lgtm_protocol::PlanStatus::Approved,
+                created_at: 0,
+                plan: Plan { steps: Vec::new() },
+            }),
+            review: Some(Review {
+                findings: vec![Finding {
+                    severity: Severity::Blocking,
+                    file: "a.rs".into(),
+                    line: None,
+                    message: "nit".into(),
+                }],
+                executor: Some(lgtm_protocol::Executor::Codex),
+            }),
+            decisions: vec![lgtm_protocol::StoredEvent {
+                at: 0,
+                event: TaskEvent::PolicyDecision {
+                    action: "approve".into(),
+                    allowed: true,
+                    reasons: vec!["checks passed".into()],
+                },
+            }],
+            approval: Some(lgtm_protocol::StoredEvent {
+                at: approved_at,
+                event: TaskEvent::AutoApproved,
+            }),
+        };
+        let mut out = Vec::new();
+        print_provenance("abc1234", &provenance, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "commit   abc1234\n\
+             task     abc12345  add a /health endpoint\n\
+             goal     g1  ship health checks\n\
+             plan     v2  approved\n\
+             runner   w1  codex gpt-5-codex\n\
+             review   1 findings (1 blocking) by codex\n\
+             policy   policy: auto-approve (checks passed)\n\
+             approved by policy at 1h ago\n"
+        );
+    }
+
+    #[test]
+    fn print_provenance_hides_absent_sections_and_names_a_person() {
+        let provenance = Provenance {
+            task: provenance_task(None),
+            goal: None,
+            plan: None,
+            review: None,
+            decisions: Vec::new(),
+            approval: Some(lgtm_protocol::StoredEvent {
+                at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+                event: TaskEvent::Pushed {
+                    branch: "lgtm/abc12345".into(),
+                    sha: "abc1234".into(),
+                },
+            }),
+        };
+        let mut out = Vec::new();
+        print_provenance("abc1234", &provenance, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "commit   abc1234\n\
+             task     abc12345  add a /health endpoint\n\
+             runner   w1  codex\n\
+             approved by a person at just now\n"
+        );
     }
 }
