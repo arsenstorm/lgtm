@@ -6,7 +6,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
-use lgtm_protocol::Memory;
+use lgtm_protocol::{Memory, MemorySource, TaskId, Verification};
 use serde::Deserialize;
 
 use super::ApiError;
@@ -18,6 +18,9 @@ pub(super) struct MemoryFilter {
     /// Git URL. Absent lists every memory, whatever its repository.
     #[serde(default)]
     repository: Option<String>,
+    /// Only proposals still awaiting approval.
+    #[serde(default)]
+    pending: bool,
 }
 
 /// Body of `POST /api/memories`.
@@ -26,6 +29,10 @@ pub(super) struct MemoryRequest {
     #[serde(default)]
     repository: Option<String>,
     content: String,
+    #[serde(default)]
+    source: MemorySource,
+    #[serde(default)]
+    proposed_by: Option<TaskId>,
 }
 
 pub(super) async fn list_memories(
@@ -33,14 +40,15 @@ pub(super) async fn list_memories(
     Query(filter): Query<MemoryFilter>,
 ) -> Json<Vec<Memory>> {
     let state = app.state.lock().unwrap();
+    // Repository scoping alone, not `Memory::is_told_to`: a proposal must
+    // still show up here for a person to find and approve.
     let mut memories: Vec<Memory> = state
         .memories
         .values()
         .filter(|memory| {
-            filter
-                .repository
-                .as_ref()
-                .is_none_or(|repository| memory.applies_to(repository))
+            filter.repository.as_ref().is_none_or(|repository| {
+                memory.repository.as_deref().is_none_or(|r| r == repository)
+            }) && (!filter.pending || memory.verification == Verification::AgentProposed)
         })
         .cloned()
         .collect();
@@ -61,10 +69,27 @@ pub(super) async fn create_memory(
         ));
     }
     let mut state = app.state.lock().unwrap();
-    let memory = state.create_memory(body.repository.clone(), content.to_string());
+    let memory = state.create_memory(
+        body.repository.clone(),
+        content.to_string(),
+        body.source,
+        body.proposed_by.clone(),
+    );
     tracing::info!(memory = %memory.id, "memory recorded");
     app.persist_memory(&memory);
     Ok((StatusCode::CREATED, Json(memory)))
+}
+
+pub(super) async fn approve_memory(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+) -> Result<Json<Memory>, ApiError> {
+    let mut state = app.state.lock().unwrap();
+    let memory = state
+        .approve_memory(&id)
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "memory not found".into()))?;
+    app.persist_memory(&memory);
+    Ok(Json(memory))
 }
 
 pub(super) async fn delete_memory(

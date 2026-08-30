@@ -433,8 +433,12 @@ async fn memory_command(client: &Client, command: MemoryCommand) -> anyhow::Resu
             let memory = client.create_memory(repo.as_deref(), &content).await?;
             println!("memory {} added", memory.id);
         }
-        MemoryCommand::List { repo } => {
-            print_memory_table(&client.memories(repo.as_deref()).await?);
+        MemoryCommand::List { repo, pending } => {
+            print_memory_table(&client.memories(repo.as_deref(), pending).await?);
+        }
+        MemoryCommand::Approve { id } => {
+            client.approve_memory(&id).await?;
+            println!("memory {id} approved");
         }
         MemoryCommand::Rm { id } => {
             client.delete_memory(&id).await?;

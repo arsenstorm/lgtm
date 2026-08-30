@@ -801,6 +801,8 @@ fn a_follow_up_carries_the_memories() {
     let memory = state.create_memory(
         Some(spec(Executor::Claude, None).repository),
         "no yarn".into(),
+        MemorySource::User,
+        None,
     );
     let id = create(&mut state, Executor::Claude).id;
     let result = TaskResult {
@@ -821,6 +823,24 @@ fn a_follow_up_carries_the_memories() {
         frame,
         OrchestratorMessage::Message { memories, .. } if memories.as_slice() == [memory.clone()]
     )));
+}
+
+#[test]
+fn a_proposed_memory_is_not_told_until_approved() {
+    let mut state = State::default();
+    let repository = spec(Executor::Claude, None).repository;
+    let memory = state.create_memory(
+        Some(repository.clone()),
+        "no yarn".into(),
+        MemorySource::Agent,
+        Some("t1".into()),
+    );
+    assert_eq!(memory.verification, Verification::AgentProposed);
+    assert!(state.memories_for(&repository).is_empty());
+
+    let approved = state.approve_memory(&memory.id).unwrap();
+    assert_eq!(approved.verification, Verification::UserApproved);
+    assert_eq!(state.memories_for(&repository), [approved]);
 }
 
 /// A bare task in `status`, from a Linear issue or not, with no runner or

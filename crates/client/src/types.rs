@@ -71,6 +71,10 @@ pub(crate) struct Notes<'a> {
 pub(crate) struct NewMemory<'a> {
     pub(crate) repository: Option<&'a str>,
     pub(crate) content: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) source: Option<lgtm_protocol::MemorySource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) proposed_by: Option<&'a str>,
 }
 
 /// Body of `POST /api/tasks/from-issue`.

@@ -126,12 +126,12 @@ async fn call(name: &str, args: &Value, client: &Client, env: &Env) -> Result<St
     match name {
         "memories_list" => Ok(joined(
             client
-                .memories(repository)
+                .memories(repository, false)
                 .await?
                 .iter()
                 .map(|m| format!("- {}", m.content)),
         )),
-        "memory_propose" => propose(client, repository, args).await,
+        "memory_propose" => propose(client, repository, env, args).await,
         "todos_list" => Ok(joined(
             client
                 .todos(repository)
@@ -354,12 +354,22 @@ async fn task_create(client: &Client, goal: &str, args: &Value) -> Result<String
     Ok(client.create_task(&spec).await?.id)
 }
 
-/// A proposal lands as a todo rather than a memory: an agent should not be
-/// able to write what every later run is told, so a person reads it and runs
-/// `lgtm memory add`.
-async fn propose(client: &Client, repository: Option<&str>, args: &Value) -> Result<String> {
-    let title = format!("Proposed memory: {}", string(args, "content")?);
-    Ok(client.create_todo(repository, &title, "").await?.id)
+/// An agent cannot write what every later run is told: the memory it
+/// proposes waits unapproved until a person runs `lgtm memory approve`.
+async fn propose(
+    client: &Client,
+    repository: Option<&str>,
+    env: &Env,
+    args: &Value,
+) -> Result<String> {
+    let memory = client
+        .propose_memory(repository, string(args, "content")?, &env.task_id)
+        .await?;
+    Ok(proposed_reply(&memory.id))
+}
+
+fn proposed_reply(id: &str) -> String {
+    format!("proposed {id}; a person approves it with: lgtm memory approve {id}")
 }
 
 /// A run can't be paused mid-flight to ask a person, so the request is only
@@ -393,7 +403,7 @@ fn tools(goal: bool) -> Value {
     let string = |about: &str| json!({ "type": "string", "description": about });
     let mut tools = vec![
         tool("memories_list", "Facts recorded for this repository that every agent run is told.", json!({}), &[]),
-        tool("memory_propose", "Propose a fact worth telling every later run. It becomes a todo for a person to accept.", json!({ "content": string("The fact, in one sentence.") }), &["content"]),
+        tool("memory_propose", "Propose a fact worth telling every later run. It waits as a pending memory until a person approves it.", json!({ "content": string("The fact, in one sentence.") }), &["content"]),
         tool("todos_list", "Open todos for this repository.", json!({}), &[]),
         tool("todo_create", "Note work that should happen but is not part of this task.", json!({ "title": string("One line."), "description": string("Optional detail.") }), &["title"]),
         tool("scratchpad_read", "The working notes kept for this task.", json!({}), &[]),
@@ -464,6 +474,14 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect()
+    }
+
+    #[test]
+    fn proposed_reply_names_the_approve_command() {
+        assert_eq!(
+            proposed_reply("m1"),
+            "proposed m1; a person approves it with: lgtm memory approve m1"
+        );
     }
 
     #[tokio::test]

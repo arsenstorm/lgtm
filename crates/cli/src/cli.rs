@@ -293,7 +293,12 @@ pub enum MemoryCommand {
     List {
         #[arg(long)]
         repo: Option<String>,
+        /// Only proposals still awaiting approval.
+        #[arg(long)]
+        pending: bool,
     },
+    /// Approve a memory an agent proposed, so later runs are told it.
+    Approve { id: String },
     /// Forget one memory.
     Rm { id: String },
 }
