@@ -2,6 +2,7 @@
 
 mod batches;
 mod events;
+mod goals;
 mod memories;
 
 use std::sync::Arc;
@@ -76,6 +77,8 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
             get(memories::list_memories).post(memories::create_memory),
         )
         .route("/memories/{id}", delete(memories::delete_memory))
+        .route("/goals", get(goals::list_goals).post(goals::create_goal))
+        .route("/goals/{id}", get(goals::get_goal))
         .layer(middleware::from_fn_with_state(app, auth))
 }
 

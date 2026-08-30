@@ -74,6 +74,24 @@ pub struct BatchDetail {
     pub tasks: Vec<lgtm_protocol::Task>,
 }
 
+/// Body of `POST /api/goals`.
+#[derive(Serialize, Clone, Debug)]
+pub struct NewGoal {
+    pub objective: String,
+    pub repository: String,
+    pub base_branch: String,
+    pub executor: lgtm_protocol::Executor,
+    pub worker: Option<String>,
+    pub plan: bool,
+}
+
+/// Body of `GET /api/goals/:id`.
+#[derive(Deserialize, Clone, Debug)]
+pub struct GoalDetail {
+    pub summary: lgtm_protocol::GoalSummary,
+    pub tasks: Vec<lgtm_protocol::Task>,
+}
+
 #[derive(Serialize)]
 /// Body of `POST /api/tasks/from-linear`.
 pub struct FromLinear<'a> {

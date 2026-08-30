@@ -24,6 +24,7 @@ fn sample_task() -> Task {
             depends_on: vec!["11111111".into()],
             batch: Some("b1".into()),
             sandbox: Some(SandboxProfile::Strict),
+            goal: Some("g1".into()),
         },
         status: TaskStatus::Queued,
         worker: None,
@@ -221,7 +222,7 @@ fn phase_one_frames_still_parse() {
     assert!(task.spec.linear.is_none());
     assert_eq!(task.spec.kind, TaskKind::Run);
     assert!(task.spec.parent.is_none() && task.spec.depends_on.is_empty());
-    assert!(task.spec.batch.is_none());
+    assert!(task.spec.batch.is_none() && task.spec.goal.is_none());
     assert!(task.executions.is_empty());
     assert!(task.spec.sandbox.is_none());
     let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
@@ -297,4 +298,40 @@ fn tags_are_snake_case_type_fields() {
     assert_eq!(json, r#"{"type":"hello_ack"}"#);
     let json = serde_json::to_string(&TaskStatus::AwaitingReview).unwrap();
     assert_eq!(json, r#""awaiting_review""#);
+}
+
+/// `goal_status` borrows its tasks, so they have to outlive the call.
+fn goal_of(tasks: &[(TaskKind, TaskStatus)]) -> GoalStatus {
+    let tasks: Vec<Task> = tasks
+        .iter()
+        .map(|&(kind, status)| {
+            let mut task = sample_task();
+            task.spec.kind = kind;
+            task.status = status;
+            task
+        })
+        .collect();
+    goal_status(&tasks.iter().collect::<Vec<&Task>>())
+}
+
+#[test]
+fn goal_status_derives_each_arm() {
+    use TaskKind::{Plan as P, Run as R};
+    use TaskStatus::*;
+    assert_eq!(goal_of(&[]), GoalStatus::Draft);
+    assert_eq!(goal_of(&[(P, Queued), (R, Approved)]), GoalStatus::Planning);
+    assert_eq!(goal_of(&[(P, Approved), (R, Running)]), GoalStatus::Running);
+    assert_eq!(
+        goal_of(&[(R, AwaitingReview), (R, Merged)]),
+        GoalStatus::Review
+    );
+    assert_eq!(
+        goal_of(&[(R, Approved), (R, Merged)]),
+        GoalStatus::Completed
+    );
+    assert_eq!(
+        goal_of(&[(R, Cancelled), (R, Rejected)]),
+        GoalStatus::Cancelled
+    );
+    assert_eq!(goal_of(&[(R, Failed), (R, Merged)]), GoalStatus::Blocked);
 }

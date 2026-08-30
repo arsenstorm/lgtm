@@ -1,23 +1,22 @@
 //! The `tasks` table and the cells in it.
 
-use lgtm_protocol::{CiState, Memory, Review, Task, TaskStatus};
+use lgtm_protocol::{CiState, GoalSummary, Memory, Review, Task, TaskStatus};
 
-/// The wire form ("awaiting_review") rather than Rust's Debug form, so it
-/// matches the JSON everywhere else in the CLI's output.
-pub fn status_str(status: TaskStatus) -> String {
-    serde_json::to_value(status)
+/// The wire form ("awaiting_review") rather than Rust's Debug form, so a
+/// cell matches the JSON everywhere else in the CLI's output.
+fn wire_str(value: impl serde::Serialize) -> String {
+    serde_json::to_value(value)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_default()
 }
 
-/// The wire form ("success") rather than Rust's Debug form, matching
-/// `status_str` above.
+pub fn status_str(status: TaskStatus) -> String {
+    wire_str(status)
+}
+
 pub fn ci_str(state: CiState) -> String {
-    serde_json::to_value(state)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_string))
-        .unwrap_or_default()
+    wire_str(state)
 }
 
 /// `#<pr-number> <mark>` for the `tasks` table's PR column, empty when the
@@ -124,6 +123,24 @@ pub fn print_memory_table(memories: &[Memory]) {
     }
 }
 
+/// One row of the `goals` table: `ID STATUS TASKS OBJECTIVE`.
+pub fn goal_row(summary: &GoalSummary) -> String {
+    format!(
+        "{:<10}{:<12}{:<7}{}",
+        summary.goal.id,
+        wire_str(summary.status),
+        summary.tasks.total(),
+        first_line_truncated(&summary.goal.objective, 60)
+    )
+}
+
+pub fn print_goal_table(goals: Vec<GoalSummary>) {
+    println!("{:<10}{:<12}{:<7}OBJECTIVE", "ID", "STATUS", "TASKS");
+    for summary in &goals {
+        println!("{}", goal_row(summary));
+    }
+}
+
 pub fn first_line_truncated(s: &str, max: usize) -> String {
     let first = s.lines().next().unwrap_or("");
     if first.chars().count() > max {
@@ -154,6 +171,7 @@ mod tests {
                 depends_on: vec![],
                 batch: None,
                 sandbox: None,
+                goal: None,
             },
             status: TaskStatus::Approved,
             worker: None,
@@ -206,6 +224,28 @@ mod tests {
         let row = memory_row(&memory(Some("https://example.com/r.git"), "no yarn"));
         assert!(row.contains("https://example.com/r.git"));
         assert!(row.ends_with("no yarn"));
+    }
+
+    #[test]
+    fn goal_row_shows_status_and_task_count() {
+        let summary = GoalSummary {
+            goal: lgtm_protocol::Goal {
+                id: "0123abcd".into(),
+                objective: "ship the health endpoint\nand the docs".into(),
+                repository: "https://github.com/arsenstorm/lgtm.git".into(),
+                created_at: 1,
+            },
+            status: lgtm_protocol::GoalStatus::Running,
+            tasks: lgtm_protocol::BatchSummary {
+                running: 1,
+                queued: 1,
+                ..lgtm_protocol::BatchSummary::default()
+            },
+        };
+        assert_eq!(
+            goal_row(&summary),
+            "0123abcd  running     2      ship the health endpoint"
+        );
     }
 
     #[test]

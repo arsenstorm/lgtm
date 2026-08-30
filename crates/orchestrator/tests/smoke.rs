@@ -58,6 +58,7 @@ async fn end_to_end() {
         depends_on: Vec::new(),
         batch: None,
         sandbox: None,
+        goal: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -597,6 +598,46 @@ async fn end_to_end() {
         .unwrap();
     assert!(batches.is_empty());
 
+    // a goal and the one task it starts with
+    let r = http
+        .post(format!("{base}/api/goals"))
+        .bearer_auth("tok")
+        .json(&serde_json::json!({
+            "objective": "ship the health endpoint",
+            "repository": "r",
+            "base_branch": "main",
+            "executor": "claude",
+            "plan": false,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let created: GoalSummary = r.json().await.unwrap();
+    let goals: Vec<GoalSummary> = http
+        .get(format!("{base}/api/goals"))
+        .bearer_auth("tok")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(goals.len(), 1);
+    assert_eq!(goals[0].goal.id, created.goal.id);
+    // a worker is connected, so the goal's only task is queued or running
+    assert_eq!(goals[0].status, GoalStatus::Running);
+    let detail: serde_json::Value = http
+        .get(format!("{base}/api/goals/{}", created.goal.id))
+        .bearer_auth("tok")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(detail["tasks"][0]["spec"]["goal"], created.goal.id);
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr2 = listener.local_addr().unwrap();
     drop(listener);
@@ -615,7 +656,7 @@ async fn end_to_end() {
         .json()
         .await
         .unwrap();
-    assert_eq!(tasks.len(), 4);
+    assert_eq!(tasks.len(), 5);
     let by_id = |id: &str| tasks.iter().find(|t| t.id == id).unwrap();
     assert_eq!(by_id(&task.id).status, TaskStatus::Approved);
     let interrupted = by_id(&task2.id);
@@ -627,6 +668,27 @@ async fn end_to_end() {
         TaskStatus::Queued,
         "a queued task waits for a worker instead of failing"
     );
+    let goals: Vec<GoalSummary> = http
+        .get(format!("http://{addr2}/api/goals"))
+        .bearer_auth("tok")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(goals.len(), 1);
+    // membership survives the restart because the tasks carry it
+    let detail: serde_json::Value = http
+        .get(format!("http://{addr2}/api/goals/{}", goals[0].goal.id))
+        .bearer_auth("tok")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(detail["tasks"].as_array().unwrap().len(), 1);
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -690,6 +752,7 @@ async fn a_memory_reaches_the_worker() {
         depends_on: Vec::new(),
         batch: None,
         sandbox: None,
+        goal: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))

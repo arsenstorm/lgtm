@@ -9,12 +9,12 @@ mod upgrade;
 use std::path::Path;
 
 use clap::Parser;
-use lgtm_client::{Client, FromLinear};
+use lgtm_client::{Client, FromLinear, NewGoal};
 use lgtm_orchestrator::token::{data_dir, resolve_token};
 use lgtm_protocol::{BatchSource, TaskKind, TaskSpec};
 
 use crate::cli::{BacklogCommand, Cli, Command, MemoryCommand, Target};
-use crate::table::{ci_str, print_memory_table, print_task_table, status_str};
+use crate::table::{ci_str, print_goal_table, print_memory_table, print_task_table, status_str};
 
 fn default_repo() -> anyhow::Result<String> {
     let result = std::process::Command::new("git")
@@ -110,6 +110,15 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
             let spec = target.spec(goal, TaskKind::Plan)?;
             run::announce_and_stream(client, client.create_task(&spec).await?).await
         }
+        Command::Goal {
+            target,
+            plan,
+            objective,
+        } => goal(client, target, plan, objective).await,
+        Command::Goals => {
+            print_goal_table(client.goals().await?);
+            Ok(0)
+        }
         Command::Tasks => {
             print_task_table(client.tasks().await?);
             Ok(0)
@@ -202,6 +211,7 @@ impl Target {
             depends_on: vec![],
             batch: None,
             sandbox: self.sandbox,
+            goal: None,
         })
     }
 }
@@ -247,6 +257,29 @@ async fn run(
             .await?
     } else {
         anyhow::bail!("pass a prompt, --issue, or --linear");
+    };
+    run::announce_and_stream(client, task).await
+}
+
+/// Creates the goal, then follows its first task the way `run` does.
+async fn goal(
+    client: &Client,
+    target: Target,
+    plan: bool,
+    objective: String,
+) -> anyhow::Result<i32> {
+    let body = NewGoal {
+        objective,
+        repository: target.repo.map_or_else(default_repo, Ok)?,
+        base_branch: target.base,
+        executor: target.agent,
+        worker: target.on,
+        plan,
+    };
+    let id = client.create_goal(&body).await?.goal.id;
+    eprintln!("goal {id} created");
+    let Some(task) = client.goal(&id).await?.tasks.into_iter().next() else {
+        anyhow::bail!("goal {id} has no task");
     };
     run::announce_and_stream(client, task).await
 }

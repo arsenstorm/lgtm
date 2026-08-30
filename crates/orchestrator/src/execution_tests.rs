@@ -19,6 +19,7 @@ fn running() -> Task {
             depends_on: Vec::new(),
             batch: None,
             sandbox: None,
+            goal: None,
         },
         status: TaskStatus::Running,
         worker: Some("w1".into()),

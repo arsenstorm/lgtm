@@ -65,6 +65,7 @@ mod tests {
                 depends_on: Vec::new(),
                 batch: None,
                 sandbox: None,
+                goal: None,
             },
             status,
             worker: Some("w".into()),

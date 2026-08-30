@@ -6,7 +6,8 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
-    Batch, Memory, OrchestratorMessage, StoredEvent, Task, TaskEvent, TaskId, TaskSpec, TaskStatus,
+    goal_status, Batch, Goal, GoalSummary, Memory, OrchestratorMessage, StoredEvent, Task,
+    TaskEvent, TaskId, TaskSpec, TaskStatus,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -50,6 +51,10 @@ impl App {
     pub fn forget_memory(&self, id: &str) {
         let _ = self.persist.send(Persist::RemoveMemory(id.to_string()));
     }
+
+    pub fn persist_goal(&self, goal: &Goal) {
+        let _ = self.persist.send(Persist::Goal(goal.clone()));
+    }
 }
 
 #[derive(Default)]
@@ -60,6 +65,8 @@ pub struct State {
     pub batches: HashMap<String, Batch>,
     /// Durable facts every run in a repository is told, by id.
     pub memories: HashMap<String, Memory>,
+    /// Goals, by id. A task points back with `spec.goal`.
+    pub goals: HashMap<String, Goal>,
     /// Accept tasks no connected worker can run, because provisioning is on
     /// and a worker for them is a queue away.
     pub queue_without_workers: bool,
@@ -196,6 +203,47 @@ impl State {
         out
     }
 
+    pub(crate) fn new_goal_id(&self) -> String {
+        std::iter::repeat_with(random_id)
+            .find(|id| !self.goals.contains_key(id))
+            .unwrap_or_default()
+    }
+
+    pub fn create_goal(&mut self, objective: String, repository: String) -> Goal {
+        let goal = Goal {
+            id: self.new_goal_id(),
+            objective,
+            repository,
+            created_at: now_ms(),
+        };
+        tracing::info!(goal = %goal.id, "goal created");
+        self.goals.insert(goal.id.clone(), goal.clone());
+        goal
+    }
+
+    /// The goal's tasks, oldest first. `spec.goal` is the only record of
+    /// membership, so nothing has to be kept in step with it.
+    pub fn goal_tasks(&self, id: &str) -> Vec<&Task> {
+        let mut tasks: Vec<&Task> = self
+            .tasks
+            .values()
+            .map(|rec| &rec.task)
+            .filter(|task| task.spec.goal.as_deref() == Some(id))
+            .collect();
+        tasks.sort_by_key(|task| task.created_at);
+        tasks
+    }
+
+    pub fn goal_summary(&self, id: &str) -> Option<GoalSummary> {
+        let goal = self.goals.get(id)?;
+        let tasks = self.goal_tasks(id);
+        Some(GoalSummary {
+            status: goal_status(&tasks),
+            tasks: crate::backlog::summary(&tasks, self),
+            goal: goal.clone(),
+        })
+    }
+
     /// Whether a task could ever run, so one that cannot is refused instead of
     /// queued forever. `Err` holds the 409 message.
     pub fn check_eligible(&self, spec: &TaskSpec) -> Result<(), String> {
@@ -203,6 +251,13 @@ impl State {
             if !self.tasks.contains_key(id) {
                 return Err(format!("unknown dependency {id}"));
             }
+        }
+        if let Some(id) = spec
+            .goal
+            .as_ref()
+            .filter(|id| !self.goals.contains_key(*id))
+        {
+            return Err(format!("unknown goal {id}"));
         }
         if let Some(name) = &spec.worker {
             let worker = self
