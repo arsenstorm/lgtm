@@ -171,6 +171,7 @@ pub struct SessionMessage<'a> {
     pub model: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review_executor: Option<lgtm_protocol::Executor>,
+    pub kind: lgtm_protocol::TaskKind,
 }
 
 /// Body of `GET /api/goals/:id`.
