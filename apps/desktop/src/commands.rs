@@ -436,12 +436,13 @@ impl LgtmApp {
         self.act(Action::Tell(text), cx);
     }
 
-    /// Starts an empty thread in `repository` and opens it once it exists.
+    /// Starts an empty thread in `repository` and opens it once it exists,
+    /// on the composer's branch chip rather than an assumed `main`.
     pub fn start_session(&mut self, repository: String, cx: &mut Context<Self>) {
         net::new_session(
             self.client.clone(),
             repository,
-            "main".to_string(),
+            crate::home::branch_of(&self.composer.chips),
             self.tx.clone(),
         );
         cx.notify();
