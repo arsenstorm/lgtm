@@ -114,6 +114,7 @@ fn add_history(state: &mut State, executions: Vec<Execution>) {
         pr_review: None,
         executions,
         scratchpad: String::new(),
+        files: Vec::new(),
         workspace: None,
         created_by: None,
     };
@@ -444,6 +445,22 @@ fn apply_event_transitions() {
     assert_eq!(status(&state, &id), TaskStatus::Approved);
     assert_eq!(state.tasks[&id].events.len(), 3);
     assert_eq!(state.tasks[&id].pushed_sha().as_deref(), Some("deadbeef"));
+}
+
+#[test]
+fn file_changed_collects_this_attempts_files_once_each() {
+    let mut state = State::default();
+    let _idle = connect(&mut state, "idle", 1, 1);
+    let id = create(&mut state, Executor::Claude).id;
+
+    state.apply_event(&id, TaskEvent::Started { model: None });
+    for path in ["a.rs", "b.rs", "a.rs"] {
+        state.apply_event(&id, TaskEvent::FileChanged { path: path.into() });
+    }
+    assert_eq!(state.tasks[&id].task.files, vec!["a.rs", "b.rs"]);
+
+    state.apply_event(&id, TaskEvent::Started { model: None });
+    assert!(state.tasks[&id].task.files.is_empty());
 }
 
 /// Drives a task all the way to `Approved` on a GitHub repository.
@@ -986,6 +1003,7 @@ fn linear_task(status: TaskStatus, from_linear: bool) -> Task {
         pr_review: None,
         executions: Vec::new(),
         scratchpad: String::new(),
+        files: Vec::new(),
         workspace: None,
         created_by: None,
     }

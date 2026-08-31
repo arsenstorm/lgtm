@@ -118,6 +118,7 @@ impl State {
                 pr_review: None,
                 executions: Vec::new(),
                 scratchpad: String::new(),
+                files: Vec::new(),
                 workspace: self.workspace.clone(),
                 created_by: spec.created_by.clone(),
             };

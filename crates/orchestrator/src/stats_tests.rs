@@ -42,6 +42,7 @@ fn task(id: &str, status: TaskStatus, created_at: u64, executions: Vec<Execution
         pr_review: None,
         executions,
         scratchpad: String::new(),
+        files: Vec::new(),
         workspace: None,
         created_by: None,
     }
