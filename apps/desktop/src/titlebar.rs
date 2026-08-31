@@ -4,7 +4,7 @@
 use crate::app::LgtmApp;
 use crate::sidebar;
 use crate::theme::{
-    icon_button, tokens, Tokens, BAR_H, LIGHTS_W, RADIUS, RADIUS_PILL, ROW_H, SPACE, TEXT_SECONDARY,
+    icon_button, tokens, Tokens, BAR_H, LIGHTS_W, RADIUS, ROW_H, SPACE, TEXT_SECONDARY,
 };
 
 /// The runner pill: shorter than an icon button, so it reads as a status.
@@ -106,7 +106,7 @@ fn pill(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
         .gap(px(SPACE[0]))
         .h(px(PILL_H))
         .px(px(SPACE[1]))
-        .rounded(px(RADIUS_PILL))
+        .rounded(px(RADIUS))
         .cursor_pointer()
         .text_size(px(TEXT_SECONDARY))
         .text_color(if app.link.reachable { t.muted_fg } else { tone })
