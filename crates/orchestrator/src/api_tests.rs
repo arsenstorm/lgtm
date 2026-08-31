@@ -377,3 +377,44 @@ async fn a_plan_message_becomes_a_plan_task() {
     // The session's branch is the task's base, and a plain message stays a run.
     assert_eq!(task.spec.base_branch, "develop");
 }
+
+/// The goal header is the server-side half of "a pass acts only on its own
+/// goal's tasks"; without it a person's client is unaffected.
+#[tokio::test]
+async fn the_goal_header_scopes_a_write_to_that_goal() {
+    let app = app();
+    let id = completed(&app, true, false);
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("x-lgtm-goal", "g1".parse().unwrap());
+    let text = || {
+        Ok(Json(
+            serde_json::from_value::<MessageBody>(serde_json::json!({ "text": "more" })).unwrap(),
+        ))
+    };
+
+    // The task has no runner, so the write past the gate is a 409, not a 200:
+    // what this test reads is only whether the gate refused it.
+    let refused = async |headers| {
+        message(State(app.clone()), Path(id.clone()), headers, text())
+            .await
+            .err()
+            .map(|err| err.0)
+            == Some(StatusCode::FORBIDDEN)
+    };
+
+    assert!(refused(headers.clone()).await);
+    // No header: a person's client is unaffected.
+    assert!(!refused(Default::default()).await);
+
+    // Under the named goal: scoping passes.
+    app.state
+        .lock()
+        .unwrap()
+        .tasks
+        .get_mut(&id)
+        .unwrap()
+        .task
+        .spec
+        .goal = Some("g1".into());
+    assert!(!refused(headers).await);
+}
