@@ -31,6 +31,7 @@ fn sample_task() -> Task {
             model: Some("opus".into()),
             allowed_hosts: Vec::new(),
             session: Some("s1".into()),
+            created_by: None,
         },
         status: TaskStatus::Queued,
         runner: None,
@@ -61,6 +62,7 @@ fn sample_task() -> Task {
         }],
         scratchpad: "## Findings\n- the parser is in src/parse.rs\n".into(),
         workspace: None,
+        created_by: None,
     }
 }
 
@@ -235,6 +237,7 @@ fn every_message_round_trips() {
         task_ids: vec!["0123abcd".into()],
         approve_plans: true,
         workspace: None,
+        created_by: None,
     });
     round_trip(BatchSource::Linear {
         team: "ENG".into(),
@@ -354,6 +357,7 @@ fn memory(repository: Option<&str>, content: &str) -> Memory {
         verification: Verification::UserApproved,
         proposed_by: None,
         workspace: None,
+        created_by: None,
     }
 }
 
@@ -430,6 +434,7 @@ fn todo_round_trips() {
         assignee: Some("arsen".into()),
         blockers: vec!["22222222".into()],
         workspace: None,
+        created_by: None,
     });
 }
 
@@ -458,6 +463,7 @@ fn todo_is_blocked_only_by_an_unfinished_blocker() {
         assignee: None,
         blockers: Vec::new(),
         workspace: None,
+        created_by: None,
     };
     let todo = Todo {
         id: "todo1".into(),
@@ -471,6 +477,7 @@ fn todo_is_blocked_only_by_an_unfinished_blocker() {
         assignee: None,
         blockers: vec![blocker.id.clone()],
         workspace: None,
+        created_by: None,
     };
     let mut todos = HashMap::new();
     todos.insert(blocker.id.clone(), blocker.clone());
@@ -505,6 +512,7 @@ fn session_round_trips() {
         title: "add a /health endpoint".into(),
         created_at: 1,
         workspace: None,
+        created_by: None,
     });
 }
 
@@ -518,6 +526,7 @@ fn session_detail_round_trips() {
             title: "add a /health endpoint".into(),
             created_at: 1,
             workspace: None,
+            created_by: None,
         },
         tasks: vec![sample_task()],
     });
@@ -601,6 +610,7 @@ fn sample_goal() -> Goal {
         created_at: 1,
         attention: None,
         workspace: None,
+        created_by: None,
     }
 }
 

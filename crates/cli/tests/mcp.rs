@@ -36,6 +36,7 @@ fn seed(dir: &std::path::Path) {
             goal: None,
             allowed_hosts: Vec::new(),
             session: None,
+            created_by: None,
         },
         status: TaskStatus::AwaitingReview,
         runner: None,
@@ -48,6 +49,7 @@ fn seed(dir: &std::path::Path) {
         executions: Vec::new(),
         scratchpad: String::new(),
         workspace: None,
+        created_by: None,
     };
     let tasks = dir.join("tasks");
     std::fs::create_dir_all(&tasks).unwrap();

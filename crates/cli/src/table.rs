@@ -229,6 +229,7 @@ mod tests {
                 model: None,
                 allowed_hosts: Vec::new(),
                 session: None,
+                created_by: None,
             },
             status: TaskStatus::Approved,
             runner: None,
@@ -241,6 +242,7 @@ mod tests {
             executions: Vec::new(),
             scratchpad: String::new(),
             workspace: None,
+            created_by: None,
         }
     }
 
@@ -272,6 +274,7 @@ mod tests {
             verification: Verification::UserApproved,
             proposed_by: None,
             workspace: None,
+            created_by: None,
         }
     }
 
@@ -312,6 +315,7 @@ mod tests {
             assignee: None,
             blockers,
             workspace: None,
+            created_by: None,
         }
     }
 
@@ -351,6 +355,7 @@ mod tests {
                 created_at: 1,
                 attention: None,
                 workspace: None,
+                created_by: None,
             },
             status: lgtm_protocol::GoalStatus::Running,
             tasks: lgtm_protocol::BatchSummary {

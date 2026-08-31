@@ -5,13 +5,13 @@ use std::sync::Arc;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
+use axum::{Extension, Json};
 use lgtm_protocol::{
     Batch, BatchSource, BatchSummary, Executor, SandboxProfile, Task, TaskId, TaskKind,
 };
 use serde::{Deserialize, Serialize};
 
-use super::{bad_gateway, bad_linear, conflict, github, linear, ApiError};
+use super::{bad_gateway, bad_linear, conflict, github, linear, ApiError, AuthedUser};
 use crate::backlog::{self, Candidate, SpecInput};
 use crate::state::{now_ms, App, State as TaskState};
 
@@ -117,6 +117,7 @@ async fn fetch_batch(app: &App, body: &BatchRequest) -> Result<(String, Fetched)
 
 pub(super) async fn create_batch(
     State(app): State<Arc<App>>,
+    Extension(user): Extension<AuthedUser>,
     body: Result<Json<BatchRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<BatchResponse>), ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
@@ -139,7 +140,7 @@ pub(super) async fn create_batch(
         task_ids,
         changed,
         refused,
-    } = create_tasks(&mut state, selected);
+    } = create_tasks(&mut state, selected, &user.0);
     if let Some(err) = refused {
         app.persist_ids(&mut state, &changed);
         return Err(conflict(err));
@@ -152,6 +153,7 @@ pub(super) async fn create_batch(
         task_ids,
         approve_plans: body.approve_plans,
         workspace: state.workspace.clone(),
+        created_by: user.0,
     };
     store(&app, &mut state, &batch, &changed);
     let response = BatchResponse {
@@ -229,7 +231,11 @@ struct Created {
     refused: Option<String>,
 }
 
-fn create_tasks(state: &mut TaskState, selected: Vec<Candidate>) -> Created {
+fn create_tasks(
+    state: &mut TaskState,
+    selected: Vec<Candidate>,
+    created_by: &Option<String>,
+) -> Created {
     let mut created = Created::default();
     // Every candidate shares executor and runner, so one refusal would hold
     // for all of them; check once before anything is created.
@@ -239,7 +245,8 @@ fn create_tasks(state: &mut TaskState, selected: Vec<Candidate>) -> Created {
             return created;
         }
     }
-    for candidate in selected {
+    for mut candidate in selected {
+        candidate.spec.created_by = created_by.clone();
         match state.create_task(candidate.spec) {
             Ok((task, ids)) => {
                 created.task_ids.push(task.id);

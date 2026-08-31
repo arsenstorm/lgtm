@@ -75,6 +75,7 @@ impl SpecInput {
             model: self.model,
             allowed_hosts: Vec::new(),
             session: None,
+            created_by: None,
         }
     }
 }

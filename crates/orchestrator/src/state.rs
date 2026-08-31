@@ -354,6 +354,7 @@ impl State {
         content: String,
         source: MemorySource,
         proposed_by: Option<TaskId>,
+        created_by: Option<String>,
     ) -> Memory {
         // An agent cannot write what every later run is told, whatever
         // verification the request claims: its source forces the state.
@@ -370,6 +371,7 @@ impl State {
             verification,
             proposed_by,
             workspace: self.workspace.clone(),
+            created_by,
         };
         self.memories.insert(memory.id.clone(), memory.clone());
         memory
@@ -405,7 +407,12 @@ impl State {
             .unwrap_or_default()
     }
 
-    pub fn create_goal(&mut self, objective: String, repository: String) -> Goal {
+    pub fn create_goal(
+        &mut self,
+        objective: String,
+        repository: String,
+        created_by: Option<String>,
+    ) -> Goal {
         let goal = Goal {
             id: self.new_goal_id(),
             objective,
@@ -413,6 +420,7 @@ impl State {
             created_at: now_ms(),
             attention: None,
             workspace: self.workspace.clone(),
+            created_by,
         };
         tracing::info!(goal = %goal.id, "goal created");
         self.goals.insert(goal.id.clone(), goal.clone());
@@ -456,6 +464,7 @@ impl State {
         repository: String,
         base_branch: String,
         title: String,
+        created_by: Option<String>,
     ) -> Session {
         let session = Session {
             id: self.new_session_id(),
@@ -464,6 +473,7 @@ impl State {
             title,
             created_at: now_ms(),
             workspace: self.workspace.clone(),
+            created_by,
         };
         tracing::info!(session = %session.id, "session created");
         self.sessions.insert(session.id.clone(), session.clone());
@@ -505,6 +515,7 @@ impl State {
         repository: Option<String>,
         title: String,
         description: String,
+        created_by: Option<String>,
     ) -> Todo {
         let todo = Todo {
             id: self.new_todo_id(),
@@ -518,6 +529,7 @@ impl State {
             assignee: None,
             blockers: Vec::new(),
             workspace: self.workspace.clone(),
+            created_by,
         };
         tracing::info!(todo = %todo.id, "todo added");
         self.todos.insert(todo.id.clone(), todo.clone());
@@ -770,6 +782,7 @@ impl State {
         if let Some(goal) = spec.goal.clone() {
             self.set_attention(&goal, None);
         }
+        let created_by = spec.created_by.clone();
         let task = Task {
             id: self.new_id(),
             spec,
@@ -784,6 +797,7 @@ impl State {
             executions: Vec::new(),
             scratchpad: String::new(),
             workspace: self.workspace.clone(),
+            created_by,
         };
         let id = task.id.clone();
         tracing::info!(task = %id, "task created");

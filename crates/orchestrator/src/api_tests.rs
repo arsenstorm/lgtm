@@ -43,6 +43,7 @@ fn completed(app: &App, ok: bool, blocking: bool) -> String {
         goal: None,
         allowed_hosts: Vec::new(),
         session: None,
+        created_by: None,
     };
     let (task, _) = state.create_task(spec).unwrap();
     let result = TaskResult {
@@ -138,4 +139,55 @@ fn policy_clean_refuses_what_the_checks_and_the_review_did_not_clear() {
         policy_clean(&task(&blocked)).unwrap_err().1,
         "blocking review findings"
     );
+}
+
+/// Identity comes from the token, so a spec claiming a user is overwritten
+/// and the authenticated user lands on the task.
+#[tokio::test]
+async fn create_task_stamps_the_authenticated_user_over_the_body() {
+    let app = app();
+    app.state.lock().unwrap().queue_without_runners = true;
+    let mut spec = TaskSpec {
+        repository: "https://example.com/repo.git".into(),
+        base_branch: "main".into(),
+        prompt: "do it".into(),
+        executor: Executor::Claude,
+        runner: None,
+        issue: None,
+        linear: None,
+        kind: TaskKind::Run,
+        parent: None,
+        depends_on: Vec::new(),
+        depends_on_condition: Default::default(),
+        batch: None,
+        sandbox: None,
+        requirements: Vec::new(),
+        review_executor: None,
+        model: None,
+        goal: None,
+        allowed_hosts: Vec::new(),
+        session: None,
+        created_by: Some("liar".into()),
+    };
+    let (code, Json(task)) = create_task(
+        State(app.clone()),
+        Extension(AuthedUser(Some("u1".into()))),
+        Ok(Json(spec.clone())),
+    )
+    .await
+    .unwrap();
+    assert_eq!(code, StatusCode::CREATED);
+    assert_eq!(task.created_by.as_deref(), Some("u1"));
+    assert_eq!(task.spec.created_by.as_deref(), Some("u1"));
+
+    // The shared token stamps nothing, whatever the body says.
+    spec.created_by = Some("liar".into());
+    let (_, Json(task)) = create_task(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Ok(Json(spec)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(task.created_by, None);
 }

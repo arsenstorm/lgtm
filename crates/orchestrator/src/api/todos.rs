@@ -5,11 +5,11 @@ use std::sync::Arc;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
+use axum::{Extension, Json};
 use lgtm_protocol::{Executor, Priority, Task, Todo, TodoPatch};
 use serde::Deserialize;
 
-use super::{conflict, ApiError};
+use super::{conflict, ApiError, AuthedUser};
 use crate::state::App;
 use crate::todo::{PromoteInto, UpdateTodoError};
 
@@ -82,6 +82,7 @@ pub(super) async fn list_todos(
 
 pub(super) async fn create_todo(
     State(app): State<Arc<App>>,
+    Extension(user): Extension<AuthedUser>,
     body: Result<Json<TodoRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Todo>), ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
@@ -93,7 +94,7 @@ pub(super) async fn create_todo(
         ));
     }
     let mut state = app.state.lock().unwrap();
-    let mut todo = state.create_todo(body.repository, title.to_string(), body.description);
+    let mut todo = state.create_todo(body.repository, title.to_string(), body.description, user.0);
     todo.priority = body.priority;
     todo.assignee = body.assignee;
     todo.blockers = body.blockers;
@@ -128,6 +129,7 @@ pub(super) async fn finish_todo(
 
 pub(super) async fn promote_todo(
     State(app): State<Arc<App>>,
+    Extension(user): Extension<AuthedUser>,
     Path(id): Path<String>,
     body: Result<Json<PromoteRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Task>), ApiError> {
@@ -137,6 +139,7 @@ pub(super) async fn promote_todo(
         base_branch: body.base_branch,
         executor: body.executor,
         runner: body.runner,
+        created_by: user.0,
     };
     let (task, changed) = state.promote_todo(&id, into).map_err(conflict)?;
     app.persist_ids(&mut state, &changed);

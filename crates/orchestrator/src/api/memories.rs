@@ -5,11 +5,11 @@ use std::sync::Arc;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
+use axum::{Extension, Json};
 use lgtm_protocol::{Memory, MemorySource, TaskId, Verification};
 use serde::Deserialize;
 
-use super::ApiError;
+use super::{ApiError, AuthedUser};
 use crate::state::App;
 
 /// Query of `GET /api/memories`.
@@ -58,6 +58,7 @@ pub(super) async fn list_memories(
 
 pub(super) async fn create_memory(
     State(app): State<Arc<App>>,
+    Extension(user): Extension<AuthedUser>,
     body: Result<Json<MemoryRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Memory>), ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
@@ -74,6 +75,7 @@ pub(super) async fn create_memory(
         content.to_string(),
         body.source,
         body.proposed_by.clone(),
+        user.0,
     );
     tracing::info!(memory = %memory.id, "memory recorded");
     app.persist_memory(&memory);

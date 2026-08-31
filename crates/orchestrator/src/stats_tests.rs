@@ -24,6 +24,7 @@ fn spec() -> TaskSpec {
         model: None,
         allowed_hosts: Vec::new(),
         session: None,
+        created_by: None,
     }
 }
 
@@ -42,6 +43,7 @@ fn task(id: &str, status: TaskStatus, created_at: u64, executions: Vec<Execution
         executions,
         scratchpad: String::new(),
         workspace: None,
+        created_by: None,
     }
 }
 

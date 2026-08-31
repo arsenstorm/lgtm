@@ -17,6 +17,7 @@ fn into() -> PromoteInto {
         base_branch: "main".into(),
         executor: Executor::Claude,
         runner: None,
+        created_by: None,
     }
 }
 
@@ -27,6 +28,7 @@ fn promote_uses_the_title_alone_without_a_description() {
         Some("https://example.com/repo.git".into()),
         "add a /health endpoint".into(),
         String::new(),
+        None,
     );
     let (task, _) = state.promote_todo(&todo.id, into()).unwrap();
     assert_eq!(task.spec.prompt, "add a /health endpoint");
@@ -39,6 +41,7 @@ fn promote_joins_title_and_description() {
         Some("https://example.com/repo.git".into()),
         "add a /health endpoint".into(),
         "should return 200 while runners are connected".into(),
+        None,
     );
     let (task, _) = state.promote_todo(&todo.id, into()).unwrap();
     assert_eq!(
@@ -54,6 +57,7 @@ fn promoted_todo_moves_in_progress_and_points_at_its_task() {
         Some("https://example.com/repo.git".into()),
         "add a /health endpoint".into(),
         String::new(),
+        None,
     );
     let (task, _) = state.promote_todo(&todo.id, into()).unwrap();
     let stored = &state.todos[&todo.id];
@@ -68,6 +72,7 @@ fn promoting_twice_errors() {
         Some("https://example.com/repo.git".into()),
         "add a /health endpoint".into(),
         String::new(),
+        None,
     );
     state.promote_todo(&todo.id, into()).unwrap();
     let err = state.promote_todo(&todo.id, into()).unwrap_err();
@@ -77,7 +82,7 @@ fn promoting_twice_errors() {
 #[test]
 fn promote_without_a_repository_errors() {
     let mut state = state();
-    let todo = state.create_todo(None, "add a /health endpoint".into(), String::new());
+    let todo = state.create_todo(None, "add a /health endpoint".into(), String::new(), None);
     let err = state.promote_todo(&todo.id, into()).unwrap_err();
     assert_eq!(err, "todo has no repository");
 }
@@ -89,11 +94,13 @@ fn promote_refuses_a_blocked_todo() {
         Some("https://example.com/repo.git".into()),
         "first".into(),
         String::new(),
+        None,
     );
     let todo = state.create_todo(
         Some("https://example.com/repo.git".into()),
         "add a /health endpoint".into(),
         String::new(),
+        None,
     );
     state
         .update_todo(
@@ -115,12 +122,14 @@ fn promote_allows_a_todo_whose_blocker_is_done() {
         Some("https://example.com/repo.git".into()),
         "first".into(),
         String::new(),
+        None,
     );
     state.finish_todo(&blocker.id);
     let todo = state.create_todo(
         Some("https://example.com/repo.git".into()),
         "add a /health endpoint".into(),
         String::new(),
+        None,
     );
     state
         .update_todo(
@@ -146,7 +155,7 @@ fn update_unknown_todo_errors() {
 #[test]
 fn update_rejects_a_self_blocker() {
     let mut state = state();
-    let todo = state.create_todo(None, "t".into(), String::new());
+    let todo = state.create_todo(None, "t".into(), String::new(), None);
     let err = state
         .update_todo(
             &todo.id,
@@ -162,7 +171,7 @@ fn update_rejects_a_self_blocker() {
 #[test]
 fn update_rejects_an_unknown_blocker() {
     let mut state = state();
-    let todo = state.create_todo(None, "t".into(), String::new());
+    let todo = state.create_todo(None, "t".into(), String::new(), None);
     let err = state
         .update_todo(
             &todo.id,
@@ -178,7 +187,7 @@ fn update_rejects_an_unknown_blocker() {
 #[test]
 fn update_sets_priority_and_assignee_and_leaves_absent_fields_alone() {
     let mut state = state();
-    let todo = state.create_todo(None, "t".into(), String::new());
+    let todo = state.create_todo(None, "t".into(), String::new(), None);
     let updated = state
         .update_todo(
             &todo.id,
@@ -197,7 +206,7 @@ fn update_sets_priority_and_assignee_and_leaves_absent_fields_alone() {
 #[test]
 fn update_clears_the_assignee_when_patched_to_null() {
     let mut state = state();
-    let todo = state.create_todo(None, "t".into(), String::new());
+    let todo = state.create_todo(None, "t".into(), String::new(), None);
     state
         .update_todo(
             &todo.id,

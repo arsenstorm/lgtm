@@ -65,6 +65,7 @@ async fn end_to_end() {
         model: None,
         allowed_hosts: Vec::new(),
         session: None,
+        created_by: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -856,6 +857,7 @@ async fn a_memory_reaches_the_runner() {
         model: None,
         allowed_hosts: Vec::new(),
         session: None,
+        created_by: None,
     };
     let r = http
         .post(format!("{base}/api/tasks"))
@@ -1166,6 +1168,31 @@ async fn per_user_tokens_login_revoke_and_survive_restart() {
         .await
         .unwrap();
     assert_eq!(r.status(), 401);
+
+    // Work created under a per-user token carries its creator; the same
+    // request under bob's token carries his.
+    let todo = |token: &str| {
+        let http = http.clone();
+        let base = base.clone();
+        let token = token.to_string();
+        async move {
+            let r = http
+                .post(format!("{base}/api/todos"))
+                .bearer_auth(&token)
+                .json(&serde_json::json!({ "title": "check attribution" }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 201);
+            r.json::<Todo>().await.unwrap()
+        }
+    };
+    assert_eq!(
+        todo(&alice.token).await.created_by,
+        Some(alice.user.id.clone())
+    );
+    assert_eq!(todo(&bob.token).await.created_by, Some(bob.user.id.clone()));
+    assert_eq!(todo("tok").await.created_by, None);
 
     // Minting and revoking need the shared token; a per-user token gets 403.
     let r = http
