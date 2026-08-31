@@ -5,7 +5,7 @@ use crate::import::ImportForm;
 use crate::keys::{
     CloseOverlay, NewSession, OpenPalette, PaletteNext, PalettePrev, PaletteRun, SelectNext,
     SelectPrev, ShowActivity, ShowChanges, ShowNotes, ShowOverview, ShowPlan, ShowReview, Submit,
-    ToggleSidebar, CONTEXT,
+    ToggleSidebar, CONTEXT, PANE_CONTEXT,
 };
 use crate::net::{self, Msg};
 use crate::project::ProjectTab;
@@ -17,8 +17,8 @@ use crate::{
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, AppContext as _, Context, Div, Entity, FocusHandle, Focusable, ImageFormat,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle, Styled as _,
-    Subscription, Task as GpuiTask, Window,
+    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render, ScrollHandle,
+    Styled as _, Subscription, Task as GpuiTask, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
 use lgtm_client::{ActivityLine, Client};
@@ -193,6 +193,8 @@ pub struct UiState {
     pub runner_menu: bool,
     /// Which Settings dropdown is open, by its id.
     pub settings_menu: Option<&'static str>,
+    /// Which Settings section the dialog's left nav has selected.
+    pub settings_section: crate::settings::Section,
     /// `<task>:<host>` for every request denied in this window. Denying is
     /// local: the orchestrator has no endpoint for it (see `review_tab`).
     pub denied: HashSet<String>,
@@ -220,6 +222,7 @@ impl Default for UiState {
             project_tab: ProjectTab::default(),
             runner_menu: false,
             settings_menu: None,
+            settings_section: crate::settings::Section::default(),
             denied: HashSet::new(),
             terminal_scroll: ScrollHandle::new(),
         }
@@ -522,6 +525,45 @@ impl LgtmApp {
         }
     }
 
+    /// A page with a composer on it should take typing without being clicked
+    /// first. The keystroke that got us here is already spent, so the character
+    /// is put in by hand rather than replayed.
+    fn type_into_prompt(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let composing =
+            self.selected.is_none() && matches!(self.page, Page::Home | Page::Session(_));
+        // Anything focused other than the window itself is a field of its own,
+        // and the keystroke is already going where it belongs.
+        let elsewhere = window
+            .focused(cx)
+            .is_some_and(|focused| focused != self.focus);
+        if !composing || elsewhere || self.ui.overlay != Overlay::None {
+            return;
+        }
+        let keystroke = &event.keystroke;
+        if keystroke.modifiers.control
+            || keystroke.modifiers.platform
+            || keystroke.modifiers.function
+        {
+            return;
+        }
+        let Some(text) = keystroke.key_char.clone() else {
+            return;
+        };
+        if text.is_empty() || text.chars().any(char::is_control) {
+            return;
+        }
+        self.inputs.prompt.update(cx, |state, cx| {
+            state.focus(window, cx);
+            state.insert(text, window, cx);
+        });
+        cx.notify();
+    }
+
     /// `bg-destructive/10 text-destructive`, the reference's destructive
     /// fill — a loud strip would own the window.
     fn unreachable_strip(&self, t: &crate::theme::Tokens) -> Div {
@@ -553,9 +595,18 @@ impl Render for LgtmApp {
         let t = tokens(cx);
         let unreachable = !self.link.reachable;
         let overlay = self.ui.overlay;
+        // The list and review keys are bare letters, so they are only offered
+        // while a task is open — everywhere else those letters are typing.
+        let context = match self.selected.is_some() {
+            true => PANE_CONTEXT,
+            false => CONTEXT,
+        };
         bind_actions(div(), cx)
-            .key_context(CONTEXT)
+            .key_context(context)
             .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                this.type_into_prompt(event, window, cx)
+            }))
             .relative()
             .size_full()
             .flex()

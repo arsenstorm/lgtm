@@ -25,6 +25,10 @@ actions!(
 );
 
 pub const CONTEXT: &str = "Lgtm";
+/// What the window adds to its context while a task is open. The list and
+/// review keys live in here rather than in `Lgtm`, so that a plain letter typed
+/// on a page with a composer is text for the prompt, not a shortcut.
+pub const PANE_CONTEXT: &str = "Lgtm Panes";
 /// The key context the palette's input runs in. Bound deeper than `Lgtm` so
 /// ↑↓↩␛ reach the list instead of the text field.
 const PALETTE_CONTEXT: &str = "Palette > Input";
@@ -35,6 +39,7 @@ const PALETTE_CONTEXT: &str = "Palette > Input";
 fn bindings() -> Vec<KeyBinding> {
     let anywhere = Some(CONTEXT);
     let outside_inputs = Some("Lgtm && !Input");
+    let panes = Some("Panes && !Input");
     let palette = Some(PALETTE_CONTEXT);
     vec![
         KeyBinding::new("cmd-n", NewSession, anywhere),
@@ -46,18 +51,18 @@ fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("up", PalettePrev, palette),
         KeyBinding::new("down", PaletteNext, palette),
         KeyBinding::new("enter", PaletteRun, palette),
-        KeyBinding::new("j", SelectNext, outside_inputs),
-        KeyBinding::new("k", SelectPrev, outside_inputs),
-        KeyBinding::new("1", ShowOverview, outside_inputs),
-        KeyBinding::new("2", ShowActivity, outside_inputs),
-        KeyBinding::new("3", ShowChanges, outside_inputs),
-        KeyBinding::new("4", ShowReview, outside_inputs),
-        KeyBinding::new("5", ShowNotes, outside_inputs),
-        KeyBinding::new("6", ShowPlan, outside_inputs),
-        KeyBinding::new("v", crate::review::MarkViewed, outside_inputs),
-        KeyBinding::new("n", crate::review::NextFile, outside_inputs),
-        KeyBinding::new("p", crate::review::PrevFile, outside_inputs),
-        KeyBinding::new("s", crate::review::ToggleDiffStyle, outside_inputs),
+        KeyBinding::new("j", SelectNext, panes),
+        KeyBinding::new("k", SelectPrev, panes),
+        KeyBinding::new("1", ShowOverview, panes),
+        KeyBinding::new("2", ShowActivity, panes),
+        KeyBinding::new("3", ShowChanges, panes),
+        KeyBinding::new("4", ShowReview, panes),
+        KeyBinding::new("5", ShowNotes, panes),
+        KeyBinding::new("6", ShowPlan, panes),
+        KeyBinding::new("v", crate::review::MarkViewed, panes),
+        KeyBinding::new("n", crate::review::NextFile, panes),
+        KeyBinding::new("p", crate::review::PrevFile, panes),
+        KeyBinding::new("s", crate::review::ToggleDiffStyle, panes),
     ]
 }
 
@@ -68,6 +73,9 @@ pub fn init(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every single-key binding, in the order a person would try them.
+    const SINGLE: [&str; 12] = ["1", "2", "3", "4", "5", "6", "j", "k", "v", "n", "p", "s"];
 
     /// The pane and review keys are the ones a restyle is most likely to drop,
     /// because the widgets they drive get swapped out. Assert the keymap still
@@ -83,7 +91,7 @@ mod tests {
     }
 
     #[test]
-    fn the_digits_switch_panes_in_tab_order_outside_inputs() {
+    fn the_digits_switch_panes_in_tab_order() {
         for (key, action) in [
             ("1", "ShowOverview"),
             ("2", "ShowActivity"),
@@ -98,8 +106,19 @@ mod tests {
                 "{key} runs {} not {action}",
                 binding.action().name()
             );
-            assert!(format!("{:?}", binding.predicate()).contains("Lgtm"));
         }
+    }
+
+    /// Typing on a page with a composer has to reach the prompt, so no bare key
+    /// may be bound in the window's own context: they all wait for a task.
+    #[test]
+    fn the_single_keys_only_answer_while_a_task_is_open() {
+        for key in SINGLE {
+            let predicate = format!("{:?}", bound(key).predicate());
+            assert!(predicate.contains("Panes"), "{key} is bound in {predicate}");
+            assert!(predicate.contains("Input"), "{key} is bound in {predicate}");
+        }
+        assert!(PANE_CONTEXT.contains(CONTEXT));
     }
 
     #[test]

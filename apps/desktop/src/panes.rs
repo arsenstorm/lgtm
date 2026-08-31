@@ -318,8 +318,8 @@ pub(super) fn review_actions(t: &Tokens, cx: &mut Context<LgtmApp>) -> [Button; 
 
 fn status_tone(status: &str, t: &Tokens) -> Hsla {
     match status {
-        "awaiting_review" | "conflicted" => t.warning,
-        "running" | "changes_requested" => t.info,
+        "awaiting review" | "conflicted" => t.warning,
+        "running" | "changes requested" => t.info,
         "approved" | "merged" => t.success,
         "failed" | "rejected" | "cancelled" => t.danger,
         _ => t.muted_fg,

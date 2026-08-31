@@ -3,9 +3,7 @@
 use crate::app::{LgtmApp, Page};
 use crate::labels::{prompt_preview, status_label};
 use crate::tasks::repo_slug;
-use crate::theme::{
-    panel, scrim, section_label, tokens, Pref, Tokens, ROW_H, SPACE, TEXT_SECONDARY,
-};
+use crate::theme::{panel, scrim, section_label, tokens, Pref, Tokens, SPACE, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, relative, AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
@@ -18,6 +16,9 @@ use lgtm_protocol::{Session, Task};
 
 const WIDTH: f32 = 560.;
 const MAX_LIST_H: f32 = 380.;
+/// Taller than the sidebar's `ROW_H`: a palette row carries a title and its
+/// meta, and needs the room to not read as a dense list.
+const ROW: f32 = 38.;
 const PROMPT_PREVIEW: usize = 60;
 const FOOTER: &str = "↑↓ navigate · ↩ open · esc close";
 
@@ -104,7 +105,7 @@ pub fn build_groups(
     let session_items = sessions.iter().map(|open| {
         (
             Kind::Session(open.id.clone()),
-            format!("Open session {}", crate::sidebar::session_title(open)),
+            crate::sidebar::session_title(open),
             repo_slug(&open.repository),
         )
     });
@@ -242,7 +243,8 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                         .flex_col()
                         .max_h(px(MAX_LIST_H))
                         .overflow_y_scroll()
-                        .p(px(SPACE[0]))
+                        .px(px(SPACE[0]))
+                        .py(px(SPACE[1]))
                         .children(rows),
                 )
                 .child(footer(&t)),
@@ -250,10 +252,11 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
         .into_any_element()
 }
 
+/// No horizontal padding: the large input carries its own 16px inset, which is
+/// exactly where the rows below start their text.
 fn search_box(app: &LgtmApp, t: &Tokens) -> Div {
     div()
-        .px(px(SPACE[1]))
-        .py(px(SPACE[0]))
+        .py(px(SPACE[1]))
         .border_b_1()
         .border_color(t.border)
         .child(Input::new(&app.inputs.query).appearance(false).large())
@@ -263,8 +266,8 @@ fn footer(t: &Tokens) -> Div {
     div()
         .flex()
         .items_center()
-        .h(px(ROW_H))
-        .px(px(SPACE[2]))
+        .h(px(ROW))
+        .px(px(SPACE[3]))
         .border_t_1()
         .border_color(t.border)
         .text_size(px(TEXT_SECONDARY))
@@ -280,8 +283,8 @@ fn rows(groups: Vec<Group>, at: usize, t: &Tokens, cx: &mut Context<LgtmApp>) ->
         rows.push(
             section_label(group.title, t)
                 .px(px(SPACE[2]))
-                .pt(px(SPACE[1]))
-                .pb(px(SPACE[0]))
+                .pt(px(SPACE[3]))
+                .pb(px(SPACE[1]))
                 .into_any_element(),
         );
         for item in group.items {
@@ -293,7 +296,7 @@ fn rows(groups: Vec<Group>, at: usize, t: &Tokens, cx: &mut Context<LgtmApp>) ->
         rows.push(
             div()
                 .px(px(SPACE[2]))
-                .py(px(SPACE[2]))
+                .py(px(SPACE[3]))
                 .text_color(t.muted_fg)
                 .child("No matches")
                 .into_any_element(),
@@ -313,9 +316,9 @@ fn row(
         .id(SharedString::from(format!("palette-{index}")))
         .flex()
         .items_center()
-        .gap(px(SPACE[1]))
-        .h(px(ROW_H))
-        .px(px(SPACE[1]))
+        .gap(px(SPACE[2]))
+        .h(px(ROW))
+        .px(px(SPACE[2]))
         .rounded(px(8.))
         .cursor_pointer()
         .when(active, |this| this.bg(t.muted))
@@ -325,12 +328,14 @@ fn row(
                 .flex_1()
                 .min_w_0()
                 .flex()
+                .truncate()
                 .children(highlight(&item.label, &item.matched, t)),
         )
         .when(!item.hint.is_empty(), |this| {
             this.child(
                 div()
                     .flex_shrink_0()
+                    .whitespace_nowrap()
                     .text_size(px(TEXT_SECONDARY))
                     .text_color(t.muted_fg)
                     .child(item.hint.clone()),
@@ -439,7 +444,12 @@ mod tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].title, "Tasks");
         assert_eq!(groups[0].items[0].kind, Kind::Task("1".into()));
-        assert_eq!(groups[0].items[0].hint, "one · running");
+        // The wording is `status_label`'s to choose; the palette only has to
+        // read the same words as the task cards.
+        assert_eq!(
+            groups[0].items[0].hint,
+            format!("one · {}", status_label(&tasks[0], &tasks))
+        );
 
         let all = build_groups("", &tasks, &repos, &[]);
         let titles: Vec<&str> = all.iter().map(|group| group.title).collect();
@@ -448,5 +458,22 @@ mod tests {
         assert_eq!(all[1].items[0].label, "Open project one");
         assert_eq!(all[2].items[0].label, "one");
         assert_eq!(all[3].items.len(), Act::ALL.len());
+    }
+
+    #[test]
+    fn a_session_row_is_titled_by_the_session_alone() {
+        let session = Session {
+            id: "s1".into(),
+            repository: "https://x/one.git".into(),
+            base_branch: "main".into(),
+            title: "fix the parser".into(),
+            created_at: 0,
+            workspace: None,
+            created_by: None,
+        };
+        let groups = build_groups("", &[], &[], std::slice::from_ref(&session));
+        assert_eq!(groups[0].title, "Sessions");
+        assert_eq!(groups[0].items[0].label, "fix the parser");
+        assert_eq!(groups[0].items[0].hint, "one");
     }
 }

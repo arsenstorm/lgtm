@@ -38,6 +38,7 @@ icons![
     "panel-left",
     "plus",
     "search",
+    "server",
     "settings",
     "square-pen",
     "trash-2",

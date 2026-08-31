@@ -290,32 +290,6 @@ impl LgtmApp {
         self.page = page;
     }
 
-    pub fn can_go_back(&self) -> bool {
-        self.ui.visited_at > 1
-    }
-
-    pub fn can_go_forward(&self) -> bool {
-        self.ui.visited_at < self.ui.visited.len()
-    }
-
-    pub fn go_back(&mut self, cx: &mut Context<Self>) {
-        if !self.can_go_back() {
-            return;
-        }
-        self.ui.visited_at -= 1;
-        let stop = self.ui.visited[self.ui.visited_at - 1].clone();
-        self.open(stop, cx);
-    }
-
-    pub fn go_forward(&mut self, cx: &mut Context<Self>) {
-        if !self.can_go_forward() {
-            return;
-        }
-        let stop = self.ui.visited[self.ui.visited_at].clone();
-        self.ui.visited_at += 1;
-        self.open(stop, cx);
-    }
-
     pub fn selected_task(&self) -> Option<&Task> {
         let id = self.selected.as_deref()?;
         self.tasks.iter().find(|task| task.id == id)
@@ -374,16 +348,19 @@ impl LgtmApp {
     }
 
     pub fn open_settings(&mut self, cx: &mut Context<Self>) {
+        // Every open starts on General, not wherever the last visit ended.
+        self.ui.settings_section = crate::settings::Section::default();
         self.ui.overlay = Overlay::Settings;
         cx.notify();
     }
 
-    /// Opens Settings scrolled to the Runners section.
+    /// Opens Settings on the Orchestrator section, scrolled to the join line.
     pub fn open_runner_settings(&mut self, cx: &mut Context<Self>) {
+        self.open_settings(cx);
+        self.ui.settings_section = crate::settings::Section::Orchestrator;
         self.ui
             .settings_scroll
             .scroll_to_top_of_item(settings::RUNNERS_SECTION);
-        self.open_settings(cx);
     }
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {

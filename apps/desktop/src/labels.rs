@@ -18,8 +18,9 @@ pub fn header_preview(prompt: &str) -> String {
     prompt_preview(prompt, HEADER_PREVIEW)
 }
 
-/// Display status for a task. Queued tasks waiting on unmet dependencies show
-/// as `blocked` instead of `queued` (display only, doesn't affect `status`).
+/// Display status for a task, in the words a person reads rather than the wire
+/// spelling. Queued tasks waiting on unmet dependencies show as `blocked`
+/// instead of `queued` (display only, doesn't affect `status`).
 pub fn status_label(task: &Task, tasks: &[Task]) -> &'static str {
     if task.status == TaskStatus::Queued && task.runner.is_none() && is_blocked(task, tasks) {
         return "blocked";
@@ -27,15 +28,15 @@ pub fn status_label(task: &Task, tasks: &[Task]) -> &'static str {
     match task.status {
         TaskStatus::Queued => "queued",
         TaskStatus::Running => "running",
-        TaskStatus::AwaitingReview => "awaiting_review",
-        TaskStatus::ChangesRequested => "changes_requested",
+        TaskStatus::AwaitingReview => "awaiting review",
+        TaskStatus::ChangesRequested => "changes requested",
         TaskStatus::Conflicted => "conflicted",
         TaskStatus::Approved => "approved",
         TaskStatus::Merged => "merged",
         TaskStatus::Rejected => "rejected",
         TaskStatus::Failed => "failed",
-        TaskStatus::TimedOut => "timed_out",
-        TaskStatus::RunnerLost => "runner_lost",
+        TaskStatus::TimedOut => "timed out",
+        TaskStatus::RunnerLost => "runner lost",
         TaskStatus::Cancelled => "cancelled",
     }
 }
@@ -130,6 +131,19 @@ mod tests {
         let mut queued = task("q", TaskStatus::Queued, vec!["dep"]);
         queued.runner = Some("compute".into());
         assert_eq!(status_label(&queued, &[dep, queued.clone()]), "queued");
+    }
+
+    #[test]
+    fn statuses_read_as_words_not_wire_spellings() {
+        for (status, label) in [
+            (TaskStatus::AwaitingReview, "awaiting review"),
+            (TaskStatus::ChangesRequested, "changes requested"),
+            (TaskStatus::TimedOut, "timed out"),
+            (TaskStatus::RunnerLost, "runner lost"),
+        ] {
+            let task = task("t", status, vec![]);
+            assert_eq!(status_label(&task, &[]), label);
+        }
     }
 
     #[test]

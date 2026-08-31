@@ -52,10 +52,10 @@ pub fn goal_color(status: GoalStatus, t: &Tokens) -> Hsla {
 
 pub fn status_color(task: &Task, tasks: &[Task], t: &Tokens) -> Hsla {
     match status_label(task, tasks) {
-        "awaiting_review" | "conflicted" => t.warning,
+        "awaiting review" | "conflicted" => t.warning,
         "running" => t.info,
         "approved" | "merged" => t.success,
-        "failed" | "timed_out" | "runner_lost" | "rejected" | "cancelled" => t.danger,
+        "failed" | "timed out" | "runner lost" | "rejected" | "cancelled" => t.danger,
         _ => t.muted_fg,
     }
 }

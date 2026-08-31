@@ -1,6 +1,8 @@
 //! The three menus that open off the composer: project, `+`, and runner.
 
-use super::{ABOVE_ROW, CARD_INSET, MENU_W, REAR_H, REAR_INSET, ROW_H, SMALL_MENU_W};
+use super::{
+    ABOVE_PLUS, ABOVE_ROW, CARD_INSET, MENU_W, PLUS_LEFT, REAR_H, REAR_INSET, ROW_H, SMALL_MENU_W,
+};
 use crate::app::LgtmApp;
 use crate::home::{Chip, AUTO_RUNNER};
 use crate::tasks::repo_slug;
@@ -118,11 +120,13 @@ fn repo_row(
         }))
 }
 
-/// The `+` menu: what the composer can't fit in its bottom row.
+/// The `+` menu: what the composer can't fit in its bottom row. Opens off the
+/// `+` itself, left edges aligned.
 pub(super) fn plus_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let planning = app.composer.chips.contains(&Chip::Plan);
     menu(SMALL_MENU_W, t)
-        .bottom(px(ABOVE_ROW))
-        .left(px(CARD_INSET))
+        .bottom(px(ABOVE_PLUS))
+        .left(px(PLUS_LEFT))
         .child(if app.composer.branch_edit {
             inline_field(&app.inputs.base_branch, "branch-ok", cx, |this, cx| {
                 let branch = this.inputs.base_branch.read(cx).value().trim().to_string();
@@ -144,6 +148,16 @@ pub(super) fn plus_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) ->
                 }))
                 .into_any_element()
         })
+        .child(
+            menu_row("plan", planning, t)
+                .child(icon("lightbulb", ICON, t.muted_fg))
+                .child(div().flex_1().min_w_0().child("Plan"))
+                .when(planning, |this| this.child(icon("check", 14., t.fg)))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.set_chip(Chip::Plan, cx);
+                    this.close_menus(cx);
+                })),
+        )
 }
 
 pub(super) fn runner_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {

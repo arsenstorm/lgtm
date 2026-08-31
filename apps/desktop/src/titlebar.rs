@@ -33,7 +33,7 @@ pub fn bar(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
                     .w(px(sidebar::WIDTH))
                     .h_full()
                     .bg(t.sidebar)
-                    .child(cluster(app, &t, cx)),
+                    .child(cluster(&t, LIGHTS_W, cx)),
             )
         })
         .child(
@@ -47,19 +47,18 @@ pub fn bar(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
                 .bg(t.bg)
                 .border_b_1()
                 .border_color(t.border)
-                .when(!open, |this| this.child(cluster(app, &t, cx)))
+                .when(!open, |this| {
+                    this.child(cluster(&t, LIGHTS_W - SPACE[1], cx))
+                })
                 .child(div().flex_1())
-                .child(runners(app, &t, cx))
-                .child(
-                    icon_button("settings-menu", "ellipsis", true, &t).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| this.open_settings(cx)),
-                    ),
-                ),
+                .child(runners(app, &t, cx)),
         )
 }
 
 /// macOS has no drag region for a transparent titlebar, so a press that
-/// turns into a move hands the window to the compositor.
+/// turns into a move hands the window to the compositor. The controls sitting
+/// on the bar `occlude()` it, or two quick clicks on one of them would reach
+/// this double click and zoom the window.
 fn draggable(bar: Stateful<Div>, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
     bar.window_control_area(WindowControlArea::Drag)
         .on_double_click(|_, window, _| window.titlebar_double_click())
@@ -91,15 +90,17 @@ fn runners(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
 }
 
 fn pill(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
+    let n = app.runners.len();
     let (tone, label) = match app.link.reachable {
         true => (
             t.success,
-            format!("Connected · {} runners", app.runners.len()),
+            format!("Connected · {n} runner{}", if n == 1 { "" } else { "s" }),
         ),
         false => (t.danger, "Disconnected".to_string()),
     };
     div()
         .id("runner-pill")
+        .occlude()
         .flex()
         .items_center()
         .gap(px(SPACE[0]))
@@ -174,26 +175,13 @@ fn dismiss(cx: &mut Context<LgtmApp>) -> Stateful<Div> {
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_menus(cx)))
 }
 
-/// Sidebar toggle and task history, inset past the traffic lights.
-fn cluster(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let back = app.can_go_back();
-    let forward = app.can_go_forward();
-    div()
-        .flex()
-        .items_center()
-        .gap(px(SPACE[0]))
-        .pl(px(LIGHTS_W))
-        .child(
-            icon_button("toggle-sidebar", "panel-left", true, t)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_sidebar(cx))),
-        )
-        .child(div().w(px(SPACE[1])))
-        .child(
-            icon_button("history-back", "chevron-left", back, t)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.go_back(cx))),
-        )
-        .child(
-            icon_button("history-forward", "chevron-right", forward, t)
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.go_forward(cx))),
-        )
+/// The sidebar toggle, inset past the traffic lights. `pad` lands it on the
+/// same window x in both states: open, it sits in the sidebar strip, which has
+/// no padding of its own; closed, in the main pane, which does.
+fn cluster(t: &Tokens, pad: f32, cx: &mut Context<LgtmApp>) -> Div {
+    div().flex().items_center().pl(px(pad)).child(
+        icon_button("toggle-sidebar", "panel-left", true, t)
+            .occlude()
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_sidebar(cx))),
+    )
 }
