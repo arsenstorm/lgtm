@@ -18,6 +18,7 @@ use gpui::{
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::input::Input;
+use gpui_component::{Sizable as _, Size};
 
 use menus::{plus_menu, project_menu, runner_menu};
 
@@ -199,7 +200,16 @@ fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElem
                 .prompt
                 .update(cx, |state, cx| state.focus(window, cx));
         }))
-        .child(Input::new(&app.inputs.prompt).appearance(false).p_0())
+        // The library sizes a default input's text at `text_sm`, smaller than
+        // the TEXT_BODY placeholder drawn over it; a custom size renders at
+        // size × 0.875 (gpui-component 0.5.1, styled.rs::input_text_size), so
+        // this lands the typed text at exactly TEXT_BODY.
+        .child(
+            Input::new(&app.inputs.prompt)
+                .appearance(false)
+                .with_size(Size::Size(px(TEXT_BODY / 0.875)))
+                .p_0(),
+        )
         .when(empty, |this| {
             this.child(
                 div()

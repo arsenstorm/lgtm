@@ -14,8 +14,10 @@ use gpui_component::input::Input;
 use gpui_component::Sizable as _;
 use lgtm_protocol::{Session, Task};
 
-const WIDTH: f32 = 560.;
-const MAX_LIST_H: f32 = 380.;
+// Wide and tall enough that a real workspace's groups read without feeling
+// boxed in; the list still scrolls past this rather than growing forever.
+const WIDTH: f32 = 640.;
+const MAX_LIST_H: f32 = 560.;
 /// Taller than the sidebar's `ROW_H`: a palette row carries a title and its
 /// meta, and needs the room to not read as a dense list.
 const ROW: f32 = 38.;
