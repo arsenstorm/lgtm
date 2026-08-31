@@ -65,17 +65,17 @@ pub(super) async fn list_todos(
     Query(filter): Query<TodoFilter>,
 ) -> Json<Vec<Todo>> {
     let state = app.state.lock().unwrap();
-    let mut todos: Vec<Todo> = state
-        .todos
-        .values()
-        .filter(|todo| {
-            filter
-                .repository
-                .as_ref()
-                .is_none_or(|repository| todo.repository.as_deref().is_none_or(|r| r == repository))
-        })
-        .cloned()
-        .collect();
+    let mut todos: Vec<Todo> =
+        state
+            .todos
+            .values()
+            .filter(|todo| {
+                filter.repository.as_ref().is_none_or(|repository| {
+                    todo.repository.as_deref().is_none_or(|r| r == repository)
+                }) && state.in_workspace(todo.workspace.as_deref())
+            })
+            .cloned()
+            .collect();
     todos.sort_by_key(|todo| todo.created_at);
     Json(todos)
 }

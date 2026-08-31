@@ -191,3 +191,22 @@ async fn create_task_stamps_the_authenticated_user_over_the_body() {
     .unwrap();
     assert_eq!(task.created_by, None);
 }
+
+/// The workspace field's reader: a task stamped with a different explicit
+/// workspace stays out of the list; legacy unstamped tasks stay in.
+#[tokio::test]
+async fn list_tasks_hides_tasks_from_another_workspace() {
+    let app = app();
+    app.state.lock().unwrap().workspace = Some("other".into());
+    let foreign = completed(&app, true, false);
+    app.state.lock().unwrap().workspace = None;
+    let legacy = completed(&app, true, false);
+    app.state.lock().unwrap().workspace = Some("acme".into());
+    let own = completed(&app, true, false);
+
+    let Json(tasks) = list_tasks(State(app.clone())).await;
+    let ids: Vec<&str> = tasks.iter().map(|task| task.id.as_str()).collect();
+    assert!(ids.contains(&own.as_str()));
+    assert!(ids.contains(&legacy.as_str()));
+    assert!(!ids.contains(&foreign.as_str()));
+}
