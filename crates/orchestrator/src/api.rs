@@ -8,6 +8,7 @@ mod memories;
 mod sessions;
 mod terminal;
 mod todos;
+mod users;
 
 use std::sync::Arc;
 
@@ -119,20 +120,38 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/sessions/{id}", get(sessions::get_session))
         .route("/sessions/{id}/messages", post(sessions::send_message))
         .route("/provenance/{sha}", get(provenance))
+        .route("/users", get(users::list_users).post(users::create_user))
+        .route("/users/{id}/revoke", post(users::revoke_user))
         .layer(middleware::from_fn_with_state(app, auth))
 }
 
-async fn auth(State(app): State<Arc<App>>, req: Request, next: Next) -> Response {
-    let expected = format!("Bearer {}", app.token);
-    let ok = req
+/// Who an authenticated request came from: a user id, or `None` for the
+/// shared token (runners, automation, pre-login installs).
+#[derive(Clone)]
+pub(super) struct AuthedUser(pub Option<String>);
+
+async fn auth(State(app): State<Arc<App>>, mut req: Request, next: Next) -> Response {
+    let bearer = req
         .headers()
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value == expected);
-    if ok {
-        next.run(req).await
-    } else {
-        ApiError(StatusCode::UNAUTHORIZED, "unauthorized".into()).into_response()
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::to_string);
+    let user = bearer.and_then(|bearer| {
+        if bearer == app.token {
+            return Some(AuthedUser(None));
+        }
+        let state = app.state.lock().unwrap();
+        state
+            .user_for_token(&bearer)
+            .map(|user| AuthedUser(Some(user.id.clone())))
+    });
+    match user {
+        Some(user) => {
+            req.extensions_mut().insert(user);
+            next.run(req).await
+        }
+        None => ApiError(StatusCode::UNAUTHORIZED, "unauthorized".into()).into_response(),
     }
 }
 

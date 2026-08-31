@@ -1112,3 +1112,131 @@ async fn a_pre_rename_runner_still_connects_and_lists() {
     assert_eq!(runners.len(), 1);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[tokio::test]
+async fn per_user_tokens_login_revoke_and_survive_restart() {
+    std::env::remove_var("GITHUB_TOKEN");
+    std::env::remove_var("LINEAR_API_KEY");
+    std::env::set_var("PATH", "");
+    let dir = std::env::temp_dir().join(format!("lgtm-users-{}", std::process::id()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    tokio::spawn(lgtm_orchestrator::serve_plain(
+        addr,
+        "tok".into(),
+        dir.clone(),
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+
+    let create = |name: &str| {
+        let http = http.clone();
+        let base = base.clone();
+        let name = name.to_string();
+        async move {
+            let r = http
+                .post(format!("{base}/api/users"))
+                .bearer_auth("tok")
+                .json(&serde_json::json!({ "name": name }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 201);
+            r.json::<CreatedUser>().await.unwrap()
+        }
+    };
+    let alice = create("alice").await;
+    let bob = create("bob").await;
+    assert_ne!(alice.token, bob.token);
+
+    // A minted token authenticates; a stranger's does not.
+    let r = http
+        .get(format!("{base}/api/tasks"))
+        .bearer_auth(&alice.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let r = http
+        .get(format!("{base}/api/tasks"))
+        .bearer_auth("not-a-token")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 401);
+
+    // Minting and revoking need the shared token; a per-user token gets 403.
+    let r = http
+        .post(format!("{base}/api/users"))
+        .bearer_auth(&alice.token)
+        .json(&serde_json::json!({ "name": "spare" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403);
+    let r = http
+        .post(format!("{base}/api/users/{}/revoke", bob.user.id))
+        .bearer_auth(&alice.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403);
+
+    // The shared token revokes bob; his token stops working, his record
+    // stays listed.
+    let r = http
+        .post(format!("{base}/api/users/{}/revoke", bob.user.id))
+        .bearer_auth("tok")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let r = http
+        .get(format!("{base}/api/tasks"))
+        .bearer_auth(&bob.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 401);
+    let users: Vec<User> = http
+        .get(format!("{base}/api/users"))
+        .bearer_auth(&alice.token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(users.len(), 2);
+    assert!(users.iter().any(|u| u.id == bob.user.id && u.revoked));
+
+    // A restart reloads users.json: alice still gets in, bob still does not.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr2 = listener.local_addr().unwrap();
+    drop(listener);
+    tokio::spawn(lgtm_orchestrator::serve_plain(
+        addr2,
+        "tok".into(),
+        dir.clone(),
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let base2 = format!("http://{addr2}");
+    let r = http
+        .get(format!("{base2}/api/tasks"))
+        .bearer_auth(&alice.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let r = http
+        .get(format!("{base2}/api/tasks"))
+        .bearer_auth(&bob.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 401);
+    std::fs::remove_dir_all(&dir).ok();
+}

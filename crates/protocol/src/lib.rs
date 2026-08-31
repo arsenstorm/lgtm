@@ -318,6 +318,27 @@ fn approved() -> Verification {
     Verification::UserApproved
 }
 
+/// A person who uses this orchestrator. Their tokens live in the
+/// orchestrator's own store and never travel in this type.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct User {
+    pub id: String,
+    pub name: String,
+    /// Unix milliseconds.
+    pub created_at: u64,
+    /// A revoked user's tokens stop authenticating; the record stays so
+    /// `created_by` on old objects still resolves to a name.
+    #[serde(default)]
+    pub revoked: bool,
+}
+
+/// `POST /api/users` response: the one place the minted token is ever shown.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct CreatedUser {
+    pub user: User,
+    pub token: String,
+}
+
 /// A fact, constraint, or decision every run in a repository should know.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Memory {

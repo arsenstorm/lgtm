@@ -388,6 +388,22 @@ impl Client {
             .await
     }
 
+    pub async fn users(&self) -> anyhow::Result<Vec<lgtm_protocol::User>> {
+        self.get("/api/users").await
+    }
+
+    /// Creates a user and mints their token; the response is the only place
+    /// the token is ever shown.
+    pub async fn create_user(&self, name: &str) -> anyhow::Result<lgtm_protocol::CreatedUser> {
+        self.post("/api/users", Some(&types::NewUser { name }))
+            .await
+    }
+
+    pub async fn revoke_user(&self, id: &str) -> anyhow::Result<lgtm_protocol::User> {
+        self.post(&format!("/api/users/{id}/revoke"), None::<&()>)
+            .await
+    }
+
     /// The 204 carries no body, so nothing is deserialized here.
     pub async fn delete_memory(&self, id: &str) -> anyhow::Result<()> {
         let resp = self

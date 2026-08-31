@@ -20,6 +20,7 @@ mod state;
 mod stats;
 mod todo;
 pub mod token;
+mod users;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -179,6 +180,9 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     }
     for session in persist::load_all_sessions(&sessions_dir) {
         state.sessions.insert(session.id.clone(), session);
+    }
+    for rec in persist::load_users(data_dir) {
+        state.users.insert(rec.user.id.clone(), rec);
     }
     tracing::info!(
         tasks = state.tasks.len(),

@@ -22,6 +22,14 @@ pub fn stored_token_path(data_dir: &Path) -> PathBuf {
     data_dir.join("token")
 }
 
+/// Where `lgtm login` saves the minted per-user token. A separate file from
+/// the shared token: `serve` reads that one back as the orchestrator secret
+/// and `runner` presents it to the runner WebSocket, so login must never
+/// overwrite it.
+pub fn stored_user_token_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("user-token")
+}
+
 fn present(value: Option<String>) -> Option<String> {
     value
         .map(|t| t.trim().to_string())
@@ -29,22 +37,41 @@ fn present(value: Option<String>) -> Option<String> {
 }
 
 /// `--token`, else `LGTM_TOKEN`, else the token `lgtm serve` saved on this
-/// machine. Blank values count as absent.
+/// machine. Blank values count as absent. For `serve` and `runner`, which
+/// must use the shared token; person-facing commands go through
+/// [`resolve_client_token`].
 pub fn resolve_token(flag: Option<String>, data_dir: &Path) -> Option<String> {
     present(flag)
         .or_else(|| present(std::env::var("LGTM_TOKEN").ok()))
         .or_else(|| present(std::fs::read_to_string(stored_token_path(data_dir)).ok()))
 }
 
+/// [`resolve_token`], except the token `lgtm login` saved outranks the
+/// shared one, so a person who logged in acts as themselves.
+pub fn resolve_client_token(flag: Option<String>, data_dir: &Path) -> Option<String> {
+    present(flag)
+        .or_else(|| present(std::env::var("LGTM_TOKEN").ok()))
+        .or_else(|| present(std::fs::read_to_string(stored_user_token_path(data_dir)).ok()))
+        .or_else(|| present(std::fs::read_to_string(stored_token_path(data_dir)).ok()))
+}
+
 /// Writes the token where `resolve_token` will find it, owner-readable only.
 pub fn store_token(data_dir: &Path, token: &str) -> anyhow::Result<()> {
+    write_secret(data_dir, &stored_token_path(data_dir), token)
+}
+
+/// Writes the token where `resolve_client_token` will find it first.
+pub fn store_user_token(data_dir: &Path, token: &str) -> anyhow::Result<()> {
+    write_secret(data_dir, &stored_user_token_path(data_dir), token)
+}
+
+fn write_secret(data_dir: &Path, path: &Path, token: &str) -> anyhow::Result<()> {
     std::fs::create_dir_all(data_dir)?;
-    let path = stored_token_path(data_dir);
-    std::fs::write(&path, token)?;
+    std::fs::write(path, token)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     }
     Ok(())
 }
@@ -124,6 +151,22 @@ mod tests {
         assert_eq!(token.len(), 32);
         assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
         assert_eq!(token, token.to_lowercase());
+    }
+
+    #[test]
+    fn a_login_token_outranks_the_shared_file_for_clients_only() {
+        let dir = tempdir();
+        store_token(&dir, "shared").unwrap();
+        store_user_token(&dir, "mine").unwrap();
+        assert_eq!(resolve_client_token(None, &dir), Some("mine".into()));
+        assert_eq!(resolve_token(None, &dir), Some("shared".into()));
+    }
+
+    #[test]
+    fn resolve_client_token_falls_back_to_the_shared_file() {
+        let dir = tempdir();
+        store_token(&dir, "shared").unwrap();
+        assert_eq!(resolve_client_token(None, &dir), Some("shared".into()));
     }
 
     #[test]

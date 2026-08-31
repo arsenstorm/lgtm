@@ -38,6 +38,17 @@ pub enum Command {
     /// List connected runners
     #[command(alias = "workers")]
     Runners,
+    /// Get a token of your own from the orchestrator and save it here
+    Login {
+        /// Display name; defaults to this machine's username.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// List users, or revoke one's access
+    Users {
+        #[command(subcommand)]
+        command: Option<UserCommand>,
+    },
     /// Run a prompt as a task and stream its output
     Run {
         #[command(flatten)]
@@ -306,6 +317,13 @@ pub enum BacklogCommand {
     List,
     /// Show one batch's summary and its tasks.
     Status { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum UserCommand {
+    /// Stop a user's tokens from authenticating; their name stays on what
+    /// they created.
+    Revoke { id: String },
 }
 
 #[derive(Subcommand)]
