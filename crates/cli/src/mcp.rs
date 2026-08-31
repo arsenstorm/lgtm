@@ -353,6 +353,7 @@ async fn task_create(client: &Client, goal: &str, args: &Value) -> Result<String
         goal: Some(goal.to_string()),
         allowed_hosts: Vec::new(),
         session: None,
+        created_by: None,
     };
     Ok(client.create_task(&spec).await?.id)
 }

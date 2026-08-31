@@ -25,6 +25,7 @@ fn task(id: &str, status: TaskStatus, spec: TaskSpec) -> Task {
         executions: Vec::new(),
         scratchpad: String::new(),
         workspace: None,
+        created_by: None,
     }
 }
 
@@ -186,6 +187,7 @@ fn batch_with_plan(state: &mut State, approve_plans: bool) -> TaskId {
             task_ids: vec![id.clone()],
             approve_plans,
             workspace: None,
+            created_by: None,
         },
     );
     state.apply_event(&id, TaskEvent::Started { model: None });

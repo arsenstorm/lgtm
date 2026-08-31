@@ -48,6 +48,7 @@ fn spec(goal: Option<String>) -> TaskSpec {
         goal,
         allowed_hosts: Vec::new(),
         session: None,
+        created_by: None,
     }
 }
 
@@ -56,6 +57,7 @@ fn goal_task(state: &mut State) -> (String, TaskId) {
     let goal = state.create_goal(
         "ship the thing".into(),
         "https://example.com/repo.git".into(),
+        None,
     );
     let task = state.create_task(spec(Some(goal.id.clone()))).unwrap().0;
     (goal.id, task.id)

@@ -25,6 +25,7 @@ pub(super) fn task(repository: &str, status: TaskStatus) -> Task {
             goal: None,
             allowed_hosts: Vec::new(),
             session: None,
+            created_by: None,
         },
         status,
         runner: None,
@@ -37,6 +38,7 @@ pub(super) fn task(repository: &str, status: TaskStatus) -> Task {
         executions: Vec::new(),
         scratchpad: String::new(),
         workspace: None,
+        created_by: None,
     }
 }
 

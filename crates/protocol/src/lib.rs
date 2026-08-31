@@ -239,6 +239,12 @@ pub struct TaskSpec {
     /// The chat thread this task was sent from.
     #[serde(default)]
     pub session: Option<String>,
+    /// Stamped by the orchestrator from the authenticated user; anything a
+    /// client sends here is overwritten. Only `POST /api/tasks` deserializes
+    /// a client `TaskSpec` today — a new endpoint that does must overwrite
+    /// this field the same way, or it accepts spoofed attribution.
+    #[serde(default)]
+    pub created_by: Option<String>,
 }
 
 impl TaskSpec {
@@ -278,6 +284,9 @@ pub struct Batch {
     /// The workspace this belongs to; one per orchestrator until teams exist.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// The user who created this; `None` for the shared token or automation.
+    #[serde(default)]
+    pub created_by: Option<String>,
 }
 
 /// Task counts by state for `GET /api/batches/:id`.
@@ -358,6 +367,9 @@ pub struct Memory {
     /// The workspace this belongs to; one per orchestrator until teams exist.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// The user who created this; `None` for the shared token or automation.
+    #[serde(default)]
+    pub created_by: Option<String>,
 }
 
 impl BatchSummary {
@@ -402,6 +414,9 @@ pub struct Goal {
     /// The workspace this belongs to; one per orchestrator until teams exist.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// The user who created this; `None` for the shared token or automation.
+    #[serde(default)]
+    pub created_by: Option<String>,
 }
 
 impl Memory {
@@ -426,6 +441,9 @@ pub struct Session {
     /// The workspace this belongs to; one per orchestrator until teams exist.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// The user who created this; `None` for the shared token or automation.
+    #[serde(default)]
+    pub created_by: Option<String>,
 }
 
 /// Body of `GET /api/sessions/:id`: the thread is its tasks in creation order.
@@ -603,6 +621,9 @@ pub struct Todo {
     /// The workspace this belongs to; one per orchestrator until teams exist.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// The user who created this; `None` for the shared token or automation.
+    #[serde(default)]
+    pub created_by: Option<String>,
 }
 
 impl Todo {
@@ -838,6 +859,9 @@ pub struct Task {
     /// The workspace this belongs to; one per orchestrator until teams exist.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// The user who created this; `None` for the shared token or automation.
+    #[serde(default)]
+    pub created_by: Option<String>,
 }
 
 /// Files another unfinished task in the same repository has changed too.

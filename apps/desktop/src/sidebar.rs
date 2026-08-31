@@ -439,6 +439,7 @@ mod tests {
             title: title.into(),
             created_at: 0,
             workspace: None,
+            created_by: None,
         }
     }
 

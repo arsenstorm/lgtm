@@ -410,6 +410,7 @@ mod tests {
                 model: None,
                 allowed_hosts: Vec::new(),
                 session: None,
+                created_by: None,
             },
             status: TaskStatus::Running,
             runner: None,
@@ -422,6 +423,7 @@ mod tests {
             executions: Vec::new(),
             scratchpad: String::new(),
             workspace: None,
+            created_by: None,
         }
     }
 

@@ -27,6 +27,7 @@ fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
             model: None,
             allowed_hosts: Vec::new(),
             session: None,
+            created_by: None,
         },
         status,
         runner: Some("w".into()),
@@ -48,6 +49,7 @@ fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
         executions: Vec::new(),
         scratchpad: String::new(),
         workspace: None,
+        created_by: None,
     }
 }
 

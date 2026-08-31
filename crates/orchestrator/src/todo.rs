@@ -10,6 +10,7 @@ pub struct PromoteInto {
     pub base_branch: String,
     pub executor: Executor,
     pub runner: Option<String>,
+    pub created_by: Option<String>,
 }
 
 /// Why `update_todo` refused a patch.
@@ -79,6 +80,7 @@ impl State {
             model: None,
             allowed_hosts: Vec::new(),
             session: None,
+            created_by: into.created_by,
         };
         let (task, changed) = self.create_task(spec)?;
         let todo = self

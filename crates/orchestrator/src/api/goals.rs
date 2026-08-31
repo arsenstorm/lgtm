@@ -5,11 +5,11 @@ use std::sync::Arc;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
+use axum::{Extension, Json};
 use lgtm_protocol::{plan_versions, Executor, GoalSummary, PlanVersion, Task, TaskKind, TaskSpec};
 use serde::{Deserialize, Serialize};
 
-use super::{conflict, ApiError};
+use super::{conflict, ApiError, AuthedUser};
 use crate::state::App;
 
 /// Body of `POST /api/goals`.
@@ -62,17 +62,24 @@ fn first_spec(body: GoalRequest, goal: String) -> TaskSpec {
         model: None,
         allowed_hosts: Vec::new(),
         session: None,
+        created_by: None,
     }
 }
 
 pub(super) async fn create_goal(
     State(app): State<Arc<App>>,
+    Extension(user): Extension<AuthedUser>,
     body: Result<Json<GoalRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<GoalSummary>), ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
     let mut state = app.state.lock().unwrap();
-    let goal = state.create_goal(body.objective.clone(), body.repository.clone());
-    let spec = first_spec(body, goal.id.clone());
+    let goal = state.create_goal(
+        body.objective.clone(),
+        body.repository.clone(),
+        user.0.clone(),
+    );
+    let mut spec = first_spec(body, goal.id.clone());
+    spec.created_by = user.0;
     let changed = match state.create_task(spec) {
         Ok((_, changed)) => changed,
         // A goal nothing can work on is worse than no goal at all.

@@ -59,6 +59,7 @@ fn spec(executor: Executor, runner: Option<&str>) -> TaskSpec {
         model: None,
         allowed_hosts: Vec::new(),
         session: None,
+        created_by: None,
     }
 }
 
@@ -114,6 +115,7 @@ fn add_history(state: &mut State, executions: Vec<Execution>) {
         executions,
         scratchpad: String::new(),
         workspace: None,
+        created_by: None,
     };
     state
         .tasks
@@ -920,6 +922,7 @@ fn a_follow_up_carries_the_memories() {
         "no yarn".into(),
         MemorySource::User,
         None,
+        None,
     );
     let id = create(&mut state, Executor::Claude).id;
     let result = TaskResult {
@@ -951,6 +954,7 @@ fn a_proposed_memory_is_not_told_until_approved() {
         "no yarn".into(),
         MemorySource::Agent,
         Some("t1".into()),
+        None,
     );
     assert_eq!(memory.verification, Verification::AgentProposed);
     assert!(state.memories_for(&repository).is_empty());
@@ -983,6 +987,7 @@ fn linear_task(status: TaskStatus, from_linear: bool) -> Task {
         executions: Vec::new(),
         scratchpad: String::new(),
         workspace: None,
+        created_by: None,
     }
 }
 
@@ -1426,6 +1431,7 @@ fn session_tasks_come_back_in_creation_order() {
         "https://example.com/repo.git".into(),
         "main".into(),
         String::new(),
+        None,
     );
 
     let mut first = spec(Executor::Claude, None);
@@ -1555,7 +1561,11 @@ fn pinned_runner_lacking_a_requirement_is_refused() {
 
 /// A goal, and a spec for a task under it.
 pub(crate) fn goal_spec(state: &mut State) -> (String, TaskSpec) {
-    let goal = state.create_goal("ship it".into(), "https://example.com/repo.git".into());
+    let goal = state.create_goal(
+        "ship it".into(),
+        "https://example.com/repo.git".into(),
+        None,
+    );
     let mut spec = spec(Executor::Claude, None);
     spec.goal = Some(goal.id.clone());
     (goal.id, spec)

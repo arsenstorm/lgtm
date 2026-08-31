@@ -338,6 +338,7 @@ impl Target {
             model: self.model,
             allowed_hosts: Vec::new(),
             session: self.session,
+            created_by: None,
         })
     }
 }

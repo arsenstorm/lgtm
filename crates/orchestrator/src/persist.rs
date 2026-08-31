@@ -464,6 +464,7 @@ mod tests {
                 goal: None,
                 allowed_hosts: Vec::new(),
                 session: None,
+                created_by: None,
             },
             status: TaskStatus::Queued,
             runner: None,
@@ -476,6 +477,7 @@ mod tests {
             executions: Vec::new(),
             scratchpad: String::new(),
             workspace: None,
+            created_by: None,
         }
     }
 

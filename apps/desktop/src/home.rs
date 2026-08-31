@@ -85,6 +85,7 @@ pub fn compose(
         model: Some(models.model.clone()).filter(|model| !model.trim().is_empty()),
         allowed_hosts: Vec::new(),
         session: None,
+        created_by: None,
     })
 }
 

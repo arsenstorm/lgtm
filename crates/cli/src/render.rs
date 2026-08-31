@@ -818,6 +818,7 @@ mod tests {
                 model: model.map(str::to_string),
                 allowed_hosts: Vec::new(),
                 session: None,
+                created_by: None,
             },
             status: lgtm_protocol::TaskStatus::Approved,
             runner: Some("w1".into()),
@@ -830,6 +831,7 @@ mod tests {
             executions: Vec::new(),
             scratchpad: String::new(),
             workspace: None,
+            created_by: None,
         }
     }
 
@@ -849,6 +851,7 @@ mod tests {
                 created_at: 0,
                 attention: None,
                 workspace: None,
+                created_by: None,
             }),
             plan: Some(lgtm_protocol::PlanVersion {
                 task: "plan1".into(),

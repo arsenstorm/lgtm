@@ -26,6 +26,7 @@ fn running() -> Task {
             model: None,
             allowed_hosts: Vec::new(),
             session: None,
+            created_by: None,
         },
         status: TaskStatus::Running,
         runner: Some("w1".into()),
@@ -38,6 +39,7 @@ fn running() -> Task {
         executions: Vec::new(),
         scratchpad: String::new(),
         workspace: None,
+        created_by: None,
     }
 }
 

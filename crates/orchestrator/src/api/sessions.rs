@@ -6,11 +6,11 @@ use std::sync::Arc;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
+use axum::{Extension, Json};
 use lgtm_protocol::{Executor, SandboxProfile, Session, SessionDetail, Task, TaskKind, TaskSpec};
 use serde::Deserialize;
 
-use super::{conflict, ApiError};
+use super::{conflict, ApiError, AuthedUser};
 use crate::state::App;
 
 fn not_found() -> ApiError {
@@ -27,11 +27,12 @@ pub(super) struct SessionRequest {
 
 pub(super) async fn create_session(
     State(app): State<Arc<App>>,
+    Extension(user): Extension<AuthedUser>,
     body: Result<Json<SessionRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Session>), ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
     let mut state = app.state.lock().unwrap();
-    let session = state.create_session(body.repository, body.base_branch, body.title);
+    let session = state.create_session(body.repository, body.base_branch, body.title, user.0);
     app.persist_session(&session);
     Ok((StatusCode::CREATED, Json(session)))
 }
@@ -110,11 +111,13 @@ fn message_spec(session: &Session, id: &str, body: MessageBody) -> TaskSpec {
         model: body.model,
         allowed_hosts: Vec::new(),
         session: Some(id.to_string()),
+        created_by: None,
     }
 }
 
 pub(super) async fn send_message(
     State(app): State<Arc<App>>,
+    Extension(user): Extension<AuthedUser>,
     Path(id): Path<String>,
     body: Result<Json<MessageBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Task>), ApiError> {
@@ -123,8 +126,9 @@ pub(super) async fn send_message(
     let session = state.sessions.get(&id).cloned().ok_or_else(not_found)?;
     let text = body.text.clone();
     let mut spec = message_spec(&session, &id, body);
+    spec.created_by = user.0.clone();
     if app.orchestrate.is_some() {
-        let goal = state.create_goal(text.clone(), session.repository.clone());
+        let goal = state.create_goal(text.clone(), session.repository.clone(), user.0);
         app.persist_goal(&goal);
         spec.goal = Some(goal.id);
     }

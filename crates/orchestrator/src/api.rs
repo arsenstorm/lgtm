@@ -18,7 +18,7 @@ use axum::http::{header::AUTHORIZATION, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use lgtm_protocol::{
     overlaps, plan_versions, Executor, OrchestratorMessage, PlanVersion, RunnerStatus,
     SandboxProfile, Stats, Task, TaskEvent, TaskKind, TaskSpec, TaskStatus,
@@ -195,13 +195,20 @@ async fn stats(State(app): State<Arc<App>>, Query(query): Query<StatsQuery>) -> 
 
 async fn create_task(
     State(app): State<Arc<App>>,
+    Extension(user): Extension<AuthedUser>,
     body: Result<Json<TaskSpec>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Task>), ApiError> {
     let Json(spec) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
-    queue(&app, spec)
+    queue(&app, spec, user)
 }
 
-fn queue(app: &App, spec: TaskSpec) -> Result<(StatusCode, Json<Task>), ApiError> {
+fn queue(
+    app: &App,
+    mut spec: TaskSpec,
+    user: AuthedUser,
+) -> Result<(StatusCode, Json<Task>), ApiError> {
+    // Stamped here, never taken from the body: identity comes from the token.
+    spec.created_by = user.0;
     let mut state = app.state.lock().unwrap();
     let (task, changed) = state.create_task(spec).map_err(conflict)?;
     app.persist_ids(&mut state, &changed);
@@ -236,6 +243,7 @@ struct FromIssueBody {
 
 async fn create_task_from_issue(
     State(app): State<Arc<App>>,
+    Extension(user): Extension<AuthedUser>,
     body: Result<Json<FromIssueBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Task>), ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
@@ -258,7 +266,11 @@ async fn create_task_from_issue(
         review_executor: body.review_executor,
         model: body.model,
     };
-    queue(&app, backlog::github_candidate(&issue, &repo, input).spec)
+    queue(
+        &app,
+        backlog::github_candidate(&issue, &repo, input).spec,
+        user,
+    )
 }
 
 pub(super) fn linear(app: &App) -> Result<lgtm_linear::Linear, ApiError> {
@@ -291,6 +303,7 @@ struct FromLinearBody {
 
 async fn create_task_from_linear(
     State(app): State<Arc<App>>,
+    Extension(user): Extension<AuthedUser>,
     body: Result<Json<FromLinearBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Task>), ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
@@ -316,6 +329,7 @@ async fn create_task_from_linear(
     queue(
         &app,
         backlog::linear_candidate(&issue, &body.repository, input).spec,
+        user,
     )
 }
 
