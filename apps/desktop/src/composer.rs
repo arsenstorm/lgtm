@@ -18,6 +18,7 @@ use gpui::{
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::input::Input;
+use gpui_component::{Sizable as _, Size};
 
 use menus::{plus_menu, project_menu, runner_menu};
 
@@ -199,19 +200,26 @@ fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElem
                 .prompt
                 .update(cx, |state, cx| state.focus(window, cx));
         }))
-        .child(Input::new(&app.inputs.prompt).appearance(false).p_0())
+        // Both the typed text and the placeholder overlay are pinned to the
+        // same absolute TEXT_BODY pixels: the library's own size mapping is
+        // rem-relative (custom sizes render at size × 0.875), and letting
+        // either side resolve independently is how they drifted apart.
+        .child(
+            Input::new(&app.inputs.prompt)
+                .appearance(false)
+                .with_size(Size::Size(px(TEXT_BODY / 0.875)))
+                .p_0(),
+        )
         .when(empty, |this| {
             this.child(
                 div()
                     .absolute()
                     .top_0()
                     .left(px(TEXT_INSET))
-                    // The input's own line box and text size (the library's
-                    // medium input renders at `text_sm`), so the placeholder
-                    // sits exactly where — and as big as — the first typed
-                    // line will be.
+                    // The input's own line box, so the placeholder sits
+                    // exactly where the first typed line will.
                     .line_height(rems(1.25))
-                    .text_size(rems(0.875))
+                    .text_size(px(TEXT_BODY))
                     .text_color(t.composer.placeholder)
                     .child("Describe your task..."),
             )
