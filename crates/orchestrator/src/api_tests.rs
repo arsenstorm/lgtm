@@ -16,6 +16,7 @@ fn app() -> Arc<App> {
         orchestrate: None,
         base_url: "http://127.0.0.1:1".into(),
         orchestrating: std::sync::Mutex::new(Default::default()),
+        asking: tokio::sync::Semaphore::new(crate::ASK_SLOTS),
     })
 }
 
@@ -209,4 +210,133 @@ async fn list_tasks_hides_tasks_from_another_workspace() {
     assert!(ids.contains(&own.as_str()));
     assert!(ids.contains(&legacy.as_str()));
     assert!(!ids.contains(&foreign.as_str()));
+}
+
+/// The activity feed's types keep their fields to their own module, so the
+/// tests read the JSON the endpoint actually returns.
+fn activity_lines(value: &serde_json::Value) -> &Vec<serde_json::Value> {
+    value.as_array().expect("an array")
+}
+
+async fn activity_json(app: &Arc<App>, limit: Option<u32>) -> serde_json::Value {
+    let query = serde_json::from_value(serde_json::json!({ "limit": limit })).unwrap();
+    let Json(lines) = workspace::activity(State(app.clone()), Query(query)).await;
+    serde_json::to_value(&lines).unwrap()
+}
+
+#[tokio::test]
+async fn activity_lists_newest_first_with_owner_names() {
+    let app = app();
+    let id = completed(&app, true, false);
+    {
+        let mut state = app.state.lock().unwrap();
+        let (user, _token) = state.create_user("alice");
+        state.tasks.get_mut(&id).unwrap().task.created_by = Some(user.id);
+    }
+
+    let json = activity_json(&app, None).await;
+    let lines = activity_lines(&json);
+    assert!(!lines.is_empty());
+    assert!(lines
+        .windows(2)
+        .all(|pair| pair[0]["at"].as_u64() >= pair[1]["at"].as_u64()));
+    let mine: Vec<&serde_json::Value> = lines
+        .iter()
+        .filter(|line| line["task"] == serde_json::json!(id))
+        .collect();
+    assert!(!mine.is_empty());
+    assert!(mine.iter().all(|line| line["owner"] == "alice"), "{mine:?}");
+    assert!(mine.iter().any(|line| line["event"] == "completed"));
+}
+
+#[tokio::test]
+async fn activity_respects_the_workspace() {
+    let app = app();
+    app.state.lock().unwrap().workspace = Some("other".into());
+    let foreign = completed(&app, true, false);
+    app.state.lock().unwrap().workspace = Some("acme".into());
+    let own = completed(&app, true, false);
+
+    let json = activity_json(&app, None).await;
+    let tasks: Vec<&serde_json::Value> = activity_lines(&json)
+        .iter()
+        .map(|line| &line["task"])
+        .collect();
+    assert!(tasks.contains(&&serde_json::json!(own)));
+    assert!(!tasks.contains(&&serde_json::json!(foreign)));
+}
+
+#[tokio::test]
+async fn ask_without_orchestrate_is_a_conflict() {
+    let app = app();
+    let body =
+        serde_json::from_value(serde_json::json!({ "question": "who is on auth?" })).unwrap();
+    let err = workspace::ask(State(app), Extension(AuthedUser(None)), Ok(Json(body)))
+        .await
+        .map(|_| ())
+        .expect_err("a refusal");
+    assert_eq!(err.0, StatusCode::CONFLICT);
+}
+
+/// Like [`app`], but with an orchestration executor, so `ask` gets past the
+/// not-configured refusal. No agent ever runs: the tests below stop earlier.
+fn app_with_orchestrate() -> Arc<App> {
+    let (persist, _rx) = tokio::sync::mpsc::unbounded_channel();
+    Arc::new(App {
+        token: "tok".into(),
+        state: std::sync::Mutex::new(crate::state::State::default()),
+        persist,
+        github: None,
+        linear: None,
+        webhook: None,
+        orchestrate: Some(Executor::Claude),
+        base_url: "http://127.0.0.1:1".into(),
+        orchestrating: std::sync::Mutex::new(Default::default()),
+        asking: tokio::sync::Semaphore::new(crate::ASK_SLOTS),
+    })
+}
+
+#[tokio::test]
+async fn a_full_ask_house_refuses_the_next_question() {
+    let app = app_with_orchestrate();
+    app.asking
+        .acquire_many(crate::ASK_SLOTS as u32)
+        .await
+        .unwrap()
+        .forget();
+    let body =
+        serde_json::from_value(serde_json::json!({ "question": "who is on auth?" })).unwrap();
+    let err = workspace::ask(State(app), Extension(AuthedUser(None)), Ok(Json(body)))
+        .await
+        .map(|_| ())
+        .expect_err("a refusal");
+    assert_eq!(err.0, StatusCode::CONFLICT);
+    assert!(err.1.contains("too many questions"), "{}", err.1);
+}
+
+#[tokio::test]
+async fn activity_hides_the_per_line_output_flood() {
+    let app = app();
+    let id = completed(&app, true, false);
+    {
+        let mut state = app.state.lock().unwrap();
+        for _ in 0..40 {
+            state.apply_event(
+                &id,
+                TaskEvent::Output {
+                    stream: lgtm_protocol::OutputStream::Stdout,
+                    line: "line".into(),
+                },
+            );
+        }
+    }
+    let json = activity_json(&app, None).await;
+    let lines = activity_lines(&json);
+    assert!(!lines.is_empty());
+    assert!(
+        lines.iter().all(|line| line["event"] != "output"),
+        "{lines:?}"
+    );
+    // The flood must not push the real events out of the window either.
+    assert!(lines.iter().any(|line| line["event"] == "completed"));
 }

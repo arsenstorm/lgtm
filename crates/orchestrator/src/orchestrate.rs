@@ -74,7 +74,8 @@ pub fn prompt(ctx: &Context) -> String {
         None => String::new(),
     };
     format!(
-        "You are orchestrating work toward one goal in a software repository.\n\n\
+        "You are the shared engineering agent for this workspace, orchestrating work toward \
+         one goal in a software repository.\n\n\
          Goal: {}\n\n\
          Task {} just ended as {}{ending}.\n\n\
          {INSTRUCTION}",
@@ -84,9 +85,10 @@ pub fn prompt(ctx: &Context) -> String {
     )
 }
 
-const INSTRUCTION: &str = "Use the lgtm tools: inspect, then take at most a few steps; \
-     call `wait` with a reason when a person is needed; finish with one paragraph for the \
-     developer.";
+const INSTRUCTION: &str = "Use the lgtm tools: inspect this goal, and check goals_list, \
+     tasks_list, and activity for what the rest of the workspace is doing before creating work; \
+     you may only act on tasks under this goal; call `wait` with a reason when a person is \
+     needed; finish with one paragraph for the developer.";
 
 /// The wire spelling, so the model reads the same words the API returns.
 fn status_word(status: TaskStatus) -> String {
@@ -119,6 +121,31 @@ pub async fn run(app: Arc<App>, task_id: String) {
             record(&app, &task_id, "error", String::new(), false, note)
         }
     }
+}
+
+/// One question, one bounded pass over the read-only workspace tools, one
+/// answer. No goal, no task: `lgtm mcp` sees `LGTM_ASK` and serves only
+/// reads, so a question can never create or approve work.
+pub async fn answer_question(app: Arc<App>, question: String) -> Result<String, String> {
+    let Some(executor) = app.orchestrate else {
+        return Err("--orchestrate is not configured".into());
+    };
+    let env = [
+        ("LGTM_ORCHESTRATOR", app.base_url.clone()),
+        ("LGTM_TOKEN", app.token.clone()),
+        ("LGTM_ASK", "1".to_string()),
+    ];
+    ask(executor, &ask_prompt(&question), &env).await
+}
+
+fn ask_prompt(question: &str) -> String {
+    format!(
+        "You are the shared engineering agent for this workspace. A person asks:\n\n\
+         {question}\n\n\
+         Answer from the lgtm tools (goals_list, tasks_list, sessions_list, activity, \
+         task_inspect, runner_list). Name people by name and tasks by id. A few short \
+         paragraphs at most."
+    )
 }
 
 fn record(app: &App, task_id: &str, action: &str, reason: String, applied: bool, note: String) {

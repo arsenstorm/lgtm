@@ -160,3 +160,25 @@ fn reads_the_answer_out_of_each_executor() {
     assert_eq!(answer(Executor::Codex, codex).unwrap(), "first\nsecond");
     assert!(answer(Executor::Codex, "{\"type\":\"token_count\"}").is_none());
 }
+
+#[test]
+fn the_prompt_names_the_workspace_role() {
+    let mut state = State::default();
+    let _runner = connect(&mut state);
+    let (_goal, id) = goal_task(&mut state);
+
+    let text = prompt(&build_context(&state, &id).expect("a context"));
+    assert!(
+        text.contains("shared engineering agent for this workspace"),
+        "{text}"
+    );
+    assert!(text.contains("ship the thing"), "{text}");
+}
+
+#[test]
+fn an_ask_prompt_carries_the_question_and_no_write_tools() {
+    let text = ask_prompt("who is on auth?");
+    assert!(text.contains("who is on auth?"), "{text}");
+    assert!(!text.contains("task_create"), "{text}");
+    assert!(!text.contains("task_approve"), "{text}");
+}
