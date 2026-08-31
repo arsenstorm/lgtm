@@ -223,3 +223,26 @@ pub struct PromoteTodo {
     pub executor: lgtm_protocol::Executor,
     pub runner: Option<String>,
 }
+
+/// One line of `GET /api/activity`.
+#[derive(Deserialize)]
+pub struct ActivityLine {
+    pub at: u64,
+    pub task: String,
+    /// The creator's display name, or `None` for the shared token.
+    pub owner: Option<String>,
+    pub repository: String,
+    pub event: String,
+    pub detail: String,
+}
+
+/// Body of `POST /api/ask`.
+#[derive(Serialize)]
+pub(crate) struct AskRequest<'a> {
+    pub(crate) question: &'a str,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AskResponse {
+    pub(crate) answer: String,
+}

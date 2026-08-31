@@ -16,13 +16,13 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
+pub use types::{
+    ActivityLine, BatchDetail, BatchRequest, BatchResponse, EventStream, FromIssue, FromLinear,
+    GoalDetail, IssuePreview, NewGoal, NewSession, Orchestrated, PromoteTodo, Retry,
+    SessionMessage, TaskDetail, TerminalStream,
+};
 use types::{
     AllowHost, Attention, ErrorBody, FollowUp, NewMemory, NewTodo, Notes, PermissionRequest, Socket,
-};
-pub use types::{
-    BatchDetail, BatchRequest, BatchResponse, EventStream, FromIssue, FromLinear, GoalDetail,
-    IssuePreview, NewGoal, NewSession, Orchestrated, PromoteTodo, Retry, SessionMessage,
-    TaskDetail, TerminalStream,
 };
 
 /// Marks a call as the orchestration loop's, not a person's. Only `approve`
@@ -390,6 +390,19 @@ impl Client {
 
     pub async fn users(&self) -> anyhow::Result<Vec<lgtm_protocol::User>> {
         self.get("/api/users").await
+    }
+
+    /// Recent events across every task in the workspace, newest first.
+    pub async fn activity(&self, limit: u32) -> anyhow::Result<Vec<ActivityLine>> {
+        self.get(&format!("/api/activity?limit={limit}")).await
+    }
+
+    /// One question to the shared agent; the answer is plain text.
+    pub async fn ask(&self, question: &str) -> anyhow::Result<String> {
+        let resp: types::AskResponse = self
+            .post("/api/ask", Some(&types::AskRequest { question }))
+            .await?;
+        Ok(resp.answer)
     }
 
     /// Creates a user and mints their token; the response is the only place
