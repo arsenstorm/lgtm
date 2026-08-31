@@ -42,6 +42,9 @@ const ROW_H: f32 = 28.;
 const ROW_INSET: f32 = 15.;
 /// The prompt's left padding: the composer's second, tighter padding system.
 const TEXT_INSET: f32 = 12.;
+/// The prompt's own text size, placeholder and value alike — bigger than the
+/// app's body text, the way a chat composer leads.
+const PROMPT_TEXT: f32 = 16.;
 /// Three line boxes of `rems(1.25)`. The prompt is the card's click target, so
 /// it has to be a body worth aiming at, not the input's own first line.
 const PROMPT_MIN_H: f32 = 60.;
@@ -207,7 +210,7 @@ fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElem
         .child(
             Input::new(&app.inputs.prompt)
                 .appearance(false)
-                .with_size(Size::Size(px(TEXT_BODY / 0.875)))
+                .with_size(Size::Size(px(PROMPT_TEXT / 0.875)))
                 .p_0(),
         )
         .when(empty, |this| {
@@ -219,7 +222,7 @@ fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElem
                     // The input's own line box, so the placeholder sits
                     // exactly where the first typed line will.
                     .line_height(rems(1.25))
-                    .text_size(px(TEXT_BODY))
+                    .text_size(px(PROMPT_TEXT))
                     .text_color(t.composer.placeholder)
                     .child("Describe your task..."),
             )
