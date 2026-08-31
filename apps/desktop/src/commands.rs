@@ -20,6 +20,8 @@ impl LgtmApp {
                 self.batches = lists.batches;
                 self.goals = lists.goals;
                 self.sessions = lists.sessions;
+                self.users = lists.users;
+                self.activity = lists.activity;
                 self.stats = lists.stats.or_else(|| self.stats.take());
                 self.link.reachable = true;
                 // The project page needs a clone URL, which the first poll to

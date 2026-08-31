@@ -5,6 +5,7 @@ use crate::app::LgtmApp;
 use crate::labels::goal_status_label;
 use crate::tasks::goal_color;
 use crate::theme::{Tokens, RADIUS, SPACE, TEXT_SECONDARY};
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, Context, Div, FontWeight, IntoElement, ParentElement as _, Styled as _,
 };
@@ -47,6 +48,7 @@ pub fn counts(tasks: &BatchSummary) -> Vec<(&'static str, usize)> {
 }
 
 fn card(app: &LgtmApp, summary: &GoalSummary, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let owner = app.owner_name(summary.goal.created_by.as_deref());
     let id = summary.goal.id.clone();
     let rows = app
         .tasks
@@ -61,11 +63,11 @@ fn card(app: &LgtmApp, summary: &GoalSummary, t: &Tokens, cx: &mut Context<LgtmA
         .bg(t.card)
         .border_1()
         .border_color(t.border)
-        .child(head(summary, t))
+        .child(head(summary, owner, t))
         .children(rows.map(|task| crate::batches::task_row(app, task, t, cx)))
 }
 
-fn head(summary: &GoalSummary, t: &Tokens) -> Div {
+fn head(summary: &GoalSummary, owner: Option<String>, t: &Tokens) -> Div {
     let tone = goal_color(summary.status, t);
     div()
         .flex()
@@ -80,6 +82,9 @@ fn head(summary: &GoalSummary, t: &Tokens) -> Div {
                 .font_weight(FontWeight::MEDIUM)
                 .child(summary.goal.objective.clone()),
         )
+        .when_some(crate::app::owner_label(owner, t), |this, owner| {
+            this.child(owner)
+        })
         .child(
             div()
                 .flex_shrink_0()
