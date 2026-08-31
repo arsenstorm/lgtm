@@ -18,7 +18,6 @@ use gpui::{
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::input::Input;
-use gpui_component::{Sizable as _, Size};
 
 use menus::{plus_menu, project_menu, runner_menu};
 
@@ -200,26 +199,19 @@ fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElem
                 .prompt
                 .update(cx, |state, cx| state.focus(window, cx));
         }))
-        // The library sizes a default input's text at `text_sm`, smaller than
-        // the TEXT_BODY placeholder drawn over it; a custom size renders at
-        // size × 0.875 (gpui-component 0.5.1, styled.rs::input_text_size), so
-        // this lands the typed text at exactly TEXT_BODY.
-        .child(
-            Input::new(&app.inputs.prompt)
-                .appearance(false)
-                .with_size(Size::Size(px(TEXT_BODY / 0.875)))
-                .p_0(),
-        )
+        .child(Input::new(&app.inputs.prompt).appearance(false).p_0())
         .when(empty, |this| {
             this.child(
                 div()
                     .absolute()
                     .top_0()
                     .left(px(TEXT_INSET))
-                    // The input's own line box, so the placeholder sits exactly
-                    // where the first typed line will.
+                    // The input's own line box and text size (the library's
+                    // medium input renders at `text_sm`), so the placeholder
+                    // sits exactly where — and as big as — the first typed
+                    // line will be.
                     .line_height(rems(1.25))
-                    .text_size(px(TEXT_BODY))
+                    .text_size(rems(0.875))
                     .text_color(t.composer.placeholder)
                     .child("Describe your task..."),
             )

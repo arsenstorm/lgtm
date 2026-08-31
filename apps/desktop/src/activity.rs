@@ -3,7 +3,7 @@
 use crate::app::LgtmApp;
 use crate::labels::prompt_preview;
 use crate::tasks::{now_ms, relative_age};
-use crate::theme::{tokens, Tokens, HEADER_H, RADIUS, SPACE, TEXT_SECONDARY};
+use crate::theme::{tokens, Tokens, HEADER_H, SPACE, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
@@ -28,6 +28,9 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
         .when(empty, |this| this.child(empty_state(&t)))
         .when(!empty, |this| {
             this.child(
+                // A flat table, no gaps: adjacent rows mean the hover
+                // highlight tracks a fast cursor without appearing to lag
+                // across the space between cards.
                 div()
                     .id("activity")
                     .flex_1()
@@ -35,8 +38,7 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                     .overflow_y_scroll()
                     .flex()
                     .flex_col()
-                    .gap(px(SPACE[2]))
-                    .p(px(SPACE[2]))
+                    .py(px(SPACE[0]))
                     .children(app.activity.iter().map(|line| row(line, now, &t, cx))),
             )
         })
@@ -78,11 +80,9 @@ fn row(line: &ActivityLine, now: u64, t: &Tokens, cx: &mut Context<LgtmApp>) -> 
         .flex()
         .items_center()
         .gap(px(SPACE[1]))
-        .p(px(SPACE[1]))
-        .rounded(px(RADIUS))
-        .bg(t.card)
-        .border_1()
-        .border_color(t.border)
+        .h(px(32.))
+        .px(px(SPACE[2]))
+        .flex_shrink_0()
         .cursor_pointer()
         .hover(|this| this.bg(t.muted))
         .child(cell(relative_age(line.at, now), 48., t.muted_fg))
