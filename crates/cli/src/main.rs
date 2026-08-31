@@ -12,10 +12,10 @@ use std::path::Path;
 
 use clap::Parser;
 use lgtm_client::{Client, FromIssue, FromLinear, NewGoal, PromoteTodo};
-use lgtm_orchestrator::token::{data_dir, resolve_token};
+use lgtm_orchestrator::token::{data_dir, resolve_client_token, store_user_token};
 use lgtm_protocol::{BatchSource, TaskKind, TaskSpec, TodoPatch};
 
-use crate::cli::{BacklogCommand, Cli, Command, MemoryCommand, Target, TodoCommand};
+use crate::cli::{BacklogCommand, Cli, Command, MemoryCommand, Target, TodoCommand, UserCommand};
 use crate::table::{
     ci_str, mem_gb_cell, print_goal_table, print_memory_table, print_task_table, print_todo_table,
     status_str,
@@ -40,7 +40,7 @@ fn default_repo() -> anyhow::Result<String> {
 }
 
 fn require_token(token: Option<String>, data_dir: &Path) -> String {
-    match resolve_token(token, data_dir) {
+    match resolve_client_token(token, data_dir) {
         Some(t) => t,
         None => {
             eprintln!("no token: run `lgtm serve` on this machine, or pass --token");
@@ -111,6 +111,8 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
             unreachable!("handled by dispatch")
         }
         Command::Runners => runners(client).await,
+        Command::Login { name } => login(client, name).await,
+        Command::Users { command } => users_command(client, command).await,
         Command::Mcp => mcp::serve(client).await,
         Command::Run {
             target,
@@ -234,6 +236,48 @@ async fn pad(client: &Client, id: &str, set: Option<String>) -> anyhow::Result<i
 fn print_json(value: impl serde::Serialize) -> anyhow::Result<i32> {
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(0)
+}
+
+/// Creates a user with the shared token the command authenticated with and
+/// saves the minted per-user token where every later command will find it,
+/// in its own file so the shared token `serve` and `runner` read stays put.
+async fn login(client: &Client, name: Option<String>) -> anyhow::Result<i32> {
+    let name = name
+        .or_else(|| std::env::var("USER").ok())
+        .or_else(|| std::env::var("USERNAME").ok())
+        .unwrap_or_else(|| "me".into());
+    let created = client.create_user(&name).await?;
+    store_user_token(&data_dir(None), &created.token)?;
+    println!(
+        "logged in as {} ({}); token saved to {}",
+        created.user.name,
+        created.user.id,
+        lgtm_orchestrator::token::stored_user_token_path(&data_dir(None)).display()
+    );
+    if std::env::var("LGTM_TOKEN").is_ok_and(|t| !t.trim().is_empty()) {
+        eprintln!(
+            "warning: LGTM_TOKEN is set and outranks the saved login; unset it to act as {name}"
+        );
+    }
+    Ok(0)
+}
+
+async fn users_command(client: &Client, command: Option<UserCommand>) -> anyhow::Result<i32> {
+    match command {
+        None => {
+            println!("{:<10}{:<10}NAME", "ID", "STATE");
+            for user in client.users().await? {
+                let state = if user.revoked { "revoked" } else { "active" };
+                println!("{:<10}{:<10}{}", user.id, state, user.name);
+            }
+            Ok(0)
+        }
+        Some(UserCommand::Revoke { id }) => {
+            let user = client.revoke_user(&id).await?;
+            println!("revoked {} ({})", user.name, user.id);
+            Ok(0)
+        }
+    }
 }
 
 async fn runners(client: &Client) -> anyhow::Result<i32> {

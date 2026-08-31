@@ -44,6 +44,9 @@ pub enum Persist {
     Todo(Todo),
     RemoveTodo(String),
     Session(Session),
+    /// The whole users store; users are few and change rarely, so the file
+    /// is rewritten rather than kept per-id.
+    Users(Vec<crate::users::UserRecord>),
     /// An artefact's bytes, split off the event that carried them: the event
     /// log is text a person reads, and these are binaries.
     Artefact {
@@ -105,6 +108,7 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
             Persist::Todo(todo) => save_todo(&todos, &todo),
             Persist::RemoveTodo(id) => remove_by_id(&todos, "todo", &id),
             Persist::Session(session) => save_session(&sessions, &session),
+            Persist::Users(users) => save_users(&dir, &users),
         }
     }
 }
@@ -219,6 +223,43 @@ pub fn save_todo(dir: &Path, todo: &Todo) {
 
 pub fn save_session(dir: &Path, session: &Session) {
     save_by_id(dir, "session", &session.id, session);
+}
+
+/// `<data_dir>/users.json`, owner-readable only: it holds tokens. The
+/// temporary file is created 0600 before a byte is written, so no rename or
+/// crash window ever leaves the tokens world-readable.
+pub fn save_users(dir: &Path, users: &[crate::users::UserRecord]) {
+    let write = || -> std::io::Result<()> {
+        let tmp = dir.join("users.json.tmp");
+        let bytes = serde_json::to_vec_pretty(users).map_err(std::io::Error::other)?;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut file = opts.open(&tmp)?;
+        file.write_all(&bytes)?;
+        std::fs::rename(&tmp, dir.join("users.json"))
+    };
+    if let Err(err) = write() {
+        tracing::error!(kind = "users", %err, "failed to persist record");
+    }
+}
+
+pub fn load_users(dir: &Path) -> Vec<crate::users::UserRecord> {
+    let path = dir.join("users.json");
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Vec::new();
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(users) => users,
+        Err(err) => {
+            tracing::error!(kind = "users", %err, "failed to load record");
+            Vec::new()
+        }
+    }
 }
 
 /// `kind` names the record in the log; everything else is the same however

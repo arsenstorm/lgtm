@@ -66,6 +66,12 @@ pub(crate) struct Notes<'a> {
     pub(crate) content: &'a str,
 }
 
+/// Body of `POST /api/users`.
+#[derive(Serialize)]
+pub(crate) struct NewUser<'a> {
+    pub(crate) name: &'a str,
+}
+
 /// Body of `POST /api/memories`.
 #[derive(Serialize)]
 pub(crate) struct NewMemory<'a> {

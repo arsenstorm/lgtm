@@ -129,6 +129,12 @@ impl App {
         let _ = self.persist.send(Persist::Session(session.clone()));
     }
 
+    pub fn persist_users(&self, state: &State) {
+        let _ = self
+            .persist
+            .send(Persist::Users(state.users.values().cloned().collect()));
+    }
+
     pub fn persist_todo(&self, todo: &Todo) {
         let _ = self.persist.send(Persist::Todo(todo.clone()));
     }
@@ -178,6 +184,8 @@ pub struct State {
     /// Stamped on everything this orchestrator creates; one per orchestrator
     /// until teams exist.
     pub workspace: Option<String>,
+    /// People with tokens of their own, by user id.
+    pub users: HashMap<String, crate::users::UserRecord>,
 }
 
 pub struct TaskRecord {
@@ -317,7 +325,7 @@ pub fn now_ms() -> u64 {
 }
 
 /// Eight lowercase hex characters, which `persist::file_stem` accepts.
-fn random_id() -> String {
+pub(crate) fn random_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()[..8].to_string()
 }
 
