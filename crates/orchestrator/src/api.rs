@@ -504,7 +504,12 @@ async fn scratchpad(
 
 async fn list_tasks(State(app): State<Arc<App>>) -> Json<Vec<Task>> {
     let state = app.state.lock().unwrap();
-    let mut tasks: Vec<Task> = state.tasks.values().map(|rec| rec.task.clone()).collect();
+    let mut tasks: Vec<Task> = state
+        .tasks
+        .values()
+        .filter(|rec| state.in_workspace(rec.task.workspace.as_deref()))
+        .map(|rec| rec.task.clone())
+        .collect();
     tasks.sort_by_key(|task| task.created_at);
     Json(tasks)
 }

@@ -327,6 +327,17 @@ fn approved() -> Verification {
     Verification::UserApproved
 }
 
+/// Whether an object stamped `object` belongs in an orchestrator whose
+/// workspace is `own`. `None` on either side means "the default workspace",
+/// so only two different explicit names separate them — objects from before
+/// a workspace was configured stay visible.
+pub fn same_workspace(object: Option<&str>, own: Option<&str>) -> bool {
+    match (object, own) {
+        (Some(a), Some(b)) => a == b,
+        _ => true,
+    }
+}
+
 /// A person who uses this orchestrator. Their tokens live in the
 /// orchestrator's own store and never travel in this type.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

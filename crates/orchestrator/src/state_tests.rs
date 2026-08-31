@@ -1823,3 +1823,18 @@ fn candidate_ignores_median_duration_under_the_default_prefer_slots() {
     );
     assert_eq!(state.candidate(&spec(Executor::Claude, None)).unwrap(), "a");
 }
+
+#[test]
+fn a_foreign_workspace_memory_is_not_told_to_runs() {
+    let mut state = State {
+        workspace: Some("other".into()),
+        ..State::default()
+    };
+    state.create_memory(None, "no yarn".into(), MemorySource::User, None, None);
+    state.workspace = Some("acme".into());
+    assert!(state
+        .memories_for("https://example.com/repo.git")
+        .is_empty());
+    state.workspace = None;
+    assert_eq!(state.memories_for("https://example.com/repo.git").len(), 1);
+}

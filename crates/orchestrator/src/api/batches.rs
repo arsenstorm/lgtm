@@ -265,7 +265,12 @@ fn create_tasks(
 
 pub(super) async fn list_batches(State(app): State<Arc<App>>) -> Json<Vec<Batch>> {
     let state = app.state.lock().unwrap();
-    let mut batches: Vec<Batch> = state.batches.values().cloned().collect();
+    let mut batches: Vec<Batch> = state
+        .batches
+        .values()
+        .filter(|batch| state.in_workspace(batch.workspace.as_deref()))
+        .cloned()
+        .collect();
     batches.sort_by_key(|batch| batch.created_at);
     Json(batches)
 }

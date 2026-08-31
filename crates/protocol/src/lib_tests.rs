@@ -1034,3 +1034,12 @@ fn worker_keyed_json_still_parses_as_runner() {
         matches!(requeued, TaskEvent::Requeued { runner, .. } if runner.as_deref() == Some("w"))
     );
 }
+
+#[test]
+fn same_workspace_separates_only_two_explicit_names() {
+    assert!(same_workspace(None, None));
+    assert!(same_workspace(None, Some("acme")));
+    assert!(same_workspace(Some("acme"), None));
+    assert!(same_workspace(Some("acme"), Some("acme")));
+    assert!(!same_workspace(Some("acme"), Some("other")));
+}

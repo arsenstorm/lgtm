@@ -101,8 +101,9 @@ pub(super) async fn list_goals(State(app): State<Arc<App>>) -> Json<Vec<GoalSumm
     let state = app.state.lock().unwrap();
     let mut goals: Vec<GoalSummary> = state
         .goals
-        .keys()
-        .filter_map(|id| state.goal_summary(id, &running))
+        .values()
+        .filter(|goal| state.in_workspace(goal.workspace.as_deref()))
+        .filter_map(|goal| state.goal_summary(&goal.id, &running))
         .collect();
     goals.sort_by_key(|summary| summary.goal.created_at);
     Json(goals)

@@ -49,6 +49,7 @@ pub(super) async fn list_memories(
             filter.repository.as_ref().is_none_or(|repository| {
                 memory.repository.as_deref().is_none_or(|r| r == repository)
             }) && (!filter.pending || memory.verification == Verification::AgentProposed)
+                && state.in_workspace(memory.workspace.as_deref())
         })
         .cloned()
         .collect();

@@ -390,11 +390,24 @@ impl State {
     }
 
     /// What a run in `repository` is told, oldest first.
+    /// Whether an object stamped `workspace` belongs to this orchestrator.
+    /// Scoping is deliberately read-side only for now — lists and the
+    /// memories agents are told. By-id reads, stats, and the scheduler stay
+    /// workspace-blind until teams give two workspaces a reason to share
+    /// one data directory.
+    pub(crate) fn in_workspace(&self, workspace: Option<&str>) -> bool {
+        lgtm_protocol::same_workspace(workspace, self.workspace.as_deref())
+    }
+
+    /// A memory a run is told must also be one the operator can see in the
+    /// list, so a foreign-workspace memory never steers agents invisibly.
     pub(crate) fn memories_for(&self, repository: &str) -> Vec<Memory> {
         let mut out: Vec<Memory> = self
             .memories
             .values()
-            .filter(|memory| memory.is_told_to(repository))
+            .filter(|memory| {
+                memory.is_told_to(repository) && self.in_workspace(memory.workspace.as_deref())
+            })
             .cloned()
             .collect();
         out.sort_by_key(|memory| memory.created_at);

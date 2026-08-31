@@ -55,6 +55,7 @@ pub(super) async fn list_sessions(
                 .repository
                 .as_deref()
                 .is_none_or(|repo| session.repository == repo)
+                && state.in_workspace(session.workspace.as_deref())
         })
         .cloned()
         .collect();
