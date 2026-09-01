@@ -72,7 +72,7 @@ fn body(
         Pane::Terminal => div()
             .flex_1()
             .min_h_0()
-            .child(terminal::terminal(app, t, cx))
+            .child(terminal::terminal(app, t))
             .into_any_element(),
         Pane::Plan => scrolling(app, plan_pane(task, t)),
         Pane::Activity => scrolling(app, activity(app, t)),

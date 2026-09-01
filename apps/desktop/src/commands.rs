@@ -528,7 +528,7 @@ impl LgtmApp {
         });
     }
 
-    /// Detaching leaves the shell running on the runner; `Close` kills it.
+    /// Detaching leaves the shell running on the runner for the next visit.
     fn detach_shell(&mut self) {
         if let Some(shell) = self.shell.take() {
             shell.stream.abort();
@@ -544,12 +544,6 @@ impl LgtmApp {
             let _ = shell.input.send(format!("{line}\n"));
         }
         cx.notify();
-    }
-
-    /// Kills the shell and detaches; the tab starts a new one on reattach.
-    pub fn close_shell(&mut self, cx: &mut Context<Self>) {
-        self.detach_shell();
-        self.act(Action::CloseTerminal, cx);
     }
 
     pub fn add_memory(&mut self, window: &mut Window, cx: &mut Context<Self>) {

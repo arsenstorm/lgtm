@@ -121,7 +121,6 @@ pub enum Action {
     FinishTodo,
     DeleteTodo,
     Promote(Box<PromoteTodo>),
-    CloseTerminal,
 }
 
 pub fn runtime() -> &'static Runtime {
@@ -356,7 +355,6 @@ async fn one_task(client: &Client, id: &str, action: Action) -> anyhow::Result<(
         Action::FinishTodo => client.finish_todo(id).await.map(|_| ()),
         Action::DeleteTodo => client.delete_todo(id).await,
         Action::Promote(into) => client.promote_todo(id, &into).await.map(|_| ()),
-        Action::CloseTerminal => client.close_terminal(id).await,
         // Answered before this is reached; it does not act on one task.
         Action::StartSession(_) => Ok(()),
     }

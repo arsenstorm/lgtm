@@ -1,23 +1,20 @@
 //! The Terminal tab: the shell in the task's worktree, as a terminal — one
 //! mono surface bleeding to the pane's edges, scrollback above, prompt below.
 
-use super::danger_ghost;
 use crate::app::LgtmApp;
-use crate::theme::{Tokens, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO, TEXT_SECONDARY, UI_FONT};
+use crate::theme::{Tokens, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
-    ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _,
+    div, px, AnyElement, Div, InteractiveElement as _, IntoElement, ParentElement as _, Stateful,
+    StatefulInteractiveElement as _, Styled as _,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::Input;
-use gpui_component::Sizable as _;
 
 /// How much output one attached shell keeps. Dropping the front of a byte
 /// buffer is cheap, and nothing above reads what scrolled off.
 const SCROLLBACK: usize = 200_000;
 
-pub(super) fn terminal(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> AnyElement {
+pub(super) fn terminal(app: &LgtmApp, t: &Tokens) -> AnyElement {
     let attached = app.shell.is_some();
     div()
         .relative()
@@ -29,7 +26,6 @@ pub(super) fn terminal(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> 
         .text_size(px(TEXT_MONO))
         .line_height(px(LINE_MONO))
         .text_color(t.fg)
-        .when(attached, |this| this.child(terminal_header(t, cx)))
         .child(scrollback(app, t))
         .when(attached, |this| this.child(prompt(app, t)))
         .into_any_element()
@@ -45,7 +41,8 @@ fn scrollback(app: &LgtmApp, t: &Tokens) -> Stateful<Div> {
         Some(shell) => shell
             .output
             .lines()
-            .map(|line| div().child(line.to_string()))
+            .filter_map(display_line)
+            .map(|line| div().child(line))
             .collect(),
     };
     div()
@@ -61,26 +58,19 @@ fn scrollback(app: &LgtmApp, t: &Tokens) -> Stateful<Div> {
         .children(lines)
 }
 
-fn terminal_header(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    div()
-        .flex_shrink_0()
-        .flex()
-        .items_center()
-        .h(px(28.))
-        .px(px(SPACE[1]))
-        .border_b_1()
-        .border_color(t.border)
-        .font_family(UI_FONT)
-        .text_size(px(TEXT_SECONDARY))
-        .text_color(t.muted_fg)
-        .child(div().flex_1().child("Terminal session"))
-        .child(
-            Button::new("close-terminal")
-                .label("Close terminal")
-                .custom(danger_ghost(t, cx))
-                .small()
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_shell(cx))),
-        )
+/// zsh paints its right prompt by writing a wide run of spaces before it.
+/// Cursor positioning is intentionally absent from this append-only view, so
+/// keep the useful prompt but seat it on the left like the rest of the log.
+fn display_line(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if trimmed == "%" {
+        return None;
+    }
+    let right_prompt = line
+        .rsplit_once("        ")
+        .map(|(_, right)| right.trim())
+        .filter(|right| right.contains('@') && right.ends_with('%'));
+    Some(right_prompt.unwrap_or(line).trim_end().to_string())
 }
 
 fn quiet(text: &str, t: &Tokens) -> Div {
@@ -190,5 +180,18 @@ mod tests {
     #[test]
     fn newlines_and_tabs_survive_but_the_other_controls_do_not() {
         assert_eq!(strip_ansi("one\r\ntwo\tthree\x07"), "one\ntwo\tthree");
+    }
+
+    #[test]
+    fn a_zsh_right_prompt_is_seated_at_the_left_edge() {
+        assert_eq!(
+            display_line("%        arsen@MacBook f652b0e7 %"),
+            Some("arsen@MacBook f652b0e7 %".into())
+        );
+        assert_eq!(display_line("%"), None);
+        assert_eq!(
+            display_line("ordinary output"),
+            Some("ordinary output".into())
+        );
     }
 }
