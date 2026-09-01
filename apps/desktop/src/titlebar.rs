@@ -3,7 +3,7 @@
 
 use crate::app::LgtmApp;
 use crate::theme::{icon_button, tokens, Tokens, BAR_H, LIGHTS_W, SPACE};
-use crate::{panes, sidebar};
+use crate::{panes, session, sidebar};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -16,6 +16,7 @@ pub fn bar(app: &mut LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
     let t = tokens(cx);
     let open = app.ui.sidebar_open;
     let task = app.selected_task().cloned();
+    let in_session = app.selected.is_none() && matches!(&app.page, crate::app::Page::Session(_));
     draggable(div().id("window-bar"), cx)
         .flex()
         .flex_shrink_0()
@@ -45,6 +46,9 @@ pub fn bar(app: &mut LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
                 .border_color(t.border)
                 .when_some(task, |this, task| {
                     this.child(panes::task_header(app, &task, &t, cx))
+                })
+                .when(in_session, |this| {
+                    this.child(session::session_header(app, &t, cx))
                 })
                 .when(!open, |this| {
                     this.child(cluster(&t, LIGHTS_W - SPACE[1], cx))

@@ -191,6 +191,8 @@ pub struct UiState {
     pub project_tab: ProjectTab,
     /// The footer's runner popover.
     pub runner_menu: bool,
+    /// The open session's project details, anchored in the window bar.
+    pub session_project_menu: bool,
     /// Which Settings dropdown is open, by its id.
     pub settings_menu: Option<&'static str>,
     /// Which Settings section the dialog's left nav has selected.
@@ -221,6 +223,7 @@ impl Default for UiState {
             session_scroll: ScrollHandle::new(),
             project_tab: ProjectTab::default(),
             runner_menu: false,
+            session_project_menu: false,
             settings_menu: None,
             settings_section: crate::settings::Section::default(),
             denied: HashSet::new(),

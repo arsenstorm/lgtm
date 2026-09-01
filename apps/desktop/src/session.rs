@@ -3,12 +3,16 @@
 
 mod card;
 
-use crate::app::LgtmApp;
+use crate::app::{LgtmApp, Page};
 use crate::tasks::{now_ms, repo_slug};
-use crate::theme::{icon, tokens, Tokens, HEADER_H, ICON, RADIUS, SPACE, TEXT_SECONDARY};
+use crate::theme::{
+    icon, icon_button, tokens, Tokens, BAR_H, ICON, RADIUS, ROW_H, SPACE, TEXT_SECONDARY,
+};
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, Context, Div, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _, Window,
+    div, px, AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _,
+    Window,
 };
 use lgtm_protocol::{StoredEvent, Task, TaskEvent};
 
@@ -63,52 +67,137 @@ pub fn page(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmApp>) -
         .min_w_0()
         .flex()
         .flex_col()
-        .child(header(app, &t))
         .child(thread(app, &t, cx))
         .child(crate::composer::composer(app, &t, window, cx))
         .into_any_element()
 }
 
-/// What the thread is about: its title, over the project it runs in.
-fn header(app: &LgtmApp, t: &Tokens) -> Div {
+/// What the thread is about, seated in the window bar. The folder owns the
+/// project context instead of spelling it out as a second header row.
+pub(crate) fn session_header(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let Some(open) = &app.session else {
-        return div().h(px(HEADER_H)).flex_shrink_0();
+        return div().h_full().flex_1();
     };
     let title = match open.session.title.trim().is_empty() {
         true => "New session".to_string(),
         false => open.session.title.clone(),
     };
     div()
+        .relative()
         .flex()
-        .flex_shrink_0()
-        .flex_col()
-        .justify_center()
-        .gap(px(2.))
-        .h(px(HEADER_H + SPACE[2]))
-        .px(px(SPACE[2]))
-        .border_b_1()
-        .border_color(t.border)
+        .flex_1()
+        .min_w_0()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .h_full()
+        .when(app.ui.session_project_menu, |this| {
+            this.child(project_dismiss(cx))
+                .child(project_popover(app, t, cx))
+        })
+        .child(
+            icon_button("session-project", "folder", true, t)
+                .occlude()
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    cx.stop_propagation();
+                    let open = !this.ui.session_project_menu;
+                    this.close_menus(cx);
+                    this.ui.session_project_menu = open;
+                    cx.notify();
+                })),
+        )
         .child(
             div()
+                .flex_1()
                 .min_w_0()
                 .truncate()
                 .font_weight(FontWeight::MEDIUM)
                 .child(title),
         )
+}
+
+const PROJECT_MENU_W: f32 = 300.;
+
+fn project_popover(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let Some(open) = &app.session else {
+        return div();
+    };
+    let repository = open.session.repository.clone();
+    let slug = repo_slug(&repository);
+    let tasks = open.tasks.len();
+    div()
+        .absolute()
+        .top(px(BAR_H - 2.))
+        .left_0()
+        .w(px(PROJECT_MENU_W))
+        .flex()
+        .flex_col()
+        .p(px(SPACE[0]))
+        .rounded(px(RADIUS))
+        .bg(t.popover)
+        .border_1()
+        .border_color(t.border)
+        .text_size(px(TEXT_SECONDARY))
+        .occlude()
+        .child(project_row(
+            icon("folder", ICON, t.muted_fg),
+            slug.clone(),
+            t,
+        ))
+        .child(project_row(
+            icon("list-checks", ICON, t.muted_fg),
+            format!("{tasks} task{}", if tasks == 1 { "" } else { "s" }),
+            t,
+        ))
+        .child(project_row(
+            icon("git-branch", ICON, t.muted_fg),
+            open.session.base_branch.clone(),
+            t,
+        ))
+        .child(project_row(icon("folder", ICON, t.muted_fg), repository, t))
+        .child(separator(t))
         .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[0]))
-                .text_size(px(TEXT_SECONDARY))
-                .text_color(t.muted_fg)
-                .child(icon("folder", ICON, t.muted_fg))
-                .child(format!(
-                    "{} · {}",
-                    repo_slug(&open.session.repository),
-                    open.session.base_branch
-                )),
+            project_row(
+                icon("settings", ICON, t.muted_fg),
+                "View project".to_string(),
+                t,
+            )
+            .id("view-session-project")
+            .cursor_pointer()
+            .hover(|this| this.bg(t.muted))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.close_menus(cx);
+                this.show_page(Page::Project(slug.clone()), cx);
+            })),
         )
+}
+
+fn project_row(leading: impl IntoElement, text: String, t: &Tokens) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .h(px(ROW_H))
+        .px(px(SPACE[1]))
+        .rounded(px(SPACE[1]))
+        .text_color(t.muted_fg)
+        .child(leading)
+        .child(div().min_w_0().truncate().child(text))
+}
+
+fn separator(t: &Tokens) -> Div {
+    div().h(px(1.)).my(px(SPACE[0])).bg(t.border)
+}
+
+fn project_dismiss(cx: &mut Context<LgtmApp>) -> Stateful<Div> {
+    div()
+        .id("session-project-dismiss")
+        .absolute()
+        .top(px(-4000.))
+        .left(px(-4000.))
+        .w(px(8000.))
+        .h(px(8000.))
+        .occlude()
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_menus(cx)))
 }
 
 fn thread(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
