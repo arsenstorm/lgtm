@@ -48,6 +48,11 @@ pub fn bar(app: &mut LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
                 .bg(t.bg)
                 .border_b_1()
                 .border_color(t.border)
+                // With the sidebar closed the traffic lights sit over this
+                // strip, so the toggle leads and the titles start after them.
+                .when(!open, |this| {
+                    this.child(cluster(&t, LIGHTS_W - SPACE[1], cx))
+                })
                 .when_some(task, |this, task| {
                     this.child(panes::task_header(app, &task, &t, cx))
                 })
@@ -56,9 +61,6 @@ pub fn bar(app: &mut LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
                 })
                 .when_some(project, |this, slug| {
                     this.child(project::project_header(&slug, &t))
-                })
-                .when(!open, |this| {
-                    this.child(cluster(&t, LIGHTS_W - SPACE[1], cx))
                 }),
         )
 }
