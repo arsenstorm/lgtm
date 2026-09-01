@@ -33,6 +33,8 @@ icons![
     "ellipsis",
     "folder",
     "git-branch",
+    "inbox",
+    "info",
     "lightbulb",
     "list-checks",
     "panel-left",
@@ -41,6 +43,7 @@ icons![
     "server",
     "settings",
     "square-pen",
+    "terminal",
     "trash-2",
     "x",
 ];
