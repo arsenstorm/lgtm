@@ -2,8 +2,8 @@
 //! sidebar and the main pane.
 
 use crate::app::LgtmApp;
-use crate::sidebar;
 use crate::theme::{icon_button, tokens, Tokens, BAR_H, LIGHTS_W, SPACE};
+use crate::{panes, sidebar};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -12,9 +12,10 @@ use gpui::{
 };
 use gpui_component::InteractiveElementExt as _;
 
-pub fn bar(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
+pub fn bar(app: &mut LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
     let t = tokens(cx);
     let open = app.ui.sidebar_open;
+    let task = app.selected_task().cloned();
     draggable(div().id("window-bar"), cx)
         .flex()
         .flex_shrink_0()
@@ -42,6 +43,9 @@ pub fn bar(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
                 .bg(t.bg)
                 .border_b_1()
                 .border_color(t.border)
+                .when_some(task, |this, task| {
+                    this.child(panes::task_header(app, &task, &t, cx))
+                })
                 .when(!open, |this| {
                     this.child(cluster(&t, LIGHTS_W - SPACE[1], cx))
                 }),

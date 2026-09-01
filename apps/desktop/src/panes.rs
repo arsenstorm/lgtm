@@ -10,7 +10,7 @@ use crate::app::{LgtmApp, Pane};
 use crate::labels::{header_preview, status_label};
 use crate::net::Action;
 use crate::tasks::repo_slug;
-use crate::theme::{field, icon, tokens, Tokens, HEADER_H, RADIUS_PILL, SPACE, TEXT_SECONDARY};
+use crate::theme::{field, icon, tokens, Tokens, RADIUS_PILL, SPACE, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement as _,
@@ -46,9 +46,8 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
         .min_w_0()
         .flex()
         .flex_col()
-        .child(header(app, &task, &t, cx))
         .children(notices(app, &t))
-        .child(div().p(px(SPACE[1])).child(tab_bar(pane, has_plan, cx)))
+        .child(div().px(px(SPACE[1])).child(tab_bar(pane, has_plan, cx)))
         .child(body(app, pane, &task, &t, window, cx))
         .into_any_element()
 }
@@ -124,7 +123,7 @@ fn tab_bar(pane: Pane, has_plan: bool, cx: &mut Context<LgtmApp>) -> TabBar {
     let tabs = tabs_for(has_plan);
     let at = tabs.iter().position(|(one, _)| *one == pane).unwrap_or(0);
     TabBar::new("panes")
-        .segmented()
+        .underline()
         .text_size(px(TEXT_SECONDARY))
         .selected_index(at)
         .children(tabs.iter().map(|(_, label)| Tab::new().label(*label)))
@@ -152,11 +151,15 @@ fn scrolling(app: &LgtmApp, body: impl IntoElement) -> AnyElement {
         .into_any_element()
 }
 
-fn header(app: &mut LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+pub(crate) fn task_header(
+    app: &mut LgtmApp,
+    task: &Task,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Div {
     let status = status_label(task, &app.tasks);
     div()
-        .h(px(HEADER_H))
-        .flex_shrink_0()
+        .h_full()
         .flex()
         .items_center()
         .gap(px(SPACE[1]))
@@ -294,12 +297,12 @@ fn ci_passed(task: &Task) -> bool {
 pub(super) fn review_actions(t: &Tokens, cx: &mut Context<LgtmApp>) -> [Button; 3] {
     [
         Button::new("approve")
-            .label("Approve")
+            .label("Approve work")
             .primary()
             .small()
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Approve, cx))),
         Button::new("request-changes")
-            .label("Request changes")
+            .label("Request revisions")
             .outline()
             .small()
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -310,7 +313,7 @@ pub(super) fn review_actions(t: &Tokens, cx: &mut Context<LgtmApp>) -> [Button; 
                 }
             })),
         Button::new("reject")
-            .label("Reject")
+            .label("Reject work")
             .custom(danger_ghost(t, cx))
             .small()
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Reject, cx))),

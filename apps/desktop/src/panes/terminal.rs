@@ -1,14 +1,17 @@
 //! The Terminal tab: the shell in the task's worktree, as a terminal — one
 //! mono surface bleeding to the pane's edges, scrollback above, prompt below.
 
+use super::danger_ghost;
 use crate::app::LgtmApp;
-use crate::theme::{icon_button, Tokens, GLYPH, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO};
+use crate::theme::{Tokens, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO, TEXT_SECONDARY, UI_FONT};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
     ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _,
 };
+use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::Input;
+use gpui_component::Sizable as _;
 
 /// How much output one attached shell keeps. Dropping the front of a byte
 /// buffer is cheap, and nothing above reads what scrolled off.
@@ -26,10 +29,9 @@ pub(super) fn terminal(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> 
         .text_size(px(TEXT_MONO))
         .line_height(px(LINE_MONO))
         .text_color(t.fg)
+        .when(attached, |this| this.child(terminal_header(t, cx)))
         .child(scrollback(app, t))
-        .when(attached, |this| {
-            this.child(prompt(app, t)).child(close(t, cx))
-        })
+        .when(attached, |this| this.child(prompt(app, t)))
         .into_any_element()
 }
 
@@ -54,11 +56,31 @@ fn scrollback(app: &LgtmApp, t: &Tokens) -> Stateful<Div> {
         .track_scroll(&app.ui.terminal_scroll)
         .flex()
         .flex_col()
-        .pl(px(SPACE[1]))
-        // The close cross floats over this corner: keep the text out from under it.
-        .pr(px(GLYPH + SPACE[1]))
+        .px(px(SPACE[1]))
         .py(px(SPACE[0]))
         .children(lines)
+}
+
+fn terminal_header(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    div()
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .h(px(28.))
+        .px(px(SPACE[1]))
+        .border_b_1()
+        .border_color(t.border)
+        .font_family(UI_FONT)
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.muted_fg)
+        .child(div().flex_1().child("Terminal session"))
+        .child(
+            Button::new("close-terminal")
+                .label("Close terminal")
+                .custom(danger_ghost(t, cx))
+                .small()
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_shell(cx))),
+        )
 }
 
 fn quiet(text: &str, t: &Tokens) -> Div {
@@ -83,14 +105,6 @@ fn prompt(app: &LgtmApp, t: &Tokens) -> Div {
                 .text_size(px(TEXT_MONO))
                 .line_height(px(LINE_MONO)),
         )
-}
-
-fn close(t: &Tokens, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
-    icon_button("close-terminal", "x", true, t)
-        .absolute()
-        .top(px(SPACE[0]))
-        .right(px(SPACE[0]))
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_shell(cx)))
 }
 
 impl crate::app::Shell {
