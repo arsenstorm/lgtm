@@ -46,8 +46,6 @@ pub const ROW_H: f32 = 28.;
 pub const BAR_H: f32 = 38.;
 /// The traffic lights plus their breathing room.
 pub const LIGHTS_W: f32 = 78.;
-/// The sidebar's status row.
-pub const FOOTER_H: f32 = 40.;
 
 /// The composer, layer by layer. Codex builds its prompt out of luminance
 /// alone: a darker panel behind, a lighter card over it, one hairline edge.

@@ -6,8 +6,7 @@ use crate::labels::prompt_preview;
 use crate::project::goals_of;
 use crate::tasks::{goal_color, repo_slug};
 use crate::theme::{
-    icon, icon_button, tokens, Tokens, FOOTER_H, ICON, ROW_H, SPACE, TEXT_BODY, TEXT_ROW,
-    TEXT_SECONDARY,
+    icon, icon_button, tokens, Tokens, ICON, ROW_H, SPACE, TEXT_BODY, TEXT_ROW, TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -29,8 +28,9 @@ const BRAND_H: f32 = 36.;
 const NEST: f32 = 32.;
 /// Sessions shown per project before `Show more`.
 const PER_PROJECT: usize = 5;
-/// The circle around the connection dot.
-const STATUS_DOT: f32 = 20.;
+/// The circle around the connection dot: the size of an icon, so the dot
+/// holds the same column as the folder icons above it.
+const STATUS_DOT: f32 = 16.;
 
 pub fn render_sidebar(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<LgtmApp>) -> Div {
     let t = tokens(cx);
@@ -407,7 +407,7 @@ fn status_dot(tone: gpui::Hsla) -> Div {
 }
 
 /// One row: whether the orchestrator answered, and the way into Settings.
-fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> gpui::Stateful<Div> {
+fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let status = if app.link.reachable {
         let n = app.runners.len();
         format!("Connected · {n} runner{}", if n == 1 { "" } else { "s" })
@@ -420,25 +420,18 @@ fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> gpui::Statefu
         t.danger
     };
     div()
-        .id("status")
-        .flex()
         .flex_shrink_0()
-        .items_center()
-        .gap(px(SPACE[1]))
-        .h(px(FOOTER_H))
-        .pl(px(SPACE[1]))
-        .pr(px(SPACE[1]))
-        .text_size(px(TEXT_ROW))
-        .text_color(t.muted_fg)
-        .cursor_pointer()
-        .hover(|this| this.text_color(t.fg))
-        .child(status_dot(tone))
-        .child(div().flex_1().min_w_0().truncate().child(status))
+        .px(px(SPACE[1]))
+        .py(px(SPACE[0]))
         .child(
-            icon_button("open-settings", "settings", true, t)
+            row_shell("status", false, t)
+                .child(status_dot(tone))
+                .child(div().flex_1().min_w_0().truncate().child(status))
+                .child(icon_button("open-settings", "settings", true, t).on_click(
+                    cx.listener(|this, _: &ClickEvent, _, cx| this.open_runner_settings(cx)),
+                ))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_runner_settings(cx))),
         )
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_runner_settings(cx)))
 }
 
 #[cfg(test)]
