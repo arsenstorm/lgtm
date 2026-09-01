@@ -10,10 +10,7 @@ use crate::app::{LgtmApp, Pane};
 use crate::labels::{header_preview, status_label};
 use crate::net::Action;
 use crate::tasks::repo_slug;
-use crate::theme::{
-    field, icon, tokens, Tokens, HEADER_H, LINE_MONO, MONO_FONT, RADIUS_PILL, SPACE, TEXT_MONO,
-    TEXT_SECONDARY,
-};
+use crate::theme::{field, icon, tokens, Tokens, HEADER_H, RADIUS_PILL, SPACE, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement as _,
@@ -73,7 +70,11 @@ fn body(
         Pane::Overview => scrolling(app, overview::overview(app, task, t, cx)),
         Pane::Review => scrolling(app, review_tab::review(app, task, t, cx)),
         Pane::Notes => scrolling(app, notes::notes(app, task, t, cx)),
-        Pane::Terminal => scrolling(app, terminal::terminal(app, t, cx)),
+        Pane::Terminal => div()
+            .flex_1()
+            .min_h_0()
+            .child(terminal::terminal(app, t, cx))
+            .into_any_element(),
         Pane::Plan => scrolling(app, plan_pane(task, t)),
         Pane::Activity => scrolling(app, activity(app, t)),
     }
@@ -134,7 +135,9 @@ fn tab_bar(pane: Pane, has_plan: bool, cx: &mut Context<LgtmApp>) -> TabBar {
         }))
 }
 
-/// The monospace, scrolling body shared by every pane but Changes.
+/// The scrolling body shared by every pane but Changes and Terminal. It sets
+/// no type of its own: a pane that is prose picks the UI font, a pane that is
+/// data picks mono, and neither inherits the other's.
 fn scrolling(app: &LgtmApp, body: impl IntoElement) -> AnyElement {
     div()
         .id("pane-content")
@@ -143,10 +146,8 @@ fn scrolling(app: &LgtmApp, body: impl IntoElement) -> AnyElement {
         .overflow_y_scroll()
         .track_scroll(&app.ui.content_scroll)
         .px(px(SPACE[2]))
-        .pb(px(SPACE[2]))
-        .font_family(MONO_FONT)
-        .text_size(px(TEXT_MONO))
-        .line_height(px(LINE_MONO))
+        .pt(px(SPACE[2]))
+        .pb(px(SPACE[4]))
         .child(body)
         .into_any_element()
 }
@@ -353,6 +354,18 @@ fn ci_mark(ci: Option<&CiStatus>, t: &Tokens) -> (Option<&'static str>, Hsla) {
         Some(CiState::Pending) => (Some("ellipsis"), t.muted_fg),
         None => (None, t.muted_fg),
     }
+}
+
+/// A section's name inside a pane. gpui has no letter-spacing, so the
+/// uppercase label the rest of the app uses reads as a cramped shout when
+/// several stack down one tab; here the name stays as written and leans on
+/// size and colour alone.
+pub(super) fn label(text: &'static str, t: &Tokens) -> Div {
+    div()
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.muted_fg)
+        .font_weight(FontWeight::MEDIUM)
+        .child(text)
 }
 
 /// A greyed line standing in for a section with nothing in it.

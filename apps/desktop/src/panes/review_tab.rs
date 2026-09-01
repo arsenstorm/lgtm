@@ -1,10 +1,12 @@
 //! The Review tab: the checks, the reviewer's findings, and the decision the
 //! task is waiting on.
 
-use super::{danger_ghost, muted, review_actions, MARK};
+use super::{danger_ghost, label, muted, review_actions, MARK};
 use crate::app::LgtmApp;
 use crate::net::Action;
-use crate::theme::{field, icon, section_label, Tokens, SPACE, TEXT_SECONDARY};
+use crate::theme::{
+    field, icon, Tokens, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO, TEXT_ROW, TEXT_SECONDARY,
+};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, img, px, AnyElement, ClickEvent, Context, Div, Image, InteractiveElement as _,
@@ -30,24 +32,17 @@ pub(super) fn review(
     div()
         .flex()
         .flex_col()
-        .gap(px(SPACE[2]))
+        .gap(px(SPACE[4]))
+        .text_size(px(TEXT_ROW))
         .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(SPACE[0]))
-                .child(section_label("Checks", t))
+            stack("Checks", t)
                 .children(checks.iter().map(|check| check_row(check, t)))
                 .when(checks.is_empty(), |this| {
                     this.child(muted("No checks configured.", t))
                 }),
         )
         .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(SPACE[0]))
-                .child(section_label("Findings", t))
+            stack("Findings", t)
                 .children(
                     review
                         .map(|review| review.findings.as_slice())
@@ -61,37 +56,46 @@ pub(super) fn review(
                 .when_some(review.and_then(|r| r.executor), |this, executor| {
                     this.child(
                         div()
+                            .text_size(px(TEXT_SECONDARY))
                             .text_color(t.muted_fg)
                             .child(format!("reviewed by {}", executor.binary())),
                     )
                 }),
         )
-        .child(artefacts(app, t, cx))
-        .child(requests(app, task, t, cx))
+        .children(artefacts(app, t, cx))
+        .children(requests(app, task, t, cx))
         .children(actions(app, task, t, cx))
         .into_any_element()
+}
+
+/// A section: its name, then its rows. Sections are told apart by the air
+/// between them, not by a rule.
+fn stack(name: &'static str, t: &Tokens) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(SPACE[1]))
+        .child(label(name, t))
 }
 
 /// The files the runs left for whoever reviews the task. The events carry
 /// only a name and a size; an image's bytes are fetched once, on the first
 /// render that wants them.
-fn artefacts(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+fn artefacts(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Option<Div> {
     let found = latest(&app.events);
-    let empty = found.is_empty();
+    if found.is_empty() {
+        return None;
+    }
     let task = app.selected.clone().unwrap_or_default();
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(SPACE[0]))
-        .child(section_label("Artefacts", t))
-        .children(found.into_iter().map(|(name, size)| {
+    Some(
+        stack("Artefacts", t).children(found.into_iter().map(|(name, size)| {
             let held = app.artefacts.get(&(task.clone(), name.clone()));
             if held.is_none() && crate::app::artefact_format(&name).is_some() {
                 fetch(name.clone(), cx);
             }
             artefact_row(&name, size, held.cloned().flatten(), t)
-        }))
-        .when(empty, |this| this.child(muted("No artefacts.", t)))
+        })),
+    )
 }
 
 /// The app is borrowed for the whole render, so the request is made once it
@@ -152,23 +156,21 @@ fn size_label(size: usize) -> String {
 
 /// Hosts an agent asked for that a person hasn't granted yet, each with a
 /// button to grant it for the task's next run.
-fn requests(app: &LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+fn requests(app: &LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Option<Div> {
     let pending: Vec<(String, String)> = pending_requests(&app.events, &task.spec)
         .into_iter()
         .filter(|(target, _)| !app.ui.denied.contains(&denial(&task.id, target)))
         .collect();
-    let empty = pending.is_empty();
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(SPACE[0]))
-        .child(section_label("Requests", t))
-        .children(
+    if pending.is_empty() {
+        return None;
+    }
+    Some(
+        stack("Requests", t).children(
             pending
                 .into_iter()
                 .map(|(target, reason)| request_row(&task.id, target, reason, t, cx)),
-        )
-        .when(empty, |this| this.child(muted("No requests.", t)))
+        ),
+    )
 }
 
 /// What a denied request is remembered by, for this window only.
@@ -223,28 +225,40 @@ fn request_row(
         )
 }
 
+/// The mark carries whether the check passed, so the name itself can stay
+/// plain: a green wall of check names is what made the tab shout.
 fn check_row(check: &ValidationResult, t: &Tokens) -> Div {
     let tone = if check.ok { t.success } else { t.danger };
     let mark = if check.ok { "check" } else { "x" };
     div()
         .flex()
         .flex_col()
+        .gap(px(SPACE[0]))
         .child(
             div()
                 .flex()
                 .items_center()
-                .gap(px(SPACE[0]))
-                .text_color(tone)
+                .gap(px(SPACE[1]))
                 .child(icon(mark, MARK, tone))
                 .child(check.name.clone()),
         )
         .when(!check.ok, |this| {
-            this.children(check.output_tail.lines().map(|line| {
+            this.child(
                 div()
-                    .pl(px(SPACE[2]))
+                    .flex()
+                    .flex_col()
+                    .pl(px(SPACE[3]))
+                    .font_family(MONO_FONT)
+                    .text_size(px(TEXT_MONO))
+                    .line_height(px(LINE_MONO))
                     .text_color(t.muted_fg)
-                    .child(line.to_string())
-            }))
+                    .children(
+                        check
+                            .output_tail
+                            .lines()
+                            .map(|line| div().child(line.to_string())),
+                    ),
+            )
         })
 }
 
@@ -267,8 +281,21 @@ fn finding_row(finding: &Finding, t: &Tokens, cx: &mut Context<LgtmApp>) -> Stat
         .cursor_pointer()
         .hover(|this| this.bg(t.muted))
         .child(icon(mark, MARK, tone))
-        .child(div().text_color(t.info).child(location))
-        .child(div().child(finding.message.clone()))
+        .child(
+            div()
+                .flex_none()
+                .font_family(MONO_FONT)
+                .text_size(px(TEXT_MONO))
+                .child(location),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_color(t.muted_fg)
+                .child(finding.message.clone()),
+        )
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.open_changes_at(&file, cx)))
 }
 

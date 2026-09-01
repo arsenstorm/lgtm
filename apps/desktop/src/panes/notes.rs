@@ -2,7 +2,7 @@
 
 use super::muted;
 use crate::app::LgtmApp;
-use crate::theme::{field, Tokens, SPACE};
+use crate::theme::{field, Tokens, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO, TEXT_ROW};
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, IntoElement, ParentElement as _, Styled as _,
 };
@@ -16,7 +16,11 @@ pub(super) fn notes(
     t: &Tokens,
     cx: &mut Context<LgtmApp>,
 ) -> AnyElement {
-    let column = div().flex().flex_col().gap(px(SPACE[1]));
+    let column = div()
+        .flex()
+        .flex_col()
+        .gap(px(SPACE[2]))
+        .text_size(px(TEXT_ROW));
     if app.ui.editing_notes {
         return column
             .child(field(&app.inputs.notes, t))
@@ -47,7 +51,8 @@ pub(super) fn notes(
         .into_any_element()
 }
 
-/// The pane is already monospace; the lines are split so they keep their breaks.
+/// The scratchpad is the agent's own file, so it keeps monospace and its own
+/// line breaks while the chrome around it stays UI type.
 fn body(scratchpad: &str, t: &Tokens) -> AnyElement {
     if scratchpad.trim().is_empty() {
         return muted("No notes yet", t);
@@ -55,11 +60,9 @@ fn body(scratchpad: &str, t: &Tokens) -> AnyElement {
     div()
         .flex()
         .flex_col()
-        .children(
-            scratchpad
-                .lines()
-                .map(|line| div().child(line.to_string()))
-                .collect::<Vec<_>>(),
-        )
+        .font_family(MONO_FONT)
+        .text_size(px(TEXT_MONO))
+        .line_height(px(LINE_MONO))
+        .children(scratchpad.lines().map(|line| div().child(line.to_string())))
         .into_any_element()
 }

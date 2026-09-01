@@ -1,12 +1,11 @@
 //! The Overview tab: what the task is, every attempt at it, and what the
 //! orchestrator and the other live tasks have to say about it.
 
-use super::{badge, muted};
+use super::{badge, label};
 use crate::app::LgtmApp;
-use crate::labels::status_label;
 use crate::render;
 use crate::tasks::{duration, now_ms, relative_age, repo_slug};
-use crate::theme::{section_label, Tokens, SPACE, TEXT_SECONDARY};
+use crate::theme::{Tokens, SPACE, TEXT_ROW, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
@@ -15,7 +14,7 @@ use gpui::{
 use lgtm_protocol::{Execution, ExecutionStatus, Overlap, StoredEvent, Task, TaskEvent};
 
 /// The key column, wide enough for `Requirements`.
-const KEY_W: f32 = 116.;
+const KEY_W: f32 = 104.;
 
 pub(super) fn overview(
     app: &LgtmApp,
@@ -26,56 +25,57 @@ pub(super) fn overview(
     div()
         .flex()
         .flex_col()
-        .gap(px(SPACE[3]))
-        .child(div().flex().flex_col().gap(px(SPACE[0])).children(
-            pairs(app, task, t, cx).into_iter().map(|(key, value)| {
-                div()
-                    .flex()
-                    .items_start()
-                    .gap(px(SPACE[1]))
-                    .child(
-                        div()
-                            .w(px(KEY_W))
-                            .flex_none()
-                            .text_color(t.muted_fg)
-                            .child(key),
-                    )
-                    .child(div().flex_1().min_w_0().child(value))
-            }),
-        ))
-        .child(section(
-            "Attempts",
-            attempts(task, t),
-            "No attempts yet.",
-            t,
-        ))
-        .child(section(
-            "Policy",
-            decision_rows(&app.events, t),
-            "No decisions yet.",
-            t,
-        ))
-        .child(section(
-            "Overlaps",
-            overlap_rows(&app.overlaps, t, cx),
-            "No overlapping tasks.",
-            t,
-        ))
+        .gap(px(SPACE[4]))
+        .text_size(px(TEXT_ROW))
+        .child(facts(app, task, t, cx))
+        .children(section("Attempts", attempts(task, t), t))
+        .children(section("Policy", decision_rows(&app.events, t), t))
+        .children(section("Overlaps", overlap_rows(&app.overlaps, t, cx), t))
         .into_any_element()
 }
 
-fn section(label: &'static str, rows: Vec<AnyElement>, empty: &'static str, t: &Tokens) -> Div {
-    let filled = !rows.is_empty();
+/// The key/value block: one grey column of names against one plain column of
+/// values, no rule between them.
+fn facts(app: &LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     div()
         .flex()
         .flex_col()
-        .gap(px(SPACE[0]))
-        .child(section_label(label, t))
-        .children(rows)
-        .when(!filled, |this| this.child(muted(empty, t)))
+        .gap(px(SPACE[1]))
+        .children(pairs(app, task, t, cx).into_iter().map(|(key, value)| {
+            div()
+                .flex()
+                .items_start()
+                .gap(px(SPACE[2]))
+                .child(
+                    div()
+                        .w(px(KEY_W))
+                        .flex_none()
+                        .text_color(t.muted_fg)
+                        .child(key),
+                )
+                .child(div().flex_1().min_w_0().child(value))
+        }))
 }
 
-/// The key/value block, in the order a person reads a task in.
+/// A section with nothing in it is worth no line of the tab, not even to say
+/// so: it does not render at all.
+fn section(name: &'static str, rows: Vec<AnyElement>, t: &Tokens) -> Option<Div> {
+    if rows.is_empty() {
+        return None;
+    }
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(SPACE[1]))
+            .child(label(name, t))
+            .children(rows),
+    )
+}
+
+/// What the header above does not already say, in the order a person reads a
+/// task in. Status, repository, base branch, runner and cost live in the
+/// header; repeating them here is what made the tab read as a dump.
 fn pairs(
     app: &LgtmApp,
     task: &Task,
@@ -87,13 +87,8 @@ fn pairs(
         Some(profile) => profile.as_str().to_string(),
         None => "repository default".to_string(),
     };
-    let runner = task.runner.clone().unwrap_or_else(|| "unassigned".into());
     let mut out = vec![
-        ("Status", text(status_label(task, &app.tasks), t)),
-        ("Repository", text(repo_slug(&spec.repository), t)),
-        ("Base branch", text(spec.base_branch.clone(), t)),
         ("Executor", text(spec.executor.binary(), t)),
-        ("Runner", text(runner, t)),
         ("Sandbox", text(sandbox, t)),
     ];
     if !spec.requirements.is_empty() {
@@ -103,9 +98,6 @@ fn pairs(
         out.push(("Goal", goal_link(app, task, goal, t, cx)));
     }
     out.push(("Created", text(relative_age(task.created_at, now_ms()), t)));
-    if let Some(result) = task.result.as_ref() {
-        out.push(("Cost", text(format!("${:.2}", result.cost_usd), t)));
-    }
     if let Some(review) = task.pr_review.as_ref() {
         let word = match review.state {
             lgtm_protocol::ReviewState::Approved => "approved",
@@ -166,6 +158,7 @@ fn attempts(task: &Task, t: &Tokens) -> Vec<AnyElement> {
             div()
                 .flex()
                 .flex_col()
+                .text_color(t.muted_fg)
                 .child(attempt_line(execution, now))
                 .when_some(execution.error.clone(), |this, error| {
                     this.child(div().text_color(t.danger).child(error))
@@ -233,8 +226,8 @@ fn overlap_rows(overlaps: &[Overlap], t: &Tokens, cx: &mut Context<LgtmApp>) -> 
             let id = overlap.task.clone();
             div()
                 .flex()
-                .gap(px(SPACE[0]))
-                .child(div().text_color(t.muted_fg).child("overlaps with"))
+                .items_baseline()
+                .gap(px(SPACE[1]))
                 .child(
                     div()
                         .id(SharedString::from(format!("overlap:{id}")))
