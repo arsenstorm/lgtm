@@ -504,6 +504,7 @@ fn owner_name(users: &[User], created_by: Option<&str>) -> Option<String> {
 impl LgtmApp {
     /// The sidebar and whatever the selection or page puts beside it.
     fn main_area(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let t = tokens(cx);
         div()
             .flex()
             .flex_1()
@@ -511,7 +512,16 @@ impl LgtmApp {
             .when(self.ui.sidebar_open, |this| {
                 this.child(sidebar::render_sidebar(self, window, cx))
             })
-            .child(self.main_body(window, cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .bg(t.bg)
+                    .child(self.main_body(window, cx)),
+            )
     }
 
     /// The selected task, or whatever page is showing instead.
@@ -614,7 +624,6 @@ impl Render for LgtmApp {
             .size_full()
             .flex()
             .flex_col()
-            .bg(t.bg)
             .text_color(t.fg)
             .font_family(UI_FONT)
             .text_size(px(TEXT_BODY))

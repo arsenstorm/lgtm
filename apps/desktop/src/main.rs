@@ -26,7 +26,8 @@ mod titlebar;
 use app::LgtmApp;
 use gpui::{
     div, point, px, size, AnyView, App, AppContext as _, Application, Bounds, Context, IntoElement,
-    ParentElement as _, Render, Styled as _, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    ParentElement as _, Render, Styled as _, TitlebarOptions, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowOptions,
 };
 use gpui_component::Root;
 use lgtm_orchestrator::token::{self, TokenSource};
@@ -237,6 +238,7 @@ fn window_options(cx: &mut App) -> WindowOptions {
             cx,
         ))),
         window_min_size: Some(size(px(1000.), px(680.))),
+        window_background: WindowBackgroundAppearance::Blurred,
         ..Default::default()
     }
 }

@@ -16,9 +16,9 @@ fn mix(bg: u32, base: u32, amount: f32) -> Hsla {
 
 fn dark_composer() -> Composer {
     Composer {
-        rear: rgb(0x1f1f1f).into(),
-        card: rgb(0x2a2a2a).into(),
-        edge: rgb(0x2f2f2f).into(),
+        rear: rgb(0x151515).into(),
+        card: rgb(0x1b1b1b).into(),
+        edge: rgba(0xffffff1a).into(),
         placeholder: rgb(0x5f5f5f).into(),
         secondary: rgb(0x959595).into(),
         primary: rgb(0xf4f4f4).into(),
@@ -48,7 +48,7 @@ pub fn dark() -> Tokens {
         input: rgba(0xffffff26).into(),
         input_fill: rgba(0xffffff13).into(),
         ring: rgb(0x8a8a8a).into(),
-        sidebar: rgb(0x1b1b1b).into(),
+        sidebar: rgba(0x1b1b1bc7).into(),
         sidebar_border: rgba(0xffffff1a).into(),
         success: rgb(0x34d399).into(),
         warning: rgb(0xfbbf24).into(),
@@ -71,7 +71,7 @@ pub fn dark() -> Tokens {
 fn light_composer() -> Composer {
     Composer {
         rear: rgb(0xf3f3f3).into(),
-        card: rgb(0xffffff).into(),
+        card: rgb(0xfafafa).into(),
         edge: rgb(0xe6e6e6).into(),
         placeholder: rgb(0x9a9a9a).into(),
         secondary: rgb(0x6e6e6e).into(),
@@ -102,7 +102,7 @@ pub fn light() -> Tokens {
         input: rgb(0xebebeb).into(),
         input_fill: rgb(0xf5f5f5).into(),
         ring: rgb(0xb4b4b4).into(),
-        sidebar: rgb(0xfafafa).into(),
+        sidebar: rgba(0xfafafad9).into(),
         sidebar_border: rgb(0xebebeb).into(),
         success: rgb(0x059669).into(),
         warning: rgb(0xd97706).into(),

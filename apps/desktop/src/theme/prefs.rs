@@ -263,7 +263,10 @@ fn paint_type(theme: &mut Theme) {
 
 /// The palette proper: what shadcn calls the semantic colours.
 fn paint_colors(c: &mut ThemeColor, t: &Tokens) {
-    c.background = t.bg;
+    // gpui-component paints its Root with this semantic. Keep that backing
+    // layer clear so the alpha sidebar reaches the blurred system window;
+    // the app paints every content surface explicitly.
+    c.background = Hsla::transparent_black();
     c.foreground = t.fg;
     c.border = t.border;
     c.muted = t.muted;
