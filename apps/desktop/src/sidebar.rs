@@ -24,8 +24,9 @@ const PROMPT_PREVIEW: usize = 34;
 const ROW_RADIUS: f32 = 8.;
 /// The row carrying the product name.
 const BRAND_H: f32 = 36.;
-/// How far a session sits under its project.
-const NEST: f32 = 24.;
+/// How far a session sits under its project: flush with the label after the
+/// project's folder icon, the way Codex nests its task rows.
+const NEST: f32 = 32.;
 /// Sessions shown per project before `Show more`.
 const PER_PROJECT: usize = 5;
 /// The circle around the connection dot.
