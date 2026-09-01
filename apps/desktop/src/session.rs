@@ -6,13 +6,12 @@ mod card;
 use crate::app::{LgtmApp, Page};
 use crate::tasks::{now_ms, repo_slug};
 use crate::theme::{
-    icon, icon_button, tokens, Tokens, BAR_H, ICON, RADIUS, ROW_H, SPACE, TEXT_SECONDARY,
+    icon, icon_button, tokens, Header, Tokens, BAR_H, ICON, RADIUS, ROW_H, SPACE, TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _,
-    Window,
+    deferred, div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
+    ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use lgtm_protocol::{StoredEvent, Task, TaskEvent};
 
@@ -82,19 +81,8 @@ pub(crate) fn session_header(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp
         true => "New session".to_string(),
         false => open.session.title.clone(),
     };
-    div()
-        .relative()
-        .flex()
-        .flex_1()
-        .min_w_0()
-        .items_center()
-        .gap(px(SPACE[1]))
-        .h_full()
-        .when(app.ui.session_project_menu, |this| {
-            this.child(project_dismiss(cx))
-                .child(project_popover(app, t, cx))
-        })
-        .child(
+    Header::new(title)
+        .leading(
             icon_button("session-project", "folder", true, t)
                 .occlude()
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -105,14 +93,12 @@ pub(crate) fn session_header(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp
                     cx.notify();
                 })),
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .font_weight(FontWeight::MEDIUM)
-                .child(title),
-        )
+        .render()
+        .relative()
+        .when(app.ui.session_project_menu, |this| {
+            this.child(deferred(project_dismiss(cx)))
+                .child(deferred(project_popover(app, t, cx)).with_priority(1))
+        })
 }
 
 const PROJECT_MENU_W: f32 = 300.;

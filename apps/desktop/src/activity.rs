@@ -3,12 +3,11 @@
 use crate::app::LgtmApp;
 use crate::labels::prompt_preview;
 use crate::tasks::{now_ms, relative_age};
-use crate::theme::{tokens, Tokens, HEADER_H, SPACE, TEXT_SECONDARY};
+use crate::theme::{tokens, Header, Tokens, HEADER_H, SPACE, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _,
-    Styled as _,
+    div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _, Styled as _,
 };
 use lgtm_client::ActivityLine;
 
@@ -24,7 +23,14 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
         .min_w_0()
         .flex()
         .flex_col()
-        .child(header(&t))
+        .child(
+            Header::new("Activity")
+                .render()
+                .h(px(HEADER_H))
+                .px(px(SPACE[2]))
+                .border_b_1()
+                .border_color(t.border),
+        )
         .when(empty, |this| this.child(empty_state(&t)))
         .when(!empty, |this| {
             this.child(
@@ -43,23 +49,6 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
             )
         })
         .into_any_element()
-}
-
-fn header(t: &Tokens) -> Div {
-    div()
-        .flex()
-        .flex_shrink_0()
-        .items_center()
-        .h(px(HEADER_H))
-        .px(px(SPACE[2]))
-        .border_b_1()
-        .border_color(t.border)
-        .child(
-            div()
-                .flex_1()
-                .font_weight(FontWeight::MEDIUM)
-                .child("Activity"),
-        )
 }
 
 fn empty_state(t: &Tokens) -> Div {

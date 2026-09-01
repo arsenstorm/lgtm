@@ -8,13 +8,13 @@ mod plans;
 
 use crate::app::LgtmApp;
 use crate::tasks::repo_slug;
-use crate::theme::{icon, tokens, Tokens, HEADER_H, ICON, RADIUS, SPACE, TEXT_SECONDARY};
+use crate::theme::{icon, tokens, Header, Tokens, ICON, RADIUS, SPACE, TEXT_SECONDARY};
 use gpui::{
-    div, px, AnyElement, Context, Div, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _,
+    div, px, AnyElement, Context, Div, InteractiveElement as _, IntoElement, ParentElement as _,
+    Stateful, StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_component::tab::{Tab, TabBar};
-use lgtm_protocol::{GoalSummary, RunnerStatus, Task, TaskStatus};
+use lgtm_protocol::{GoalSummary, RunnerStatus, Task};
 
 /// Which section of the project page is showing.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -70,22 +70,6 @@ pub fn goals_of<'a>(app: &'a LgtmApp, slug: &str) -> Vec<&'a GoalSummary> {
         .collect()
 }
 
-/// The three numbers the header reports: running, awaiting review, failed.
-pub fn counts(tasks: &[&Task]) -> (usize, usize, usize) {
-    let count =
-        |wanted: fn(TaskStatus) -> bool| tasks.iter().filter(|task| wanted(task.status)).count();
-    (
-        count(|status| status == TaskStatus::Running),
-        count(|status| status == TaskStatus::AwaitingReview),
-        count(|status| {
-            matches!(
-                status,
-                TaskStatus::Failed | TaskStatus::TimedOut | TaskStatus::RunnerLost
-            )
-        }),
-    )
-}
-
 pub fn page(app: &LgtmApp, slug: &str, cx: &mut Context<LgtmApp>) -> AnyElement {
     let t = tokens(cx);
     let tab = app.ui.project_tab;
@@ -94,49 +78,15 @@ pub fn page(app: &LgtmApp, slug: &str, cx: &mut Context<LgtmApp>) -> AnyElement 
         .min_w_0()
         .flex()
         .flex_col()
-        .child(header(app, slug, &t))
-        .child(
-            div()
-                .px(px(SPACE[1]))
-                .pt(px(SPACE[1]))
-                .child(tab_bar(tab, cx)),
-        )
+        .child(div().px(px(SPACE[1])).child(tab_bar(tab, cx)))
         .child(body(app, slug, tab, &t, cx))
         .into_any_element()
 }
 
-fn header(app: &LgtmApp, slug: &str, t: &Tokens) -> Div {
-    let (running, review, failed) = counts(&tasks_of(app, slug));
-    div()
-        .flex()
-        .flex_shrink_0()
-        .flex_col()
-        .justify_center()
-        .gap(px(2.))
-        .h(px(HEADER_H + SPACE[2]))
-        .px(px(SPACE[2]))
-        .border_b_1()
-        .border_color(t.border)
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .child(icon("folder", ICON, t.muted_fg))
-                .child(
-                    div()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(slug.to_string()),
-                ),
-        )
-        .child(
-            div()
-                .text_size(px(TEXT_SECONDARY))
-                .text_color(t.muted_fg)
-                .child(format!(
-                    "{running} running · {review} awaiting review · {failed} failed"
-                )),
-        )
+pub(crate) fn project_header(slug: &str, t: &Tokens) -> Div {
+    Header::new(slug.to_string())
+        .leading(icon("folder", ICON, t.muted_fg))
+        .render()
 }
 
 fn tab_bar(tab: ProjectTab, cx: &mut Context<LgtmApp>) -> TabBar {
@@ -145,7 +95,7 @@ fn tab_bar(tab: ProjectTab, cx: &mut Context<LgtmApp>) -> TabBar {
         .position(|(one, _)| *one == tab)
         .unwrap_or(0);
     TabBar::new("project-tabs")
-        .segmented()
+        .underline()
         .text_size(px(TEXT_SECONDARY))
         .selected_index(at)
         .children(ProjectTab::ALL.map(|(_, label)| Tab::new().label(label)))
@@ -174,7 +124,8 @@ fn body(
         .flex()
         .flex_col()
         .gap(px(SPACE[2]))
-        .p(px(SPACE[2]))
+        .px(px(SPACE[1]))
+        .py(px(SPACE[2]))
         .children(match tab {
             ProjectTab::Overview => overview::rows(app, slug, t, cx),
             ProjectTab::Tasks => task_rows(app, slug, t, cx),

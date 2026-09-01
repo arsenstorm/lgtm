@@ -1,24 +1,24 @@
 //! The Review tab: the checks, the reviewer's findings, and the decision the
 //! task is waiting on.
 
-use super::{danger_ghost, label, muted, review_actions, MARK};
+mod artefacts;
+
+use super::{danger_ghost, review_actions, MARK};
 use crate::app::LgtmApp;
 use crate::net::Action;
 use crate::theme::{
-    field, icon, Tokens, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO, TEXT_ROW, TEXT_SECONDARY,
+    field, icon, section, Tokens, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO, TEXT_ROW, TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, img, px, AnyElement, ClickEvent, Context, Div, Image, InteractiveElement as _,
-    IntoElement, ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _,
-    Styled as _,
+    div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::Sizable as _;
 use lgtm_protocol::{
     pending_requests, Finding, Severity, StoredEvent, Task, TaskEvent, TaskStatus, ValidationResult,
 };
-use std::sync::Arc;
 
 pub(super) fn review(
     app: &LgtmApp,
@@ -34,124 +34,36 @@ pub(super) fn review(
         .flex_col()
         .gap(px(SPACE[4]))
         .text_size(px(TEXT_ROW))
-        .child(
-            stack("Checks", t)
-                .children(checks.iter().map(|check| check_row(check, t)))
-                .when(checks.is_empty(), |this| {
-                    this.child(muted("No checks configured.", t))
+        .children(
+            (!checks.is_empty()).then(|| {
+                section("Checks", t).children(checks.iter().map(|check| check_row(check, t)))
+            }),
+        )
+        .children(
+            review
+                .filter(|review| !review.findings.is_empty())
+                .map(|review| {
+                    section("Findings", t)
+                        .children(
+                            review
+                                .findings
+                                .iter()
+                                .map(|finding| finding_row(finding, t, cx)),
+                        )
+                        .when_some(review.executor, |this, executor| {
+                            this.child(
+                                div()
+                                    .text_size(px(TEXT_SECONDARY))
+                                    .text_color(t.muted_fg)
+                                    .child(format!("reviewed by {}", executor.binary())),
+                            )
+                        })
                 }),
         )
-        .child(
-            stack("Findings", t)
-                .children(
-                    review
-                        .map(|review| review.findings.as_slice())
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|finding| finding_row(finding, t, cx)),
-                )
-                .when(review.is_none_or(|r| r.findings.is_empty()), |this| {
-                    this.child(muted("No findings.", t))
-                })
-                .when_some(review.and_then(|r| r.executor), |this, executor| {
-                    this.child(
-                        div()
-                            .text_size(px(TEXT_SECONDARY))
-                            .text_color(t.muted_fg)
-                            .child(format!("reviewed by {}", executor.binary())),
-                    )
-                }),
-        )
-        .children(artefacts(app, t, cx))
+        .children(artefacts::render(app, t, cx))
         .children(requests(app, task, t, cx))
         .children(actions(app, task, t, cx))
         .into_any_element()
-}
-
-/// A section: its name, then its rows. Sections are told apart by the air
-/// between them, not by a rule.
-fn stack(name: &'static str, t: &Tokens) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(SPACE[1]))
-        .child(label(name, t))
-}
-
-/// The files the runs left for whoever reviews the task. The events carry
-/// only a name and a size; an image's bytes are fetched once, on the first
-/// render that wants them.
-fn artefacts(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Option<Div> {
-    let found = latest(&app.events);
-    if found.is_empty() {
-        return None;
-    }
-    let task = app.selected.clone().unwrap_or_default();
-    Some(
-        stack("Artefacts", t).children(found.into_iter().map(|(name, size)| {
-            let held = app.artefacts.get(&(task.clone(), name.clone()));
-            if held.is_none() && crate::app::artefact_format(&name).is_some() {
-                fetch(name.clone(), cx);
-            }
-            artefact_row(&name, size, held.cloned().flatten(), t)
-        })),
-    )
-}
-
-/// The app is borrowed for the whole render, so the request is made once it
-/// is free again.
-fn fetch(name: String, cx: &mut Context<LgtmApp>) {
-    let view = cx.entity();
-    cx.defer(move |cx| {
-        view.update(cx, |this, cx| {
-            this.want_artefact(name);
-            cx.notify();
-        })
-    });
-}
-
-/// One entry per name, the last event's size: a run that overwrites its
-/// screenshot every time has one artefact, not one per run.
-fn latest(events: &[StoredEvent]) -> Vec<(String, usize)> {
-    let mut out: Vec<(String, usize)> = Vec::new();
-    for stored in events {
-        let TaskEvent::Artefact { name, size, .. } = &stored.event else {
-            continue;
-        };
-        match out.iter_mut().find(|(known, _)| known == name) {
-            Some(entry) => entry.1 = *size,
-            None => out.push((name.clone(), *size)),
-        }
-    }
-    out
-}
-
-fn artefact_row(name: &str, size: usize, image: Option<Arc<Image>>, t: &Tokens) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(SPACE[0]))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .child(div().text_color(t.fg).child(name.to_string()))
-                .child(
-                    div()
-                        .text_size(px(TEXT_SECONDARY))
-                        .text_color(t.muted_fg)
-                        .child(size_label(size)),
-                ),
-        )
-        .children(image.map(|image| img(image).max_w_full().max_h(px(320.))))
-}
-
-fn size_label(size: usize) -> String {
-    if size < 1024 {
-        return format!("{size} B");
-    }
-    format!("{:.1} kB", size as f32 / 1024.0)
 }
 
 /// Hosts an agent asked for that a person hasn't granted yet, each with a
@@ -165,7 +77,7 @@ fn requests(app: &LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -
         return None;
     }
     Some(
-        stack("Requests", t).children(
+        section("Requests", t).children(
             pending
                 .into_iter()
                 .map(|(target, reason)| request_row(&task.id, target, reason, t, cx)),
@@ -303,7 +215,15 @@ fn finding_row(finding: &Finding, t: &Tokens, cx: &mut Context<LgtmApp>) -> Stat
 fn actions(app: &LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Option<Div> {
     let row = div().flex().items_center().gap(px(SPACE[1]));
     match task.status {
-        TaskStatus::AwaitingReview => Some(row.children(review_actions(t, cx))),
+        TaskStatus::AwaitingReview => Some(
+            section("Decision", t)
+                .child(
+                    div()
+                        .text_color(t.muted_fg)
+                        .child("Approve this result to finish the review. A pull request can merge only after approval and passing CI."),
+                )
+                .child(row.children(review_actions(t, cx))),
+        ),
         TaskStatus::Conflicted => Some(conflict(app, t, cx)),
         TaskStatus::Failed
         | TaskStatus::TimedOut
@@ -371,23 +291,6 @@ mod tests {
 
     fn stored(event: TaskEvent) -> StoredEvent {
         StoredEvent { at: 0, event }
-    }
-
-    #[test]
-    fn an_artefact_sent_twice_is_listed_once() {
-        let artefact = |size| {
-            stored(TaskEvent::Artefact {
-                name: "shot.png".into(),
-                size,
-                bytes_base64: String::new(),
-            })
-        };
-
-        let found = latest(&[artefact(3), artefact(2)]);
-
-        assert_eq!(found, vec![("shot.png".into(), 2)]);
-        assert!(crate::app::artefact_format("shot.png").is_some());
-        assert!(crate::app::artefact_format("notes.txt").is_none());
     }
 
     #[test]

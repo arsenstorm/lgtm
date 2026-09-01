@@ -10,7 +10,7 @@ use crate::app::{LgtmApp, Pane};
 use crate::labels::{header_preview, status_label};
 use crate::net::Action;
 use crate::tasks::repo_slug;
-use crate::theme::{field, icon, tokens, Tokens, RADIUS_PILL, SPACE, TEXT_SECONDARY};
+use crate::theme::{field, icon, tokens, Header, Tokens, RADIUS_PILL, SPACE, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement as _,
@@ -158,40 +158,21 @@ pub(crate) fn task_header(
     cx: &mut Context<LgtmApp>,
 ) -> Div {
     let status = status_label(task, &app.tasks);
-    div()
-        .h_full()
-        .flex()
-        .items_center()
-        .gap(px(SPACE[1]))
+    Header::new(header_preview(&task.spec.prompt))
+        .detail(badge(status, status_tone(status, t), t))
+        .detail(
+            div()
+                .flex_shrink_0()
+                .text_size(px(TEXT_SECONDARY))
+                .text_color(t.muted_fg)
+                .child(meta_line(task)),
+        )
+        .details(chips(task, t, cx))
+        .action(actions(task, t, cx))
+        .render()
         .px(px(SPACE[1]))
         .border_b_1()
         .border_color(t.border)
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .child(
-                    div()
-                        .flex_shrink()
-                        .min_w_0()
-                        .truncate()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(header_preview(&task.spec.prompt)),
-                )
-                .child(badge(status, status_tone(status, t), t))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_size(px(TEXT_SECONDARY))
-                        .text_color(t.muted_fg)
-                        .child(meta_line(task)),
-                )
-                .children(chips(task, t, cx)),
-        )
-        .child(actions(task, t, cx))
 }
 
 /// The pull request and Linear chips, for the task that has them.
@@ -255,7 +236,7 @@ fn actions(task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .items_center()
         .gap(px(SPACE[1]));
     match task.status {
-        TaskStatus::AwaitingReview => row.children(review_actions(t, cx)),
+        TaskStatus::AwaitingReview => row,
         TaskStatus::Queued | TaskStatus::Running => row.child(
             Button::new("cancel")
                 .label("Cancel")
@@ -297,12 +278,12 @@ fn ci_passed(task: &Task) -> bool {
 pub(super) fn review_actions(t: &Tokens, cx: &mut Context<LgtmApp>) -> [Button; 3] {
     [
         Button::new("approve")
-            .label("Approve work")
+            .label("Approve changes")
             .primary()
             .small()
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Approve, cx))),
         Button::new("request-changes")
-            .label("Request revisions")
+            .label("Request changes")
             .outline()
             .small()
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -313,7 +294,7 @@ pub(super) fn review_actions(t: &Tokens, cx: &mut Context<LgtmApp>) -> [Button; 
                 }
             })),
         Button::new("reject")
-            .label("Reject work")
+            .label("Reject task")
             .custom(danger_ghost(t, cx))
             .small()
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.act(Action::Reject, cx))),
@@ -357,18 +338,6 @@ fn ci_mark(ci: Option<&CiStatus>, t: &Tokens) -> (Option<&'static str>, Hsla) {
         Some(CiState::Pending) => (Some("ellipsis"), t.muted_fg),
         None => (None, t.muted_fg),
     }
-}
-
-/// A section's name inside a pane. gpui has no letter-spacing, so the
-/// uppercase label the rest of the app uses reads as a cramped shout when
-/// several stack down one tab; here the name stays as written and leans on
-/// size and colour alone.
-pub(super) fn label(text: &'static str, t: &Tokens) -> Div {
-    div()
-        .text_size(px(TEXT_SECONDARY))
-        .text_color(t.muted_fg)
-        .font_weight(FontWeight::MEDIUM)
-        .child(text)
 }
 
 /// A greyed line standing in for a section with nothing in it.

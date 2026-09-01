@@ -4,7 +4,7 @@ use crate::app::{LgtmApp, Overlay};
 use crate::labels::{prompt_preview, status_label};
 use crate::tasks::{batch_label, now_ms, relative_age, status_color};
 use crate::theme::{
-    icon, tokens, Tokens, HEADER_H, ICON, RADIUS, RADIUS_PILL, ROW_H, SPACE, TEXT_SECONDARY,
+    icon, tokens, Header, Tokens, HEADER_H, ICON, RADIUS, RADIUS_PILL, ROW_H, SPACE, TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -52,7 +52,15 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
         .min_w_0()
         .flex()
         .flex_col()
-        .child(page_header(&t, cx))
+        .child(
+            Header::new("Batches")
+                .action(import_button("import-top", cx))
+                .render()
+                .h(px(HEADER_H))
+                .px(px(SPACE[2]))
+                .border_b_1()
+                .border_color(t.border),
+        )
         .when(empty, |this| this.child(empty_state(&t, cx)))
         .when(!empty, |this| {
             this.child(
@@ -69,24 +77,6 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
             )
         })
         .into_any_element()
-}
-
-fn page_header(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    div()
-        .flex()
-        .flex_shrink_0()
-        .items_center()
-        .h(px(HEADER_H))
-        .px(px(SPACE[2]))
-        .border_b_1()
-        .border_color(t.border)
-        .child(
-            div()
-                .flex_1()
-                .font_weight(FontWeight::MEDIUM)
-                .child("Batches"),
-        )
-        .child(import_button("import-top", cx))
 }
 
 fn empty_state(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {

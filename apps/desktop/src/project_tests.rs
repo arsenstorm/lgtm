@@ -1,6 +1,6 @@
 use super::goals::counts as goal_counts;
 use super::*;
-use lgtm_protocol::{BatchSummary, Executor, TaskKind, TaskSpec};
+use lgtm_protocol::{BatchSummary, Executor, TaskKind, TaskSpec, TaskStatus};
 
 pub(super) fn task(repository: &str, status: TaskStatus) -> Task {
     Task {
@@ -41,22 +41,6 @@ pub(super) fn task(repository: &str, status: TaskStatus) -> Task {
         workspace: None,
         created_by: None,
     }
-}
-
-#[test]
-fn the_header_counts_running_review_and_every_flavour_of_failure() {
-    let tasks = [
-        task("x", TaskStatus::Running),
-        task("x", TaskStatus::AwaitingReview),
-        task("x", TaskStatus::Failed),
-        task("x", TaskStatus::TimedOut),
-        task("x", TaskStatus::RunnerLost),
-        task("x", TaskStatus::Merged),
-    ];
-
-    let rows: Vec<&Task> = tasks.iter().collect();
-    assert_eq!(counts(&rows), (1, 1, 3));
-    assert_eq!(counts(&[]), (0, 0, 0));
 }
 
 #[test]

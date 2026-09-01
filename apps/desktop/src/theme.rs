@@ -7,8 +7,8 @@ mod prefs;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, Div, Entity, FontWeight, Hsla, InteractiveElement as _, IntoElement,
-    ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _,
+    div, px, AnyElement, App, Div, Entity, FontWeight, Hsla, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_component::input::{Input, InputState};
 use gpui_component::ActiveTheme as _;
@@ -119,14 +119,99 @@ pub fn field(state: &Entity<InputState>, t: &Tokens) -> Input {
         .rounded(px(RADIUS_PILL))
 }
 
-/// `text-xs uppercase tracking-wide text-muted-foreground`. gpui has no
-/// letter-spacing, so the wide tracking of the original is lost.
+/// A calm section name used across the app.
 pub fn section_label(text: &str, t: &Tokens) -> Div {
     div()
         .text_size(px(TEXT_SECONDARY))
         .text_color(t.muted_fg)
         .font_weight(FontWeight::MEDIUM)
-        .child(text.to_uppercase())
+        .child(text.to_string())
+}
+
+/// A section name followed by its content.
+pub fn section(text: &str, t: &Tokens) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(SPACE[1]))
+        .child(section_label(text, t))
+}
+
+/// The common anatomy of every user-facing header: an optional leading
+/// control, a truncating title, supporting details, and trailing actions.
+pub struct Header {
+    title: SharedString,
+    leading: Vec<AnyElement>,
+    details: Vec<AnyElement>,
+    actions: Vec<AnyElement>,
+}
+
+impl Header {
+    pub fn new(title: impl Into<SharedString>) -> Self {
+        Self {
+            title: title.into(),
+            leading: Vec::new(),
+            details: Vec::new(),
+            actions: Vec::new(),
+        }
+    }
+
+    pub fn leading(mut self, element: impl IntoElement) -> Self {
+        self.leading.push(
+            div()
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .justify_center()
+                .size(px(GLYPH))
+                .child(element)
+                .into_any_element(),
+        );
+        self
+    }
+
+    pub fn detail(mut self, element: impl IntoElement) -> Self {
+        self.details.push(element.into_any_element());
+        self
+    }
+
+    pub fn details(mut self, elements: impl IntoIterator<Item = AnyElement>) -> Self {
+        self.details.extend(elements);
+        self
+    }
+
+    pub fn action(mut self, element: impl IntoElement) -> Self {
+        self.actions.push(element.into_any_element());
+        self
+    }
+
+    pub fn render(self) -> Div {
+        let content = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(px(SPACE[1]))
+            .children(self.leading)
+            .child(
+                div()
+                    .flex_shrink()
+                    .min_w_0()
+                    .truncate()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(self.title),
+            )
+            .children(self.details);
+        div()
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .items_center()
+            .gap(px(SPACE[1]))
+            .h_full()
+            .child(content)
+            .children(self.actions)
+    }
 }
 
 /// The scrim a modal lays over the window. Children stack from the top, so a
@@ -164,17 +249,15 @@ pub fn modal_header(
     t: &Tokens,
     cx: &mut gpui::Context<crate::app::LgtmApp>,
 ) -> Div {
-    div()
-        .flex()
-        .items_center()
+    Header::new(title)
+        .action(icon_button(close_id, "x", true, t).on_click(
+            cx.listener(|this, _: &gpui::ClickEvent, window, cx| this.close_overlay(window, cx)),
+        ))
+        .render()
         .h(px(HEADER_H))
         .px(px(SPACE[2]))
         .border_b_1()
         .border_color(t.border)
-        .child(div().flex_1().font_weight(FontWeight::MEDIUM).child(title))
-        .child(icon_button(close_id, "x", true, t).on_click(
-            cx.listener(|this, _: &gpui::ClickEvent, window, cx| this.close_overlay(window, cx)),
-        ))
 }
 
 /// One Lucide icon, tinted with `color`. gpui paints an SVG as an alpha mask,

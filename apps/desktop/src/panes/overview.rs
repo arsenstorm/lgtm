@@ -1,11 +1,11 @@
 //! The Overview tab: what the task is, every attempt at it, and what the
 //! orchestrator and the other live tasks have to say about it.
 
-use super::{badge, label};
+use super::badge;
 use crate::app::LgtmApp;
 use crate::render;
 use crate::tasks::{duration, now_ms, relative_age, repo_slug};
-use crate::theme::{Tokens, SPACE, TEXT_ROW, TEXT_SECONDARY};
+use crate::theme::{section as section_shell, Tokens, SPACE, TEXT_ROW, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
@@ -63,14 +63,7 @@ fn section(name: &'static str, rows: Vec<AnyElement>, t: &Tokens) -> Option<Div>
     if rows.is_empty() {
         return None;
     }
-    Some(
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(SPACE[1]))
-            .child(label(name, t))
-            .children(rows),
-    )
+    Some(section_shell(name, t).children(rows))
 }
 
 /// What the header above does not already say, in the order a person reads a
