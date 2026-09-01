@@ -189,7 +189,7 @@ pub struct UiState {
     pub project_scroll: ScrollHandle,
     pub session_scroll: ScrollHandle,
     pub project_tab: ProjectTab,
-    /// The titlebar's runner popover.
+    /// The footer's runner popover.
     pub runner_menu: bool,
     /// Which Settings dropdown is open, by its id.
     pub settings_menu: Option<&'static str>,

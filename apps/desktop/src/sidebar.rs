@@ -6,7 +6,8 @@ use crate::labels::prompt_preview;
 use crate::project::goals_of;
 use crate::tasks::{goal_color, repo_slug};
 use crate::theme::{
-    icon, icon_button, tokens, Tokens, ICON, ROW_H, SPACE, TEXT_BODY, TEXT_ROW, TEXT_SECONDARY,
+    icon, icon_button, tokens, Tokens, ICON, RADIUS, ROW_H, SPACE, TEXT_BODY, TEXT_ROW,
+    TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -31,6 +32,8 @@ const PER_PROJECT: usize = 5;
 /// The circle around the connection dot: the size of an icon, so the dot
 /// holds the same column as the folder icons above it.
 const STATUS_DOT: f32 = 16.;
+/// The runner popover spans the footer row.
+const POPOVER_W: f32 = WIDTH - 2. * SPACE[1];
 
 pub fn render_sidebar(app: &mut LgtmApp, _window: &mut Window, cx: &mut Context<LgtmApp>) -> Div {
     let t = tokens(cx);
@@ -406,7 +409,7 @@ fn status_dot(tone: gpui::Hsla) -> Div {
         .child(dot(6., tone))
 }
 
-/// One row: whether the orchestrator answered, and the way into Settings.
+/// One row: whether the orchestrator answered and its runners, and Settings.
 fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let status = if app.link.reachable {
         let n = app.runners.len();
@@ -420,18 +423,86 @@ fn footer(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         t.danger
     };
     div()
+        .relative()
         .flex_shrink_0()
         .px(px(SPACE[1]))
         .py(px(SPACE[0]))
+        .when(app.ui.runner_menu, |this| {
+            this.child(dismiss(cx)).child(popover(app, t))
+        })
         .child(
             row_shell("status", false, t)
                 .child(status_dot(tone))
                 .child(div().flex_1().min_w_0().truncate().child(status))
-                .child(icon_button("open-settings", "settings", true, t).on_click(
-                    cx.listener(|this, _: &ClickEvent, _, cx| this.open_runner_settings(cx)),
-                ))
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.open_runner_settings(cx))),
+                .child(
+                    icon_button("open-settings", "settings", true, t).on_click(cx.listener(
+                        |this, _: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.open_runner_settings(cx);
+                        },
+                    )),
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    let open = !this.ui.runner_menu;
+                    this.close_menus(cx);
+                    this.ui.runner_menu = open;
+                    cx.notify();
+                })),
         )
+}
+
+/// One row per runner: what it is called, how loaded it is, what it runs on.
+fn popover(app: &LgtmApp, t: &Tokens) -> Div {
+    div()
+        .absolute()
+        .bottom(px(ROW_H + 2. * SPACE[0]))
+        .left(px(SPACE[1]))
+        .w(px(POPOVER_W))
+        .flex()
+        .flex_col()
+        .p(px(SPACE[0]))
+        .rounded(px(RADIUS))
+        .bg(t.popover)
+        .border_1()
+        .border_color(t.border)
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.muted_fg)
+        .occlude()
+        .when(app.runners.is_empty(), |this| {
+            this.child(div().px(px(SPACE[1])).py(px(SPACE[0])).child("No runners"))
+        })
+        .children(app.runners.iter().map(|runner| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(SPACE[1]))
+                .h(px(ROW_H))
+                .px(px(SPACE[1]))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(t.fg)
+                        .child(runner.info.name.clone()),
+                )
+                .child(format!("{}/{}", runner.running.len(), runner.info.slots))
+                .child(runner.info.os.clone())
+        }))
+}
+
+/// A click anywhere else closes the popover; the footer is the only
+/// positioned ancestor, so this reaches out past its own bounds.
+fn dismiss(cx: &mut Context<LgtmApp>) -> gpui::Stateful<Div> {
+    div()
+        .id("runner-dismiss")
+        .absolute()
+        .top(px(-4000.))
+        .left(px(-4000.))
+        .w(px(8000.))
+        .h(px(8000.))
+        .occlude()
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_menus(cx)))
 }
 
 #[cfg(test)]
