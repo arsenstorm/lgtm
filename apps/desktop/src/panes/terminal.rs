@@ -1,55 +1,96 @@
-//! The Terminal tab: the shell in the task's worktree, as plain text.
+//! The Terminal tab: the shell in the task's worktree, as a terminal — one
+//! mono surface bleeding to the pane's edges, scrollback above, prompt below.
 
-use super::{danger_ghost, muted};
 use crate::app::LgtmApp;
-use crate::theme::{field, Tokens, SPACE};
+use crate::theme::{icon_button, Tokens, GLYPH, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO};
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, IntoElement, ParentElement as _, Styled as _,
+    div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
+    ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::Sizable as _;
+use gpui_component::input::Input;
 
 /// How much output one attached shell keeps. Dropping the front of a byte
 /// buffer is cheap, and nothing above reads what scrolled off.
 const SCROLLBACK: usize = 200_000;
 
 pub(super) fn terminal(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> AnyElement {
-    let Some(shell) = app.shell.as_ref() else {
-        return muted("Not attached.", t);
-    };
+    let attached = app.shell.is_some();
     div()
+        .relative()
+        .size_full()
         .flex()
         .flex_col()
-        .gap(px(SPACE[1]))
-        .child(if shell.output.is_empty() {
-            muted("Waiting for the shell…", t)
-        } else {
-            output(&shell.output, t)
+        .bg(t.composer.rear)
+        .font_family(MONO_FONT)
+        .text_size(px(TEXT_MONO))
+        .line_height(px(LINE_MONO))
+        .text_color(t.fg)
+        .child(scrollback(app, t))
+        .when(attached, |this| {
+            this.child(prompt(app, t)).child(close(t, cx))
         })
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .child(div().flex_1().min_w_0().child(field(&app.inputs.shell, t)))
-                .child(
-                    Button::new("close-terminal")
-                        .label("Close")
-                        .custom(danger_ghost(t, cx))
-                        .small()
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_shell(cx))),
-                ),
-        )
         .into_any_element()
 }
 
-fn output(text: &str, t: &Tokens) -> AnyElement {
+/// The output, and the scrollable `commands.rs` pins to the bottom. Long lines
+/// wrap: `strip_ansi` drops cursor movement, so this is an append-only log
+/// rather than a grid, and a log must not hide its tail behind a scroll offset.
+fn scrollback(app: &LgtmApp, t: &Tokens) -> Stateful<Div> {
+    let lines: Vec<Div> = match app.shell.as_ref() {
+        None => vec![quiet("Not attached.", t)],
+        Some(shell) if shell.output.is_empty() => vec![quiet("Waiting for the shell…", t)],
+        Some(shell) => shell
+            .output
+            .lines()
+            .map(|line| div().child(line.to_string()))
+            .collect(),
+    };
     div()
+        .id("terminal-output")
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .track_scroll(&app.ui.terminal_scroll)
         .flex()
         .flex_col()
-        .text_color(t.fg)
-        .children(text.lines().map(|line| div().child(line.to_string())))
-        .into_any_element()
+        .pl(px(SPACE[1]))
+        // The close cross floats over this corner: keep the text out from under it.
+        .pr(px(GLYPH + SPACE[1]))
+        .py(px(SPACE[0]))
+        .children(lines)
+}
+
+fn quiet(text: &str, t: &Tokens) -> Div {
+    div().text_color(t.muted_fg).child(text.to_string())
+}
+
+/// The bottom line: the same mono text as the output, on the same surface, with
+/// one hairline over it. No prompt glyph — the shell prints its own.
+fn prompt(app: &LgtmApp, t: &Tokens) -> Div {
+    div()
+        .flex_shrink_0()
+        .border_t_1()
+        .border_color(t.border)
+        .px(px(SPACE[1]))
+        .py(px(SPACE[0]))
+        .child(
+            Input::new(&app.inputs.shell)
+                .appearance(false)
+                .p_0()
+                .h(px(LINE_MONO))
+                .font_family(MONO_FONT)
+                .text_size(px(TEXT_MONO))
+                .line_height(px(LINE_MONO)),
+        )
+}
+
+fn close(t: &Tokens, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
+    icon_button("close-terminal", "x", true, t)
+        .absolute()
+        .top(px(SPACE[0]))
+        .right(px(SPACE[0]))
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_shell(cx)))
 }
 
 impl crate::app::Shell {

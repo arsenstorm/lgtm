@@ -148,7 +148,7 @@ impl Inputs {
                     .placeholder("the harness default")
                     .default_value(crate::theme::models(cx).model)
             }),
-            shell: field("Type a command, then ↩", window, cx),
+            shell: field("Type a command", window, cx),
         }
     }
 }
