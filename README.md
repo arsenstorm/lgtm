@@ -4,8 +4,8 @@ LGTM is an orchestrator for AI coding agents. You give it a prompt and a
 repository; it runs an agent on a runner in a git worktree, streams the
 output back, runs the repository's checks, reviews the diff, and then lets
 you approve it, open a pull request, and merge. Runners can be this machine,
-another machine, or a container that exits when it is done. There is a CLI;
-the desktop and web apps are being rebuilt on Tauri.
+another machine, or a container that exits when it is done. There is a CLI,
+and a web app that runs against a local orchestrator.
 
 ## Install
 
@@ -228,6 +228,7 @@ the defaults stay.
 - `crates/github` — pull requests, issues, CI status
 - `crates/linear` — Linear issues
 - `crates/cli` — `lgtm`, the developer command
+- `apps/web` — the web app: TanStack Start on Cloudflare Workers
 
 Checks: `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`,

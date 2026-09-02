@@ -1,6 +1,7 @@
 # Working in this repository
 
-LGTM is a Rust workspace. There is no JavaScript toolchain.
+LGTM is a Rust workspace plus one web app. `crates/` and `apps/web`
+are built and checked separately.
 
 ## Layout
 
@@ -10,6 +11,7 @@ LGTM is a Rust workspace. There is no JavaScript toolchain.
 - `crates/client` — HTTP/WebSocket client for the orchestrator API
 - `crates/github`, `crates/linear` — the two issue sources
 - `crates/cli` — `lgtm`, the developer command
+- `apps/web` — the web app: TanStack Start on Cloudflare Workers
 
 ## Checks
 
@@ -19,6 +21,13 @@ Run all three before you call a change done:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+```
+
+For `apps/web`, from that directory:
+
+```sh
+bun run typecheck
+bun run build
 ```
 
 ## Conventions
