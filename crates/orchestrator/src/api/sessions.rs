@@ -87,6 +87,9 @@ pub(super) struct MessageBody {
     model: Option<String>,
     #[serde(default)]
     review_executor: Option<Executor>,
+    /// A plan message proposes steps instead of making a change.
+    #[serde(default)]
+    kind: TaskKind,
 }
 
 /// The task a chat message becomes: it belongs to the session's repository,
@@ -100,7 +103,7 @@ fn message_spec(session: &Session, id: &str, body: MessageBody) -> TaskSpec {
         runner: body.runner,
         issue: None,
         linear: None,
-        kind: TaskKind::Run,
+        kind: body.kind,
         parent: None,
         depends_on: Vec::new(),
         depends_on_condition: Default::default(),

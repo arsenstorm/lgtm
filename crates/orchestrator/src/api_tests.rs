@@ -340,3 +340,40 @@ async fn activity_hides_the_per_line_output_flood() {
     // The flood must not push the real events out of the window either.
     assert!(lines.iter().any(|line| line["event"] == "completed"));
 }
+
+#[tokio::test]
+async fn a_plan_message_becomes_a_plan_task() {
+    let app = app();
+    app.state.lock().unwrap().queue_without_runners = true;
+    let body = serde_json::from_value(serde_json::json!({
+        "repository": "https://example.com/repo.git",
+        "base_branch": "develop",
+        "title": "",
+    }))
+    .unwrap();
+    let (_, Json(session)) = sessions::create_session(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Ok(Json(body)),
+    )
+    .await
+    .unwrap();
+
+    let message = serde_json::from_value(serde_json::json!({
+        "text": "propose the steps",
+        "executor": "claude",
+        "kind": "plan",
+    }))
+    .unwrap();
+    let (_, Json(task)) = sessions::send_message(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Path(session.id.clone()),
+        Ok(Json(message)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(task.spec.kind, TaskKind::Plan);
+    // The session's branch is the task's base, and a plain message stays a run.
+    assert_eq!(task.spec.base_branch, "develop");
+}

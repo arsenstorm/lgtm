@@ -286,6 +286,7 @@ fn message(spec: &TaskSpec) -> SessionMessage<'_> {
         requirements: spec.requirements.clone(),
         model: spec.model.as_deref(),
         review_executor: spec.review_executor,
+        kind: spec.kind,
     }
 }
 
