@@ -574,7 +574,7 @@ fn message_requires_awaiting_review() {
     assert_eq!(status(&state, &id), TaskStatus::Running);
 
     assert!(matches!(
-        state.message(&id, "too soon".into()),
+        state.message(&id, "too soon".into(), None),
         Err(CmdError::Conflict(_))
     ));
 
@@ -600,11 +600,11 @@ fn message_requires_awaiting_review() {
         "slot freed on completion"
     );
 
-    let (task, changed) = state.message(&id, "keep going".into()).unwrap();
+    let (task, changed) = state.message(&id, "keep going".into(), None).unwrap();
     assert_eq!(task.status, TaskStatus::ChangesRequested);
     assert!(changed.contains(&id));
     match &state.tasks[&id].events.last().unwrap().event {
-        TaskEvent::Message { text } => assert_eq!(text.as_str(), "keep going"),
+        TaskEvent::Message { text, .. } => assert_eq!(text.as_str(), "keep going"),
         other => panic!("expected a Message event, got {other:?}"),
     }
     assert!(
@@ -668,7 +668,7 @@ fn a_follow_up_carries_the_current_spec() {
             },
         },
     );
-    state.message(&id, "keep going".into()).unwrap();
+    state.message(&id, "keep going".into(), None).unwrap();
     let sent = std::iter::from_fn(|| rx.try_recv().ok())
         .find_map(|msg| match msg {
             OrchestratorMessage::Message { task, .. } => task,
@@ -724,7 +724,7 @@ fn a_conflict_becomes_work_for_the_agent() {
         "a push takes no slot to free"
     );
 
-    let (task, changed) = state.message(&id, "keep going".into()).unwrap();
+    let (task, changed) = state.message(&id, "keep going".into(), None).unwrap();
     assert_eq!(task.status, TaskStatus::ChangesRequested);
     assert!(changed.contains(&id));
     assert_eq!(
@@ -953,7 +953,7 @@ fn a_follow_up_carries_the_memories() {
         cost_usd: 0.0,
     };
     state.apply_event(&id, TaskEvent::Completed { result });
-    state.message(&id, "keep going".into()).unwrap();
+    state.message(&id, "keep going".into(), None).unwrap();
 
     let frames: Vec<OrchestratorMessage> = std::iter::from_fn(|| a.try_recv().ok()).collect();
     assert!(frames.iter().any(|frame| matches!(
@@ -1469,6 +1469,61 @@ fn session_tasks_come_back_in_creation_order() {
         tasks.iter().map(|t| &t.id).collect::<Vec<_>>(),
         vec![&first.id, &second.id]
     );
+}
+
+#[test]
+fn update_session_renames_and_archives() {
+    let mut state = State::default();
+    let session = state.create_session(
+        "https://example.com/repo.git".into(),
+        "main".into(),
+        "old title".into(),
+        None,
+    );
+
+    let renamed = state
+        .update_session(&session.id, Some("new title".into()), None)
+        .unwrap();
+    assert_eq!(renamed.title, "new title");
+    assert!(!renamed.archived);
+
+    let archived = state.update_session(&session.id, None, Some(true)).unwrap();
+    assert_eq!(archived.title, "new title");
+    assert!(archived.archived);
+}
+
+#[test]
+fn update_session_unknown_id_is_none() {
+    let mut state = State::default();
+    assert!(state
+        .update_session("deadbeef", Some("x".into()), None)
+        .is_none());
+}
+
+#[test]
+fn remove_session_leaves_its_tasks_in_place() {
+    let mut state = State::default();
+    let _w = connect(&mut state, "w", 1, 1);
+    let session = state.create_session(
+        "https://example.com/repo.git".into(),
+        "main".into(),
+        String::new(),
+        None,
+    );
+    let mut task_spec = spec(Executor::Claude, None);
+    task_spec.session = Some(session.id.clone());
+    let task = state.create_task(task_spec).unwrap().0;
+
+    let removed = state.remove_session(&session.id).unwrap();
+    assert_eq!(removed.id, session.id);
+    assert!(!state.sessions.contains_key(&session.id));
+    assert!(state.tasks.contains_key(&task.id));
+}
+
+#[test]
+fn remove_session_unknown_id_is_none() {
+    let mut state = State::default();
+    assert!(state.remove_session("deadbeef").is_none());
 }
 
 #[test]

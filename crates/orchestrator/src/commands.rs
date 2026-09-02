@@ -144,6 +144,7 @@ impl State {
         &mut self,
         task_id: &str,
         text: String,
+        by: Option<String>,
     ) -> Result<(Task, Vec<TaskId>), CmdError> {
         let rec = self.tasks.get(task_id).ok_or(CmdError::NotFound)?;
         if !matches!(
@@ -165,7 +166,13 @@ impl State {
             )));
         }
         let instruction = format!("{prefix}{text}");
-        let changed = self.apply_event(task_id, TaskEvent::Message { text });
+        let changed = self.apply_event(
+            task_id,
+            TaskEvent::Message {
+                text,
+                by: by.clone(),
+            },
+        );
         let memories = self.memories_for(&repository);
         // The runner's own copy of the task predates any spec change (e.g. an
         // allowed host) made since its last run, so the current one rides along.
@@ -173,6 +180,12 @@ impl State {
             .tasks
             .get(task_id)
             .map(|rec| Box::new(rec.task.clone()));
+        // Resolved again rather than remembered: a credential registered
+        // since the task started is the one that should sign the follow-up.
+        let authorship = task
+            .as_ref()
+            .map(|task| self.authorship(task))
+            .unwrap_or_default();
         if let Some(runner) = self.runners.get_mut(&name) {
             runner.running.insert(task_id.to_string());
             runner.send(OrchestratorMessage::Message {
@@ -180,6 +193,7 @@ impl State {
                 text: instruction,
                 memories,
                 task,
+                authorship,
             });
         }
         self.tasks

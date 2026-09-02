@@ -36,7 +36,7 @@ impl Line {
 pub fn render(event: &TaskEvent) -> Vec<Line> {
     match event {
         TaskEvent::Started { .. } => vec![Line::new(Kind::Status, "agent started")],
-        TaskEvent::Message { text } => vec![Line::new(Kind::Message, format!("> {text}"))],
+        TaskEvent::Message { text, .. } => vec![Line::new(Kind::Message, format!("> {text}"))],
         TaskEvent::Output {
             stream: OutputStream::Stderr,
             line,
@@ -286,6 +286,7 @@ mod tests {
     fn message_event_is_quoted() {
         let event = TaskEvent::Message {
             text: "use the existing helper".into(),
+            by: None,
         };
         assert_eq!(
             render(&event),

@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use lgtm_protocol::{
-    Executor, OutputStream, Policy, Review, SandboxProfile, Task, TaskEvent, TaskKind, TaskResult,
-    ValidationResult,
+    Authorship, Executor, OutputStream, Policy, Review, SandboxProfile, Task, TaskEvent, TaskKind,
+    TaskResult, ValidationResult,
 };
 use serde_json::json;
 use tokio::process::Command;
@@ -138,6 +138,9 @@ pub struct Run<'a> {
     /// Name and content hash of every artefact sent, so a file that survives
     /// a follow-up run is not sent again.
     artefacts: Vec<(String, u64)>,
+    /// Whose names go on the commit; the orchestrator resolved them, because
+    /// the credentials they come from never leave it.
+    authorship: Authorship,
 }
 
 /// The allowlist proxy serving one run: the task that accepts on it, and the
@@ -153,6 +156,7 @@ impl<'a> Run<'a> {
         worktree: &'a Path,
         ctx: &'a Arc<Ctx>,
         cancel: oneshot::Receiver<()>,
+        authorship: Authorship,
     ) -> Self {
         Run {
             task,
@@ -168,6 +172,7 @@ impl<'a> Run<'a> {
             paths: CustomPaths::default(),
             notes: task.scratchpad.clone(),
             artefacts: Vec::new(),
+            authorship,
         }
     }
 }
@@ -322,7 +327,7 @@ impl<'a> Run<'a> {
     ) -> Result<Result<TaskResult, Ran>> {
         let base = &self.task.spec.base_branch;
         let branch = self.branch();
-        let mut result = commit(prompt, base, &branch, self.worktree).await?;
+        let mut result = commit(prompt, base, &branch, self.worktree, &self.authorship).await?;
         let checks = load_validation(self.worktree);
         result.validation = self.validate(&checks).await;
 
@@ -353,7 +358,7 @@ impl<'a> Run<'a> {
                 stop => return Ok(Err(stop)),
             }
             // Whatever the fix run exited with, judge it by the checks themselves.
-            result = commit(FIX_MESSAGE, base, &branch, self.worktree).await?;
+            result = commit(FIX_MESSAGE, base, &branch, self.worktree, &self.authorship).await?;
             result.validation = self.validate(&checks).await;
         }
         Ok(Ok(result))

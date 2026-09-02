@@ -19,7 +19,7 @@ pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
     match event {
         TaskEvent::Started { model: Some(m) } => writeln!(out, "agent started ({m})"),
         TaskEvent::Started { .. } => writeln!(out, "agent started"),
-        TaskEvent::Message { text } => writeln!(out, "> {text}"),
+        TaskEvent::Message { text, .. } => writeln!(out, "> {text}"),
         TaskEvent::Output {
             stream: OutputStream::Stderr,
             line,
@@ -567,6 +567,7 @@ mod tests {
     fn message_event_is_quoted() {
         let event = TaskEvent::Message {
             text: "use the existing helper".into(),
+            by: None,
         };
         let mut out = Vec::new();
         render(&event, &mut out).unwrap();

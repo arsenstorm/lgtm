@@ -86,10 +86,21 @@ impl App {
     }
 
     /// A bearer token for a one-time push, or `None` to leave it to the
-    /// runner's own git credentials: no `GITHUB_TOKEN`, or a repository
-    /// that isn't on GitHub over https.
-    pub fn push_token(&self, task: &Task) -> Option<String> {
-        push_token(self.github.as_ref(), task)
+    /// runner's own git credentials.
+    ///
+    /// The workspace's own credential comes first: it names who is pushing,
+    /// where the orchestrator-wide token only says which machine is. The
+    /// static token stays as the fallback so an orchestrator with no
+    /// credentials configured behaves exactly as it did before.
+    /// Takes the state it reads rather than locking: every caller already
+    /// holds the lock, and re-entering it here deadlocks the orchestrator on
+    /// the auto-approve path.
+    pub fn push_token(&self, state: &State, task: &Task) -> Option<String> {
+        state
+            .credentials
+            .resolve(task.workspace.as_deref(), task.created_by.as_deref(), &[])
+            .token
+            .or_else(|| push_token(self.github.as_ref(), task))
     }
 
     /// Fetches the installation token for `task`'s repository before anyone
@@ -110,6 +121,12 @@ impl App {
                 tracing::warn!(?err, "fetching a github app installation token");
             }
         });
+    }
+
+    pub fn persist_credentials(&self, state: &State) {
+        let _ = self
+            .persist
+            .send(Persist::Credentials(Box::new(state.credentials.clone())));
     }
 
     pub fn persist_batch(&self, batch: &Batch) {
@@ -149,6 +166,22 @@ impl App {
     pub fn forget_todo(&self, id: &str) {
         let _ = self.persist.send(Persist::RemoveTodo(id.to_string()));
     }
+}
+
+/// Everyone besides the person who raised the task who has worked on it, in
+/// the order they first did. A follow-up is how a second person joins a task,
+/// so its sender is what earns their agent a co-author trailer.
+fn contributors(created_by: Option<&str>, events: &[StoredEvent]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for event in events {
+        let TaskEvent::Message { by: Some(by), .. } = &event.event else {
+            continue;
+        };
+        if Some(by.as_str()) != created_by && !out.contains(by) {
+            out.push(by.clone());
+        }
+    }
+    out
 }
 
 /// Shared by `App::push_token` and `orchestrate::approve`, which only holds
@@ -193,6 +226,8 @@ pub struct State {
     pub workspace: Option<String>,
     /// People with tokens of their own, by user id.
     pub users: HashMap<String, crate::users::UserRecord>,
+    /// Who this workspace's commits are attributed to, and what pushes them.
+    pub credentials: crate::credentials::CredentialStore,
 }
 
 pub struct TaskRecord {
@@ -337,6 +372,24 @@ pub(crate) fn random_id() -> String {
 }
 
 impl State {
+    /// Whose names go on this task's commits. Resolved here because the
+    /// credentials it reads never leave the orchestrator.
+    pub fn authorship(&self, task: &Task) -> lgtm_protocol::Authorship {
+        let events = self
+            .tasks
+            .get(&task.id)
+            .map(|rec| rec.events.as_slice())
+            .unwrap_or_default();
+        let others = contributors(task.created_by.as_deref(), events);
+        self.credentials
+            .resolve(
+                task.workspace.as_deref(),
+                task.created_by.as_deref(),
+                &others,
+            )
+            .authorship
+    }
+
     pub(crate) fn new_id(&self) -> TaskId {
         std::iter::repeat_with(random_id)
             .find(|id| !self.tasks.contains_key(id))
@@ -805,11 +858,13 @@ impl State {
             rec.task.runner = Some(name.clone());
             let task = rec.task.clone();
             let memories = self.memories_for(&task.spec.repository);
+            let authorship = self.authorship(&task);
             if let Some(runner) = self.runners.get_mut(&name) {
                 runner.running.insert(id.clone());
                 runner.send(OrchestratorMessage::Start {
                     task: Box::new(task),
                     memories,
+                    authorship,
                 });
             }
             tracing::info!(task = %id, runner = %name, "task assigned");
