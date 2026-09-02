@@ -162,12 +162,14 @@ pub struct Models {
     /// Empty leaves the harness on its own default.
     pub model: String,
     pub review: Pick,
-    /// Nothing in the app reads this yet; only a hosted orchestrator would.
+    /// Read at startup by the orchestrator this app hosts; an external one is
+    /// configured with `lgtm serve --orchestrate`.
     pub orchestrate: Pick,
 }
 
 impl Models {
-    fn stored() -> Self {
+    /// What the config file holds, without a running app to ask.
+    pub fn stored() -> Self {
         let table = config();
         let word = |key: &str| {
             table

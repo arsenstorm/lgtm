@@ -132,6 +132,7 @@ fn every_message_round_trips() {
         },
         TaskEvent::Message {
             text: "use the existing helper".into(),
+            by: None,
         },
         TaskEvent::Output {
             stream: OutputStream::Stdout,
@@ -250,6 +251,7 @@ fn every_message_round_trips() {
         OrchestratorMessage::Start {
             task: Box::new(sample_task()),
             memories: vec![memory(Some("r"), "ship small commits")],
+            authorship: Authorship::default(),
         },
         OrchestratorMessage::Cancel {
             task_id: "0123abcd".into(),
@@ -262,12 +264,25 @@ fn every_message_round_trips() {
             text: "again".into(),
             memories: vec![memory(None, "deploys are manual")],
             task: None,
+            authorship: Authorship::default(),
         },
         OrchestratorMessage::Message {
             task_id: "0123abcd".into(),
             text: "again, with an allowed host".into(),
             memories: vec![],
             task: Some(Box::new(sample_task())),
+            // A commit with two names on it has to survive the wire.
+            authorship: Authorship {
+                author: Identity {
+                    name: "Arsen".into(),
+                    email: "arsen@example.com".into(),
+                },
+                co_authors: vec![Identity {
+                    name: "mira".into(),
+                    email: "mira@example.com".into(),
+                }],
+                signing_key: Some("/home/a/.ssh/id_ed25519".into()),
+            },
         },
         OrchestratorMessage::Push {
             task_id: "0123abcd".into(),

@@ -338,6 +338,111 @@ pub fn same_workspace(object: Option<&str>, own: Option<&str>) -> bool {
     }
 }
 
+/// Which credential a task pushes with, and whose name goes on the commit.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMode {
+    /// The overseeing human authors and their credential pushes. The agent is
+    /// named as a co-author only when the workspace asks for it.
+    #[default]
+    Human,
+    /// The agent authors with a credential of its own, and the human who
+    /// raised the task is named as a co-author.
+    Agent,
+}
+
+/// A name and address for a commit trailer. Not a `User`: an agent has one of
+/// these and no LGTM account, and a `User` has no email.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Identity {
+    pub name: String,
+    pub email: String,
+}
+
+impl Identity {
+    /// What the runner falls back to when the orchestrator names nobody: the
+    /// identity every LGTM commit had before authorship was configurable.
+    pub fn anonymous() -> Self {
+        Identity {
+            name: "lgtm".to_string(),
+            email: "lgtm@localhost".to_string(),
+        }
+    }
+
+    /// One `Co-authored-by:` trailer line, as GitHub parses it.
+    pub fn trailer(&self) -> String {
+        format!("Co-authored-by: {} <{}>", self.name, self.email)
+    }
+}
+
+/// Who a task's commits are attributed to. Resolved by the orchestrator from
+/// the workspace's credentials, so a runner never needs the store.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Authorship {
+    pub author: Identity,
+    /// In the order they contributed; already deduplicated, and never
+    /// containing the author.
+    #[serde(default)]
+    pub co_authors: Vec<Identity>,
+    /// An SSH key on the runner to sign with, when the author has one.
+    ///
+    /// A path, never the key: the key belongs to the machine that holds it and
+    /// does not travel. Signing is only ever right when the author owns the
+    /// key — a signature from someone else's key is a false attestation.
+    #[serde(default)]
+    pub signing_key: Option<String>,
+}
+
+impl Default for Authorship {
+    fn default() -> Self {
+        Authorship {
+            author: Identity::anonymous(),
+            co_authors: Vec::new(),
+            signing_key: None,
+        }
+    }
+}
+
+impl Authorship {
+    /// The trailers to append to a commit message, or empty when the work has
+    /// only one name on it.
+    pub fn trailers(&self) -> Vec<String> {
+        self.co_authors.iter().map(Identity::trailer).collect()
+    }
+}
+
+/// Whether a credential stands for a person or for an agent.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialKind {
+    Human,
+    Agent,
+}
+
+/// A credential as the API shows it. The credential itself is not in here and
+/// never leaves the orchestrator: this says who may push, not how.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct CredentialSummary {
+    pub id: String,
+    #[serde(default)]
+    pub workspace: Option<String>,
+    pub kind: CredentialKind,
+    /// `None` on an agent credential means the whole workspace shares it.
+    #[serde(default)]
+    pub owner: Option<String>,
+    pub identity: Identity,
+}
+
+/// A workspace's authorship settings, as the API shows them.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct WorkspaceSettings {
+    #[serde(default)]
+    pub mode: AuthMode,
+    /// Name the agent as a co-author under `Human` mode.
+    #[serde(default)]
+    pub credit_agent: bool,
+}
+
 /// A person who uses this orchestrator. Their tokens live in the
 /// orchestrator's own store and never travel in this type.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

@@ -49,6 +49,11 @@ pub enum Command {
         #[command(subcommand)]
         command: Option<UserCommand>,
     },
+    /// Who this workspace's commits are attributed to, and what pushes them
+    Auth {
+        #[command(subcommand)]
+        command: Option<AuthCommand>,
+    },
     /// Ask the shared agent a question about the workspace
     Ask { question: String },
     /// Run a prompt as a task and stream its output
@@ -326,6 +331,66 @@ pub enum UserCommand {
     /// Stop a user's tokens from authenticating; their name stays on what
     /// they created.
     Revoke { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum AuthCommand {
+    /// Register a git credential. The credential is stored by the
+    /// orchestrator and never shown again.
+    Add {
+        /// `human` or `agent`. A human credential is always owned; leaving an
+        /// agent unowned shares it with the whole workspace.
+        #[arg(long, value_parser = parse_kind)]
+        kind: lgtm_protocol::CredentialKind,
+        /// Name on the commit.
+        #[arg(long)]
+        name: String,
+        /// Address on the commit.
+        #[arg(long)]
+        email: String,
+        /// A credential for pushing over https, e.g. a fine-grained PAT. Not
+        /// `--token`, which is global and authenticates to the orchestrator.
+        #[arg(long)]
+        secret: Option<String>,
+        /// Path on the runner to an SSH key that signs and pushes. The key
+        /// never leaves that machine; only its path is stored.
+        #[arg(long)]
+        ssh_key: Option<String>,
+        /// User id it belongs to. Defaults to the caller for `human`; leave
+        /// off an `agent` to share it with the workspace.
+        #[arg(long)]
+        owner: Option<String>,
+        /// Workspace it belongs to; defaults to the orchestrator's own.
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+    /// Forget a credential.
+    Remove { id: String },
+    /// Set how this workspace attributes its commits.
+    Mode {
+        /// `human` or `agent`.
+        #[arg(value_parser = parse_mode)]
+        mode: lgtm_protocol::AuthMode,
+        /// Name the agent as a co-author under `human` mode. Off by default.
+        #[arg(long)]
+        credit_agent: bool,
+    },
+}
+
+fn parse_kind(s: &str) -> Result<lgtm_protocol::CredentialKind, String> {
+    match s {
+        "human" => Ok(lgtm_protocol::CredentialKind::Human),
+        "agent" => Ok(lgtm_protocol::CredentialKind::Agent),
+        other => Err(format!("expected human or agent, got {other}")),
+    }
+}
+
+fn parse_mode(s: &str) -> Result<lgtm_protocol::AuthMode, String> {
+    match s {
+        "human" => Ok(lgtm_protocol::AuthMode::Human),
+        "agent" => Ok(lgtm_protocol::AuthMode::Agent),
+        other => Err(format!("expected human or agent, got {other}")),
+    }
 }
 
 #[derive(Subcommand)]

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, Result};
-use lgtm_protocol::{knowledge_block, Memory, Task, TaskEvent, TaskId, TaskKind};
+use lgtm_protocol::{knowledge_block, Authorship, Memory, Task, TaskEvent, TaskId, TaskKind};
 use tokio::sync::oneshot;
 
 use crate::automation::{execute, recorded_session, restore_notes, with_notes, Run};
@@ -18,10 +18,11 @@ use crate::plan::{planning_prompt, revision_prompt};
 pub async fn run_task(
     task: Task,
     memories: Vec<Memory>,
+    authorship: Authorship,
     ctx: Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) {
-    let result = run(&task, &memories, &ctx, cancel).await;
+    let result = run(&task, &memories, &authorship, &ctx, cancel).await;
     finished(&task.id, &ctx, result);
 }
 
@@ -33,10 +34,11 @@ pub async fn follow_up(
     text: String,
     memories: Vec<Memory>,
     task: Option<Box<Task>>,
+    authorship: Authorship,
     ctx: Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) {
-    let result = resume(&task_id, &text, &memories, task, &ctx, cancel).await;
+    let result = resume(&task_id, &text, &memories, task, &authorship, &ctx, cancel).await;
     finished(&task_id, &ctx, result);
 }
 
@@ -54,6 +56,7 @@ fn finished(task_id: &str, ctx: &Arc<Ctx>, result: Result<()>) {
 async fn run(
     task: &Task,
     memories: &[Memory],
+    authorship: &Authorship,
     ctx: &Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) -> Result<()> {
@@ -80,7 +83,12 @@ async fn run(
         knowledge_block(memories),
         with_notes(&prompt, task.spec.kind)
     );
-    execute(Run::new(task, &worktree, ctx, cancel), &prompt, None).await
+    execute(
+        Run::new(task, &worktree, ctx, cancel, authorship.clone()),
+        &prompt,
+        None,
+    )
+    .await
 }
 
 /// The task as the orchestrator sent it, or `None` when this runner has no
@@ -106,6 +114,7 @@ async fn resume(
     text: &str,
     memories: &[Memory],
     task: Option<Box<Task>>,
+    authorship: &Authorship,
     ctx: &Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) -> Result<()> {
@@ -130,13 +139,23 @@ async fn resume(
             knowledge_block(memories),
             revision_prompt(&task.spec.prompt, text)
         );
-        return execute(Run::new(&task, &worktree, ctx, cancel), &prompt, None).await;
+        return execute(
+            Run::new(&task, &worktree, ctx, cancel, authorship.clone()),
+            &prompt,
+            None,
+        )
+        .await;
     }
     let session = recorded_session(ctx, task_id).await;
     if session.is_none() {
         tracing::warn!("no session id for {task_id}, running the follow-up fresh");
     }
-    execute(Run::new(&task, &worktree, ctx, cancel), text, session).await
+    execute(
+        Run::new(&task, &worktree, ctx, cancel, authorship.clone()),
+        text,
+        session,
+    )
+    .await
 }
 
 /// Clones the bare mirror or refreshes it, and records it for a later discard.

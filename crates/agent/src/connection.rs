@@ -306,19 +306,30 @@ async fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
         OrchestratorMessage::HelloAck => {}
         // Only ever arrives during handshake, handled there.
         OrchestratorMessage::Rejected { .. } => {}
-        OrchestratorMessage::Start { task, memories } => {
+        OrchestratorMessage::Start {
+            task,
+            memories,
+            authorship,
+        } => {
             let (cancel_tx, cancel_rx) = oneshot::channel();
             ctx.running
                 .lock()
                 .expect("running map poisoned")
                 .insert(task.id.clone(), cancel_tx);
-            tokio::spawn(runner::run_task(*task, memories, ctx.clone(), cancel_rx));
+            tokio::spawn(runner::run_task(
+                *task,
+                memories,
+                authorship,
+                ctx.clone(),
+                cancel_rx,
+            ));
         }
         OrchestratorMessage::Message {
             task_id,
             text,
             memories,
             task,
+            authorship,
         } => {
             let (cancel_tx, cancel_rx) = oneshot::channel();
             ctx.running
@@ -330,6 +341,7 @@ async fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
                 text,
                 memories,
                 task,
+                authorship,
                 ctx.clone(),
                 cancel_rx,
             ));

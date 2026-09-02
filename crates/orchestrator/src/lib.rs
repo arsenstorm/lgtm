@@ -3,6 +3,7 @@
 mod api;
 mod backlog;
 mod commands;
+mod credentials;
 mod execution;
 mod github;
 mod linear;
@@ -188,6 +189,7 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     for rec in persist::load_users(data_dir) {
         state.users.insert(rec.user.id.clone(), rec);
     }
+    state.credentials = persist::load_credentials(data_dir);
     tracing::info!(
         tasks = state.tasks.len(),
         batches = state.batches.len(),
