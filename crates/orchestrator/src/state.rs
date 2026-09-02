@@ -812,6 +812,7 @@ impl State {
             pr_review: None,
             executions: Vec::new(),
             scratchpad: String::new(),
+            files: Vec::new(),
             workspace: self.workspace.clone(),
             created_by,
         };
@@ -954,7 +955,12 @@ fn split_artefact(queued: &mut Vec<(String, Vec<u8>)>, mut event: TaskEvent) -> 
 fn transition(task: &mut Task, event: &TaskEvent) -> bool {
     let terminal = task.status.is_terminal();
     let (status, finished) = match event {
-        TaskEvent::Started { .. } => (Some(TaskStatus::Running), false),
+        // A new attempt starts from nothing, so the live file list a reader
+        // sees is this run's, never the one before it left behind.
+        TaskEvent::Started { .. } => {
+            task.files.clear();
+            (Some(TaskStatus::Running), false)
+        }
         TaskEvent::Completed { result } => {
             if !terminal {
                 task.result = Some(result.clone());
@@ -972,6 +978,14 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
             task.scratchpad = content.clone();
             (None, false)
         }
+        // What the run has touched so far, so an overlap with another running
+        // task shows before either of them completes.
+        TaskEvent::FileChanged { path } => {
+            if !task.files.contains(path) {
+                task.files.push(path.clone());
+            }
+            (None, false)
+        }
         TaskEvent::TimedOut { .. } => (Some(TaskStatus::TimedOut), true),
         TaskEvent::RunnerLost => (Some(TaskStatus::RunnerLost), true),
         TaskEvent::Cancelled => (Some(TaskStatus::Cancelled), true),
@@ -987,7 +1001,6 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
         // run in progress stays exactly where it was.
         TaskEvent::Output { .. }
         | TaskEvent::Command { .. }
-        | TaskEvent::FileChanged { .. }
         | TaskEvent::Progress { .. }
         | TaskEvent::Validating { .. }
         | TaskEvent::NetworkDenied { .. }

@@ -61,6 +61,7 @@ fn sample_task() -> Task {
             artefacts: Vec::new(),
         }],
         scratchpad: "## Findings\n- the parser is in src/parse.rs\n".into(),
+        files: Vec::new(),
         workspace: None,
         created_by: None,
     }
@@ -751,11 +752,14 @@ fn attention_task(prompt: &str, status: TaskStatus, error: Option<&str>) -> Task
     task
 }
 
+/// A task reporting `files`, both live and in its result, the way a run that
+/// streamed them and then completed leaves it.
 fn changed(id: &str, status: TaskStatus, repository: &str, files: &[&str]) -> Task {
     let mut task = sample_task();
     task.id = id.into();
     task.status = status;
     task.spec.repository = repository.into();
+    task.files = files.iter().map(|f| (*f).to_string()).collect();
     task.result = Some(TaskResult {
         branch: format!("lgtm/{id}"),
         diff: String::new(),
@@ -923,6 +927,7 @@ fn overlaps_only_with_live_tasks_in_the_same_repository() {
     let apart = changed("eeeeeeee", TaskStatus::Running, "r", &["z.rs"]);
     let mut unstarted = changed("ffffffff", TaskStatus::Queued, "r", &["a.rs"]);
     unstarted.result = None;
+    unstarted.files.clear();
 
     let others = [&mine, &live, &done, &elsewhere, &apart, &unstarted];
     assert_eq!(
@@ -933,6 +938,39 @@ fn overlaps_only_with_live_tasks_in_the_same_repository() {
         }]
     );
     assert!(overlaps(&apart, &others).is_empty());
+}
+
+#[test]
+fn two_running_tasks_overlap_before_either_completes() {
+    let mut mine = changed("aaaaaaaa", TaskStatus::Running, "r", &["a.rs"]);
+    mine.result = None;
+    let mut other = changed("bbbbbbbb", TaskStatus::Running, "r", &["z.rs", "a.rs"]);
+    other.result = None;
+
+    assert_eq!(
+        overlaps(&mine, &[&other]),
+        vec![Overlap {
+            task: "bbbbbbbb".into(),
+            files: vec!["a.rs".into()],
+        }]
+    );
+}
+
+#[test]
+fn a_running_task_overlaps_on_this_attempt_not_the_last_one() {
+    let mut retried = changed("aaaaaaaa", TaskStatus::Running, "r", &["new.rs"]);
+    retried.result.as_mut().unwrap().changed_files = vec!["old.rs".into()];
+    let stale = changed("bbbbbbbb", TaskStatus::Running, "r", &["old.rs"]);
+    let live = changed("cccccccc", TaskStatus::Running, "r", &["new.rs"]);
+
+    assert!(overlaps(&retried, &[&stale]).is_empty());
+    assert_eq!(
+        overlaps(&retried, &[&live]),
+        vec![Overlap {
+            task: "cccccccc".into(),
+            files: vec!["new.rs".into()],
+        }]
+    );
 }
 
 #[test]

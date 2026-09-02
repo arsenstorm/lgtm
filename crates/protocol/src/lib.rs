@@ -867,6 +867,11 @@ pub struct Task {
     /// person can pick up where it stopped.
     #[serde(default)]
     pub scratchpad: String,
+    /// Files the current run has reported changing so far, in the order first
+    /// seen. Cleared when an attempt starts; `result.changed_files` is the
+    /// final word once a run completes.
+    #[serde(default)]
+    pub files: Vec<String>,
     /// The workspace this belongs to; one per orchestrator until teams exist.
     #[serde(default)]
     pub workspace: Option<String>,
@@ -883,9 +888,11 @@ pub struct Overlap {
 }
 
 fn changed_files(task: &Task) -> &[String] {
-    match &task.result {
-        Some(result) => &result.changed_files,
-        None => &[],
+    // A running attempt's live report beats a previous attempt's result;
+    // once the run has completed, the result is the final word.
+    match (&task.result, task.status) {
+        (Some(result), status) if status != TaskStatus::Running => &result.changed_files,
+        _ => &task.files,
     }
 }
 
