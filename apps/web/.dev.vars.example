@@ -1,0 +1,8 @@
+# Where the Rust orchestrator listens. Under `wrangler dev` the Worker runs on
+# this machine, so localhost resolves. A deployed Worker cannot reach it; that
+# is what the Postgres seam in milestone 2 replaces.
+LGTM_ORCHESTRATOR=http://127.0.0.1:4750
+
+# The orchestrator's shared token, written by `lgtm serve` to ~/.lgtm/token.
+# It stays server-side and never reaches the browser.
+LGTM_TOKEN=
