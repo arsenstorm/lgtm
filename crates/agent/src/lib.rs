@@ -105,21 +105,43 @@ fn detect_memory_mb() -> u64 {
         .map_or(0, |kb| kb / 1024)
 }
 
+/// `wmic` used to answer this, but Windows 11 24H2 dropped it, so a runner
+/// there reported 0 MB and matched no task with a memory requirement. This is
+/// the same number `MemTotal` gives on Linux: what the OS has to hand out.
 #[cfg(windows)]
 fn detect_memory_mb() -> u64 {
-    let out = std::process::Command::new("wmic")
-        .args(["ComputerSystem", "get", "TotalPhysicalMemory"])
-        .output();
-    out.ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty() && line.chars().all(|c| c.is_ascii_digit()))
-                .and_then(|bytes| bytes.parse::<u64>().ok())
-        })
-        .map_or(0, |bytes| bytes / (1024 * 1024))
+    #[repr(C)]
+    struct MemoryStatusEx {
+        length: u32,
+        memory_load: u32,
+        total_phys: u64,
+        avail_phys: u64,
+        total_page_file: u64,
+        avail_page_file: u64,
+        total_virtual: u64,
+        avail_virtual: u64,
+        avail_extended_virtual: u64,
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GlobalMemoryStatusEx(buffer: *mut MemoryStatusEx) -> i32;
+    }
+    let mut status = MemoryStatusEx {
+        length: std::mem::size_of::<MemoryStatusEx>() as u32,
+        memory_load: 0,
+        total_phys: 0,
+        avail_phys: 0,
+        total_page_file: 0,
+        avail_page_file: 0,
+        total_virtual: 0,
+        avail_virtual: 0,
+        avail_extended_virtual: 0,
+    };
+    // The only documented failure is a malformed `length`, which is set above.
+    match unsafe { GlobalMemoryStatusEx(&mut status) } {
+        0 => 0,
+        _ => status.total_phys / (1024 * 1024),
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]

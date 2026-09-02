@@ -7,8 +7,16 @@ use lgtm_protocol::TaskResult;
 use tokio::process::Command;
 
 /// Identity for commits made on behalf of the agent; the runner machine has no
-/// git identity of its own.
-pub const IDENTITY: [&str; 4] = ["-c", "user.name=lgtm", "-c", "user.email=lgtm@localhost"];
+/// git identity of its own. Signing is off with it: the machine's key belongs
+/// to a person, and this commit is not theirs to attest to.
+pub const IDENTITY: [&str; 6] = [
+    "-c",
+    "user.name=lgtm",
+    "-c",
+    "user.email=lgtm@localhost",
+    "-c",
+    "commit.gpgsign=false",
+];
 
 /// The agent's working notes, relative to the worktree.
 pub const SCRATCHPAD: &str = ".lgtm/scratchpad.md";
