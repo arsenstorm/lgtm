@@ -1,7 +1,7 @@
-//! The task view: header with status and actions, then its tabs.
+//! The task view: header with status and actions, its tabs, and the inspector
+//! and terminal panels that sit beside and under whichever tab is open.
 
-mod notes;
-mod overview;
+mod inspector;
 mod review_tab;
 mod tabs;
 mod terminal;
@@ -10,7 +10,10 @@ use crate::app::{LgtmApp, Pane};
 use crate::labels::{header_preview, status_label};
 use crate::net::Action;
 use crate::tasks::repo_slug;
-use crate::theme::{field, icon, tokens, Header, Tokens, RADIUS_PILL, SPACE, TEXT_SECONDARY};
+use crate::theme::{
+    field, icon, icon_button, tokens, Header, TabularNums as _, Tokens, RADIUS_PILL, SPACE,
+    TEXT_SECONDARY,
+};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement as _,
@@ -26,6 +29,11 @@ use tabs::{activity, plan_pane};
 
 /// `h-5`, the reference badge height.
 const BADGE_H: f32 = 20.;
+/// The inspector column: wide enough for the facts block's key and value.
+const INSPECTOR_W: f32 = 320.;
+/// The terminal drawer: a dozen mono lines, enough to read a command's answer
+/// without giving up the tab above it.
+const DRAWER_H: f32 = 240.;
 
 pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmApp>) -> AnyElement {
     let t = tokens(cx);
@@ -37,10 +45,12 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
     // A task selected while on the Plan tab may not have a plan; fall back for
     // that render without losing the user's tab choice.
     let pane = if app.pane == Pane::Plan && !has_plan {
-        Pane::Overview
+        Pane::Activity
     } else {
         app.pane
     };
+    let (inspector_open, terminal_open) = (app.ui.inspector_open, app.ui.terminal_open);
+    let finished = task.status.is_terminal();
     div()
         .flex_1()
         .min_w_0()
@@ -48,8 +58,57 @@ pub fn task_view(app: &mut LgtmApp, window: &mut Window, cx: &mut Context<LgtmAp
         .flex_col()
         .children(notices(app, &t))
         .child(div().px(px(SPACE[1])).child(tab_bar(pane, has_plan, cx)))
-        .child(body(app, pane, &task, &t, window, cx))
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .min_h_0()
+                        .flex()
+                        .flex_col()
+                        .child(body(app, pane, &task, &t, window, cx)),
+                )
+                .when(inspector_open, |this| {
+                    this.child(inspector_panel(app, &task, &t, cx))
+                }),
+        )
+        .when(terminal_open, |this| {
+            this.child(
+                div()
+                    .flex_shrink_0()
+                    .h(px(DRAWER_H))
+                    .border_t_1()
+                    .border_color(t.border)
+                    .child(terminal::terminal(app, finished, &t)),
+            )
+        })
         .into_any_element()
+}
+
+/// The facts-and-notes column, beside whichever tab is open. It scrolls on its
+/// own so reading the notes does not move the pane.
+fn inspector_panel(
+    app: &LgtmApp,
+    task: &Task,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> impl IntoElement {
+    div()
+        .id("inspector")
+        .flex_none()
+        .w(px(INSPECTOR_W))
+        .h_full()
+        .overflow_y_scroll()
+        .track_scroll(&app.ui.inspector_scroll)
+        .border_l_1()
+        .border_color(t.border)
+        .px(px(SPACE[2]))
+        .py(px(SPACE[2]))
+        .child(inspector::inspector(app, task, t, cx))
 }
 
 fn body(
@@ -66,16 +125,9 @@ fn body(
             .min_h_0()
             .child(crate::changes::changes_pane(app, window, cx))
             .into_any_element(),
-        Pane::Overview => scrolling(app, overview::overview(app, task, t, cx)),
         Pane::Review => scrolling(app, review_tab::review(app, task, t, cx)),
-        Pane::Notes => scrolling(app, notes::notes(app, task, t, cx)),
-        Pane::Terminal => div()
-            .flex_1()
-            .min_h_0()
-            .child(terminal::terminal(app, t))
-            .into_any_element(),
         Pane::Plan => scrolling(app, plan_pane(task, t)),
-        Pane::Activity => scrolling(app, activity(app, t)),
+        Pane::Activity => scrolling(app, activity(app, t, cx)),
     }
 }
 
@@ -106,12 +158,9 @@ fn notices(app: &LgtmApp, t: &Tokens) -> Vec<Div> {
 /// The tabs, in order. Plan is only there for a task that produced one.
 fn tabs_for(has_plan: bool) -> Vec<(Pane, &'static str)> {
     let mut tabs = vec![
-        (Pane::Overview, "Overview"),
         (Pane::Activity, "Activity"),
         (Pane::Changes, "Changes"),
         (Pane::Review, "Review"),
-        (Pane::Notes, "Notes"),
-        (Pane::Terminal, "Terminal"),
     ];
     if has_plan {
         tabs.push((Pane::Plan, "Plan"));
@@ -134,7 +183,7 @@ fn tab_bar(pane: Pane, has_plan: bool, cx: &mut Context<LgtmApp>) -> TabBar {
         }))
 }
 
-/// The scrolling body shared by every pane but Changes and Terminal. It sets
+/// The scrolling body shared by every pane but Changes. It sets
 /// no type of its own: a pane that is prose picks the UI font, a pane that is
 /// data picks mono, and neither inherits the other's.
 fn scrolling(app: &LgtmApp, body: impl IntoElement) -> AnyElement {
@@ -158,6 +207,7 @@ pub(crate) fn task_header(
     cx: &mut Context<LgtmApp>,
 ) -> Div {
     let status = status_label(task, &app.tasks);
+    let (inspector_open, terminal_open) = (app.ui.inspector_open, app.ui.terminal_open);
     Header::new(header_preview(&task.spec.prompt))
         .detail(badge(status, status_tone(status, t), t))
         .detail(
@@ -165,10 +215,25 @@ pub(crate) fn task_header(
                 .flex_shrink_0()
                 .text_size(px(TEXT_SECONDARY))
                 .text_color(t.muted_fg)
+                .tabular_nums()
                 .child(meta_line(task)),
         )
         .details(chips(task, t, cx))
         .action(actions(task, t, cx))
+        // The header is drawn on the window bar, so a toggle has to occlude
+        // it or a second quick click would reach the bar and zoom the window.
+        .action(
+            icon_button("toggle-terminal", "terminal", true, t)
+                .when(terminal_open, |this| this.bg(t.wash))
+                .occlude()
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_terminal(cx))),
+        )
+        .action(
+            icon_button("toggle-inspector", "info", true, t)
+                .when(inspector_open, |this| this.bg(t.wash))
+                .occlude()
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_inspector(cx))),
+        )
         .render()
         .px(px(SPACE[1]))
         .border_b_1()
@@ -354,10 +419,7 @@ mod tests {
         let labels = |has_plan| -> Vec<&'static str> {
             tabs_for(has_plan).into_iter().map(|(_, l)| l).collect()
         };
-        assert_eq!(
-            labels(false),
-            vec!["Overview", "Activity", "Changes", "Review", "Notes", "Terminal"]
-        );
+        assert_eq!(labels(false), vec!["Activity", "Changes", "Review"]);
         assert_eq!(labels(true).last(), Some(&"Plan"));
     }
 }

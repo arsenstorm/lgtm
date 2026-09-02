@@ -1,22 +1,27 @@
-//! The Overview tab: what the task is, every attempt at it, and what the
-//! orchestrator and the other live tasks have to say about it.
+//! The inspector: what the task is, every attempt at it, what the orchestrator
+//! and the other live tasks have to say about it, and the agent's scratchpad.
 
-use super::badge;
+use super::{badge, muted};
 use crate::app::LgtmApp;
 use crate::render;
 use crate::tasks::{duration, now_ms, relative_age, repo_slug};
-use crate::theme::{section as section_shell, Tokens, SPACE, TEXT_ROW, TEXT_SECONDARY};
+use crate::theme::{
+    field, section as section_shell, Tokens, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO, TEXT_ROW,
+    TEXT_SECONDARY,
+};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
 };
+use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::Sizable as _;
 use lgtm_protocol::{Execution, ExecutionStatus, Overlap, StoredEvent, Task, TaskEvent};
 
 /// The key column, wide enough for `Requirements`.
 const KEY_W: f32 = 104.;
 
-pub(super) fn overview(
+pub(super) fn inspector(
     app: &LgtmApp,
     task: &Task,
     t: &Tokens,
@@ -31,6 +36,51 @@ pub(super) fn overview(
         .children(section("Attempts", attempts(task, t), t))
         .children(section("Policy", decision_rows(&app.events, t), t))
         .children(section("Overlaps", overlap_rows(&app.overlaps, t, cx), t))
+        .child(notes(app, task, t, cx))
+        .into_any_element()
+}
+
+/// The agent's scratchpad, and the editor over it. Unlike the sections above
+/// it shows even when empty: the Edit button is the only way to write notes.
+fn notes(app: &LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let shell = section_shell("Notes", t);
+    if app.ui.editing_notes {
+        return shell.child(field(&app.inputs.notes, t)).child(
+            div().child(
+                Button::new("save-notes")
+                    .label("Save")
+                    .primary()
+                    .small()
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.save_notes(cx))),
+            ),
+        );
+    }
+    shell.child(scratchpad(&task.scratchpad, t)).child(
+        div().child(
+            Button::new("edit-notes")
+                .label("Edit")
+                .outline()
+                .small()
+                .on_click(
+                    cx.listener(|this, _: &ClickEvent, window, cx| this.edit_notes(window, cx)),
+                ),
+        ),
+    )
+}
+
+/// The scratchpad is the agent's own file, so it keeps monospace and its own
+/// line breaks while the chrome around it stays UI type.
+fn scratchpad(scratchpad: &str, t: &Tokens) -> AnyElement {
+    if scratchpad.trim().is_empty() {
+        return muted("No notes yet", t);
+    }
+    div()
+        .flex()
+        .flex_col()
+        .font_family(MONO_FONT)
+        .text_size(px(TEXT_MONO))
+        .line_height(px(LINE_MONO))
+        .children(scratchpad.lines().map(|line| div().child(line.to_string())))
         .into_any_element()
 }
 

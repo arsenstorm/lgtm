@@ -1,5 +1,5 @@
-//! The Terminal tab: the shell in the task's worktree, as a terminal — one
-//! mono surface bleeding to the pane's edges, scrollback above, prompt below.
+//! The terminal drawer: the shell in the task's worktree, as a terminal — one
+//! mono surface bleeding to the drawer's edges, scrollback above, prompt below.
 
 use crate::app::LgtmApp;
 use crate::theme::{Tokens, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO};
@@ -14,7 +14,7 @@ use gpui_component::input::Input;
 /// buffer is cheap, and nothing above reads what scrolled off.
 const SCROLLBACK: usize = 200_000;
 
-pub(super) fn terminal(app: &LgtmApp, t: &Tokens) -> AnyElement {
+pub(super) fn terminal(app: &LgtmApp, finished: bool, t: &Tokens) -> AnyElement {
     let attached = app.shell.is_some();
     div()
         .relative()
@@ -26,18 +26,28 @@ pub(super) fn terminal(app: &LgtmApp, t: &Tokens) -> AnyElement {
         .text_size(px(TEXT_MONO))
         .line_height(px(LINE_MONO))
         .text_color(t.fg)
-        .child(scrollback(app, t))
+        .child(scrollback(app, finished, t))
         .when(attached, |this| this.child(prompt(app, t)))
         .into_any_element()
+}
+
+/// What an attached shell says before it has printed anything. A finished run
+/// has nothing more to say, so the wait would never end — name the worktree
+/// the shell did open in instead.
+fn waiting(finished: bool) -> &'static str {
+    match finished {
+        true => "The run has finished — this shell opens in its worktree.",
+        false => "Waiting for the shell…",
+    }
 }
 
 /// The output, and the scrollable `commands.rs` pins to the bottom. Long lines
 /// wrap: `strip_ansi` drops cursor movement, so this is an append-only log
 /// rather than a grid, and a log must not hide its tail behind a scroll offset.
-fn scrollback(app: &LgtmApp, t: &Tokens) -> Stateful<Div> {
+fn scrollback(app: &LgtmApp, finished: bool, t: &Tokens) -> Stateful<Div> {
     let lines: Vec<Div> = match app.shell.as_ref() {
         None => vec![quiet("Not attached.", t)],
-        Some(shell) if shell.output.is_empty() => vec![quiet("Waiting for the shell…", t)],
+        Some(shell) if shell.output.is_empty() => vec![quiet(waiting(finished), t)],
         Some(shell) => shell
             .output
             .lines()

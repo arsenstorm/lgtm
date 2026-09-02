@@ -1,45 +1,36 @@
-//! The project page: one repository's overview, tasks, goals, and runners.
+//! The project page: one repository at a glance, the work under way in it,
+//! and what every run there is told.
 
 mod goals;
-mod history;
 mod lists;
 mod overview;
-mod plans;
+mod work;
 
 use crate::app::LgtmApp;
 use crate::tasks::repo_slug;
-use crate::theme::{icon, tokens, Header, Tokens, ICON, RADIUS, SPACE, TEXT_SECONDARY};
+use crate::theme::{icon, tokens, Header, Tokens, ICON, SPACE, TEXT_SECONDARY};
 use gpui::{
     div, px, AnyElement, Context, Div, InteractiveElement as _, IntoElement, ParentElement as _,
     Stateful, StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_component::tab::{Tab, TabBar};
-use lgtm_protocol::{GoalSummary, RunnerStatus, Task};
+use lgtm_protocol::{GoalSummary, Task};
 
 /// Which section of the project page is showing.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum ProjectTab {
     #[default]
     Overview,
-    Tasks,
-    Goals,
-    Plans,
-    Memories,
-    Todos,
-    History,
-    Runners,
+    Work,
+    /// What every run in this project is told: its memories.
+    Context,
 }
 
 impl ProjectTab {
-    const ALL: [(ProjectTab, &'static str); 8] = [
+    const ALL: [(ProjectTab, &'static str); 3] = [
         (ProjectTab::Overview, "Overview"),
-        (ProjectTab::Tasks, "Tasks"),
-        (ProjectTab::Goals, "Goals"),
-        (ProjectTab::Plans, "Plans"),
-        (ProjectTab::Memories, "Memories"),
-        (ProjectTab::Todos, "TODOs"),
-        (ProjectTab::History, "History"),
-        (ProjectTab::Runners, "Runners"),
+        (ProjectTab::Work, "Work"),
+        (ProjectTab::Context, "Context"),
     ];
 }
 
@@ -106,8 +97,8 @@ fn tab_bar(tab: ProjectTab, cx: &mut Context<LgtmApp>) -> TabBar {
         }))
 }
 
-/// The scrolled section. Its children are the goal cards on the Goals tab, so
-/// opening a goal from the sidebar can scroll straight to one by index.
+/// The scrolled section. The goal cards are its first children on the Work
+/// tab, so opening a goal from the sidebar can scroll straight to one by index.
 fn body(
     app: &LgtmApp,
     slug: &str,
@@ -128,78 +119,9 @@ fn body(
         .py(px(SPACE[2]))
         .children(match tab {
             ProjectTab::Overview => overview::rows(app, slug, t, cx),
-            ProjectTab::Tasks => task_rows(app, slug, t, cx),
-            ProjectTab::Goals => goals::cards(app, slug, t, cx),
-            ProjectTab::Plans => plans::rows(app, t, cx),
-            ProjectTab::Memories => lists::memories(app, t, cx),
-            ProjectTab::Todos => lists::todos(app, t, cx),
-            ProjectTab::History => history::rows(app, slug, t, cx),
-            ProjectTab::Runners => runner_rows(app, t),
+            ProjectTab::Work => work::rows(app, slug, t, cx),
+            ProjectTab::Context => lists::memories(app, t, cx),
         })
-}
-
-fn task_rows(app: &LgtmApp, slug: &str, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
-    let rows = tasks_of(app, slug);
-    if rows.is_empty() {
-        return vec![muted("No tasks in this project yet.", t)];
-    }
-    rows.into_iter()
-        .map(|task| crate::batches::task_row(app, task, t, cx).into_any_element())
-        .collect()
-}
-
-fn runner_rows(app: &LgtmApp, t: &Tokens) -> Vec<AnyElement> {
-    if app.runners.is_empty() {
-        return vec![muted("No runners connected.", t)];
-    }
-    app.runners
-        .iter()
-        .map(|runner| runner_row(runner, t).into_any_element())
-        .collect()
-}
-
-/// Name, platform, slots, and what the machine can run.
-fn runner_row(runner: &RunnerStatus, t: &Tokens) -> Div {
-    let info = &runner.info;
-    let cell = |text: String| {
-        div()
-            .w(px(120.))
-            .flex_shrink_0()
-            .text_size(px(TEXT_SECONDARY))
-            .text_color(t.muted_fg)
-            .child(text)
-    };
-    div()
-        .flex()
-        .items_center()
-        .gap(px(SPACE[1]))
-        .p(px(SPACE[1]))
-        .rounded(px(RADIUS))
-        .bg(t.card)
-        .border_1()
-        .border_color(t.border)
-        .child(
-            div()
-                .w(px(160.))
-                .flex_shrink_0()
-                .truncate()
-                .child(info.name.clone()),
-        )
-        .child(cell(format!("{}/{}", info.os, info.arch)))
-        .child(cell(format!(
-            "{}/{} slots",
-            runner.running.len(),
-            info.slots
-        )))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_size(px(TEXT_SECONDARY))
-                .text_color(t.muted_fg)
-                .child(info.capabilities.join(" · ")),
-        )
 }
 
 fn muted(text: &'static str, t: &Tokens) -> AnyElement {

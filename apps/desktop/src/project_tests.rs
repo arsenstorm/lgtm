@@ -1,6 +1,7 @@
 use super::goals::counts as goal_counts;
+use super::overview::{numbers, Numbers};
 use super::*;
-use lgtm_protocol::{BatchSummary, Executor, TaskKind, TaskSpec, TaskStatus};
+use lgtm_protocol::{BatchSummary, Executor, TaskKind, TaskResult, TaskSpec, TaskStatus};
 
 pub(super) fn task(repository: &str, status: TaskStatus) -> Task {
     Task {
@@ -41,6 +42,50 @@ pub(super) fn task(repository: &str, status: TaskStatus) -> Task {
         workspace: None,
         created_by: None,
     }
+}
+
+fn cost(usd: f64) -> TaskResult {
+    TaskResult {
+        branch: "b".into(),
+        diff: String::new(),
+        changed_files: vec![],
+        validation: vec![],
+        plan: None,
+        review: None,
+        policy: None,
+        cost_usd: usd,
+    }
+}
+
+#[test]
+fn the_strip_counts_only_the_project_it_was_given() {
+    let mine = |status| task("https://x/one.git", status);
+    let mut paid = mine(TaskStatus::Merged);
+    paid.result = Some(cost(1.5));
+    let tasks = vec![
+        mine(TaskStatus::Running),
+        mine(TaskStatus::AwaitingReview),
+        mine(TaskStatus::Conflicted),
+        paid,
+        mine(TaskStatus::Approved),
+        // Another project's task: never counted, whatever it is doing.
+        task("https://x/two.git", TaskStatus::Running),
+    ];
+    let mine: Vec<&Task> = tasks
+        .iter()
+        .filter(|task| task.spec.repository.ends_with("one.git"))
+        .collect();
+    assert_eq!(
+        numbers(&mine, &tasks),
+        Numbers {
+            running: 1,
+            needs_review: 2,
+            blocked: 0,
+            completed: 2,
+            cost_usd: 1.5,
+        }
+    );
+    assert_eq!(numbers(&[], &tasks), Numbers::default());
 }
 
 #[test]

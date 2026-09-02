@@ -1,4 +1,5 @@
-//! The Memories and TODOs tabs: what the project knows, and what it owes.
+//! The rows behind the project's memories and its backlog: what the project
+//! knows, and what it owes.
 
 use std::collections::HashMap;
 
@@ -40,16 +41,13 @@ pub(super) fn memories(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> 
 }
 
 pub(super) fn todos(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
-    let mut out = vec![
-        section_label("TODOs", t).into_any_element(),
-        add_row(
-            &app.inputs.todo,
-            "add-todo",
-            t,
-            cx.listener(|this, _: &ClickEvent, window, cx| this.add_todo(window, cx)),
-        )
-        .into_any_element(),
-    ];
+    let mut out = vec![add_row(
+        &app.inputs.todo,
+        "add-todo",
+        t,
+        cx.listener(|this, _: &ClickEvent, window, cx| this.add_todo(window, cx)),
+    )
+    .into_any_element()];
     if app.todos.is_empty() {
         out.push(muted("Nothing on the list.", t));
     }
