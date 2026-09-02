@@ -23,7 +23,9 @@ macro_rules! icons {
 
 icons![
     "activity",
+    "arrow-left",
     "arrow-up",
+    "bell",
     "check",
     "chevron-down",
     "chevron-left",
@@ -35,8 +37,10 @@ icons![
     "git-branch",
     "inbox",
     "info",
+    "lgtm",
     "lightbulb",
     "list-checks",
+    "palette",
     "panel-left",
     "plus",
     "search",

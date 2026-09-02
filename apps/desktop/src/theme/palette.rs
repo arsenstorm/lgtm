@@ -43,13 +43,16 @@ pub fn dark() -> Tokens {
         primary: rgb(0xebebeb).into(),
         primary_fg: rgb(0x1b1b1b).into(),
         muted: rgb(0x2b2b2b).into(),
+        wash: rgba(0xffffff14).into(),
         muted_fg: rgb(0xa3a3a3).into(),
         border: rgba(0xffffff1a).into(),
         input: rgba(0xffffff26).into(),
         input_fill: rgba(0xffffff13).into(),
         ring: rgb(0x8a8a8a).into(),
-        sidebar: rgba(0x1b1b1bc7).into(),
+        sidebar: rgba(0x232323d9).into(),
         sidebar_border: rgba(0xffffff1a).into(),
+        sidebar_fg: rgb(0xdedede).into(),
+        sidebar_muted: rgb(0x747474).into(),
         success: rgb(0x34d399).into(),
         warning: rgb(0xfbbf24).into(),
         info: rgb(0xa78bfa).into(),
@@ -97,6 +100,7 @@ pub fn light() -> Tokens {
         primary: rgb(0x1b1b1b).into(),
         primary_fg: rgb(0xfafafa).into(),
         muted: rgb(0xf5f5f5).into(),
+        wash: rgba(0x00000012).into(),
         muted_fg: rgb(0x737373).into(),
         border: rgb(0xebebeb).into(),
         input: rgb(0xebebeb).into(),
@@ -104,6 +108,8 @@ pub fn light() -> Tokens {
         ring: rgb(0xb4b4b4).into(),
         sidebar: rgba(0xfafafad9).into(),
         sidebar_border: rgb(0xebebeb).into(),
+        sidebar_fg: rgb(0x3d3d3d).into(),
+        sidebar_muted: rgb(0x8f8f8f).into(),
         success: rgb(0x059669).into(),
         warning: rgb(0xd97706).into(),
         info: rgb(0x7c3aed).into(),
@@ -128,7 +134,7 @@ pub fn light() -> Tokens {
 mod tests {
     use super::*;
 
-    fn all(t: &Tokens) -> [Hsla; 38] {
+    fn all(t: &Tokens) -> [Hsla; 41] {
         [
             t.bg,
             t.fg,
@@ -137,6 +143,7 @@ mod tests {
             t.primary,
             t.primary_fg,
             t.muted,
+            t.wash,
             t.muted_fg,
             t.border,
             t.input,
@@ -144,6 +151,8 @@ mod tests {
             t.ring,
             t.sidebar,
             t.sidebar_border,
+            t.sidebar_fg,
+            t.sidebar_muted,
             t.success,
             t.warning,
             t.info,

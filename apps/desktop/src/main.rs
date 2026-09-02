@@ -1,14 +1,15 @@
-mod activity;
+mod add_project;
 mod app;
 mod assets;
-mod batches;
 mod changes;
 mod commands;
 mod composer;
 mod home;
 mod import;
+mod inbox;
 mod keys;
 mod labels;
+mod menu;
 mod net;
 mod notify;
 mod palette;
@@ -21,7 +22,9 @@ mod settings;
 mod sidebar;
 mod tasks;
 mod theme;
+mod thread;
 mod titlebar;
+mod work;
 
 use app::LgtmApp;
 use gpui::{

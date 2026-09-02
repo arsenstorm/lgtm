@@ -67,30 +67,14 @@ pub(super) fn project_menu(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>)
                 .map(|url| repo_row(url, chosen.as_deref(), t, cx)),
         )
         .child(separator(t))
-        .child(if app.composer.add_repo {
-            inline_field(&app.inputs.repo_url, "add-repo-ok", cx, |this, cx| {
-                let url = this.inputs.repo_url.read(cx).value().trim().to_string();
-                if url.is_empty() {
-                    return;
-                }
-                this.composer.project = Some(url);
-                this.close_menus(cx);
-                cx.notify();
-            })
-            .into_any_element()
-        } else {
+        .child(
             menu_row("add-repo", false, t)
                 .child(icon("plus", ICON, t.muted_fg))
-                .child("Add repository…")
+                .child("New project…")
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    this.composer.add_repo = true;
-                    this.inputs
-                        .repo_url
-                        .update(cx, |state, cx| state.focus(window, cx));
-                    cx.notify();
-                }))
-                .into_any_element()
-        })
+                    this.open_add_project(window, cx)
+                })),
+        )
 }
 
 fn repo_row(

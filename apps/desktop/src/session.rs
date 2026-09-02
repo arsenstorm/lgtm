@@ -78,7 +78,7 @@ pub(crate) fn session_header(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp
         return div().h_full().flex_1();
     };
     let title = match open.session.title.trim().is_empty() {
-        true => "New session".to_string(),
+        true => "New task".to_string(),
         false => open.session.title.clone(),
     };
     Header::new(title)
@@ -110,6 +110,7 @@ fn project_popover(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div 
     let repository = open.session.repository.clone();
     let slug = repo_slug(&repository);
     let tasks = open.tasks.len();
+    let archived = open.session.archived.then(|| open.session.id.clone());
     div()
         .absolute()
         .top(px(BAR_H - 2.))
@@ -155,6 +156,23 @@ fn project_popover(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div 
                 this.show_page(Page::Project(slug.clone()), cx);
             })),
         )
+        // The rail hides archived threads, so this is the one place the thread
+        // itself can come back — without it, archiving is a slow delete.
+        .when_some(archived, |this, id| {
+            this.child(
+                project_row(
+                    icon("inbox", ICON, t.muted_fg),
+                    "Unarchive thread".to_string(),
+                    t,
+                )
+                .id("unarchive-thread")
+                .cursor_pointer()
+                .hover(|this| this.bg(t.muted))
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.set_thread_archived(id.clone(), false, cx)
+                })),
+            )
+        })
 }
 
 fn project_row(leading: impl IntoElement, text: String, t: &Tokens) -> Div {

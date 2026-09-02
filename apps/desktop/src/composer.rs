@@ -224,7 +224,7 @@ fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElem
                     .line_height(rems(1.25))
                     .text_size(px(PROMPT_TEXT))
                     .text_color(t.composer.placeholder)
-                    .child("Describe your task..."),
+                    .child("Describe your task…"),
             )
         })
 }

@@ -4,15 +4,16 @@ use crate::home::Chip;
 use crate::import::ImportForm;
 use crate::keys::{
     CloseOverlay, NewSession, OpenPalette, PaletteNext, PalettePrev, PaletteRun, SelectNext,
-    SelectPrev, ShowActivity, ShowChanges, ShowNotes, ShowOverview, ShowPlan, ShowReview, Submit,
-    ToggleSidebar, CONTEXT, PANE_CONTEXT,
+    SelectPrev, ShowActivity, ShowChanges, ShowPlan, ShowReview, Submit, ToggleSidebar, CONTEXT,
+    PANE_CONTEXT,
 };
 use crate::net::{self, Msg};
 use crate::project::ProjectTab;
 use crate::render::Line;
 use crate::theme::{tokens, SPACE, STATUS_H, TEXT_BODY, TEXT_SECONDARY, UI_FONT};
 use crate::{
-    activity, batches, home, import, palette, panes, project, session, settings, sidebar, titlebar,
+    add_project, home, import, inbox, palette, panes, project, session, settings, sidebar, thread,
+    titlebar, work,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -23,8 +24,8 @@ use gpui::{
 use gpui_component::input::{InputEvent, InputState};
 use lgtm_client::{ActivityLine, Client};
 use lgtm_protocol::{
-    Batch, GoalSummary, Memory, Overlap, PlanVersion, RunnerStatus, Session, SessionDetail, Stats,
-    StoredEvent, Task, Todo, User,
+    Batch, GoalSummary, Memory, Overlap, RunnerStatus, Session, SessionDetail, Stats, StoredEvent,
+    Task, Todo, User,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -38,12 +39,9 @@ pub(crate) const STARTING: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
-    Overview,
     Activity,
     Changes,
     Review,
-    Notes,
-    Terminal,
     Plan,
 }
 
@@ -51,9 +49,10 @@ pub enum Pane {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Page {
     Home,
-    Batches,
-    /// The workspace feed: what everyone has been doing.
-    Activity,
+    /// Everything in flight, and the batches it was imported from.
+    Work,
+    /// What is waiting on a person, over the workspace feed.
+    Inbox,
     /// One repository, by the slug the sidebar groups its sessions under.
     Project(String),
     /// One chat thread, by session id.
@@ -74,6 +73,9 @@ pub enum Overlay {
     Palette,
     Settings,
     Import,
+    AddProject,
+    /// Rename, archive or delete one thread; `ui.thread_action` says which.
+    Thread,
 }
 
 /// An attached shell: what it has printed, and the way to type at it.
@@ -126,6 +128,7 @@ pub struct Inputs {
     pub todo: Entity<InputState>,
     pub model: Entity<InputState>,
     pub shell: Entity<InputState>,
+    pub thread_title: Entity<InputState>,
 }
 
 impl Inputs {
@@ -149,6 +152,7 @@ impl Inputs {
                     .default_value(crate::theme::models(cx).model)
             }),
             shell: field("Type a command", window, cx),
+            thread_title: field("What this thread is about…", window, cx),
         }
     }
 }
@@ -160,7 +164,6 @@ pub struct ComposerState {
     pub project: Option<String>,
     pub chips: Vec<Chip>,
     pub project_menu: bool,
-    pub add_repo: bool,
     pub plus_menu: bool,
     /// The `+` menu is showing its base-branch field.
     pub branch_edit: bool,
@@ -181,8 +184,15 @@ pub struct UiState {
     pub visited: Vec<Stop>,
     pub visited_at: usize,
     pub show_follow_up: bool,
-    /// The Notes tab is showing its editor rather than the stored notes.
+    /// The inspector's notes are showing their editor rather than the stored
+    /// notes.
     pub editing_notes: bool,
+    /// The facts-and-notes column beside the open tab. Off by default: a task
+    /// is opened to read its work, not its metadata.
+    pub inspector_open: bool,
+    /// The shell drawer under the open tab. Off by default, and opening it is
+    /// what attaches the shell — an unwatched terminal holds a socket open.
+    pub terminal_open: bool,
     pub dragging: bool,
     pub task_scroll: ScrollHandle,
     pub content_scroll: ScrollHandle,
@@ -193,6 +203,8 @@ pub struct UiState {
     pub runner_menu: bool,
     /// The open session's project details, anchored in the window bar.
     pub session_project_menu: bool,
+    /// The thread the open dialog is about, and what it would do.
+    pub thread_action: Option<(String, crate::thread::ThreadAction)>,
     /// Which Settings dropdown is open, by its id.
     pub settings_menu: Option<&'static str>,
     /// Which Settings section the dialog's left nav has selected.
@@ -201,6 +213,15 @@ pub struct UiState {
     /// local: the orchestrator has no endpoint for it (see `review_tab`).
     pub denied: HashSet<String>,
     pub terminal_scroll: ScrollHandle,
+    /// The inspector scrolls against the pane beside it, so it cannot share
+    /// `content_scroll`.
+    pub inspector_scroll: ScrollHandle,
+    /// Activity's timeline groups that are unfolded, keyed by the index of the
+    /// group's first event: events only append, so the index holds still.
+    pub timeline_expanded: HashSet<usize>,
+    /// Activity is showing the raw log instead of the timeline. Off by
+    /// default: the lines are there for when the summary is not enough.
+    pub timeline_raw: bool,
 }
 
 impl Default for UiState {
@@ -216,6 +237,8 @@ impl Default for UiState {
             visited_at: 0,
             show_follow_up: false,
             editing_notes: false,
+            inspector_open: false,
+            terminal_open: false,
             dragging: false,
             task_scroll: ScrollHandle::new(),
             content_scroll: ScrollHandle::new(),
@@ -224,10 +247,14 @@ impl Default for UiState {
             project_tab: ProjectTab::default(),
             runner_menu: false,
             session_project_menu: false,
+            thread_action: None,
             settings_menu: None,
             settings_section: crate::settings::Section::default(),
             denied: HashSet::new(),
             terminal_scroll: ScrollHandle::new(),
+            inspector_scroll: ScrollHandle::new(),
+            timeline_expanded: HashSet::new(),
+            timeline_raw: false,
         }
     }
 }
@@ -252,8 +279,6 @@ pub struct LgtmApp {
     /// The open project's memories and todos, while one of those tabs is open.
     pub memories: Vec<Memory>,
     pub todos: Vec<Todo>,
-    /// Every plan version under the open project's goals, newest first.
-    pub plans: Vec<PlanVersion>,
     /// The todo the composer was prefilled from, promoted on submit.
     pub promoting: Option<String>,
     /// Orchestrator-wide, and only refreshed on one poll in ten.
@@ -269,13 +294,13 @@ pub struct LgtmApp {
     /// Bumped on every selection so events from the previous stream are dropped.
     pub generation: u64,
     pub(crate) stream: Option<JoinHandle<()>>,
-    /// Polls the open project's lists, or fetches its plans.
+    /// Polls the open project's memories and todos.
     pub(crate) project_stream: Option<JoinHandle<()>>,
-    /// The open task's shell, while the Terminal tab is showing it.
+    /// The open task's shell, while the terminal drawer is showing it.
     pub(crate) shell: Option<Shell>,
     pub lines: Vec<Line>,
     /// The selected task's events, kept beside the rendered lines because the
-    /// Overview and Review tabs read fields the lines have already flattened.
+    /// inspector and the Review tab read fields the lines have already flattened.
     pub events: Vec<StoredEvent>,
     /// Live tasks touching the same files, as the detail call reported them.
     pub overlaps: Vec<Overlap>,
@@ -317,12 +342,11 @@ impl LgtmApp {
             session_events: Vec::new(),
             memories: Vec::new(),
             todos: Vec::new(),
-            plans: Vec::new(),
             promoting: None,
             stats: None,
             selected: None,
             page: Page::Home,
-            pane: Pane::Overview,
+            pane: Pane::Activity,
             review: crate::review::ReviewState::new(),
             link: Connection::new(config),
             error: None,
@@ -385,6 +409,24 @@ impl LgtmApp {
                 |this, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. }) {
                         this.send_to_shell(window, cx);
+                    }
+                },
+            ),
+            cx.subscribe_in(
+                &self.inputs.repo_url,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.add_project(window, cx);
+                    }
+                },
+            ),
+            cx.subscribe_in(
+                &self.inputs.thread_title,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.rename_thread(window, cx);
                     }
                 },
             ),
@@ -458,11 +500,9 @@ fn bind_actions(root: Div, cx: &mut Context<LgtmApp>) -> Div {
         .on_action(cx.listener(|this, _: &PaletteRun, window, cx| palette::run(this, window, cx)))
         .on_action(cx.listener(|this, _: &SelectNext, _, cx| this.move_selection(1, cx)))
         .on_action(cx.listener(|this, _: &SelectPrev, _, cx| this.move_selection(-1, cx)))
-        .on_action(cx.listener(|this, _: &ShowOverview, _, cx| this.show(Pane::Overview, cx)))
         .on_action(cx.listener(|this, _: &ShowActivity, _, cx| this.show(Pane::Activity, cx)))
         .on_action(cx.listener(|this, _: &ShowChanges, _, cx| this.show(Pane::Changes, cx)))
         .on_action(cx.listener(|this, _: &ShowReview, _, cx| this.show(Pane::Review, cx)))
-        .on_action(cx.listener(|this, _: &ShowNotes, _, cx| this.show(Pane::Notes, cx)))
         .on_action(cx.listener(|this, _: &ShowPlan, _, cx| this.show(Pane::Plan, cx)))
         .on_action(cx.listener(|this, _: &crate::review::MarkViewed, _, cx| {
             this.review.mark_current_viewed();
@@ -530,8 +570,8 @@ impl LgtmApp {
             return panes::task_view(self, window, cx);
         }
         match self.page.clone() {
-            Page::Batches => batches::page(self, cx),
-            Page::Activity => activity::page(self, cx),
+            Page::Work => work::page(self, cx),
+            Page::Inbox => inbox::page(self, cx),
             Page::Project(slug) => project::page(self, &slug, cx),
             Page::Session(_) => session::page(self, window, cx),
             Page::Home => home::home(self, window, cx),
@@ -638,6 +678,12 @@ impl Render for LgtmApp {
             })
             .when(overlay == Overlay::Import, |this| {
                 this.child(import::modal(self, cx))
+            })
+            .when(overlay == Overlay::AddProject, |this| {
+                this.child(add_project::modal(self, cx))
+            })
+            .when(overlay == Overlay::Thread, |this| {
+                this.child(thread::modal(self, cx))
             })
     }
 }

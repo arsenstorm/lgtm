@@ -10,11 +10,9 @@ actions!(
         ToggleSidebar,
         SelectNext,
         SelectPrev,
-        ShowOverview,
         ShowActivity,
         ShowChanges,
         ShowReview,
-        ShowNotes,
         ShowPlan,
         Submit,
         CloseOverlay,
@@ -53,12 +51,10 @@ fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("enter", PaletteRun, palette),
         KeyBinding::new("j", SelectNext, panes),
         KeyBinding::new("k", SelectPrev, panes),
-        KeyBinding::new("1", ShowOverview, panes),
-        KeyBinding::new("2", ShowActivity, panes),
-        KeyBinding::new("3", ShowChanges, panes),
-        KeyBinding::new("4", ShowReview, panes),
-        KeyBinding::new("5", ShowNotes, panes),
-        KeyBinding::new("6", ShowPlan, panes),
+        KeyBinding::new("1", ShowActivity, panes),
+        KeyBinding::new("2", ShowChanges, panes),
+        KeyBinding::new("3", ShowReview, panes),
+        KeyBinding::new("4", ShowPlan, panes),
         KeyBinding::new("v", crate::review::MarkViewed, panes),
         KeyBinding::new("n", crate::review::NextFile, panes),
         KeyBinding::new("p", crate::review::PrevFile, panes),
@@ -75,7 +71,7 @@ mod tests {
     use super::*;
 
     /// Every single-key binding, in the order a person would try them.
-    const SINGLE: [&str; 12] = ["1", "2", "3", "4", "5", "6", "j", "k", "v", "n", "p", "s"];
+    const SINGLE: [&str; 10] = ["1", "2", "3", "4", "j", "k", "v", "n", "p", "s"];
 
     /// The pane and review keys are the ones a restyle is most likely to drop,
     /// because the widgets they drive get swapped out. Assert the keymap still
@@ -93,12 +89,10 @@ mod tests {
     #[test]
     fn the_digits_switch_panes_in_tab_order() {
         for (key, action) in [
-            ("1", "ShowOverview"),
-            ("2", "ShowActivity"),
-            ("3", "ShowChanges"),
-            ("4", "ShowReview"),
-            ("5", "ShowNotes"),
-            ("6", "ShowPlan"),
+            ("1", "ShowActivity"),
+            ("2", "ShowChanges"),
+            ("3", "ShowReview"),
+            ("4", "ShowPlan"),
         ] {
             let binding = bound(key);
             assert!(

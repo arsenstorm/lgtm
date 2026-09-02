@@ -1,69 +1,85 @@
-//! The settings dialog: where this app points, how it looks, and how another
-//! machine joins as a runner.
+//! Settings: a full window of its own, the way Codex does it. How the app
+//! looks, when it speaks up, what a task is run with, and where the
+//! orchestrator it talks to lives.
 
 use crate::app::LgtmApp;
 use crate::theme::{
-    field, icon, modal_header, panel, scrim, tokens, Pick, Pref, Tokens, ICON, MONO_FONT, RADIUS,
-    RADIUS_PILL, SPACE, TEXT_MONO,
+    icon, section_label, tokens, Pick, Pref, TabularNums as _, Tokens, BAR_H, ICON, MONO_FONT,
+    RADIUS, ROW_RADIUS, SPACE, TEXT_MONO, TEXT_ROW, TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, relative, AnyElement, ClickEvent, ClipboardItem, Context, Div,
+    deferred, div, px, AnyElement, ClickEvent, ClipboardItem, Context, Div, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Stateful,
     StatefulInteractiveElement as _, Styled as _,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::button::Button;
+use gpui_component::input::Input;
 use gpui_component::switch::Switch;
-use gpui_component::{Selectable as _, Sizable as _};
+use gpui_component::Sizable as _;
 use lgtm_diff::DiffStyle;
 
-const WIDTH: f32 = 720.;
-const HEIGHT: f32 = 480.;
-const NAV_W: f32 = 180.;
-/// The label column every row shares, so the controls line up.
-const LABEL_W: f32 = 120.;
-/// A row is taller than its text: the list reads as a list, not a paragraph.
-const ROW_H: f32 = 40.;
+/// The rail, at the width of the one it replaces.
+const RAIL_W: f32 = 240.;
+/// The reading column. Wider than this and a row's description outruns the
+/// eye's return path.
+const COLUMN: f32 = 640.;
+/// The page name at the top of a pane.
+const TITLE: f32 = 22.;
+/// The app name over its version, in About.
+const MARK: f32 = 44.;
 const NAV_ROW_H: f32 = 32.;
-/// Index of the join line among the Orchestrator pane's rows.
-pub const RUNNERS_SECTION: usize = 7;
-/// One dropdown: its trigger, and the menu it opens.
-const TRIGGER_H: f32 = 28.;
-const MENU_W: f32 = 160.;
+/// One dropdown, field or segment: the height every control shares.
+const CONTROL_H: f32 = 28.;
+const CONTROL_W: f32 = 160.;
 
-/// One page of the dialog. The left nav picks it; the right pane shows it.
+/// One page of the settings window. The rail picks it; the pane shows it.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub enum Section {
     #[default]
-    General,
-    Orchestrator,
+    Appearance,
+    Notifications,
     Models,
+    Orchestrator,
+    About,
 }
 
 impl Section {
-    const ALL: [Section; 3] = [Section::General, Section::Orchestrator, Section::Models];
+    const ALL: [Section; 5] = [
+        Section::Appearance,
+        Section::Notifications,
+        Section::Models,
+        Section::Orchestrator,
+        Section::About,
+    ];
 
     fn label(self) -> &'static str {
         match self {
-            Section::General => "General",
-            Section::Orchestrator => "Orchestrator",
+            Section::Appearance => "Appearance",
+            Section::Notifications => "Notifications",
             Section::Models => "Models",
+            Section::Orchestrator => "Orchestrator",
+            Section::About => "About",
         }
     }
 
     fn icon(self) -> &'static str {
         match self {
-            Section::General => "settings",
-            Section::Orchestrator => "server",
+            Section::Appearance => "palette",
+            Section::Notifications => "bell",
             Section::Models => "cpu",
+            Section::Orchestrator => "server",
+            Section::About => "info",
         }
     }
 
     fn id(self) -> &'static str {
         match self {
-            Section::General => "section-general",
-            Section::Orchestrator => "section-orchestrator",
+            Section::Appearance => "section-appearance",
+            Section::Notifications => "section-notifications",
             Section::Models => "section-models",
+            Section::Orchestrator => "section-orchestrator",
+            Section::About => "section-about",
         }
     }
 }
@@ -84,39 +100,61 @@ pub fn join_line(orchestrator: &str, token: &str) -> String {
 
 pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
     let t = tokens(cx);
-    scrim("settings-scrim", &t)
-        .pt(relative(0.12))
-        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)))
-        .child(
-            panel(&t)
-                .id("settings")
-                .w(px(WIDTH))
-                .on_click(|_, _, cx| cx.stop_propagation())
-                .h(px(HEIGHT))
-                .child(modal_header("Settings", "settings-close", &t, cx))
-                .child(
-                    div()
-                        .flex()
-                        .flex_1()
-                        .min_h_0()
-                        .child(nav(app, &t, cx))
-                        .child(pane(app, &t, cx)),
-                ),
-        )
+    div()
+        .id("settings")
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .occlude()
+        .bg(t.bg)
+        .flex()
+        .child(rail(app, &t, cx))
+        .child(pane(app, &t, cx))
         .into_any_element()
 }
 
-fn nav(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+fn rail(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     div()
         .flex()
         .flex_col()
         .flex_none()
-        .gap(px(SPACE[0]))
-        .w(px(NAV_W))
+        .w(px(RAIL_W))
+        .gap(px(2.))
         .p(px(SPACE[1]))
+        // Clear of the traffic lights, which AppKit draws over this window.
+        .pt(px(BAR_H))
+        .bg(t.sidebar)
         .border_r_1()
-        .border_color(t.border)
+        .border_color(t.sidebar_border)
+        .child(back(t, cx))
+        .child(div().h(px(SPACE[1])))
         .children(Section::ALL.map(|section| nav_row(section, app.ui.settings_section, t, cx)))
+}
+
+/// The way out. Settings covers the window, so it owes the window a door.
+fn back(t: &Tokens, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
+    nav_shell("settings-back", false, t)
+        .text_color(t.sidebar_muted)
+        .child(icon("arrow-left", ICON, t.sidebar_muted))
+        .child("Back to app")
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)))
+}
+
+fn nav_shell(id: &'static str, selected: bool, t: &Tokens) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .h(px(NAV_ROW_H))
+        .px(px(SPACE[1]))
+        .rounded(px(ROW_RADIUS))
+        .cursor_pointer()
+        .text_size(px(TEXT_ROW))
+        .text_color(t.sidebar_fg)
+        .when(selected, |this| this.bg(t.wash))
+        .hover(|this| this.bg(t.wash))
 }
 
 fn nav_row(
@@ -126,21 +164,14 @@ fn nav_row(
     cx: &mut Context<LgtmApp>,
 ) -> Stateful<Div> {
     let selected = section == current;
-    div()
-        .id(section.id())
-        .flex()
-        .items_center()
-        .gap(px(SPACE[1]))
-        .h(px(NAV_ROW_H))
-        .px(px(SPACE[1]))
-        .rounded(px(RADIUS_PILL))
-        .cursor_pointer()
-        .hover(|this| this.bg(t.muted))
-        .when(selected, |this| this.bg(t.muted))
+    nav_shell(section.id(), selected, t)
         .child(icon(
             section.icon(),
             ICON,
-            if selected { t.fg } else { t.muted_fg },
+            match selected {
+                true => t.sidebar_fg,
+                false => t.sidebar_muted,
+            },
         ))
         .child(section.label())
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -152,49 +183,250 @@ fn nav_row(
 }
 
 fn pane(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
+    let section = app.ui.settings_section;
     div()
         .id("settings-body")
-        .flex()
-        .flex_col()
         .flex_1()
         .min_w_0()
         .overflow_y_scroll()
         .track_scroll(&app.ui.settings_scroll)
-        .p(px(SPACE[2]))
-        .children(match app.ui.settings_section {
-            Section::General => general(app, t, cx),
-            Section::Orchestrator => orchestrator(app, t, cx),
-            Section::Models => models(app, t, cx),
-        })
-}
-
-/// One row: the shared label column, then whatever the row controls.
-fn row(label: &'static str, t: &Tokens) -> Div {
-    div()
         .flex()
+        .flex_col()
         .items_center()
-        .gap(px(SPACE[1]))
-        .min_h(px(ROW_H))
+        .px(px(SPACE[4]))
+        .pt(px(BAR_H))
+        .pb(px(SPACE[5]))
         .child(
             div()
-                .w(px(LABEL_W))
-                .flex_none()
-                .text_color(t.muted_fg)
-                .child(label),
+                .w_full()
+                .max_w(px(COLUMN))
+                .flex()
+                .flex_col()
+                .gap(px(SPACE[4]))
+                // About names itself with the mark, so it takes no heading.
+                .children((section != Section::About).then(|| {
+                    div()
+                        .text_size(px(TITLE))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(section.label())
+                }))
+                .children(match section {
+                    Section::Appearance => appearance(app, t, cx),
+                    Section::Notifications => notifications(t, cx),
+                    Section::Models => models(app, t, cx),
+                    Section::Orchestrator => orchestrator(app, t, cx),
+                    Section::About => about(t),
+                }),
         )
 }
 
-/// A footnote under a row, hanging off the control column.
-fn note(text: &'static str, t: &Tokens) -> Div {
+/// A named card of rows: what turns one pane into a few ideas.
+fn group(label: &'static str, rows: Vec<Div>, t: &Tokens) -> AnyElement {
     div()
-        .pb(px(SPACE[1]))
-        .pl(px(LABEL_W + SPACE[1]))
-        .text_color(t.muted_fg)
-        .child(text)
+        .flex()
+        .flex_col()
+        .gap(px(SPACE[1]))
+        .child(section_label(label, t))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .rounded(px(RADIUS))
+                .bg(t.card)
+                .border_1()
+                .border_color(t.border)
+                .children(rows.into_iter().enumerate().map(|(at, row)| {
+                    // A hairline between rows, never above the first one.
+                    row.when(at > 0, |this| this.border_t_1().border_color(t.border))
+                })),
+        )
+        .into_any_element()
 }
 
-fn line(label: &'static str, value: impl Into<SharedString>, t: &Tokens) -> Div {
-    row(label, t).child(div().flex_1().min_w_0().truncate().child(value.into()))
+/// One row: what it is and what it does on the left, the control on the right.
+fn setting(title: &'static str, note: &'static str, t: &Tokens) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(SPACE[3]))
+        .px(px(SPACE[2]))
+        .py(px(SPACE[1]))
+        .min_h(px(48.))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(div().text_size(px(TEXT_ROW)).child(title))
+                .when(!note.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .text_size(px(TEXT_SECONDARY))
+                            .text_color(t.muted_fg)
+                            .child(note),
+                    )
+                }),
+        )
+}
+
+/// A value the app reports rather than a control: right-aligned, muted.
+fn value(text: impl Into<SharedString>, t: &Tokens) -> Div {
+    div()
+        .flex_none()
+        .max_w(px(280.))
+        .truncate()
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.muted_fg)
+        .child(text.into())
+}
+
+fn appearance(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
+    let current = crate::theme::pref(cx);
+    let style = app.review.style;
+    vec![group(
+        "Interface",
+        vec![
+            setting("Theme", "System follows your macOS appearance.", t).child(segmented(
+                Pref::ALL
+                    .map(|pref| {
+                        segment(
+                            format!("theme-{}", pref.label()),
+                            pref.label(),
+                            pref == current,
+                            t,
+                        )
+                        .on_click(cx.listener(
+                            move |_, _: &ClickEvent, window, cx| {
+                                crate::theme::set_pref(pref, window, cx);
+                                cx.notify();
+                            },
+                        ))
+                    })
+                    .into_iter(),
+            )),
+            setting("Diff", "How a changed file is laid out in Review.", t).child(segmented(
+                [(DiffStyle::Unified, "Unified"), (DiffStyle::Split, "Split")]
+                    .map(|(value, label)| {
+                        segment(format!("diff-{label}"), label, style == value, t).on_click(
+                            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.review.set_style(value);
+                                cx.notify();
+                            }),
+                        )
+                    })
+                    .into_iter(),
+            )),
+        ],
+        t,
+    )]
+}
+
+fn notifications(t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
+    vec![group(
+        "Alerts",
+        vec![setting(
+            "Tell me when a task needs a person",
+            "Shown by the system, so it reaches you with LGTM in the background.",
+            t,
+        )
+        .child(
+            Switch::new("notify")
+                .checked(crate::theme::notify(cx))
+                .small()
+                .on_click(cx.listener(|_, checked: &bool, _, cx| {
+                    crate::theme::set_notify(*checked, cx);
+                    cx.notify();
+                })),
+        )],
+        t,
+    )]
+}
+
+/// The mark over the name over the version: an About page is a title page.
+fn about(t: &Tokens) -> Vec<AnyElement> {
+    vec![div()
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .pt(px(SPACE[4]))
+        .child(icon("lgtm", MARK, t.fg))
+        .child(
+            div()
+                .pt(px(SPACE[1]))
+                .text_size(px(TITLE))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("LGTM"),
+        )
+        .child(
+            div()
+                .tabular_nums()
+                .text_size(px(TEXT_SECONDARY))
+                .text_color(t.muted_fg)
+                .child(format!("Version {}", env!("CARGO_PKG_VERSION"))),
+        )
+        .into_any_element()]
+}
+
+/// What a task the composer starts is run with, and what the orchestrator
+/// this app hosts runs after one ends.
+fn models(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
+    let held = crate::theme::models(cx);
+    vec![
+        group(
+            "Defaults",
+            vec![
+                setting("Executor", "The harness a new task runs on.", t).child(dropdown(
+                    "executor",
+                    Pick::of(held.executor),
+                    &Pick::HARNESSES,
+                    app,
+                    t,
+                    cx,
+                    |models, pick| models.executor = pick.executor().unwrap_or_default(),
+                )),
+                setting("Model", "Empty leaves the harness on its own default.", t).child(
+                    div().w(px(CONTROL_W)).child(
+                        Input::new(&app.inputs.model)
+                            .bordered(false)
+                            .bg(t.input_fill)
+                            .rounded(px(RADIUS))
+                            .small(),
+                    ),
+                ),
+                setting("Review", "Which harness reviews a finished task.", t).child(dropdown(
+                    "review",
+                    held.review,
+                    &Pick::REVIEW,
+                    app,
+                    t,
+                    cx,
+                    |models, pick| models.review = pick,
+                )),
+            ],
+            t,
+        ),
+        group(
+            "Orchestration",
+            vec![setting(
+                "Orchestrate",
+                "Runs a follow-up agent when a task ends. Only while this app hosts the orchestrator, from its next launch.",
+                t,
+            )
+            .child(dropdown(
+                "orchestrate",
+                held.orchestrate,
+                &Pick::ORCHESTRATE,
+                app,
+                t,
+                cx,
+                |models, pick| models.orchestrate = pick,
+            ))],
+            t,
+        ),
+    ]
 }
 
 fn orchestrator(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
@@ -210,111 +442,138 @@ fn orchestrator(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<Any
         .clone()
         .unwrap_or_else(|| join_line(&app.link.orchestrator, &app.link.token));
     vec![
-        line("URL", app.link.orchestrator.clone(), t).into_any_element(),
-        line(
-            "Mode",
-            if app.link.hosted {
-                "hosted by this app"
-            } else {
-                "external"
-            },
+        group(
+            "Connection",
+            vec![
+                setting("Server", "Where this app sends its work.", t)
+                    .child(value(app.link.orchestrator.clone(), t)),
+                setting("Status", "", t).child(status(app.link.reachable, app.link.hosted, t)),
+                setting("Token", "Where the shared secret came from.", t).child(value(token, t)),
+            ],
             t,
-        )
-        .into_any_element(),
-        connection_row(app.link.reachable, t).into_any_element(),
-        line("Token", token, t).into_any_element(),
-        embedded_row(app.link.embedded, t, cx).into_any_element(),
-        note("Takes effect the next time you open the app.", t).into_any_element(),
-        note("Runners live on the project page.", t).into_any_element(),
-        join_row(join, t, cx).into_any_element(),
+        ),
+        group(
+            "Hosting",
+            vec![
+                setting(
+                    "Run the orchestrator in this app",
+                    "Takes effect the next time you open the app.",
+                    t,
+                )
+                .child(
+                    Switch::new("embedded-orchestrator")
+                        .checked(app.link.embedded)
+                        .small()
+                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.link.embedded = *checked;
+                            let dir = lgtm_orchestrator::token::data_dir(None);
+                            if let Err(e) = crate::save_embedded(&dir, *checked) {
+                                this.set_error(format!("cannot save the setting: {e}"), cx);
+                            }
+                            cx.notify();
+                        })),
+                ),
+                setting(
+                    "Add a machine",
+                    "Run this on the machine you are adding. It then shows in the sidebar.",
+                    t,
+                )
+                .child(join_control(join, t, cx)),
+            ],
+            t,
+        ),
     ]
 }
 
-fn connection_row(reachable: bool, t: &Tokens) -> Div {
-    let (tone, word) = if reachable {
-        (t.success, "Connected")
-    } else {
-        (t.danger, "Unreachable")
+/// Reachable or not, and which orchestrator it is: one line rather than the
+/// two rows that said the same thing twice.
+fn status(reachable: bool, hosted: bool, t: &Tokens) -> Div {
+    let (tone, word) = match reachable {
+        true => (t.success, "Connected"),
+        false => (t.danger, "Unreachable"),
     };
-    row("Connection", t)
+    let where_ = match hosted {
+        true => "hosted by this app",
+        false => "external",
+    };
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .text_size(px(TEXT_SECONDARY))
         .child(div().w(px(6.)).h(px(6.)).rounded_full().bg(tone))
         .child(word)
+        .child(div().text_color(t.muted_fg).child(where_))
 }
 
-fn embedded_row(embedded: bool, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    row("Embedded", t).child(
-        Switch::new("embedded-orchestrator")
-            .checked(embedded)
-            .label("Run the orchestrator inside this app")
-            .small()
-            .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                this.link.embedded = *checked;
-                let dir = lgtm_orchestrator::token::data_dir(None);
-                if let Err(e) = crate::save_embedded(&dir, *checked) {
-                    this.set_error(format!("cannot save the setting: {e}"), cx);
-                }
-                cx.notify();
-            })),
-    )
-}
-
-/// What a task the composer starts is run with. Orchestration is stored and
-/// shown, but only an orchestrator this app hosts would ever read it.
-fn models(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
-    let held = crate::theme::models(cx);
-    vec![
-        row("Executor", t)
-            .child(dropdown(
-                "executor",
-                Pick::of(held.executor),
-                &Pick::HARNESSES,
-                app,
-                t,
-                cx,
-                |models, pick| models.executor = pick.executor().unwrap_or_default(),
-            ))
-            .into_any_element(),
-        row("Model", t)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(field(&app.inputs.model, t).small()),
-            )
-            .into_any_element(),
-        row("Review", t)
-            .child(dropdown(
-                "review",
-                held.review,
-                &Pick::REVIEW,
-                app,
-                t,
-                cx,
-                |models, pick| models.review = pick,
-            ))
-            .into_any_element(),
-        row("Orchestrate", t)
-            .child(dropdown(
-                "orchestrate",
-                held.orchestrate,
-                &Pick::ORCHESTRATE,
-                app,
-                t,
-                cx,
-                |models, pick| models.orchestrate = pick,
-            ))
-            .into_any_element(),
-        note(
-            "Orchestration is stored only; this app does not run an orchestrator loop.",
-            t,
+/// The join line in a mono box with a Copy button: what a person pastes on
+/// the machine they are adding.
+fn join_control(join: String, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+    let copy = join.clone();
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(SPACE[1]))
+        .child(
+            div()
+                .w(px(220.))
+                .truncate()
+                .px(px(SPACE[1]))
+                .py(px(SPACE[0]))
+                .rounded(px(ROW_RADIUS))
+                .bg(t.muted)
+                .font_family(MONO_FONT)
+                .text_size(px(TEXT_MONO))
+                .child(join),
         )
-        .into_any_element(),
-    ]
+        .child(
+            Button::new("copy-join")
+                .label("Copy")
+                .small()
+                .outline()
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+                })),
+        )
+}
+
+/// A few exclusive choices, side by side. No track behind them: the pill on
+/// the current one is the whole signal.
+fn segmented(children: impl IntoIterator<Item = Stateful<Div>>) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(2.))
+        .children(children)
+}
+
+fn segment(id: String, label: &'static str, selected: bool, t: &Tokens) -> Stateful<Div> {
+    div()
+        .id(SharedString::from(id))
+        .flex()
+        .items_center()
+        .justify_center()
+        .h(px(CONTROL_H))
+        .px(px(SPACE[1]))
+        .rounded(px(ROW_RADIUS))
+        .cursor_pointer()
+        .text_size(px(TEXT_SECONDARY))
+        // Colour and fill alone mark the choice. A weight change here would
+        // reflow the row under the cursor.
+        .text_color(match selected {
+            true => t.fg,
+            false => t.muted_fg,
+        })
+        .when(selected, |this| this.bg(t.muted))
+        .when(!selected, |this| this.hover(|this| this.text_color(t.fg)))
+        .child(label)
 }
 
 /// A menu on a trigger: the app's own, since only one of these can be open and
 /// the choice list is four items at most.
-#[allow(clippy::too_many_arguments)]
 fn dropdown(
     id: &'static str,
     current: Pick,
@@ -327,10 +586,12 @@ fn dropdown(
     let open = app.ui.settings_menu == Some(id);
     div()
         .relative()
+        .flex_none()
         .child(trigger(id, current, open, t, cx))
+        // Deferred, or the rows under this one would paint over the menu.
         .when(open, |this| {
-            this.child(dismiss(id, cx))
-                .child(menu(id, current, options, t, cx, set))
+            this.child(deferred(dismiss(id, cx)))
+                .child(deferred(menu(id, current, options, t, cx, set)).with_priority(1))
         })
 }
 
@@ -346,12 +607,13 @@ fn trigger(
         .flex()
         .items_center()
         .gap(px(SPACE[0]))
-        .h(px(TRIGGER_H))
-        .w(px(MENU_W))
+        .h(px(CONTROL_H))
+        .w(px(CONTROL_W))
         .px(px(SPACE[1]))
-        .rounded(px(RADIUS_PILL))
+        .rounded(px(RADIUS))
         .bg(t.input_fill)
         .cursor_pointer()
+        .text_size(px(TEXT_SECONDARY))
         .hover(|this| this.bg(t.muted))
         .child(div().flex_1().min_w_0().truncate().child(current.label()))
         .child(icon("chevron-down", ICON, t.muted_fg))
@@ -373,9 +635,9 @@ fn menu(
 ) -> Div {
     div()
         .absolute()
-        .top(px(TRIGGER_H + SPACE[0]))
+        .top(px(CONTROL_H + SPACE[0]))
         .left(px(0.))
-        .w(px(MENU_W))
+        .w(px(CONTROL_W))
         .flex()
         .flex_col()
         .p(px(SPACE[0]))
@@ -383,6 +645,7 @@ fn menu(
         .bg(t.popover)
         .border_1()
         .border_color(t.border)
+        .text_size(px(TEXT_SECONDARY))
         .occlude()
         .children(options.iter().map(|pick| {
             let pick = *pick;
@@ -391,9 +654,9 @@ fn menu(
                 .flex()
                 .items_center()
                 .gap(px(SPACE[1]))
-                .h(px(TRIGGER_H))
+                .h(px(CONTROL_H))
                 .px(px(SPACE[1]))
-                .rounded(px(8.))
+                .rounded(px(ROW_RADIUS))
                 .cursor_pointer()
                 .hover(|this| this.bg(t.muted))
                 .child(div().flex_1().min_w_0().child(pick.label()))
@@ -424,93 +687,6 @@ fn dismiss(id: &'static str, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
         }))
 }
 
-fn general(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
-    vec![
-        row("Theme", t)
-            .children(theme_buttons(cx))
-            .into_any_element(),
-        row("Diff", t)
-            .children(diff_buttons(app.review.style, cx))
-            .into_any_element(),
-        row("Notifications", t)
-            .child(
-                Switch::new("notify")
-                    .checked(crate::theme::notify(cx))
-                    .label("Tell me when a task needs a person")
-                    .small()
-                    .on_click(cx.listener(|_, checked: &bool, _, cx| {
-                        crate::theme::set_notify(*checked, cx);
-                        cx.notify();
-                    })),
-            )
-            .into_any_element(),
-        line(
-            "Version",
-            format!("lgtm-desktop {}", env!("CARGO_PKG_VERSION")),
-            t,
-        )
-        .into_any_element(),
-    ]
-}
-
-fn theme_buttons(cx: &mut Context<LgtmApp>) -> [Button; 3] {
-    let current = crate::theme::pref(cx);
-    Pref::ALL.map(|pref| {
-        Button::new(SharedString::from(format!("theme-{}", pref.label())))
-            .label(pref.label())
-            .xsmall()
-            .ghost()
-            .selected(pref == current)
-            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                crate::theme::set_pref(pref, window, cx);
-                cx.notify();
-            }))
-    })
-}
-
-fn diff_buttons(style: DiffStyle, cx: &mut Context<LgtmApp>) -> [Button; 2] {
-    [(DiffStyle::Unified, "Unified"), (DiffStyle::Split, "Split")].map(|(value, label)| {
-        Button::new(SharedString::from(format!("diff-{label}")))
-            .label(label)
-            .xsmall()
-            .ghost()
-            .selected(style == value)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.review.set_style(value);
-                cx.notify();
-            }))
-    })
-}
-
-/// The join line in a mono box, with a Copy button beside it: what a person
-/// pastes on the machine they are adding.
-fn join_row(join: String, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    let copy = join.clone();
-    row("Add a machine", t)
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .px(px(SPACE[1]))
-                .py(px(SPACE[0]))
-                .rounded(px(RADIUS))
-                .bg(t.muted)
-                .font_family(MONO_FONT)
-                .text_size(px(TEXT_MONO))
-                .child(join),
-        )
-        .child(
-            Button::new("copy-join")
-                .label("Copy")
-                .small()
-                .outline()
-                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
-                })),
-        )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -525,5 +701,17 @@ mod tests {
             join_line("https://host:4750/", "abc"),
             "lgtm runner wss://host:4750 --token abc"
         );
+    }
+
+    #[test]
+    fn every_section_carries_its_own_id_and_an_icon_the_app_ships() {
+        let ids: Vec<&str> = Section::ALL.iter().map(|it| it.id()).collect();
+        let mut unique = ids.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(ids.len(), unique.len());
+        assert!(Section::ALL
+            .iter()
+            .all(|it| crate::assets::NAMES.contains(&it.icon())));
     }
 }
