@@ -44,6 +44,9 @@ pub struct App {
     pub base_url: String,
     /// Goals whose loop is running right now, so the API can say so.
     pub orchestrating: Mutex<HashSet<String>>,
+    /// Each ask holds an agent subprocess for up to five minutes, so a
+    /// couple at a time is plenty and anything more is refused, not queued.
+    pub asking: tokio::sync::Semaphore,
 }
 
 impl App {

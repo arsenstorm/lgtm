@@ -9,6 +9,7 @@ mod sessions;
 mod terminal;
 mod todos;
 mod users;
+mod workspace;
 
 use std::sync::Arc;
 
@@ -122,6 +123,8 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/provenance/{sha}", get(provenance))
         .route("/users", get(users::list_users).post(users::create_user))
         .route("/users/{id}/revoke", post(users::revoke_user))
+        .route("/activity", get(workspace::activity))
+        .route("/ask", post(workspace::ask))
         .layer(middleware::from_fn_with_state(app, auth))
 }
 

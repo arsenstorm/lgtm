@@ -77,6 +77,9 @@ pub struct ProvisionOptions {
     pub public_url: String,
 }
 
+/// Concurrent `lgtm ask` passes allowed before new ones are refused.
+pub(crate) const ASK_SLOTS: usize = 2;
+
 /// Plain HTTP, no provisioning.
 pub async fn serve_plain(bind: SocketAddr, token: String, data_dir: PathBuf) -> anyhow::Result<()> {
     serve(ServeOptions {
@@ -123,6 +126,7 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
         // The loop runs beside the server, so it dials it back on loopback.
         base_url: format!("{scheme}://127.0.0.1:{}", opts.bind.port()),
         orchestrating: Mutex::new(Default::default()),
+        asking: tokio::sync::Semaphore::new(ASK_SLOTS),
     });
     github::resume_ci_polls(&app);
     if let Some(provision) = opts.provision {
