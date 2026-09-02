@@ -19,6 +19,7 @@ import type {
   ValidationResult,
 } from '@/lib/lgtm/types'
 import { DiffView } from '@/components/diff-view'
+import { TaskActions } from '@/components/task-actions'
 import { cn } from '@/lib/utils'
 
 export function TaskDetailView({ detail }: { detail: TaskDetail }) {
@@ -33,6 +34,10 @@ export function TaskDetailView({ detail }: { detail: TaskDetail }) {
 
       {task.error ? <ErrorPanel error={task.error} /> : null}
       {overlaps.length > 0 ? <OverlapPanel overlaps={overlaps} /> : null}
+
+      {/* Below the two panels that qualify a decision, above the evidence that
+          supports one: nothing here can be acted on before its warning is read. */}
+      <TaskActions task={task} />
 
       {findings.length > 0 ? (
         <Section title="Review" count={findings.length}>
