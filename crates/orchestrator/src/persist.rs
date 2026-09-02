@@ -44,6 +44,7 @@ pub enum Persist {
     Todo(Todo),
     RemoveTodo(String),
     Session(Session),
+    RemoveSession(String),
     /// The whole users store; users are few and change rarely, so the file
     /// is rewritten rather than kept per-id.
     Users(Vec<crate::users::UserRecord>),
@@ -108,6 +109,7 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
             Persist::Todo(todo) => save_todo(&todos, &todo),
             Persist::RemoveTodo(id) => remove_by_id(&todos, "todo", &id),
             Persist::Session(session) => save_session(&sessions, &session),
+            Persist::RemoveSession(id) => remove_by_id(&sessions, "session", &id),
             Persist::Users(users) => save_users(&dir, &users),
         }
     }

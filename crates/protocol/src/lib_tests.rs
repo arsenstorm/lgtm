@@ -514,6 +514,7 @@ fn session_round_trips() {
         created_at: 1,
         workspace: None,
         created_by: None,
+        archived: false,
     });
 }
 
@@ -528,6 +529,7 @@ fn session_detail_round_trips() {
             created_at: 1,
             workspace: None,
             created_by: None,
+            archived: false,
         },
         tasks: vec![sample_task()],
     });

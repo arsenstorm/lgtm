@@ -132,6 +132,10 @@ impl App {
         let _ = self.persist.send(Persist::Session(session.clone()));
     }
 
+    pub fn remove_session_record(&self, id: &str) {
+        let _ = self.persist.send(Persist::RemoveSession(id.to_string()));
+    }
+
     pub fn persist_users(&self, state: &State) {
         let _ = self
             .persist
@@ -490,10 +494,36 @@ impl State {
             created_at: now_ms(),
             workspace: self.workspace.clone(),
             created_by,
+            archived: false,
         };
         tracing::info!(session = %session.id, "session created");
         self.sessions.insert(session.id.clone(), session.clone());
         session
+    }
+
+    /// Renames a thread, archives it, or both. `None` when there is no such
+    /// session. An empty or whitespace title is rejected by the caller, not
+    /// here.
+    pub fn update_session(
+        &mut self,
+        id: &str,
+        title: Option<String>,
+        archived: Option<bool>,
+    ) -> Option<Session> {
+        let session = self.sessions.get_mut(id)?;
+        if let Some(title) = title {
+            session.title = title;
+        }
+        if let Some(archived) = archived {
+            session.archived = archived;
+        }
+        Some(session.clone())
+    }
+
+    /// Forgets a thread. The tasks it produced are left alone: deleting a
+    /// thread must not delete work that has already run.
+    pub fn remove_session(&mut self, id: &str) -> Option<Session> {
+        self.sessions.remove(id)
     }
 
     /// The session's tasks, oldest first. `spec.session` is the only record
