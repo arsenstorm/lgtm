@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use lgtm_protocol::TaskResult;
+use lgtm_protocol::{Authorship, TaskResult};
 use tokio::process::Command;
 
 /// Identity for commits made on behalf of the agent; the runner machine has no
@@ -17,6 +17,54 @@ pub const IDENTITY: [&str; 6] = [
     "-c",
     "commit.gpgsign=false",
 ];
+
+/// `IDENTITY` with the orchestrator's resolved author in place of `lgtm`.
+///
+/// Signing is off unless the author owns a key. A signature is a claim about
+/// who wrote the commit, so signing with a key belonging to anyone but the
+/// author would be a false one — which is also why the machine's own
+/// `commit.gpgsign` is overridden rather than inherited.
+pub fn identity_args(authorship: &Authorship) -> Vec<String> {
+    let author = &authorship.author;
+    let mut args = vec![
+        "-c".to_string(),
+        format!("user.name={}", author.name),
+        "-c".to_string(),
+        format!("user.email={}", author.email),
+    ];
+    let Some(key) = &authorship.signing_key else {
+        args.extend(["-c".to_string(), "commit.gpgsign=false".to_string()]);
+        return args;
+    };
+    args.extend([
+        "-c".to_string(),
+        "gpg.format=ssh".to_string(),
+        "-c".to_string(),
+        format!("user.signingkey={key}"),
+        "-c".to_string(),
+        "commit.gpgsign=true".to_string(),
+    ]);
+    if let Some(program) = ssh_keygen() {
+        args.extend(["-c".to_string(), format!("gpg.ssh.program={program}")]);
+    }
+    args
+}
+
+/// The `ssh-keygen` git should sign with.
+///
+/// Git for Windows bundles one built against an OpenSSL that cannot read a
+/// modern OpenSSH private key: it fails with "No private key found" on a key
+/// the system binary signs with happily. So on Windows the system one is
+/// named explicitly. Everywhere else git already finds the right one.
+fn ssh_keygen() -> Option<String> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let system = r"C:\Windows\System32\OpenSSH\ssh-keygen.exe";
+    Path::new(system)
+        .exists()
+        .then(|| system.replace('\\', "/"))
+}
 
 /// The agent's working notes, relative to the worktree.
 pub const SCRATCHPAD: &str = ".lgtm/scratchpad.md";
@@ -341,12 +389,14 @@ pub async fn commit(
     base_branch: &str,
     branch: &str,
     worktree: &Path,
+    authorship: &Authorship,
 ) -> Result<TaskResult> {
     let cwd = Some(worktree);
     git(&["add", "-A"], cwd).await?;
     if has_staged_changes(worktree).await? {
-        let message = commit_message(prompt);
-        let mut args = IDENTITY.to_vec();
+        let message = commit_message(prompt, authorship);
+        let identity = identity_args(authorship);
+        let mut args: Vec<&str> = identity.iter().map(String::as_str).collect();
         args.extend_from_slice(&["commit", "-q", "-m", &message]);
         git(&args, cwd).await?;
     }
@@ -375,7 +425,7 @@ fn diff_range(base: Option<String>, branch: &str) -> Vec<String> {
     }
 }
 
-pub fn commit_message(prompt: &str) -> String {
+pub fn commit_message(prompt: &str, authorship: &Authorship) -> String {
     let first: String = prompt
         .lines()
         .next()
@@ -384,12 +434,20 @@ pub fn commit_message(prompt: &str) -> String {
         .chars()
         .take(72)
         .collect();
-    format!("lgtm: {first}")
+    let subject = format!("lgtm: {first}");
+    let trailers = authorship.trailers();
+    if trailers.is_empty() {
+        return subject;
+    }
+    // A blank line before the trailer block, or git reads it as the subject
+    // running on rather than as trailers.
+    format!("{subject}\n\n{}", trailers.join("\n"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lgtm_protocol::Identity;
 
     /// `git init --bare` twice: an empty origin and a mirror cloned from it,
     /// the shape a first task in a new repository sees.
@@ -429,9 +487,15 @@ mod tests {
             .await
             .unwrap();
         std::fs::write(worktree.join("README.md"), "hi\n").unwrap();
-        let result = commit("add a readme", "main", "lgtm/t", &worktree)
-            .await
-            .unwrap();
+        let result = commit(
+            "add a readme",
+            "main",
+            "lgtm/t",
+            &worktree,
+            &Authorship::default(),
+        )
+        .await
+        .unwrap();
         assert_eq!(result.changed_files, vec!["README.md".to_string()]);
         assert!(result.diff.contains("+hi"), "{}", result.diff);
         let _ = std::fs::remove_dir_all(root);
@@ -495,8 +559,65 @@ mod tests {
 
     #[test]
     fn commit_message_is_first_line_capped_at_72() {
-        assert_eq!(commit_message("do a thing\nand more"), "lgtm: do a thing");
+        let plain = Authorship::default();
+        assert_eq!(
+            commit_message("do a thing\nand more", &plain),
+            "lgtm: do a thing"
+        );
         let long = "x".repeat(100);
-        assert_eq!(commit_message(&long), format!("lgtm: {}", "x".repeat(72)));
+        assert_eq!(
+            commit_message(&long, &plain),
+            format!("lgtm: {}", "x".repeat(72))
+        );
+    }
+
+    #[test]
+    fn co_authors_become_trailers_after_a_blank_line() {
+        let authorship = Authorship {
+            author: Identity {
+                name: "Arsen".into(),
+                email: "arsen@example.com".into(),
+            },
+            co_authors: vec![Identity {
+                name: "claude".into(),
+                email: "claude@example.com".into(),
+            }],
+            signing_key: None,
+        };
+        assert_eq!(
+            commit_message("do a thing", &authorship),
+            "lgtm: do a thing\n\nCo-authored-by: claude <claude@example.com>"
+        );
+    }
+
+    #[test]
+    fn an_author_with_no_key_of_their_own_never_signs() {
+        let args = identity_args(&Authorship {
+            author: Identity {
+                name: "Arsen".into(),
+                email: "arsen@example.com".into(),
+            },
+            co_authors: vec![],
+            signing_key: None,
+        });
+        assert!(args.contains(&"user.name=Arsen".to_string()));
+        assert!(args.contains(&"user.email=arsen@example.com".to_string()));
+        assert!(args.contains(&"commit.gpgsign=false".to_string()));
+    }
+
+    #[test]
+    fn an_author_who_owns_a_key_signs_with_it() {
+        let args = identity_args(&Authorship {
+            author: Identity {
+                name: "arsenstorm2".into(),
+                email: "arsenstorm2@users.noreply.github.com".into(),
+            },
+            co_authors: vec![],
+            signing_key: Some("/home/a/.ssh/id_ed25519".into()),
+        });
+        assert!(args.contains(&"commit.gpgsign=true".to_string()));
+        assert!(args.contains(&"gpg.format=ssh".to_string()));
+        assert!(args.contains(&"user.signingkey=/home/a/.ssh/id_ed25519".to_string()));
+        assert!(!args.contains(&"commit.gpgsign=false".to_string()));
     }
 }

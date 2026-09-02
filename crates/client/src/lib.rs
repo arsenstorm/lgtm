@@ -18,7 +18,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
 pub use types::{
     ActivityLine, BatchDetail, BatchRequest, BatchResponse, EventStream, FromIssue, FromLinear,
-    GoalDetail, IssuePreview, NewGoal, NewSession, Orchestrated, PromoteTodo, Retry,
+    GoalDetail, IssuePreview, NewCredential, NewGoal, NewSession, Orchestrated, PromoteTodo, Retry,
     SessionMessage, SessionPatch, TaskDetail, TerminalStream,
 };
 use types::{
@@ -400,6 +400,42 @@ impl Client {
     pub async fn approve_memory(&self, id: &str) -> anyhow::Result<lgtm_protocol::Memory> {
         self.post(&format!("/api/memories/{id}/approve"), None::<&()>)
             .await
+    }
+
+    pub async fn credentials(&self) -> anyhow::Result<Vec<lgtm_protocol::CredentialSummary>> {
+        self.get("/api/credentials").await
+    }
+
+    pub async fn add_credential(
+        &self,
+        credential: &types::NewCredential<'_>,
+    ) -> anyhow::Result<lgtm_protocol::CredentialSummary> {
+        self.post("/api/credentials", Some(credential)).await
+    }
+
+    pub async fn delete_credential(&self, id: &str) -> anyhow::Result<()> {
+        let resp = self
+            .authed(
+                self.http
+                    .delete(format!("{}/api/credentials/{id}", self.base)),
+            )
+            .send()
+            .await?;
+        if resp.status().is_success() {
+            return Ok(());
+        }
+        Err(Self::failure(resp).await)
+    }
+
+    pub async fn workspace_settings(&self) -> anyhow::Result<lgtm_protocol::WorkspaceSettings> {
+        self.get("/api/workspace").await
+    }
+
+    pub async fn set_workspace_settings(
+        &self,
+        settings: &lgtm_protocol::WorkspaceSettings,
+    ) -> anyhow::Result<lgtm_protocol::WorkspaceSettings> {
+        self.post("/api/workspace", Some(settings)).await
     }
 
     pub async fn users(&self) -> anyhow::Result<Vec<lgtm_protocol::User>> {

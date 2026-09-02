@@ -48,6 +48,7 @@ pub enum Persist {
     /// The whole users store; users are few and change rarely, so the file
     /// is rewritten rather than kept per-id.
     Users(Vec<crate::users::UserRecord>),
+    Credentials(Box<crate::credentials::CredentialStore>),
     /// An artefact's bytes, split off the event that carried them: the event
     /// log is text a person reads, and these are binaries.
     Artefact {
@@ -111,6 +112,7 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
             Persist::Session(session) => save_session(&sessions, &session),
             Persist::RemoveSession(id) => remove_by_id(&sessions, "session", &id),
             Persist::Users(users) => save_users(&dir, &users),
+            Persist::Credentials(store) => save_credentials(&dir, &store),
         }
     }
 }
@@ -227,13 +229,13 @@ pub fn save_session(dir: &Path, session: &Session) {
     save_by_id(dir, "session", &session.id, session);
 }
 
-/// `<data_dir>/users.json`, owner-readable only: it holds tokens. The
-/// temporary file is created 0600 before a byte is written, so no rename or
-/// crash window ever leaves the tokens world-readable.
-pub fn save_users(dir: &Path, users: &[crate::users::UserRecord]) {
+/// A JSON file holding secrets, owner-readable only. The temporary file is
+/// created 0600 before a byte is written, so no rename or crash window ever
+/// leaves the secrets world-readable.
+fn save_secret_json<T: serde::Serialize>(dir: &Path, name: &str, value: &T) {
     let write = || -> std::io::Result<()> {
-        let tmp = dir.join("users.json.tmp");
-        let bytes = serde_json::to_vec_pretty(users).map_err(std::io::Error::other)?;
+        let tmp = dir.join(format!("{name}.tmp"));
+        let bytes = serde_json::to_vec_pretty(value).map_err(std::io::Error::other)?;
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create(true).truncate(true);
         #[cfg(unix)]
@@ -243,10 +245,34 @@ pub fn save_users(dir: &Path, users: &[crate::users::UserRecord]) {
         }
         let mut file = opts.open(&tmp)?;
         file.write_all(&bytes)?;
-        std::fs::rename(&tmp, dir.join("users.json"))
+        std::fs::rename(&tmp, dir.join(name))
     };
     if let Err(err) = write() {
-        tracing::error!(kind = "users", %err, "failed to persist record");
+        tracing::error!(kind = name, %err, "failed to persist record");
+    }
+}
+
+/// `<data_dir>/users.json`: it holds tokens.
+pub fn save_users(dir: &Path, users: &[crate::users::UserRecord]) {
+    save_secret_json(dir, "users.json", &users);
+}
+
+/// `<data_dir>/credentials.json`: it holds git credentials.
+pub fn save_credentials(dir: &Path, store: &crate::credentials::CredentialStore) {
+    save_secret_json(dir, "credentials.json", store);
+}
+
+pub fn load_credentials(dir: &Path) -> crate::credentials::CredentialStore {
+    let path = dir.join("credentials.json");
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Default::default();
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(store) => store,
+        Err(err) => {
+            tracing::error!(kind = "credentials", %err, "failed to load record");
+            Default::default()
+        }
     }
 }
 

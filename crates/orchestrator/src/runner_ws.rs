@@ -203,7 +203,7 @@ fn auto_approve(app: &App, state: &mut crate::state::State, task_id: &str) {
     }
     // Asking the runner first, so a task is not marked auto-approved by an
     // event no one can act on.
-    let token = app.push_token(&task);
+    let token = app.push_token(state, &task);
     if let Err(err) = state.command(
         task_id,
         &[TaskStatus::AwaitingReview],

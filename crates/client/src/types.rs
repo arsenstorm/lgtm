@@ -256,3 +256,20 @@ pub(crate) struct AskRequest<'a> {
 pub(crate) struct AskResponse {
     pub(crate) answer: String,
 }
+
+/// Body of `POST /api/credentials`. The credential goes up and never comes
+/// back down; the API only ever returns the name attached to it.
+#[derive(Serialize)]
+pub struct NewCredential<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<&'a str>,
+    pub kind: lgtm_protocol::CredentialKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<&'a str>,
+    pub name: &'a str,
+    pub email: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssh_key: Option<&'a str>,
+}

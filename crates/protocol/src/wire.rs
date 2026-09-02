@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Executor, Memory, ReviewState, RunnerInfo, Task, TaskId, TaskResult};
+use crate::{Authorship, Executor, Memory, ReviewState, RunnerInfo, Task, TaskId, TaskResult};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -27,6 +27,11 @@ pub enum TaskEvent {
     /// A follow-up from the developer, recorded before the run it triggers.
     Message {
         text: String,
+        /// The user who sent it; `None` for the shared token. This is how a
+        /// second person joins a task, and so how their agent earns a
+        /// co-author trailer.
+        #[serde(default)]
+        by: Option<String>,
     },
     /// One line from the agent process, without the trailing newline.
     Output {
@@ -203,6 +208,10 @@ pub enum OrchestratorMessage {
         /// orchestrator so a runner never needs the store.
         #[serde(default)]
         memories: Vec<Memory>,
+        /// Whose names go on the commit, resolved by the orchestrator from
+        /// the workspace's credentials.
+        #[serde(default)]
+        authorship: Authorship,
     },
     Cancel {
         task_id: TaskId,
@@ -224,6 +233,10 @@ pub enum OrchestratorMessage {
         /// predates.
         #[serde(default)]
         task: Option<Box<Task>>,
+        /// Resolved again, so a credential registered since the task started
+        /// is the one that signs the follow-up.
+        #[serde(default)]
+        authorship: Authorship,
     },
     /// Push `lgtm/<task-id>` to origin.
     Push {

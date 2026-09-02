@@ -167,6 +167,16 @@ fn startup() -> Option<Config> {
     }
 }
 
+/// Settings -> Models -> Orchestrate. Only an orchestrator this app hosts
+/// reads it; an external one is configured with `lgtm serve --orchestrate`.
+fn orchestrate() -> Option<lgtm_orchestrator::Choice> {
+    match theme::Models::stored().orchestrate {
+        theme::Pick::Off => None,
+        theme::Pick::Auto => Some(lgtm_orchestrator::Choice::Auto),
+        pick => pick.executor().map(lgtm_orchestrator::Choice::One),
+    }
+}
+
 /// Starts the orchestrator and a runner for it on the app's tokio runtime.
 fn host(orchestrator: String, data_dir: PathBuf, embedded: bool) -> Option<Config> {
     let (token, source) = token::resolve_or_create(None, &data_dir)
@@ -180,7 +190,7 @@ fn host(orchestrator: String, data_dir: PathBuf, embedded: bool) -> Option<Confi
         tls: None,
         provision: None,
         webhook: None,
-        orchestrate: None,
+        orchestrate: orchestrate(),
         models: Vec::new(),
         prefer: lgtm_orchestrator::Prefer::Slots,
         workspace: None,

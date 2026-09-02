@@ -2,6 +2,7 @@
 
 mod artefacts;
 mod batches;
+mod credentials;
 mod events;
 mod goals;
 mod memories;
@@ -127,6 +128,15 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/sessions/{id}/messages", post(sessions::send_message))
         .route("/provenance/{sha}", get(provenance))
         .route("/users", get(users::list_users).post(users::create_user))
+        .route(
+            "/credentials",
+            get(credentials::list).post(credentials::create),
+        )
+        .route("/credentials/{id}", delete(credentials::remove))
+        .route(
+            "/workspace",
+            get(credentials::settings).post(credentials::set_settings),
+        )
         .route("/users/{id}/revoke", post(users::revoke_user))
         .route("/activity", get(workspace::activity))
         .route("/ask", post(workspace::ask))
@@ -357,6 +367,7 @@ async fn message(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
     headers: axum::http::HeaderMap,
+    Extension(user): Extension<AuthedUser>,
     body: Result<Json<MessageBody>, JsonRejection>,
 ) -> Result<Json<Task>, ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
@@ -365,7 +376,7 @@ async fn message(
         &headers,
         &state.tasks.get(&id).ok_or(CmdError::NotFound)?.task,
     )?;
-    let (task, changed) = state.message(&id, body.text)?;
+    let (task, changed) = state.message(&id, body.text, user.0)?;
     app.persist_ids(&mut state, &changed);
     Ok(Json(task))
 }
@@ -642,7 +653,8 @@ async fn approve(
     let token = state
         .tasks
         .get(&id)
-        .and_then(|rec| app.push_token(&rec.task));
+        .map(|rec| rec.task.clone())
+        .and_then(|task| app.push_token(&state, &task));
     let task = state.command(
         &id,
         &[TaskStatus::AwaitingReview],

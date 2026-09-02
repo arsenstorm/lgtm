@@ -15,7 +15,9 @@ use lgtm_client::{Client, FromIssue, FromLinear, NewGoal, PromoteTodo};
 use lgtm_orchestrator::token::{data_dir, resolve_client_token, store_user_token};
 use lgtm_protocol::{BatchSource, TaskKind, TaskSpec, TodoPatch};
 
-use crate::cli::{BacklogCommand, Cli, Command, MemoryCommand, Target, TodoCommand, UserCommand};
+use crate::cli::{
+    AuthCommand, BacklogCommand, Cli, Command, MemoryCommand, Target, TodoCommand, UserCommand,
+};
 use crate::table::{
     ci_str, mem_gb_cell, print_goal_table, print_memory_table, print_task_table, print_todo_table,
     status_str,
@@ -113,6 +115,7 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
         Command::Runners => runners(client).await,
         Command::Login { name } => login(client, name).await,
         Command::Users { command } => users_command(client, command).await,
+        Command::Auth { command } => auth_command(client, command).await,
         Command::Ask { question } => {
             println!("{}", client.ask(&question).await?);
             Ok(0)
@@ -279,6 +282,70 @@ async fn users_command(client: &Client, command: Option<UserCommand>) -> anyhow:
         Some(UserCommand::Revoke { id }) => {
             let user = client.revoke_user(&id).await?;
             println!("revoked {} ({})", user.name, user.id);
+            Ok(0)
+        }
+    }
+}
+
+/// `lgtm auth`: the credentials this workspace pushes with. A credential is
+/// only ever written, so nothing here can print one back.
+async fn auth_command(client: &Client, command: Option<AuthCommand>) -> anyhow::Result<i32> {
+    match command {
+        None => {
+            let settings = client.workspace_settings().await?;
+            let mode = match settings.mode {
+                lgtm_protocol::AuthMode::Human => "human",
+                lgtm_protocol::AuthMode::Agent => "agent",
+            };
+            println!("mode {mode}, credit_agent {}", settings.credit_agent);
+            println!("{:<10}{:<8}{:<10}NAME", "ID", "KIND", "OWNER");
+            for held in client.credentials().await? {
+                let kind = match held.kind {
+                    lgtm_protocol::CredentialKind::Human => "human",
+                    lgtm_protocol::CredentialKind::Agent => "agent",
+                };
+                // An unowned agent credential is the workspace's own.
+                let owner = held.owner.as_deref().unwrap_or("shared");
+                println!(
+                    "{:<10}{:<8}{:<10}{} <{}>",
+                    held.id, kind, owner, held.identity.name, held.identity.email
+                );
+            }
+            Ok(0)
+        }
+        Some(AuthCommand::Add {
+            kind,
+            name,
+            email,
+            secret,
+            ssh_key,
+            owner,
+            workspace,
+        }) => {
+            let held = client
+                .add_credential(&lgtm_client::NewCredential {
+                    workspace: workspace.as_deref(),
+                    kind,
+                    owner: owner.as_deref(),
+                    name: &name,
+                    email: &email,
+                    token: secret.as_deref(),
+                    ssh_key: ssh_key.as_deref(),
+                })
+                .await?;
+            println!("registered {} for {} <{}>", held.id, name, email);
+            Ok(0)
+        }
+        Some(AuthCommand::Remove { id }) => {
+            client.delete_credential(&id).await?;
+            println!("removed {id}");
+            Ok(0)
+        }
+        Some(AuthCommand::Mode { mode, credit_agent }) => {
+            let settings = client
+                .set_workspace_settings(&lgtm_protocol::WorkspaceSettings { mode, credit_agent })
+                .await?;
+            println!("credit_agent {}", settings.credit_agent);
             Ok(0)
         }
     }

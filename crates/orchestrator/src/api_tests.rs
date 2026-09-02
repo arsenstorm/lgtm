@@ -2,7 +2,7 @@
 //! handlers are exercised directly: axum's extractors are plain values.
 
 use super::*;
-use lgtm_protocol::{Review, Severity, TaskResult};
+use lgtm_protocol::{Review, Session, Severity, TaskResult};
 
 fn app() -> Arc<App> {
     let (persist, _rx) = tokio::sync::mpsc::unbounded_channel();
@@ -395,10 +395,16 @@ async fn the_goal_header_scopes_a_write_to_that_goal() {
     // The task has no runner, so the write past the gate is a 409, not a 200:
     // what this test reads is only whether the gate refused it.
     let refused = async |headers| {
-        message(State(app.clone()), Path(id.clone()), headers, text())
-            .await
-            .err()
-            .map(|err| err.0)
+        message(
+            State(app.clone()),
+            Path(id.clone()),
+            headers,
+            Extension(AuthedUser(None)),
+            text(),
+        )
+        .await
+        .err()
+        .map(|err| err.0)
             == Some(StatusCode::FORBIDDEN)
     };
 
@@ -417,4 +423,137 @@ async fn the_goal_header_scopes_a_write_to_that_goal() {
         .spec
         .goal = Some("g1".into());
     assert!(!refused(headers).await);
+}
+
+async fn new_session(app: &Arc<App>) -> Session {
+    let body = serde_json::from_value(serde_json::json!({
+        "repository": "https://example.com/repo.git",
+        "base_branch": "main",
+    }))
+    .unwrap();
+    let (_, Json(session)) = sessions::create_session(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Ok(Json(body)),
+    )
+    .await
+    .unwrap();
+    session
+}
+
+async fn listed_sessions(app: &Arc<App>) -> Vec<Session> {
+    let query = serde_json::from_value(serde_json::json!({})).unwrap();
+    sessions::list_sessions(State(app.clone()), Query(query))
+        .await
+        .0
+}
+
+#[tokio::test]
+async fn renaming_a_session_changes_its_listed_title() {
+    let app = app();
+    let session = new_session(&app).await;
+
+    let patch = serde_json::from_value(serde_json::json!({ "title": "new title" })).unwrap();
+    let Json(updated) = sessions::update_session(
+        State(app.clone()),
+        Path(session.id.clone()),
+        Ok(Json(patch)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(updated.title, "new title");
+    assert_eq!(
+        listed_sessions(&app)
+            .await
+            .into_iter()
+            .find(|s| s.id == session.id)
+            .unwrap()
+            .title,
+        "new title"
+    );
+}
+
+#[tokio::test]
+async fn archiving_a_session_sets_the_flag_but_keeps_it_listed() {
+    let app = app();
+    let session = new_session(&app).await;
+
+    let patch = serde_json::from_value(serde_json::json!({ "archived": true })).unwrap();
+    let Json(updated) = sessions::update_session(
+        State(app.clone()),
+        Path(session.id.clone()),
+        Ok(Json(patch)),
+    )
+    .await
+    .unwrap();
+    assert!(updated.archived);
+    assert!(listed_sessions(&app)
+        .await
+        .iter()
+        .any(|s| s.id == session.id));
+}
+
+#[tokio::test]
+async fn deleting_a_session_removes_it_but_leaves_its_tasks() {
+    let app = app();
+    app.state.lock().unwrap().queue_without_runners = true;
+    let session = new_session(&app).await;
+    let message = serde_json::from_value(serde_json::json!({
+        "text": "do it",
+        "executor": "claude",
+    }))
+    .unwrap();
+    let (_, Json(task)) = sessions::send_message(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Path(session.id.clone()),
+        Ok(Json(message)),
+    )
+    .await
+    .unwrap();
+
+    let status = sessions::delete_session(State(app.clone()), Path(session.id.clone()))
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(!listed_sessions(&app)
+        .await
+        .iter()
+        .any(|s| s.id == session.id));
+    assert!(app.state.lock().unwrap().tasks.contains_key(&task.id));
+}
+
+#[tokio::test]
+async fn an_unknown_session_id_404s_on_update_and_delete() {
+    let app = app();
+    let patch = serde_json::from_value(serde_json::json!({ "title": "x" })).unwrap();
+    assert_eq!(
+        sessions::update_session(State(app.clone()), Path("deadbeef".into()), Ok(Json(patch)))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::NOT_FOUND)
+    );
+    assert_eq!(
+        sessions::delete_session(State(app.clone()), Path("deadbeef".into()))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::NOT_FOUND)
+    );
+}
+
+#[tokio::test]
+async fn an_empty_title_is_rejected() {
+    let app = app();
+    let session = new_session(&app).await;
+
+    let patch = serde_json::from_value(serde_json::json!({ "title": "   " })).unwrap();
+    assert_eq!(
+        sessions::update_session(State(app.clone()), Path(session.id), Ok(Json(patch)))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::BAD_REQUEST)
+    );
 }
