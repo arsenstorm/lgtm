@@ -118,7 +118,12 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
             "/sessions",
             get(sessions::list_sessions).post(sessions::create_session),
         )
-        .route("/sessions/{id}", get(sessions::get_session))
+        .route(
+            "/sessions/{id}",
+            get(sessions::get_session)
+                .patch(sessions::update_session)
+                .delete(sessions::delete_session),
+        )
         .route("/sessions/{id}/messages", post(sessions::send_message))
         .route("/provenance/{sha}", get(provenance))
         .route("/users", get(users::list_users).post(users::create_user))

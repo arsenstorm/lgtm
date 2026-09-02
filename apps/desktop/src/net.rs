@@ -6,11 +6,11 @@
 
 use lgtm_client::{
     ActivityLine, BatchRequest, BatchResponse, Client, NewSession, PromoteTodo, SessionMessage,
-    TaskDetail,
+    SessionPatch, TaskDetail,
 };
 use lgtm_protocol::{
-    Batch, GoalSummary, Memory, PlanVersion, RunnerStatus, Session, SessionDetail, Stats,
-    StoredEvent, Task, TaskSpec, TaskStatus, Todo, User,
+    Batch, GoalSummary, Memory, RunnerStatus, Session, SessionDetail, Stats, StoredEvent, Task,
+    TaskSpec, TaskStatus, Todo, User,
 };
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -26,7 +26,7 @@ const NOTES_INTERVAL: Duration = Duration::from_secs(5);
 /// along on one poll in ten rather than on all of them.
 const STATS_EVERY: u32 = 10;
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
-/// How much of the workspace feed the Activity page holds.
+/// How much of the workspace feed the Inbox page holds.
 const ACTIVITY_LIMIT: u32 = 50;
 /// How much of the first message names the thread it starts.
 const SESSION_TITLE: usize = 60;
@@ -73,11 +73,6 @@ pub enum Msg {
         memories: Vec<Memory>,
         todos: Vec<Todo>,
     },
-    /// Every plan version under the open project's goals, newest first.
-    Plans {
-        generation: u64,
-        plans: Vec<PlanVersion>,
-    },
     /// One chunk of the open task's shell output.
     Terminal {
         generation: u64,
@@ -121,7 +116,10 @@ pub enum Action {
     FinishTodo,
     DeleteTodo,
     Promote(Box<PromoteTodo>),
-    CloseTerminal,
+    /// The `id` these are given is a session's, not a task's.
+    RenameSession(String),
+    SetSessionArchived(bool),
+    DeleteSession,
 }
 
 pub fn runtime() -> &'static Runtime {
@@ -262,19 +260,6 @@ pub fn create_batch(client: Client, request: BatchRequest, tx: Sender) {
     });
 }
 
-/// An empty thread, waiting for its first message to name it.
-pub fn new_session(client: Client, repository: String, base_branch: String, tx: Sender) {
-    runtime().spawn(async move {
-        let body = NewSession {
-            repository: &repository,
-            base_branch: &base_branch,
-            title: "",
-        };
-        let result = client.create_session(&body).await.map(|session| session.id);
-        let _ = tx.send(Msg::Opened(result.map_err(|e| e.to_string())));
-    });
-}
-
 /// The composer's choices as one message of a thread. `kind` has no place in
 /// a thread, so a Plan chip does not survive the trip.
 fn message(spec: &TaskSpec) -> SessionMessage<'_> {
@@ -356,7 +341,27 @@ async fn one_task(client: &Client, id: &str, action: Action) -> anyhow::Result<(
         Action::FinishTodo => client.finish_todo(id).await.map(|_| ()),
         Action::DeleteTodo => client.delete_todo(id).await,
         Action::Promote(into) => client.promote_todo(id, &into).await.map(|_| ()),
-        Action::CloseTerminal => client.close_terminal(id).await,
+        Action::RenameSession(title) => client
+            .update_session(
+                id,
+                &SessionPatch {
+                    title: Some(&title),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map(|_| ()),
+        Action::SetSessionArchived(archived) => client
+            .update_session(
+                id,
+                &SessionPatch {
+                    archived: Some(archived),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map(|_| ()),
+        Action::DeleteSession => client.delete_session(id).await,
         // Answered before this is reached; it does not act on one task.
         Action::StartSession(_) => Ok(()),
     }
@@ -386,24 +391,6 @@ pub fn watch_notes(
             }
             tokio::time::sleep(NOTES_INTERVAL).await;
         }
-    })
-}
-
-/// Every plan version under `goals`, newest first. Fetched once when the tab
-/// opens: a plan only changes when a plan task runs.
-pub fn fetch_plans(
-    client: Client,
-    goals: Vec<String>,
-    generation: u64,
-    tx: Sender,
-) -> JoinHandle<()> {
-    runtime().spawn(async move {
-        let mut plans: Vec<PlanVersion> = Vec::new();
-        for goal in goals {
-            plans.extend(client.goal_plans(&goal).await.unwrap_or_default());
-        }
-        plans.sort_by_key(|plan| std::cmp::Reverse(plan.created_at));
-        let _ = tx.send(Msg::Plans { generation, plans });
     })
 }
 

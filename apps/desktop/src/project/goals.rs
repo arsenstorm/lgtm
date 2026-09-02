@@ -1,4 +1,4 @@
-//! The Goals tab: one card per goal, with the tasks it is made of.
+//! Goal cards: one per goal, with the tasks it is made of.
 
 use super::goals_of;
 use crate::app::LgtmApp;
@@ -7,7 +7,8 @@ use crate::tasks::goal_color;
 use crate::theme::{Tokens, RADIUS, SPACE, TEXT_SECONDARY};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, Context, Div, FontWeight, IntoElement, ParentElement as _, Styled as _,
+    div, px, AnyElement, Context, Div, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, Stateful, Styled as _,
 };
 use lgtm_protocol::{BatchSummary, GoalSummary};
 
@@ -17,14 +18,7 @@ pub(super) fn cards(
     t: &Tokens,
     cx: &mut Context<LgtmApp>,
 ) -> Vec<AnyElement> {
-    let summaries = goals_of(app, slug);
-    if summaries.is_empty() {
-        return vec![div()
-            .text_color(t.muted_fg)
-            .child("No goals in this project yet.")
-            .into_any_element()];
-    }
-    summaries
+    goals_of(app, slug)
         .into_iter()
         .map(|summary| card(app, summary, t, cx).into_any_element())
         .collect()
@@ -47,7 +41,14 @@ pub fn counts(tasks: &BatchSummary) -> Vec<(&'static str, usize)> {
     .collect()
 }
 
-fn card(app: &LgtmApp, summary: &GoalSummary, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+/// The card carries an id of its own: a task listed under a goal is listed
+/// again in the section below it, and the two rows must not share one id.
+fn card(
+    app: &LgtmApp,
+    summary: &GoalSummary,
+    t: &Tokens,
+    cx: &mut Context<LgtmApp>,
+) -> Stateful<Div> {
     let owner = app.owner_name(summary.goal.created_by.as_deref());
     let id = summary.goal.id.clone();
     let rows = app
@@ -55,6 +56,7 @@ fn card(app: &LgtmApp, summary: &GoalSummary, t: &Tokens, cx: &mut Context<LgtmA
         .iter()
         .filter(move |task| task.spec.goal.as_deref() == Some(id.as_str()));
     div()
+        .id(SharedString::from(format!("goal-card-{}", summary.goal.id)))
         .flex()
         .flex_col()
         .gap(px(SPACE[1]))
@@ -64,7 +66,7 @@ fn card(app: &LgtmApp, summary: &GoalSummary, t: &Tokens, cx: &mut Context<LgtmA
         .border_1()
         .border_color(t.border)
         .child(head(summary, owner, t))
-        .children(rows.map(|task| crate::batches::task_row(app, task, t, cx)))
+        .children(rows.map(|task| crate::work::task_row(app, task, t, cx)))
 }
 
 fn head(summary: &GoalSummary, owner: Option<String>, t: &Tokens) -> Div {
@@ -95,6 +97,6 @@ fn head(summary: &GoalSummary, owner: Option<String>, t: &Tokens) -> Div {
         .children(
             counts(&summary.tasks)
                 .into_iter()
-                .map(|(state, count)| crate::batches::pill(state, count, t)),
+                .map(|(state, count)| crate::work::pill(state, count, t)),
         )
 }

@@ -11,7 +11,7 @@ use lgtm_protocol::{TaskKind, TaskSpec};
 /// The outlined mark over the greeting.
 const MARK: f32 = 44.;
 /// `text-[22px]`: the greeting.
-const GREETING: f32 = 22.;
+const GREETING: f32 = 23.;
 pub const AUTO_RUNNER: &str = "Auto";
 
 /// One choice made in the composer's controls.
@@ -119,8 +119,8 @@ impl LgtmApp {
     /// Closes every transient menu. Esc and a click outside land here.
     pub fn close_menus(&mut self, cx: &mut Context<Self>) {
         self.ui.runner_menu = false;
+        self.ui.session_project_menu = false;
         self.composer.project_menu = false;
-        self.composer.add_repo = false;
         self.composer.plus_menu = false;
         self.composer.branch_edit = false;
         self.composer.runner_menu = false;

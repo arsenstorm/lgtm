@@ -4,40 +4,72 @@ use crate::app::{LgtmApp, Page};
 use crate::labels::{prompt_preview, status_label};
 use crate::tasks::repo_slug;
 use crate::theme::{
-    panel, scrim, section_label, tokens, Pref, Tokens, ROW_H, SPACE, TEXT_SECONDARY,
+    icon, tokens, Pref, Tokens, ICON, RADIUS, RADIUS_PILL, SPACE, TEXT_ROW, TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, relative, AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Window,
+    div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::input::Input;
 use gpui_component::Sizable as _;
 use lgtm_protocol::{Session, Task};
 
-const WIDTH: f32 = 560.;
-const MAX_LIST_H: f32 = 380.;
+// Wide and tall enough that a real workspace's groups read without feeling
+// boxed in; the list still scrolls past this rather than growing forever.
+const WIDTH: f32 = 640.;
+const MAX_LIST_H: f32 = 520.;
+/// One palette row. Compact, the way a menu is: a row is one line of text.
+const ROW: f32 = 32.;
+/// The palette is a floating surface, and rounder than the cards in the app.
+const PANEL_RADIUS: f32 = 18.;
+/// The row's own inset from the panel edge, so a highlighted row reads as a
+/// menu selection rather than a button.
+const INSET: f32 = SPACE[0];
+/// Every row's text starts here: the same inset the input carries.
+const GUTTER: f32 = SPACE[2];
 const PROMPT_PREVIEW: usize = 60;
-const FOOTER: &str = "↑↓ navigate · ↩ open · esc close";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
-    NewSession,
-    Batches,
+    NewTask,
+    Work,
+    Inbox,
     Settings,
     ToggleTheme,
     ToggleSidebar,
 }
 
 impl Act {
-    const ALL: [(Act, &'static str); 5] = [
-        (Act::NewSession, "New session"),
-        (Act::Batches, "Batches"),
+    const ALL: [(Act, &'static str); 6] = [
+        (Act::NewTask, "New task"),
+        (Act::Work, "Work"),
+        (Act::Inbox, "Inbox"),
         (Act::Settings, "Settings"),
         (Act::ToggleTheme, "Toggle theme"),
         (Act::ToggleSidebar, "Toggle sidebar"),
     ];
+
+    fn icon(self) -> &'static str {
+        match self {
+            Act::NewTask => "square-pen",
+            Act::Work => "list-checks",
+            Act::Inbox => "inbox",
+            Act::Settings => "settings",
+            Act::ToggleTheme => "palette",
+            Act::ToggleSidebar => "panel-left",
+        }
+    }
+
+    /// The binding that reaches it without opening the palette, if there is
+    /// one. Shown as a key badge, the way a menu shows its shortcut.
+    fn keys(self) -> &'static str {
+        match self {
+            Act::NewTask => "⌘N",
+            Act::ToggleSidebar => "⌘B",
+            _ => "",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,10 +134,16 @@ pub fn build_groups(
     sessions: &[Session],
 ) -> Vec<Group> {
     let session_items = sessions.iter().map(|open| {
+        // The sidebar drops archived threads, so the palette is the only place
+        // left that finds one — and has to say that is what it found.
+        let hint = match open.archived {
+            true => format!("{} · archived", repo_slug(&open.repository)),
+            false => repo_slug(&open.repository),
+        };
         (
             Kind::Session(open.id.clone()),
-            format!("Open session {}", crate::sidebar::session_title(open)),
-            repo_slug(&open.repository),
+            crate::sidebar::session_title(open),
+            hint,
         )
     });
     let task_items = tasks.iter().map(|task| {
@@ -134,7 +172,7 @@ pub fn build_groups(
         .iter()
         .map(|(act, label)| (Kind::Action(*act), (*label).to_string(), String::new()));
     [
-        group("Sessions", session_items, query),
+        group("Threads", session_items, query),
         group("Tasks", task_items, query),
         group("Projects", project_items, query),
         group("Repositories", repo_items, query),
@@ -202,8 +240,9 @@ fn activate(app: &mut LgtmApp, kind: Kind, window: &mut Window, cx: &mut Context
             app.composer.project = Some(url);
             app.show_page(Page::Home, cx);
         }
-        Kind::Action(Act::NewSession) => app.go_home(window, cx),
-        Kind::Action(Act::Batches) => app.show_page(Page::Batches, cx),
+        Kind::Action(Act::NewTask) => app.go_home(window, cx),
+        Kind::Action(Act::Work) => app.show_page(Page::Work, cx),
+        Kind::Action(Act::Inbox) => app.show_page(Page::Inbox, cx),
         Kind::Action(Act::Settings) => app.open_settings(cx),
         Kind::Action(Act::ToggleSidebar) => app.toggle_sidebar(cx),
         Kind::Action(Act::ToggleTheme) => {
@@ -222,19 +261,39 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
     let at = app.ui.palette_at;
     let query = app.inputs.query.read(cx).value().to_string();
     let groups = build_groups(&query, &app.tasks, &app.known_repositories(), &app.sessions);
-
     let rows = rows(groups, at, &t, cx);
 
-    scrim("palette-scrim", &t)
-        .pt(relative(0.2))
+    // No dimming layer: the palette sits over the app the way a menu does,
+    // and its own surface is what separates it.
+    div()
+        .id("palette-scrim")
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .occlude()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_overlay(window, cx)))
         .child(
-            panel(&t)
+            div()
                 .id("palette")
                 .key_context("Palette")
                 .w(px(WIDTH))
+                .flex()
+                .flex_col()
+                .overflow_hidden()
+                .p(px(INSET))
+                .rounded(px(PANEL_RADIUS))
+                // The prompt input's surface: the palette is the same kind of
+                // floating card, so it is made of the same two colours.
+                .bg(t.composer.card)
+                .border_1()
+                .border_color(t.composer.edge)
                 .on_click(|_, _, cx| cx.stop_propagation())
-                .child(search_box(app, &t))
+                .child(search_box(app))
                 .child(
                     div()
                         .id("palette-list")
@@ -242,34 +301,19 @@ pub fn view(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                         .flex_col()
                         .max_h(px(MAX_LIST_H))
                         .overflow_y_scroll()
-                        .p(px(SPACE[0]))
+                        .pb(px(SPACE[1]))
                         .children(rows),
-                )
-                .child(footer(&t)),
+                ),
         )
         .into_any_element()
 }
 
-fn search_box(app: &LgtmApp, t: &Tokens) -> Div {
+/// Frameless: no box, no border, no icon. The placeholder is text on the
+/// panel, and the caret is the only thing that says it is a field.
+fn search_box(app: &LgtmApp) -> Div {
     div()
-        .px(px(SPACE[1]))
-        .py(px(SPACE[0]))
-        .border_b_1()
-        .border_color(t.border)
+        .py(px(SPACE[1]))
         .child(Input::new(&app.inputs.query).appearance(false).large())
-}
-
-fn footer(t: &Tokens) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .h(px(ROW_H))
-        .px(px(SPACE[2]))
-        .border_t_1()
-        .border_color(t.border)
-        .text_size(px(TEXT_SECONDARY))
-        .text_color(t.muted_fg)
-        .child(FOOTER)
 }
 
 /// Every group's label and rows, or "No matches" when there are none.
@@ -277,13 +321,7 @@ fn rows(groups: Vec<Group>, at: usize, t: &Tokens, cx: &mut Context<LgtmApp>) ->
     let mut index = 0;
     let mut rows: Vec<AnyElement> = Vec::new();
     for group in groups {
-        rows.push(
-            section_label(group.title, t)
-                .px(px(SPACE[2]))
-                .pt(px(SPACE[1]))
-                .pb(px(SPACE[0]))
-                .into_any_element(),
-        );
+        rows.push(heading(group.title, t).into_any_element());
         for item in group.items {
             rows.push(row(item, (index, index == at), t, cx).into_any_element());
             index += 1;
@@ -292,14 +330,27 @@ fn rows(groups: Vec<Group>, at: usize, t: &Tokens, cx: &mut Context<LgtmApp>) ->
     if rows.is_empty() {
         rows.push(
             div()
-                .px(px(SPACE[2]))
+                .px(px(GUTTER))
                 .py(px(SPACE[2]))
-                .text_color(t.muted_fg)
+                .text_color(t.sidebar_muted)
                 .child("No matches")
                 .into_any_element(),
         );
     }
     rows
+}
+
+/// A group's name. No rule under it, no weight of its own: it is a heading by
+/// position and by being dimmer than the rows it heads.
+fn heading(title: &'static str, t: &Tokens) -> Div {
+    div()
+        .flex_shrink_0()
+        .px(px(GUTTER))
+        .pt(px(SPACE[2]))
+        .pb(px(SPACE[0]))
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.sidebar_muted)
+        .child(title)
 }
 
 fn row(
@@ -309,30 +360,44 @@ fn row(
     cx: &mut Context<LgtmApp>,
 ) -> gpui::Stateful<Div> {
     let kind = item.kind.clone();
+    let action = match item.kind {
+        Kind::Action(act) => Some(act),
+        _ => None,
+    };
     div()
         .id(SharedString::from(format!("palette-{index}")))
         .flex()
         .items_center()
+        .flex_shrink_0()
         .gap(px(SPACE[1]))
-        .h(px(ROW_H))
-        .px(px(SPACE[1]))
-        .rounded(px(8.))
+        .h(px(ROW))
+        .px(px(GUTTER))
+        .rounded(px(RADIUS))
         .cursor_pointer()
-        .when(active, |this| this.bg(t.muted))
-        .hover(|this| this.bg(t.muted))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .children(highlight(&item.label, &item.matched, t)),
-        )
+        .text_size(px(TEXT_ROW))
+        // A wash rather than an opaque grey: one step up from the panel, the
+        // only thing that marks the current row.
+        .when(active, |this| this.bg(t.wash))
+        .hover(|this| this.bg(t.wash))
+        // An empty slot where a row has no icon, so every label starts on one
+        // column whether or not the group carries icons.
+        .child(match action {
+            Some(act) => div()
+                .flex_none()
+                .child(icon(act.icon(), ICON, t.sidebar_fg)),
+            None => div().flex_none().size(px(ICON)),
+        })
+        .child(label(&item, t))
+        .when_some(action.map(Act::keys).filter(|keys| !keys.is_empty()), {
+            |this, keys| this.child(badge(keys, t))
+        })
         .when(!item.hint.is_empty(), |this| {
             this.child(
                 div()
-                    .flex_shrink_0()
+                    .flex_none()
+                    .whitespace_nowrap()
                     .text_size(px(TEXT_SECONDARY))
-                    .text_color(t.muted_fg)
+                    .text_color(t.sidebar_muted)
                     .child(item.hint.clone()),
             )
         })
@@ -341,7 +406,34 @@ fn row(
         }))
 }
 
-/// The label, with the matched characters in bold.
+/// The row's own words. With nothing typed there is one run of text, which is
+/// what lets it end in an ellipsis rather than a hard clip.
+fn label(item: &Item, t: &Tokens) -> Div {
+    let base = div().flex_1().min_w_0().text_color(t.sidebar_fg);
+    match item.matched.is_empty() {
+        true => base.truncate().child(item.label.clone()),
+        false => base
+            .flex()
+            .truncate()
+            .children(highlight(&item.label, &item.matched, t)),
+    }
+}
+
+/// A keyboard shortcut, as a key badge: one step off the panel, muted text.
+fn badge(keys: &'static str, t: &Tokens) -> Div {
+    div()
+        .flex_none()
+        .px(px(SPACE[1]))
+        .py(px(1.))
+        .rounded(px(RADIUS_PILL))
+        .bg(t.wash)
+        .text_size(px(TEXT_SECONDARY))
+        .text_color(t.sidebar_muted)
+        .child(keys)
+}
+
+/// The label, with the matched characters at full strength. Colour rather
+/// than weight: a bolder run would reflow the row it sits in.
 fn highlight(label: &str, matched: &[usize], t: &Tokens) -> Vec<Div> {
     let mut out = Vec::new();
     let mut run = String::new();
@@ -362,10 +454,8 @@ fn highlight(label: &str, matched: &[usize], t: &Tokens) -> Vec<Div> {
 
 fn span(text: String, hit: bool, t: &Tokens) -> Div {
     div()
-        .flex_shrink_0()
-        .when(hit, |this| {
-            this.font_weight(FontWeight::BOLD).text_color(t.fg)
-        })
+        .flex_none()
+        .when(hit, |this| this.text_color(t.fg))
         .child(text)
 }
 
@@ -439,7 +529,12 @@ mod tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].title, "Tasks");
         assert_eq!(groups[0].items[0].kind, Kind::Task("1".into()));
-        assert_eq!(groups[0].items[0].hint, "one · running");
+        // The wording is `status_label`'s to choose; the palette only has to
+        // read the same words as the task cards.
+        assert_eq!(
+            groups[0].items[0].hint,
+            format!("one · {}", status_label(&tasks[0], &tasks))
+        );
 
         let all = build_groups("", &tasks, &repos, &[]);
         let titles: Vec<&str> = all.iter().map(|group| group.title).collect();
@@ -448,5 +543,31 @@ mod tests {
         assert_eq!(all[1].items[0].label, "Open project one");
         assert_eq!(all[2].items[0].label, "one");
         assert_eq!(all[3].items.len(), Act::ALL.len());
+    }
+
+    #[test]
+    fn a_session_row_is_titled_by_the_session_alone() {
+        let session = Session {
+            id: "s1".into(),
+            repository: "https://x/one.git".into(),
+            base_branch: "main".into(),
+            title: "fix the parser".into(),
+            created_at: 0,
+            workspace: None,
+            created_by: None,
+            archived: false,
+        };
+        let groups = build_groups("", &[], &[], std::slice::from_ref(&session));
+        assert_eq!(groups[0].title, "Threads");
+        assert_eq!(groups[0].items[0].label, "fix the parser");
+        assert_eq!(groups[0].items[0].hint, "one");
+
+        // Still findable once archived, and saying so.
+        let archived = Session {
+            archived: true,
+            ..session
+        };
+        let groups = build_groups("", &[], &[], std::slice::from_ref(&archived));
+        assert_eq!(groups[0].items[0].hint, "one · archived");
     }
 }

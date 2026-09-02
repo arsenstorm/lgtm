@@ -156,6 +156,15 @@ pub struct NewSession<'a> {
     pub title: &'a str,
 }
 
+/// Body of `PATCH /api/sessions/:id`: whichever fields are being changed.
+#[derive(Serialize, Default, Debug)]
+pub struct SessionPatch<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
+}
+
 /// Body of `POST /api/sessions/:id/messages`: one message of the thread, and
 /// the settings the task it becomes is run with.
 #[derive(Serialize)]

@@ -7,8 +7,8 @@ mod prefs;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, App, Div, Entity, FontWeight, Hsla, InteractiveElement as _, IntoElement,
-    ParentElement as _, Stateful, StatefulInteractiveElement as _, Styled as _,
+    div, px, AnyElement, App, Div, Entity, FontWeight, Hsla, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _, Styled as _,
 };
 use gpui_component::input::{Input, InputState};
 use gpui_component::ActiveTheme as _;
@@ -16,17 +16,17 @@ use gpui_component::ActiveTheme as _;
 /// 8-pt scale with a 4 for tight gaps.
 pub const SPACE: [f32; 7] = [4., 8., 12., 16., 24., 32., 48.];
 /// `text-sm`.
-pub const TEXT_BODY: f32 = 14.;
+pub const TEXT_BODY: f32 = 15.;
 /// `text-xs`: secondary copy, section labels, status bars.
-pub const TEXT_SECONDARY: f32 = 12.;
+pub const TEXT_SECONDARY: f32 = 13.;
 /// One list row: sidebar entries, menu items, composer controls.
-pub const TEXT_ROW: f32 = 13.;
+pub const TEXT_ROW: f32 = 14.;
 /// File paths and code.
-pub const TEXT_MONO: f32 = 12.;
+pub const TEXT_MONO: f32 = 13.;
 /// `text-[11px]`: the +/- counts next to a file.
-pub const TEXT_COUNT: f32 = 11.;
+pub const TEXT_COUNT: f32 = 12.;
 /// One diff/log row.
-pub const LINE_MONO: f32 = 20.;
+pub const LINE_MONO: f32 = 21.;
 pub const MONO_FONT: &str = "Menlo";
 /// gpui resolves this to the platform UI font (San Francisco on macOS).
 pub const UI_FONT: &str = ".SystemUIFont";
@@ -35,6 +35,9 @@ pub const UI_FONT: &str = ".SystemUIFont";
 pub const RADIUS: f32 = 10.;
 /// `rounded-2xl`: buttons, inputs, tabs, badges, icon tiles — the signature.
 pub const RADIUS_PILL: f32 = 16.;
+/// `rounded-md`: one list row, in the rail or in a dialog's nav. A pill this
+/// short would read as a lozenge, not a row.
+pub const ROW_RADIUS: f32 = 8.;
 
 /// `h-11`: the window and task headers.
 pub const HEADER_H: f32 = 44.;
@@ -46,8 +49,6 @@ pub const ROW_H: f32 = 28.;
 pub const BAR_H: f32 = 38.;
 /// The traffic lights plus their breathing room.
 pub const LIGHTS_W: f32 = 78.;
-/// The sidebar's status row.
-pub const FOOTER_H: f32 = 40.;
 
 /// The composer, layer by layer. Codex builds its prompt out of luminance
 /// alone: a darker panel behind, a lighter card over it, one hairline edge.
@@ -77,6 +78,10 @@ pub struct Tokens {
     pub primary_fg: Hsla,
     /// `--muted`/`--secondary`/`--accent`: one grey for fills, hovers, selection.
     pub muted: Hsla,
+    /// A translucent hover/active fill. The sidebar is alpha over the blurred
+    /// window, so an opaque grey there reads as a pasted-on slab; this wash
+    /// blends with whatever is behind it.
+    pub wash: Hsla,
     pub muted_fg: Hsla,
     pub border: Hsla,
     pub input: Hsla,
@@ -85,6 +90,11 @@ pub struct Tokens {
     pub ring: Hsla,
     pub sidebar: Hsla,
     pub sidebar_border: Hsla,
+    /// One grey for every sidebar row and icon: the rail reads as one quiet
+    /// list, and the active pill alone marks the current row.
+    pub sidebar_fg: Hsla,
+    /// Section labels and "show more": clearly dimmer than the rows they head.
+    pub sidebar_muted: Hsla,
     pub success: Hsla,
     pub warning: Hsla,
     pub info: Hsla,
@@ -113,6 +123,20 @@ pub fn lighten(color: Hsla) -> Hsla {
     }
 }
 
+/// `font-variant-numeric: tabular-nums`. Digits share one width, so a ticking
+/// age, duration or cost doesn't nudge whatever sits beside it.
+pub trait TabularNums: gpui::Styled + Sized {
+    fn tabular_nums(mut self) -> Self {
+        let style = self.text_style().get_or_insert_with(Default::default);
+        style.font_features = Some(gpui::FontFeatures(std::sync::Arc::new(vec![(
+            "tnum".into(),
+            1,
+        )])));
+        self
+    }
+}
+impl<T: gpui::Styled> TabularNums for T {}
+
 /// A borderless `bg-input/50` pill: every text field in the reference design.
 pub fn field(state: &Entity<InputState>, t: &Tokens) -> Input {
     Input::new(state)
@@ -121,14 +145,99 @@ pub fn field(state: &Entity<InputState>, t: &Tokens) -> Input {
         .rounded(px(RADIUS_PILL))
 }
 
-/// `text-xs uppercase tracking-wide text-muted-foreground`. gpui has no
-/// letter-spacing, so the wide tracking of the original is lost.
+/// A calm section name used across the app.
 pub fn section_label(text: &str, t: &Tokens) -> Div {
     div()
         .text_size(px(TEXT_SECONDARY))
         .text_color(t.muted_fg)
         .font_weight(FontWeight::MEDIUM)
-        .child(text.to_uppercase())
+        .child(text.to_string())
+}
+
+/// A section name followed by its content.
+pub fn section(text: &str, t: &Tokens) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(SPACE[1]))
+        .child(section_label(text, t))
+}
+
+/// The common anatomy of every user-facing header: an optional leading
+/// control, a truncating title, supporting details, and trailing actions.
+pub struct Header {
+    title: SharedString,
+    leading: Vec<AnyElement>,
+    details: Vec<AnyElement>,
+    actions: Vec<AnyElement>,
+}
+
+impl Header {
+    pub fn new(title: impl Into<SharedString>) -> Self {
+        Self {
+            title: title.into(),
+            leading: Vec::new(),
+            details: Vec::new(),
+            actions: Vec::new(),
+        }
+    }
+
+    pub fn leading(mut self, element: impl IntoElement) -> Self {
+        self.leading.push(
+            div()
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .justify_center()
+                .size(px(GLYPH))
+                .child(element)
+                .into_any_element(),
+        );
+        self
+    }
+
+    pub fn detail(mut self, element: impl IntoElement) -> Self {
+        self.details.push(element.into_any_element());
+        self
+    }
+
+    pub fn details(mut self, elements: impl IntoIterator<Item = AnyElement>) -> Self {
+        self.details.extend(elements);
+        self
+    }
+
+    pub fn action(mut self, element: impl IntoElement) -> Self {
+        self.actions.push(element.into_any_element());
+        self
+    }
+
+    pub fn render(self) -> Div {
+        let content = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(px(SPACE[1]))
+            .children(self.leading)
+            .child(
+                div()
+                    .flex_shrink()
+                    .min_w_0()
+                    .truncate()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(self.title),
+            )
+            .children(self.details);
+        div()
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .items_center()
+            .gap(px(SPACE[1]))
+            .h_full()
+            .child(content)
+            .children(self.actions)
+    }
 }
 
 /// The scrim a modal lays over the window. Children stack from the top, so a
@@ -166,17 +275,17 @@ pub fn modal_header(
     t: &Tokens,
     cx: &mut gpui::Context<crate::app::LgtmApp>,
 ) -> Div {
-    div()
-        .flex()
-        .items_center()
+    Header::new(title)
+        .action(icon_button(close_id, "x", true, t).on_click(
+            cx.listener(|this, _: &gpui::ClickEvent, window, cx| this.close_overlay(window, cx)),
+        ))
+        .render()
+        // The header grows to fill a row; in a modal's column it must not.
+        .flex_none()
         .h(px(HEADER_H))
         .px(px(SPACE[2]))
         .border_b_1()
         .border_color(t.border)
-        .child(div().flex_1().font_weight(FontWeight::MEDIUM).child(title))
-        .child(icon_button(close_id, "x", true, t).on_click(
-            cx.listener(|this, _: &gpui::ClickEvent, window, cx| this.close_overlay(window, cx)),
-        ))
 }
 
 /// One Lucide icon, tinted with `color`. gpui paints an SVG as an alpha mask,
@@ -209,7 +318,7 @@ pub fn icon_button(
         .h(px(GLYPH))
         .rounded(px(GLYPH / 2.))
         .when(enabled, |this| {
-            this.cursor_pointer().hover(|this| this.bg(t.muted))
+            this.cursor_pointer().hover(|this| this.bg(t.wash))
         })
         .child(
             gpui::svg()

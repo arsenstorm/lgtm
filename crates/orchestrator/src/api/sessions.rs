@@ -73,6 +73,49 @@ pub(super) async fn get_session(
     Ok(Json(SessionDetail { session, tasks }))
 }
 
+/// Body of `PATCH /api/sessions/:id`: whichever fields are being changed.
+#[derive(Deserialize, Default)]
+pub(super) struct UpdateSessionRequest {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    archived: Option<bool>,
+}
+
+pub(super) async fn update_session(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<UpdateSessionRequest>, JsonRejection>,
+) -> Result<Json<Session>, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let title = match body.title {
+        Some(title) if title.trim().is_empty() => {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                "title cannot be empty".into(),
+            ));
+        }
+        Some(title) => Some(title.trim().to_string()),
+        None => None,
+    };
+    let mut state = app.state.lock().unwrap();
+    let session = state
+        .update_session(&id, title, body.archived)
+        .ok_or_else(not_found)?;
+    app.persist_session(&session);
+    Ok(Json(session))
+}
+
+pub(super) async fn delete_session(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let mut state = app.state.lock().unwrap();
+    state.remove_session(&id).ok_or_else(not_found)?;
+    app.remove_session_record(&id);
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[derive(Deserialize)]
 pub(super) struct MessageBody {
     text: String,

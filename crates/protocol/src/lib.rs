@@ -455,6 +455,10 @@ pub struct Session {
     /// The user who created this; `None` for the shared token or automation.
     #[serde(default)]
     pub created_by: Option<String>,
+    /// Hidden from the sidebar without deleting the thread or the tasks it
+    /// produced.
+    #[serde(default)]
+    pub archived: bool,
 }
 
 /// Body of `GET /api/sessions/:id`: the thread is its tasks in creation order.

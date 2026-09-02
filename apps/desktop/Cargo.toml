@@ -24,3 +24,7 @@ dirs.workspace = true
 gpui = "0.2.2"
 gpui-component = "0.5.1"
 toml = "1"
+# The context menu is AppKit's own; gpui draws menus of its own instead of
+# opening one. Both crates are already in the tree under gpui.
+cocoa = "0.26"
+objc = "0.2"

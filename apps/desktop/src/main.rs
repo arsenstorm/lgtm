@@ -1,14 +1,15 @@
-mod activity;
+mod add_project;
 mod app;
 mod assets;
-mod batches;
 mod changes;
 mod commands;
 mod composer;
 mod home;
 mod import;
+mod inbox;
 mod keys;
 mod labels;
+mod menu;
 mod net;
 mod notify;
 mod palette;
@@ -21,12 +22,15 @@ mod settings;
 mod sidebar;
 mod tasks;
 mod theme;
+mod thread;
 mod titlebar;
+mod work;
 
 use app::LgtmApp;
 use gpui::{
     div, point, px, size, AnyView, App, AppContext as _, Application, Bounds, Context, IntoElement,
-    ParentElement as _, Render, Styled as _, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    ParentElement as _, Render, Styled as _, TitlebarOptions, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowOptions,
 };
 use gpui_component::Root;
 use lgtm_orchestrator::token::{self, TokenSource};
@@ -237,6 +241,7 @@ fn window_options(cx: &mut App) -> WindowOptions {
             cx,
         ))),
         window_min_size: Some(size(px(1000.), px(680.))),
+        window_background: WindowBackgroundAppearance::Blurred,
         ..Default::default()
     }
 }

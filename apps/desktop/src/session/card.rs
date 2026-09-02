@@ -21,15 +21,18 @@ const LINE: usize = 96;
 /// The card's body: why a failed task stopped, the newest step of a running
 /// one, or what a finished one produced.
 pub fn body_line(task: &Task, events: &[StoredEvent]) -> String {
-    if let Some(error) = &task.error {
-        return prompt_preview(error, LINE);
-    }
-    if task.status == TaskStatus::Running {
-        return latest_step(events).unwrap_or_else(|| "Working…".to_string());
-    }
-    match &task.result {
-        Some(result) => tally(result),
-        None => String::new(),
+    let line = if let Some(error) = &task.error {
+        prompt_preview(error, LINE)
+    } else if task.status == TaskStatus::Running {
+        latest_step(events).unwrap_or_else(|| "Working…".to_string())
+    } else {
+        task.result.as_ref().map(tally).unwrap_or_default()
+    };
+    // A row of nothing but dots — a step the agent logged as "…", a tally of
+    // nothing — says less than the empty space it takes.
+    match line.trim().trim_matches(['.', '…']).is_empty() {
+        true => String::new(),
+        false => line,
     }
 }
 
@@ -42,11 +45,15 @@ fn latest_step(events: &[StoredEvent]) -> Option<String> {
     })
 }
 
-/// `3 files · 2/2 checks · 1 finding`, minus what the task has none of.
+/// `3 files · 2/2 checks · 1 finding`, minus what the task has none of. A
+/// result with none of the three tallies to nothing, and the card drops the row.
 fn tally(result: &TaskResult) -> String {
     let passed = result.validation.iter().filter(|check| check.ok).count();
     let findings = result.review.as_ref().map_or(0, |r| r.findings.len());
-    let mut parts = vec![plural(result.changed_files.len(), "file")];
+    let mut parts = Vec::new();
+    if !result.changed_files.is_empty() {
+        parts.push(plural(result.changed_files.len(), "file"));
+    }
     if !result.validation.is_empty() {
         parts.push(format!("{passed}/{} checks", result.validation.len()));
     }
@@ -60,23 +67,19 @@ fn plural(n: usize, noun: &str) -> String {
     format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
 }
 
-/// The nudge under a card that is waiting on a person.
-pub fn hint(status: TaskStatus) -> Option<&'static str> {
-    match status {
-        TaskStatus::Conflicted => Some("Conflicted"),
-        TaskStatus::AwaitingReview => Some("awaiting review"),
-        _ => None,
-    }
-}
-
-/// `runner · executor · duration`.
-pub fn meta(task: &Task, now: u64) -> String {
-    format!(
+/// `owner · runner · executor · duration`, without the owner when the task has
+/// none.
+pub fn meta(task: &Task, owner: Option<&str>, now: u64) -> String {
+    let rest = format!(
         "{} · {} · {}",
         task.runner.as_deref().unwrap_or("unassigned"),
         task.spec.executor.binary(),
         duration(elapsed(task, now))
-    )
+    );
+    match owner {
+        Some(owner) => format!("{owner} · {rest}"),
+        None => rest,
+    }
 }
 
 /// From the first attempt's start to the last one's end. A task that has not
@@ -129,14 +132,6 @@ pub fn card(
                     .child(body),
             )
         })
-        .when_some(hint(task.status), |this, hint| {
-            this.child(
-                div()
-                    .text_size(px(TEXT_SECONDARY))
-                    .text_color(t.warning)
-                    .child(hint),
-            )
-        })
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)))
 }
 
@@ -157,16 +152,16 @@ fn header(app: &LgtmApp, task: &Task, now: u64, t: &Tokens) -> Div {
                 .truncate()
                 .child(prompt_preview(&task.spec.prompt, TITLE)),
         )
-        .when_some(
-            crate::app::owner_label(app.owner_name(task.created_by.as_deref()), t),
-            |this, owner| this.child(owner),
-        )
         .child(
             div()
                 .flex_shrink_0()
                 .text_size(px(TEXT_SECONDARY))
                 .text_color(t.muted_fg)
-                .child(meta(task, now)),
+                .child(meta(
+                    task,
+                    app.owner_name(task.created_by.as_deref()).as_deref(),
+                    now,
+                )),
         )
 }
 
@@ -178,6 +173,19 @@ mod tests {
 
     fn stored(event: TaskEvent) -> StoredEvent {
         StoredEvent { at: 0, event }
+    }
+
+    fn result() -> TaskResult {
+        TaskResult {
+            branch: "b".into(),
+            diff: String::new(),
+            changed_files: Vec::new(),
+            validation: Vec::new(),
+            plan: None,
+            review: None,
+            policy: None,
+            cost_usd: 0.0,
+        }
     }
 
     #[test]
@@ -204,8 +212,6 @@ mod tests {
         let mut done = task("a", "do it");
         done.status = TaskStatus::AwaitingReview;
         done.result = Some(TaskResult {
-            branch: "b".into(),
-            diff: String::new(),
             changed_files: vec!["one.rs".into()],
             validation: vec![
                 ValidationResult {
@@ -221,7 +227,6 @@ mod tests {
                     output_tail: String::new(),
                 },
             ],
-            plan: None,
             review: Some(Review {
                 findings: vec![Finding {
                     severity: Severity::Warning,
@@ -231,11 +236,25 @@ mod tests {
                 }],
                 executor: None,
             }),
-            policy: None,
-            cost_usd: 0.0,
+            ..result()
         });
         assert_eq!(body_line(&done, &[]), "1 file · 1/2 checks · 1 finding");
-        assert_eq!(hint(done.status), Some("awaiting review"));
+    }
+
+    #[test]
+    fn a_result_with_nothing_to_report_has_no_body_at_all() {
+        let mut done = task("a", "do it");
+        done.status = TaskStatus::AwaitingReview;
+        done.result = Some(result());
+        assert_eq!(body_line(&done, &[]), "");
+    }
+
+    #[test]
+    fn a_step_of_only_dots_is_no_body() {
+        let mut running = task("a", "do it");
+        running.status = TaskStatus::Running;
+        let events = vec![stored(TaskEvent::Progress { text: "…".into() })];
+        assert_eq!(body_line(&running, &events), "");
     }
 
     #[test]
@@ -244,13 +263,22 @@ mod tests {
         failed.status = TaskStatus::Failed;
         failed.error = Some("exit 1\nmore".into());
         assert_eq!(body_line(&failed, &[]), "exit 1");
-        assert_eq!(hint(failed.status), None);
     }
 
     #[test]
     fn meta_times_the_run_not_the_wait() {
         let mut queued = task("a", "do it");
         queued.created_at = 1_000;
-        assert_eq!(meta(&queued, 61_000), "unassigned · claude · 1m");
+        assert_eq!(meta(&queued, None, 61_000), "unassigned · claude · 1m");
+    }
+
+    #[test]
+    fn an_owned_task_wears_its_owner_first() {
+        let mut queued = task("a", "do it");
+        queued.created_at = 1_000;
+        assert_eq!(
+            meta(&queued, Some("mira"), 61_000),
+            "mira · unassigned · claude · 1m"
+        );
     }
 }

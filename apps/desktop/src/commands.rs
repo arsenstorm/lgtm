@@ -3,7 +3,7 @@
 use crate::app::{LgtmApp, Overlay, Page, Pane, Shell, Stop, ERROR_TTL, STARTING};
 use crate::net::{self, Action, Msg};
 use crate::project::ProjectTab;
-use crate::{home, render, settings};
+use crate::{home, render};
 use gpui::{Context, Window};
 use lgtm_protocol::{StoredEvent, Task, TaskStatus, Todo};
 
@@ -76,12 +76,6 @@ impl LgtmApp {
                 }
                 self.memories = memories;
                 self.todos = todos;
-            }
-            Msg::Plans { generation, plans } => {
-                if generation != self.generation {
-                    return;
-                }
-                self.plans = plans;
             }
             Msg::Terminal { generation, data } => {
                 if generation != self.generation {
@@ -217,9 +211,8 @@ impl LgtmApp {
         net::fetch_artefact(self.client.clone(), task, name, self.tx.clone());
     }
 
-    /// Keeps the open project tab fed: the list tabs poll, Plans fetches once,
-    /// every other tab reads what the window already has. Called again after
-    /// an action so its effect shows without waiting out the interval.
+    /// Keeps the open project tab fed. Called again after an action so its
+    /// effect shows without waiting out the interval.
     pub(crate) fn watch_project(&mut self, cx: &mut Context<Self>) {
         if let Some(stream) = self.project_stream.take() {
             stream.abort();
@@ -232,17 +225,12 @@ impl LgtmApp {
         };
         let (client, tx) = (self.client.clone(), self.tx.clone());
         self.project_stream = match self.ui.project_tab {
-            ProjectTab::Memories | ProjectTab::Todos => {
+            // Work needs the todos and Context the memories; one poll fetches
+            // both. Overview reads what the window already has.
+            ProjectTab::Work | ProjectTab::Context => {
                 Some(net::watch_notes(client, repository, self.generation, tx))
             }
-            ProjectTab::Plans => {
-                let goals = crate::project::goals_of(self, slug)
-                    .iter()
-                    .map(|summary| summary.goal.id.clone())
-                    .collect();
-                Some(net::fetch_plans(client, goals, self.generation, tx))
-            }
-            _ => None,
+            ProjectTab::Overview => None,
         };
         cx.notify();
     }
@@ -290,32 +278,6 @@ impl LgtmApp {
         self.page = page;
     }
 
-    pub fn can_go_back(&self) -> bool {
-        self.ui.visited_at > 1
-    }
-
-    pub fn can_go_forward(&self) -> bool {
-        self.ui.visited_at < self.ui.visited.len()
-    }
-
-    pub fn go_back(&mut self, cx: &mut Context<Self>) {
-        if !self.can_go_back() {
-            return;
-        }
-        self.ui.visited_at -= 1;
-        let stop = self.ui.visited[self.ui.visited_at - 1].clone();
-        self.open(stop, cx);
-    }
-
-    pub fn go_forward(&mut self, cx: &mut Context<Self>) {
-        if !self.can_go_forward() {
-            return;
-        }
-        let stop = self.ui.visited[self.ui.visited_at].clone();
-        self.ui.visited_at += 1;
-        self.open(stop, cx);
-    }
-
     pub fn selected_task(&self) -> Option<&Task> {
         let id = self.selected.as_deref()?;
         self.tasks.iter().find(|task| task.id == id)
@@ -345,10 +307,10 @@ impl LgtmApp {
         self.go(Stop::Page(page), cx);
     }
 
-    /// Opens a project page. A goal id lands on the Goals tab, scrolled to it.
+    /// Opens a project page. A goal id lands on the Work tab, scrolled to it.
     pub fn open_project(&mut self, slug: String, goal: Option<String>, cx: &mut Context<Self>) {
         self.ui.project_tab = match &goal {
-            Some(_) => ProjectTab::Goals,
+            Some(_) => ProjectTab::Work,
             None => ProjectTab::Overview,
         };
         if let Some(id) = goal {
@@ -374,20 +336,21 @@ impl LgtmApp {
     }
 
     pub fn open_settings(&mut self, cx: &mut Context<Self>) {
+        // Every open starts at the top, not wherever the last visit ended.
+        self.ui.settings_section = crate::settings::Section::default();
         self.ui.overlay = Overlay::Settings;
         cx.notify();
     }
 
-    /// Opens Settings scrolled to the Runners section.
+    /// Opens Settings on the Orchestrator section, where the join line is.
     pub fn open_runner_settings(&mut self, cx: &mut Context<Self>) {
-        self.ui
-            .settings_scroll
-            .scroll_to_top_of_item(settings::RUNNERS_SECTION);
         self.open_settings(cx);
+        self.ui.settings_section = crate::settings::Section::Orchestrator;
     }
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.ui.overlay = Overlay::None;
+        self.ui.thread_action = None;
         self.close_menus(cx);
         window.focus(&self.focus);
         cx.notify();
@@ -434,18 +397,6 @@ impl LgtmApp {
             .update(cx, |state, cx| state.set_value("", window, cx));
         self.ui.show_follow_up = false;
         self.act(Action::Tell(text), cx);
-    }
-
-    /// Starts an empty thread in `repository` and opens it once it exists,
-    /// on the composer's branch chip rather than an assumed `main`.
-    pub fn start_session(&mut self, repository: String, cx: &mut Context<Self>) {
-        net::new_session(
-            self.client.clone(),
-            repository,
-            crate::home::branch_of(&self.composer.chips),
-            self.tx.clone(),
-        );
-        cx.notify();
     }
 
     /// The repository the composer works in: a thread's own, or the one
@@ -523,17 +474,28 @@ impl LgtmApp {
         self.select(id, cx);
     }
 
-    /// Switching tabs attaches or detaches the shell: an unwatched terminal
-    /// has no reason to hold a socket open.
     pub(crate) fn show(&mut self, pane: Pane, cx: &mut Context<Self>) {
         if self.pane == pane {
             return;
         }
         self.pane = pane;
-        match pane {
-            Pane::Terminal => self.attach_shell(),
-            _ => self.detach_shell(),
+        cx.notify();
+    }
+
+    /// The shell follows the drawer rather than a tab: an unwatched terminal
+    /// has no reason to hold a socket open.
+    pub(crate) fn toggle_terminal(&mut self, cx: &mut Context<Self>) {
+        self.ui.terminal_open = !self.ui.terminal_open;
+        if self.ui.terminal_open {
+            self.attach_shell();
+        } else {
+            self.detach_shell();
         }
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_inspector(&mut self, cx: &mut Context<Self>) {
+        self.ui.inspector_open = !self.ui.inspector_open;
         cx.notify();
     }
 
@@ -551,7 +513,7 @@ impl LgtmApp {
         });
     }
 
-    /// Detaching leaves the shell running on the runner; `Close` kills it.
+    /// Detaching leaves the shell running on the runner for the next visit.
     fn detach_shell(&mut self) {
         if let Some(shell) = self.shell.take() {
             shell.stream.abort();
@@ -567,12 +529,6 @@ impl LgtmApp {
             let _ = shell.input.send(format!("{line}\n"));
         }
         cx.notify();
-    }
-
-    /// Kills the shell and detaches; the tab starts a new one on reattach.
-    pub fn close_shell(&mut self, cx: &mut Context<Self>) {
-        self.detach_shell();
-        self.act(Action::CloseTerminal, cx);
     }
 
     pub fn add_memory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -657,10 +613,11 @@ impl LgtmApp {
         self.session_events.clear();
         self.memories.clear();
         self.todos.clear();
-        self.plans.clear();
         self.promoting = None;
         self.detach_shell();
         self.ui.editing_notes = false;
+        self.ui.terminal_open = false;
+        self.ui.inspector_open = false;
     }
 
     /// Opens the Changes tab at `file`. The diff is parsed here too, so a
@@ -703,8 +660,7 @@ impl LgtmApp {
 pub(crate) fn default_pane(status: Option<TaskStatus>) -> Pane {
     match status {
         Some(TaskStatus::AwaitingReview | TaskStatus::Conflicted) => Pane::Review,
-        Some(TaskStatus::Running) => Pane::Activity,
-        _ => Pane::Overview,
+        _ => Pane::Activity,
     }
 }
 
@@ -717,7 +673,7 @@ mod tests {
         assert!(default_pane(Some(TaskStatus::AwaitingReview)) == Pane::Review);
         assert!(default_pane(Some(TaskStatus::Conflicted)) == Pane::Review);
         assert!(default_pane(Some(TaskStatus::Running)) == Pane::Activity);
-        assert!(default_pane(Some(TaskStatus::Merged)) == Pane::Overview);
-        assert!(default_pane(None) == Pane::Overview);
+        assert!(default_pane(Some(TaskStatus::Merged)) == Pane::Activity);
+        assert!(default_pane(None) == Pane::Activity);
     }
 }

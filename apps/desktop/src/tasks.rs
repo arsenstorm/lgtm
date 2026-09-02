@@ -52,12 +52,20 @@ pub fn goal_color(status: GoalStatus, t: &Tokens) -> Hsla {
 
 pub fn status_color(task: &Task, tasks: &[Task], t: &Tokens) -> Hsla {
     match status_label(task, tasks) {
-        "awaiting_review" | "conflicted" => t.warning,
+        "awaiting review" | "conflicted" => t.warning,
         "running" => t.info,
         "approved" | "merged" => t.success,
-        "failed" | "timed_out" | "runner_lost" | "rejected" | "cancelled" => t.danger,
+        "failed" | "timed out" | "runner lost" | "rejected" | "cancelled" => t.danger,
         _ => t.muted_fg,
     }
+}
+
+/// A task a person has to act on before it moves again.
+pub fn needs_attention(task: &Task, tasks: &[Task]) -> bool {
+    matches!(
+        status_label(task, tasks),
+        "awaiting review" | "conflicted" | "failed" | "timed out" | "runner lost"
+    )
 }
 
 /// `o/r label:L` for a GitHub label batch, `TEAM/STATE` for a Linear batch.
@@ -71,6 +79,72 @@ pub fn batch_label(source: &BatchSource) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lgtm_protocol::{Executor, TaskKind, TaskSpec, TaskStatus};
+
+    fn task(status: TaskStatus) -> Task {
+        Task {
+            id: "t".into(),
+            spec: TaskSpec {
+                repository: "https://x/one.git".into(),
+                base_branch: "main".into(),
+                prompt: "p".into(),
+                executor: Executor::Claude,
+                runner: None,
+                issue: None,
+                linear: None,
+                kind: TaskKind::Run,
+                parent: None,
+                depends_on: vec![],
+                depends_on_condition: Default::default(),
+                batch: None,
+                sandbox: None,
+                requirements: vec![],
+                goal: None,
+                review_executor: None,
+                model: None,
+                allowed_hosts: Vec::new(),
+                session: None,
+                created_by: None,
+            },
+            status,
+            runner: None,
+            created_at: 0,
+            result: None,
+            error: None,
+            pull_request: None,
+            ci: None,
+            pr_review: None,
+            executions: Vec::new(),
+            scratchpad: String::new(),
+            files: Vec::new(),
+            workspace: None,
+            created_by: None,
+        }
+    }
+
+    #[test]
+    fn attention_is_every_state_that_stalls_without_a_person() {
+        for status in [
+            TaskStatus::AwaitingReview,
+            TaskStatus::Conflicted,
+            TaskStatus::Failed,
+            TaskStatus::TimedOut,
+            TaskStatus::RunnerLost,
+        ] {
+            assert!(needs_attention(&task(status), &[]), "{status:?}");
+        }
+        for status in [
+            TaskStatus::Queued,
+            TaskStatus::Running,
+            TaskStatus::ChangesRequested,
+            TaskStatus::Approved,
+            TaskStatus::Merged,
+            TaskStatus::Rejected,
+            TaskStatus::Cancelled,
+        ] {
+            assert!(!needs_attention(&task(status), &[]), "{status:?}");
+        }
+    }
 
     #[test]
     fn slug_drops_host_and_git_suffix() {

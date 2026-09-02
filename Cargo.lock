@@ -3412,6 +3412,7 @@ name = "lgtm-desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cocoa 0.26.0",
  "dirs 6.0.0",
  "futures-util",
  "gpui",
@@ -3421,6 +3422,7 @@ dependencies = [
  "lgtm-diff",
  "lgtm-orchestrator",
  "lgtm-protocol",
+ "objc",
  "rustls",
  "serde",
  "serde_json",

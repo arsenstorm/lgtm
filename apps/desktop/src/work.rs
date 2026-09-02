@@ -1,15 +1,18 @@
-//! The Batches page: what was imported, and how far each import has got.
+//! The Work page: everything in flight, grouped by what it is waiting on,
+//! and the batches it was imported from.
 
 use crate::app::{LgtmApp, Overlay};
 use crate::labels::{prompt_preview, status_label};
-use crate::tasks::{batch_label, now_ms, relative_age, status_color};
+use crate::tasks::{batch_label, needs_attention, now_ms, relative_age, status_color};
 use crate::theme::{
-    icon, tokens, Tokens, HEADER_H, ICON, RADIUS, RADIUS_PILL, ROW_H, SPACE, TEXT_SECONDARY,
+    icon, section, tokens, Header, TabularNums as _, Tokens, HEADER_H, ICON, RADIUS, RADIUS_PILL,
+    ROW_H, SPACE, TEXT_SECONDARY,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
+    IntoElement, ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _,
+    Styled as _,
 };
 use gpui_component::button::Button;
 use gpui_component::Sizable as _;
@@ -20,6 +23,10 @@ const STATES: [&str; 7] = [
     "queued", "blocked", "running", "review", "approved", "merged", "failed",
 ];
 
+/// Terminal tasks kept on the page: enough to recognise this morning's work,
+/// not a history tab.
+const COMPLETED: usize = 20;
+
 /// Non-zero task counts for one batch, in `STATES` order.
 pub fn counts(batch: &str, tasks: &[Task]) -> Vec<(&'static str, usize)> {
     let mut totals = [0usize; STATES.len()];
@@ -28,7 +35,7 @@ pub fn counts(batch: &str, tasks: &[Task]) -> Vec<(&'static str, usize)> {
         .filter(|task| task.spec.batch.as_deref() == Some(batch))
     {
         let state = match status_label(task, tasks) {
-            "awaiting_review" | "conflicted" => "review",
+            "awaiting review" | "conflicted" => "review",
             "rejected" | "cancelled" => "failed",
             other => other,
         };
@@ -46,18 +53,28 @@ pub fn counts(batch: &str, tasks: &[Task]) -> Vec<(&'static str, usize)> {
 
 pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
     let t = tokens(cx);
-    let empty = app.batches.is_empty();
+    let empty = app.tasks.is_empty() && app.batches.is_empty();
     div()
         .flex_1()
         .min_w_0()
         .flex()
         .flex_col()
-        .child(page_header(&t, cx))
+        .child(
+            Header::new("Work")
+                .action(import_button("import-top", cx))
+                .render()
+                // The header grows to fill a row; in this column it must not.
+                .flex_none()
+                .h(px(HEADER_H))
+                .px(px(SPACE[2]))
+                .border_b_1()
+                .border_color(t.border),
+        )
         .when(empty, |this| this.child(empty_state(&t, cx)))
         .when(!empty, |this| {
             this.child(
                 div()
-                    .id("batches")
+                    .id("work")
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
@@ -65,28 +82,78 @@ pub fn page(app: &LgtmApp, cx: &mut Context<LgtmApp>) -> AnyElement {
                     .flex_col()
                     .gap(px(SPACE[2]))
                     .p(px(SPACE[2]))
-                    .children(app.batches.iter().map(|batch| card(app, batch, &t, cx))),
+                    .children(sections(app, &t, cx)),
             )
         })
         .into_any_element()
 }
 
-fn page_header(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
-    div()
-        .flex()
-        .flex_shrink_0()
-        .items_center()
-        .h(px(HEADER_H))
-        .px(px(SPACE[2]))
-        .border_b_1()
-        .border_color(t.border)
-        .child(
-            div()
-                .flex_1()
-                .font_weight(FontWeight::MEDIUM)
-                .child("Batches"),
-        )
-        .child(import_button("import-top", cx))
+/// Every group with something in it, in the order a person works down them.
+/// `app.tasks` arrives newest first, so each group inherits that order.
+fn sections(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Vec<AnyElement> {
+    let label = |task: &&Task| status_label(task, &app.tasks);
+    let groups = [
+        (
+            "Needs attention",
+            app.tasks
+                .iter()
+                .filter(|task| needs_attention(task, &app.tasks))
+                .collect::<Vec<&Task>>(),
+        ),
+        (
+            "Running",
+            app.tasks
+                .iter()
+                .filter(|task| matches!(label(task), "running" | "changes requested"))
+                .collect(),
+        ),
+        (
+            "Queued",
+            app.tasks
+                .iter()
+                .filter(|task| matches!(label(task), "queued" | "blocked"))
+                .collect(),
+        ),
+    ];
+    let completed: Vec<&Task> = app
+        .tasks
+        .iter()
+        .filter(|task| task.status.is_terminal())
+        .take(COMPLETED)
+        .collect();
+
+    let mut out: Vec<AnyElement> = Vec::new();
+    for (name, rows) in groups {
+        if rows.is_empty() {
+            continue;
+        }
+        out.push(
+            shell(name, t)
+                .children(rows.into_iter().map(|task| task_row(app, task, t, cx)))
+                .into_any_element(),
+        );
+    }
+    if !app.batches.is_empty() {
+        out.push(
+            shell("Batches", t)
+                .children(app.batches.iter().map(|batch| card(app, batch, t, cx)))
+                .into_any_element(),
+        );
+    }
+    if !completed.is_empty() {
+        out.push(
+            shell("Recently completed", t)
+                .children(completed.into_iter().map(|task| task_row(app, task, t, cx)))
+                .into_any_element(),
+        );
+    }
+    out
+}
+
+/// A section shell that scopes the element ids under it. A failed task is
+/// both stalled and finished, and its two rows must not share one id.
+pub(crate) fn shell(name: &str, t: &Tokens) -> Stateful<Div> {
+    section(name, t).id(SharedString::from(name.to_string()))
 }
 
 fn empty_state(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
@@ -97,7 +164,12 @@ fn empty_state(t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .items_center()
         .justify_center()
         .gap(px(SPACE[2]))
-        .child(div().text_color(t.muted_fg).child("No batches yet"))
+        .child("No work yet")
+        .child(
+            div()
+                .text_color(t.muted_fg)
+                .child("Start a task with ⌘N, or import issues from GitHub or Linear."),
+        )
         .child(import_button("import-empty", cx))
 }
 
@@ -187,6 +259,7 @@ fn card_header(
 fn age(created_at: u64, t: &Tokens) -> Div {
     div()
         .flex_shrink_0()
+        .tabular_nums()
         .text_size(px(TEXT_SECONDARY))
         .text_color(t.muted_fg)
         .child(format!("{} ago", relative_age(created_at, now_ms())))
@@ -220,7 +293,11 @@ pub(crate) fn task_row(
                 .truncate()
                 .child(prompt_preview(&task.spec.prompt, 64)),
         )
-        .child(div().child(relative_age(task.created_at, now_ms())))
+        .child(
+            div()
+                .tabular_nums()
+                .child(relative_age(task.created_at, now_ms())),
+        )
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.select(id.clone(), cx)))
 }
 

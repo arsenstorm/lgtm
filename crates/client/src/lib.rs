@@ -19,7 +19,7 @@ use tokio_tungstenite::Connector;
 pub use types::{
     ActivityLine, BatchDetail, BatchRequest, BatchResponse, EventStream, FromIssue, FromLinear,
     GoalDetail, IssuePreview, NewGoal, NewSession, Orchestrated, PromoteTodo, Retry,
-    SessionMessage, TaskDetail, TerminalStream,
+    SessionMessage, SessionPatch, TaskDetail, TerminalStream,
 };
 use types::{
     AllowHost, Attention, ErrorBody, FollowUp, NewMemory, NewTodo, Notes, PermissionRequest, Socket,
@@ -476,6 +476,26 @@ impl Client {
 
     pub async fn session(&self, id: &str) -> anyhow::Result<lgtm_protocol::SessionDetail> {
         self.get(&format!("/api/sessions/{id}")).await
+    }
+
+    pub async fn update_session(
+        &self,
+        id: &str,
+        patch: &SessionPatch<'_>,
+    ) -> anyhow::Result<lgtm_protocol::Session> {
+        self.patch(&format!("/api/sessions/{id}"), patch).await
+    }
+
+    /// The 204 carries no body, so nothing is deserialized here.
+    pub async fn delete_session(&self, id: &str) -> anyhow::Result<()> {
+        let resp = self
+            .authed(self.http.delete(format!("{}/api/sessions/{id}", self.base)))
+            .send()
+            .await?;
+        if resp.status().is_success() {
+            return Ok(());
+        }
+        Err(Self::failure(resp).await)
     }
 
     /// Sends one message; the task it becomes comes back.

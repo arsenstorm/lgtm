@@ -18,6 +18,7 @@ use gpui::{
     ParentElement as _, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_component::input::Input;
+use gpui_component::{Sizable as _, Size};
 
 use menus::{plus_menu, project_menu, runner_menu};
 
@@ -41,6 +42,12 @@ const ROW_H: f32 = 28.;
 const ROW_INSET: f32 = 15.;
 /// The prompt's left padding: the composer's second, tighter padding system.
 const TEXT_INSET: f32 = 12.;
+/// The prompt's own text size, placeholder and value alike — bigger than the
+/// app's body text, the way a chat composer leads.
+const PROMPT_TEXT: f32 = 16.;
+/// Three line boxes of `rems(1.25)`. The prompt is the card's click target, so
+/// it has to be a body worth aiming at, not the input's own first line.
+const PROMPT_MIN_H: f32 = 60.;
 /// The gap between the prompt and the action row, sized so the row's centre
 /// lands 76 px below the card's top and the card comes to 98 px.
 const ROW_GAP: f32 = 8.;
@@ -52,6 +59,14 @@ const MENU_W: f32 = 320.;
 const SMALL_MENU_W: f32 = 220.;
 /// Where a menu that opens upward clears the card's bottom row.
 const ABOVE_ROW: f32 = 52.;
+/// The row's top, 6 px of gap under it: the `+` menu hangs off its button
+/// rather than floating over the card.
+const ABOVE_PLUS: f32 = 42.;
+/// How far the `+` glyph is pulled back onto the row's left padding.
+const PLUS_PULL: f32 = (PLUS_BOX - PLUS_ICON) / 2. + (PLUS_ICON - 12.) / 2.;
+/// The `+` button's left edge on the canvas: the card's inset, its border and
+/// the row's padding, less the pull. The `+` menu lines up with it.
+const PLUS_LEFT: f32 = CARD_INSET + 1. + ROW_INSET - PLUS_PULL;
 
 /// Lucide draws in a 24 box; these sizes put the ink where Codex has it.
 /// `plus` at 12 × 12, `chevron-down` at 10 × 5, `arrow-up` at 14 × 14.
@@ -64,6 +79,9 @@ const FOLDER: f32 = 15.;
 /// The panel, the card, and whichever menu is open, pinned to the bottom.
 pub fn composer(app: &LgtmApp, t: &Tokens, _window: &mut Window, cx: &mut Context<LgtmApp>) -> Div {
     let open = app.composer.project_menu || app.composer.plus_menu || app.composer.runner_menu;
+    // The rear panel names the project being chosen, which is only a choice on
+    // the new-task page; inside a thread the project is already settled.
+    let rear = matches!(app.page, Page::Home);
     div()
         .flex()
         .flex_shrink_0()
@@ -87,8 +105,8 @@ pub fn composer(app: &LgtmApp, t: &Tokens, _window: &mut Window, cx: &mut Contex
                             .child(error),
                     )
                 })
-                .child(project_panel(app, t, cx))
-                .child(card(app, t, cx))
+                .when(rear, |this| this.child(project_panel(app, t, cx)))
+                .child(card(app, t, rear, cx))
                 .when(open, |this| this.child(dismiss(cx)))
                 .when(app.composer.project_menu, |this| {
                     this.child(project_menu(app, t, cx))
@@ -121,8 +139,6 @@ fn dismiss(cx: &mut Context<LgtmApp>) -> impl IntoElement {
 /// is there so the card's rounded corners have something to sit on.
 fn project_panel(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
     let chosen = app.composer_project().map(|url| repo_slug(&url));
-    // A thread's project is fixed by the thread; only Home gets to pick one.
-    let fixed = matches!(app.page, Page::Session(_));
     div()
         .id("project-panel")
         .flex()
@@ -145,21 +161,21 @@ fn project_panel(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl I
                 .truncate()
                 .child(chosen.unwrap_or_else(|| "Choose project".to_string())),
         )
-        .when(!fixed, |this| {
-            this.cursor_pointer()
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.toggle_menu(|app| &mut app.composer.project_menu, cx)
-                }))
-        })
+        .cursor_pointer()
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.toggle_menu(|app| &mut app.composer.project_menu, cx)
+        }))
 }
 
-fn card(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+/// `rear` says the panel is behind the card, and the card has to ride up over
+/// it. Standing alone, it has nothing to overlap.
+fn card(app: &LgtmApp, t: &Tokens, rear: bool, cx: &mut Context<LgtmApp>) -> Div {
     div()
         .flex()
         .flex_col()
         .gap(px(ROW_GAP))
         .mx(px(CARD_INSET))
-        .mt(px(-OVERLAP))
+        .when(rear, |this| this.mt(px(-OVERLAP)))
         .pt(px(17.))
         .pb(px(7.))
         .rounded(px(CARD_RADIUS))
@@ -170,31 +186,51 @@ fn card(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .child(controls(app, t, cx))
 }
 
-/// The prompt, with our own placeholder laid over its empty first line.
-fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
+/// The prompt, with our own placeholder laid over its empty first line. The
+/// whole block is the card's click target: the input only owns the lines it
+/// has, and aiming at those is the complaint this answers.
+fn prompt(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
     let empty = app.inputs.prompt.read(cx).value().is_empty();
     div()
+        .id("prompt")
         .relative()
+        .min_h(px(PROMPT_MIN_H))
         .px(px(TEXT_INSET))
+        .cursor_text()
         .text_size(px(TEXT_BODY))
-        .child(Input::new(&app.inputs.prompt).appearance(false).p_0())
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            this.inputs
+                .prompt
+                .update(cx, |state, cx| state.focus(window, cx));
+        }))
+        // Both the typed text and the placeholder overlay are pinned to the
+        // same absolute TEXT_BODY pixels: the library's own size mapping is
+        // rem-relative (custom sizes render at size × 0.875), and letting
+        // either side resolve independently is how they drifted apart.
+        .child(
+            Input::new(&app.inputs.prompt)
+                .appearance(false)
+                .with_size(Size::Size(px(PROMPT_TEXT / 0.875)))
+                .p_0(),
+        )
         .when(empty, |this| {
             this.child(
                 div()
                     .absolute()
                     .top_0()
                     .left(px(TEXT_INSET))
-                    // The input's own line box, so the placeholder sits exactly
-                    // where the first typed line will.
+                    // The input's own line box, so the placeholder sits
+                    // exactly where the first typed line will.
                     .line_height(rems(1.25))
-                    .text_size(px(TEXT_BODY))
+                    .text_size(px(PROMPT_TEXT))
                     .text_color(t.composer.placeholder)
-                    .child("Describe your task..."),
+                    .child("Describe your task…"),
             )
         })
 }
 
-/// The card's bottom row: `+`, the divider, Plan, the runner, send.
+/// The card's bottom row: `+`, the divider, what the `+` menu has been told,
+/// the runner, send.
 fn controls(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let ready =
         !app.inputs.prompt.read(cx).value().trim().is_empty() && app.composer_project().is_some();
@@ -213,15 +249,19 @@ fn controls(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
         .pl(px(ROW_INSET))
         .pr(px(CARD_INSET - 1.))
         .child(plus_button(t, cx))
-        .child(
-            div()
-                .ml(px(CLEAR))
-                .w(px(1.))
-                .h(px(16.))
-                .flex_shrink_0()
-                .bg(t.composer.divider),
-        )
-        .child(plan_control(planning, t, cx))
+        // The divider only earns its place when the `+` menu has left
+        // something after it.
+        .when(planning || branch.is_some(), |this| {
+            this.child(
+                div()
+                    .ml(px(CLEAR))
+                    .w(px(1.))
+                    .h(px(16.))
+                    .flex_shrink_0()
+                    .bg(t.composer.divider),
+            )
+        })
+        .when(planning, |this| this.child(plan_chip(t, cx)))
         .when_some(branch, |this, branch| {
             this.child(
                 div()
@@ -254,16 +294,14 @@ fn plus_button(t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
         }))
 }
 
-fn plan_control(planning: bool, t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
-    let tone = if planning {
-        t.composer.primary
-    } else {
-        t.composer.secondary
-    };
-    control("plan", planning, t)
+/// Plan is chosen in the `+` menu now. The row keeps a chip so it is still
+/// visible from the card, and clicking it turns Plan back off.
+fn plan_chip(t: &Tokens, cx: &mut Context<LgtmApp>) -> impl IntoElement {
+    control("plan", true, t)
         .ml(px(CLEAR))
-        .child(icon("lightbulb", ICON, tone))
+        .child(icon("lightbulb", ICON, t.composer.primary))
         .child("Plan")
+        .child(icon("x", ICON - 4., t.composer.secondary))
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.set_chip(Chip::Plan, cx);
         }))

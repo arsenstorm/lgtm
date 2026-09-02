@@ -4,27 +4,28 @@ use crate::home::Chip;
 use crate::import::ImportForm;
 use crate::keys::{
     CloseOverlay, NewSession, OpenPalette, PaletteNext, PalettePrev, PaletteRun, SelectNext,
-    SelectPrev, ShowActivity, ShowChanges, ShowNotes, ShowOverview, ShowPlan, ShowReview, Submit,
-    ToggleSidebar, CONTEXT,
+    SelectPrev, ShowActivity, ShowChanges, ShowPlan, ShowReview, Submit, ToggleSidebar, CONTEXT,
+    PANE_CONTEXT,
 };
 use crate::net::{self, Msg};
 use crate::project::ProjectTab;
 use crate::render::Line;
 use crate::theme::{tokens, SPACE, STATUS_H, TEXT_BODY, TEXT_SECONDARY, UI_FONT};
 use crate::{
-    activity, batches, home, import, palette, panes, project, session, settings, sidebar, titlebar,
+    add_project, home, import, inbox, palette, panes, project, session, settings, sidebar, thread,
+    titlebar, work,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, AppContext as _, Context, Div, Entity, FocusHandle, Focusable, ImageFormat,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle, Styled as _,
-    Subscription, Task as GpuiTask, Window,
+    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render, ScrollHandle,
+    Styled as _, Subscription, Task as GpuiTask, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
 use lgtm_client::{ActivityLine, Client};
 use lgtm_protocol::{
-    Batch, GoalSummary, Memory, Overlap, PlanVersion, RunnerStatus, Session, SessionDetail, Stats,
-    StoredEvent, Task, Todo, User,
+    Batch, GoalSummary, Memory, Overlap, RunnerStatus, Session, SessionDetail, Stats, StoredEvent,
+    Task, Todo, User,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -38,12 +39,9 @@ pub(crate) const STARTING: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
-    Overview,
     Activity,
     Changes,
     Review,
-    Notes,
-    Terminal,
     Plan,
 }
 
@@ -51,9 +49,10 @@ pub enum Pane {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Page {
     Home,
-    Batches,
-    /// The workspace feed: what everyone has been doing.
-    Activity,
+    /// Everything in flight, and the batches it was imported from.
+    Work,
+    /// What is waiting on a person, over the workspace feed.
+    Inbox,
     /// One repository, by the slug the sidebar groups its sessions under.
     Project(String),
     /// One chat thread, by session id.
@@ -74,6 +73,9 @@ pub enum Overlay {
     Palette,
     Settings,
     Import,
+    AddProject,
+    /// Rename, archive or delete one thread; `ui.thread_action` says which.
+    Thread,
 }
 
 /// An attached shell: what it has printed, and the way to type at it.
@@ -126,6 +128,7 @@ pub struct Inputs {
     pub todo: Entity<InputState>,
     pub model: Entity<InputState>,
     pub shell: Entity<InputState>,
+    pub thread_title: Entity<InputState>,
 }
 
 impl Inputs {
@@ -148,7 +151,8 @@ impl Inputs {
                     .placeholder("the harness default")
                     .default_value(crate::theme::models(cx).model)
             }),
-            shell: field("Type a command, then ↩", window, cx),
+            shell: field("Type a command", window, cx),
+            thread_title: field("What this thread is about…", window, cx),
         }
     }
 }
@@ -160,7 +164,6 @@ pub struct ComposerState {
     pub project: Option<String>,
     pub chips: Vec<Chip>,
     pub project_menu: bool,
-    pub add_repo: bool,
     pub plus_menu: bool,
     /// The `+` menu is showing its base-branch field.
     pub branch_edit: bool,
@@ -181,22 +184,44 @@ pub struct UiState {
     pub visited: Vec<Stop>,
     pub visited_at: usize,
     pub show_follow_up: bool,
-    /// The Notes tab is showing its editor rather than the stored notes.
+    /// The inspector's notes are showing their editor rather than the stored
+    /// notes.
     pub editing_notes: bool,
+    /// The facts-and-notes column beside the open tab. Off by default: a task
+    /// is opened to read its work, not its metadata.
+    pub inspector_open: bool,
+    /// The shell drawer under the open tab. Off by default, and opening it is
+    /// what attaches the shell — an unwatched terminal holds a socket open.
+    pub terminal_open: bool,
     pub dragging: bool,
     pub task_scroll: ScrollHandle,
     pub content_scroll: ScrollHandle,
     pub project_scroll: ScrollHandle,
     pub session_scroll: ScrollHandle,
     pub project_tab: ProjectTab,
-    /// The titlebar's runner popover.
+    /// The footer's runner popover.
     pub runner_menu: bool,
+    /// The open session's project details, anchored in the window bar.
+    pub session_project_menu: bool,
+    /// The thread the open dialog is about, and what it would do.
+    pub thread_action: Option<(String, crate::thread::ThreadAction)>,
     /// Which Settings dropdown is open, by its id.
     pub settings_menu: Option<&'static str>,
+    /// Which Settings section the dialog's left nav has selected.
+    pub settings_section: crate::settings::Section,
     /// `<task>:<host>` for every request denied in this window. Denying is
     /// local: the orchestrator has no endpoint for it (see `review_tab`).
     pub denied: HashSet<String>,
     pub terminal_scroll: ScrollHandle,
+    /// The inspector scrolls against the pane beside it, so it cannot share
+    /// `content_scroll`.
+    pub inspector_scroll: ScrollHandle,
+    /// Activity's timeline groups that are unfolded, keyed by the index of the
+    /// group's first event: events only append, so the index holds still.
+    pub timeline_expanded: HashSet<usize>,
+    /// Activity is showing the raw log instead of the timeline. Off by
+    /// default: the lines are there for when the summary is not enough.
+    pub timeline_raw: bool,
 }
 
 impl Default for UiState {
@@ -212,6 +237,8 @@ impl Default for UiState {
             visited_at: 0,
             show_follow_up: false,
             editing_notes: false,
+            inspector_open: false,
+            terminal_open: false,
             dragging: false,
             task_scroll: ScrollHandle::new(),
             content_scroll: ScrollHandle::new(),
@@ -219,9 +246,15 @@ impl Default for UiState {
             session_scroll: ScrollHandle::new(),
             project_tab: ProjectTab::default(),
             runner_menu: false,
+            session_project_menu: false,
+            thread_action: None,
             settings_menu: None,
+            settings_section: crate::settings::Section::default(),
             denied: HashSet::new(),
             terminal_scroll: ScrollHandle::new(),
+            inspector_scroll: ScrollHandle::new(),
+            timeline_expanded: HashSet::new(),
+            timeline_raw: false,
         }
     }
 }
@@ -246,8 +279,6 @@ pub struct LgtmApp {
     /// The open project's memories and todos, while one of those tabs is open.
     pub memories: Vec<Memory>,
     pub todos: Vec<Todo>,
-    /// Every plan version under the open project's goals, newest first.
-    pub plans: Vec<PlanVersion>,
     /// The todo the composer was prefilled from, promoted on submit.
     pub promoting: Option<String>,
     /// Orchestrator-wide, and only refreshed on one poll in ten.
@@ -263,13 +294,13 @@ pub struct LgtmApp {
     /// Bumped on every selection so events from the previous stream are dropped.
     pub generation: u64,
     pub(crate) stream: Option<JoinHandle<()>>,
-    /// Polls the open project's lists, or fetches its plans.
+    /// Polls the open project's memories and todos.
     pub(crate) project_stream: Option<JoinHandle<()>>,
-    /// The open task's shell, while the Terminal tab is showing it.
+    /// The open task's shell, while the terminal drawer is showing it.
     pub(crate) shell: Option<Shell>,
     pub lines: Vec<Line>,
     /// The selected task's events, kept beside the rendered lines because the
-    /// Overview and Review tabs read fields the lines have already flattened.
+    /// inspector and the Review tab read fields the lines have already flattened.
     pub events: Vec<StoredEvent>,
     /// Live tasks touching the same files, as the detail call reported them.
     pub overlaps: Vec<Overlap>,
@@ -311,12 +342,11 @@ impl LgtmApp {
             session_events: Vec::new(),
             memories: Vec::new(),
             todos: Vec::new(),
-            plans: Vec::new(),
             promoting: None,
             stats: None,
             selected: None,
             page: Page::Home,
-            pane: Pane::Overview,
+            pane: Pane::Activity,
             review: crate::review::ReviewState::new(),
             link: Connection::new(config),
             error: None,
@@ -379,6 +409,24 @@ impl LgtmApp {
                 |this, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. }) {
                         this.send_to_shell(window, cx);
+                    }
+                },
+            ),
+            cx.subscribe_in(
+                &self.inputs.repo_url,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.add_project(window, cx);
+                    }
+                },
+            ),
+            cx.subscribe_in(
+                &self.inputs.thread_title,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.rename_thread(window, cx);
                     }
                 },
             ),
@@ -452,11 +500,9 @@ fn bind_actions(root: Div, cx: &mut Context<LgtmApp>) -> Div {
         .on_action(cx.listener(|this, _: &PaletteRun, window, cx| palette::run(this, window, cx)))
         .on_action(cx.listener(|this, _: &SelectNext, _, cx| this.move_selection(1, cx)))
         .on_action(cx.listener(|this, _: &SelectPrev, _, cx| this.move_selection(-1, cx)))
-        .on_action(cx.listener(|this, _: &ShowOverview, _, cx| this.show(Pane::Overview, cx)))
         .on_action(cx.listener(|this, _: &ShowActivity, _, cx| this.show(Pane::Activity, cx)))
         .on_action(cx.listener(|this, _: &ShowChanges, _, cx| this.show(Pane::Changes, cx)))
         .on_action(cx.listener(|this, _: &ShowReview, _, cx| this.show(Pane::Review, cx)))
-        .on_action(cx.listener(|this, _: &ShowNotes, _, cx| this.show(Pane::Notes, cx)))
         .on_action(cx.listener(|this, _: &ShowPlan, _, cx| this.show(Pane::Plan, cx)))
         .on_action(cx.listener(|this, _: &crate::review::MarkViewed, _, cx| {
             this.review.mark_current_viewed();
@@ -498,6 +544,7 @@ fn owner_name(users: &[User], created_by: Option<&str>) -> Option<String> {
 impl LgtmApp {
     /// The sidebar and whatever the selection or page puts beside it.
     fn main_area(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let t = tokens(cx);
         div()
             .flex()
             .flex_1()
@@ -505,7 +552,16 @@ impl LgtmApp {
             .when(self.ui.sidebar_open, |this| {
                 this.child(sidebar::render_sidebar(self, window, cx))
             })
-            .child(self.main_body(window, cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .bg(t.bg)
+                    .child(self.main_body(window, cx)),
+            )
     }
 
     /// The selected task, or whatever page is showing instead.
@@ -514,12 +570,51 @@ impl LgtmApp {
             return panes::task_view(self, window, cx);
         }
         match self.page.clone() {
-            Page::Batches => batches::page(self, cx),
-            Page::Activity => activity::page(self, cx),
+            Page::Work => work::page(self, cx),
+            Page::Inbox => inbox::page(self, cx),
             Page::Project(slug) => project::page(self, &slug, cx),
             Page::Session(_) => session::page(self, window, cx),
             Page::Home => home::home(self, window, cx),
         }
+    }
+
+    /// A page with a composer on it should take typing without being clicked
+    /// first. The keystroke that got us here is already spent, so the character
+    /// is put in by hand rather than replayed.
+    fn type_into_prompt(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let composing =
+            self.selected.is_none() && matches!(self.page, Page::Home | Page::Session(_));
+        // Anything focused other than the window itself is a field of its own,
+        // and the keystroke is already going where it belongs.
+        let elsewhere = window
+            .focused(cx)
+            .is_some_and(|focused| focused != self.focus);
+        if !composing || elsewhere || self.ui.overlay != Overlay::None {
+            return;
+        }
+        let keystroke = &event.keystroke;
+        if keystroke.modifiers.control
+            || keystroke.modifiers.platform
+            || keystroke.modifiers.function
+        {
+            return;
+        }
+        let Some(text) = keystroke.key_char.clone() else {
+            return;
+        };
+        if text.is_empty() || text.chars().any(char::is_control) {
+            return;
+        }
+        self.inputs.prompt.update(cx, |state, cx| {
+            state.focus(window, cx);
+            state.insert(text, window, cx);
+        });
+        cx.notify();
     }
 
     /// `bg-destructive/10 text-destructive`, the reference's destructive
@@ -553,14 +648,22 @@ impl Render for LgtmApp {
         let t = tokens(cx);
         let unreachable = !self.link.reachable;
         let overlay = self.ui.overlay;
+        // The list and review keys are bare letters, so they are only offered
+        // while a task is open — everywhere else those letters are typing.
+        let context = match self.selected.is_some() {
+            true => PANE_CONTEXT,
+            false => CONTEXT,
+        };
         bind_actions(div(), cx)
-            .key_context(CONTEXT)
+            .key_context(context)
             .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                this.type_into_prompt(event, window, cx)
+            }))
             .relative()
             .size_full()
             .flex()
             .flex_col()
-            .bg(t.bg)
             .text_color(t.fg)
             .font_family(UI_FONT)
             .text_size(px(TEXT_BODY))
@@ -575,6 +678,12 @@ impl Render for LgtmApp {
             })
             .when(overlay == Overlay::Import, |this| {
                 this.child(import::modal(self, cx))
+            })
+            .when(overlay == Overlay::AddProject, |this| {
+                this.child(add_project::modal(self, cx))
+            })
+            .when(overlay == Overlay::Thread, |this| {
+                this.child(thread::modal(self, cx))
             })
     }
 }

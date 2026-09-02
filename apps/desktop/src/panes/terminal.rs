@@ -1,55 +1,110 @@
-//! The Terminal tab: the shell in the task's worktree, as plain text.
+//! The terminal drawer: the shell in the task's worktree, as a terminal — one
+//! mono surface bleeding to the drawer's edges, scrollback above, prompt below.
 
-use super::{danger_ghost, muted};
 use crate::app::LgtmApp;
-use crate::theme::{field, Tokens, SPACE};
+use crate::theme::{Tokens, LINE_MONO, MONO_FONT, SPACE, TEXT_MONO};
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, IntoElement, ParentElement as _, Styled as _,
+    div, px, AnyElement, Div, InteractiveElement as _, IntoElement, ParentElement as _, Stateful,
+    StatefulInteractiveElement as _, Styled as _,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::Sizable as _;
+use gpui_component::input::Input;
 
 /// How much output one attached shell keeps. Dropping the front of a byte
 /// buffer is cheap, and nothing above reads what scrolled off.
 const SCROLLBACK: usize = 200_000;
 
-pub(super) fn terminal(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> AnyElement {
-    let Some(shell) = app.shell.as_ref() else {
-        return muted("Not attached.", t);
-    };
+pub(super) fn terminal(app: &LgtmApp, finished: bool, t: &Tokens) -> AnyElement {
+    let attached = app.shell.is_some();
     div()
+        .relative()
+        .size_full()
         .flex()
         .flex_col()
-        .gap(px(SPACE[1]))
-        .child(if shell.output.is_empty() {
-            muted("Waiting for the shell…", t)
-        } else {
-            output(&shell.output, t)
-        })
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(SPACE[1]))
-                .child(div().flex_1().min_w_0().child(field(&app.inputs.shell, t)))
-                .child(
-                    Button::new("close-terminal")
-                        .label("Close")
-                        .custom(danger_ghost(t, cx))
-                        .small()
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.close_shell(cx))),
-                ),
-        )
+        .bg(t.composer.rear)
+        .font_family(MONO_FONT)
+        .text_size(px(TEXT_MONO))
+        .line_height(px(LINE_MONO))
+        .text_color(t.fg)
+        .child(scrollback(app, finished, t))
+        .when(attached, |this| this.child(prompt(app, t)))
         .into_any_element()
 }
 
-fn output(text: &str, t: &Tokens) -> AnyElement {
+/// What an attached shell says before it has printed anything. A finished run
+/// has nothing more to say, so the wait would never end — name the worktree
+/// the shell did open in instead.
+fn waiting(finished: bool) -> &'static str {
+    match finished {
+        true => "The run has finished — this shell opens in its worktree.",
+        false => "Waiting for the shell…",
+    }
+}
+
+/// The output, and the scrollable `commands.rs` pins to the bottom. Long lines
+/// wrap: `strip_ansi` drops cursor movement, so this is an append-only log
+/// rather than a grid, and a log must not hide its tail behind a scroll offset.
+fn scrollback(app: &LgtmApp, finished: bool, t: &Tokens) -> Stateful<Div> {
+    let lines: Vec<Div> = match app.shell.as_ref() {
+        None => vec![quiet("Not attached.", t)],
+        Some(shell) if shell.output.is_empty() => vec![quiet(waiting(finished), t)],
+        Some(shell) => shell
+            .output
+            .lines()
+            .filter_map(display_line)
+            .map(|line| div().child(line))
+            .collect(),
+    };
     div()
+        .id("terminal-output")
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .track_scroll(&app.ui.terminal_scroll)
         .flex()
         .flex_col()
-        .text_color(t.fg)
-        .children(text.lines().map(|line| div().child(line.to_string())))
-        .into_any_element()
+        .px(px(SPACE[1]))
+        .py(px(SPACE[0]))
+        .children(lines)
+}
+
+/// zsh paints its right prompt by writing a wide run of spaces before it.
+/// Cursor positioning is intentionally absent from this append-only view, so
+/// keep the useful prompt but seat it on the left like the rest of the log.
+fn display_line(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if trimmed == "%" {
+        return None;
+    }
+    let right_prompt = line
+        .rsplit_once("        ")
+        .map(|(_, right)| right.trim())
+        .filter(|right| right.contains('@') && right.ends_with('%'));
+    Some(right_prompt.unwrap_or(line).trim_end().to_string())
+}
+
+fn quiet(text: &str, t: &Tokens) -> Div {
+    div().text_color(t.muted_fg).child(text.to_string())
+}
+
+/// The bottom line: the same mono text as the output, on the same surface, with
+/// one hairline over it. No prompt glyph — the shell prints its own.
+fn prompt(app: &LgtmApp, t: &Tokens) -> Div {
+    div()
+        .flex_shrink_0()
+        .border_t_1()
+        .border_color(t.border)
+        .px(px(SPACE[1]))
+        .py(px(SPACE[0]))
+        .child(
+            Input::new(&app.inputs.shell)
+                .appearance(false)
+                .p_0()
+                .h(px(LINE_MONO))
+                .font_family(MONO_FONT)
+                .text_size(px(TEXT_MONO))
+                .line_height(px(LINE_MONO)),
+        )
 }
 
 impl crate::app::Shell {
@@ -135,5 +190,18 @@ mod tests {
     #[test]
     fn newlines_and_tabs_survive_but_the_other_controls_do_not() {
         assert_eq!(strip_ansi("one\r\ntwo\tthree\x07"), "one\ntwo\tthree");
+    }
+
+    #[test]
+    fn a_zsh_right_prompt_is_seated_at_the_left_edge() {
+        assert_eq!(
+            display_line("%        arsen@MacBook f652b0e7 %"),
+            Some("arsen@MacBook f652b0e7 %".into())
+        );
+        assert_eq!(display_line("%"), None);
+        assert_eq!(
+            display_line("ordinary output"),
+            Some("ordinary output".into())
+        );
     }
 }

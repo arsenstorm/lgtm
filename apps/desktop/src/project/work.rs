@@ -1,10 +1,12 @@
-//! The History tab: the project's finished tasks, newest first.
+//! The Work tab: the project's goals, the tasks under way in it, what it
+//! still owes, and what it has finished.
 
-use super::{muted, tasks_of};
+use super::{goals, lists, muted, tasks_of};
 use crate::app::LgtmApp;
 use crate::labels::{header_preview, status_label};
-use crate::tasks::{duration, status_color};
-use crate::theme::{Tokens, RADIUS, SPACE, TEXT_SECONDARY};
+use crate::tasks::{duration, needs_attention, status_color};
+use crate::theme::{TabularNums as _, Tokens, RADIUS, SPACE, TEXT_SECONDARY};
+use crate::work::{shell, task_row};
 use gpui::{
     div, px, AnyElement, ClickEvent, Context, Div, InteractiveElement as _, IntoElement,
     ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _, Styled as _,
@@ -33,19 +35,72 @@ pub fn ran_for(executions: &[Execution]) -> Option<u64> {
     Some(finished.saturating_sub(started))
 }
 
+/// The goal cards come first, so `open_project` can scroll to one by index.
 pub(super) fn rows(
     app: &LgtmApp,
     slug: &str,
     t: &Tokens,
     cx: &mut Context<LgtmApp>,
 ) -> Vec<AnyElement> {
-    let rows = terminal_tasks(app, slug);
-    if rows.is_empty() {
-        return vec![muted("Nothing has finished in this project yet.", t)];
+    let tasks = tasks_of(app, slug);
+    let label = |task: &&Task| status_label(task, &app.tasks);
+    let groups = [
+        (
+            "Active",
+            tasks
+                .iter()
+                .copied()
+                .filter(|task| matches!(label(task), "running" | "changes requested"))
+                .collect::<Vec<&Task>>(),
+        ),
+        (
+            "Needs attention",
+            tasks
+                .iter()
+                .copied()
+                .filter(|task| needs_attention(task, &app.tasks))
+                .collect(),
+        ),
+        (
+            "Queued",
+            tasks
+                .iter()
+                .copied()
+                .filter(|task| matches!(label(task), "queued" | "blocked"))
+                .collect(),
+        ),
+    ];
+
+    let mut out = goals::cards(app, slug, t, cx);
+    if tasks.is_empty() && super::goals_of(app, slug).is_empty() {
+        out.push(muted("Nothing here yet — start a task with ⌘N.", t));
     }
-    rows.into_iter()
-        .map(|task| row(app, task, t, cx).into_any_element())
-        .collect()
+    for (name, rows) in groups {
+        if rows.is_empty() {
+            continue;
+        }
+        out.push(
+            shell(name, t)
+                .children(rows.into_iter().map(|task| task_row(app, task, t, cx)))
+                .into_any_element(),
+        );
+    }
+    // The add-row stays even with nothing on the list: it is the only way to
+    // put something there.
+    out.push(
+        shell("Backlog", t)
+            .children(lists::todos(app, t, cx))
+            .into_any_element(),
+    );
+    let done = terminal_tasks(app, slug);
+    if !done.is_empty() {
+        out.push(
+            shell("Completed", t)
+                .children(done.into_iter().map(|task| row(app, task, t, cx)))
+                .into_any_element(),
+        );
+    }
+    out
 }
 
 fn row(app: &LgtmApp, task: &Task, t: &Tokens, cx: &mut Context<LgtmApp>) -> Stateful<Div> {
@@ -86,6 +141,7 @@ fn cell(text: String, tone: gpui::Hsla) -> Div {
     div()
         .w(px(96.))
         .flex_shrink_0()
+        .tabular_nums()
         .truncate()
         .text_size(px(TEXT_SECONDARY))
         .text_color(tone)
@@ -98,7 +154,7 @@ mod tests {
     use lgtm_protocol::{ExecutionStatus, TaskStatus};
 
     #[test]
-    fn history_keeps_the_finished_tasks_newest_first() {
+    fn completed_keeps_the_finished_tasks_newest_first() {
         let finished = |at: u64, status| {
             let mut task = crate::project::tests::task("repo", status);
             task.created_at = at;
