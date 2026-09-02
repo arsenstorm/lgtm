@@ -8,7 +8,7 @@
 use lgtm_agent::codex_error;
 use lgtm_protocol::{
     first_line_title, Execution, ExecutionStatus, OutputStream, Plan, PlanVersion, Provenance,
-    Review, ReviewState, Severity, Stats, TaskEvent, ValidationResult,
+    Review, ReviewState, Severity, Stats, Task, TaskEvent, ValidationResult,
 };
 use serde_json::Value;
 use std::io::Write;
@@ -123,6 +123,40 @@ fn review_word(state: ReviewState) -> &'static str {
 fn duration(ms: u64) -> String {
     let secs = ms / 1000;
     format!("{}m{}s", secs / 60, secs % 60)
+}
+
+/// The header for `lgtm show`: what was asked, where it ran, what it touched.
+/// A field still at its default is left out — it tells the reader nothing, and
+/// the point of this is to be read.
+pub fn print_task(task: &Task, out: &mut impl Write) -> std::io::Result<()> {
+    writeln!(out, "{}  {}", task.id, wire_str(task.status))?;
+    let prompt = task.spec.prompt.trim();
+    if !prompt.is_empty() {
+        writeln!(out, "{prompt}")?;
+    }
+    writeln!(out)?;
+    writeln!(out, "{:<12}{}", "repository", task.spec.repository)?;
+    writeln!(out, "{:<12}{}", "base", task.spec.base_branch)?;
+    writeln!(out, "{:<12}{}", "executor", task.spec.executor.binary())?;
+    if let Some(model) = &task.spec.model {
+        writeln!(out, "{:<12}{model}", "model")?;
+    }
+    if let Some(runner) = &task.runner {
+        writeln!(out, "{:<12}{runner}", "runner")?;
+    }
+    if let Some(sandbox) = task.spec.sandbox {
+        writeln!(out, "{:<12}{}", "sandbox", sandbox.as_str())?;
+    }
+    if let Some(result) = &task.result {
+        writeln!(out, "{:<12}{}", "branch", result.branch)?;
+        if !result.changed_files.is_empty() {
+            writeln!(out, "{:<12}{}", "files", result.changed_files.join(", "))?;
+        }
+    }
+    if let Some(error) = &task.error {
+        writeln!(out, "{:<12}{error}", "error")?;
+    }
+    Ok(())
 }
 
 /// Renders one line per attempt. Silent for a task that was attempted once,
@@ -780,6 +814,64 @@ mod tests {
         assert!(String::from_utf8(out)
             .unwrap()
             .contains("budget       $42.50 of $100.00 today\n"));
+    }
+
+    #[test]
+    fn print_task_shows_the_prompt_and_where_it_ran() {
+        let mut out = Vec::new();
+        print_task(&provenance_task(None), &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.starts_with("abc12345  approved\n"));
+        assert!(text.contains("add a /health endpoint"));
+        assert!(text.contains("executor    codex"));
+        assert!(text.contains("runner      w1"));
+    }
+
+    #[test]
+    fn print_task_leaves_out_what_was_never_set() {
+        let mut out = Vec::new();
+        print_task(&provenance_task(None), &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        // No result, error, model or sandbox on this task: naming them with
+        // nothing after the label is worse than not naming them.
+        for absent in ["model", "sandbox", "branch", "files", "error"] {
+            assert!(!text.contains(absent), "{absent} should not be printed");
+        }
+    }
+
+    #[test]
+    fn print_task_names_the_branch_and_the_files_it_changed() {
+        let mut task = provenance_task(Some("opus"));
+        task.spec.sandbox = Some(lgtm_protocol::SandboxProfile::Off);
+        task.result = Some(lgtm_protocol::TaskResult {
+            branch: "lgtm/abc12345".into(),
+            diff: String::new(),
+            changed_files: vec!["src/a.rs".into(), "src/b.rs".into()],
+            validation: Vec::new(),
+            plan: None,
+            review: None,
+            policy: None,
+            cost_usd: 0.0,
+        });
+        let mut out = Vec::new();
+        print_task(&task, &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("model       opus"));
+        assert!(text.contains("sandbox     off"));
+        assert!(text.contains("branch      lgtm/abc12345"));
+        assert!(text.contains("files       src/a.rs, src/b.rs"));
+    }
+
+    #[test]
+    fn print_task_shows_why_a_task_failed() {
+        let mut task = provenance_task(None);
+        task.status = lgtm_protocol::TaskStatus::Failed;
+        task.error = Some("failed to write commit object".into());
+        let mut out = Vec::new();
+        print_task(&task, &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.starts_with("abc12345  failed\n"));
+        assert!(text.contains("error       failed to write commit object"));
     }
 
     #[test]

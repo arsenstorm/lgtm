@@ -527,7 +527,8 @@ async fn why(client: &Client, sha: &str) -> anyhow::Result<i32> {
 
 async fn show(client: &Client, id: &str) -> anyhow::Result<i32> {
     let detail = client.task(id).await?;
-    println!("{}", serde_json::to_string_pretty(&detail.task)?);
+    let mut stdout = std::io::stdout();
+    render::print_task(&detail.task, &mut stdout)?;
     for overlap in &detail.overlaps {
         println!(
             "overlaps with {}: {}",
@@ -556,10 +557,10 @@ async fn show(client: &Client, id: &str) -> anyhow::Result<i32> {
     let plan_version = lgtm_protocol::plan_versions(&detail.task, &detail.events)
         .into_iter()
         .next_back();
-    for e in detail.events {
-        println!("{} {}", e.at, serde_json::to_string(&e.event)?);
+    println!();
+    for e in &detail.events {
+        render::render(&e.event, &mut stdout)?;
     }
-    let mut stdout = std::io::stdout();
     render::print_executions(&detail.task.executions, &mut stdout)?;
     if let Some(result) = &detail.task.result {
         render::print_validation(&result.validation, &mut stdout)?;
