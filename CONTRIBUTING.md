@@ -9,7 +9,6 @@ and `git` on `PATH`.
 
 ```sh
 cargo run -p lgtm-cli --bin lgtm -- serve    # orchestrator plus a local runner
-cargo run -p lgtm-desktop                    # the desktop app
 ```
 
 ## Before opening a pull request
@@ -22,8 +21,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-`cargo fmt --all` fixes formatting. The desktop app is built and tested on
-macOS in CI, so build it locally if you changed `apps/desktop`.
+`cargo fmt --all` fixes formatting.
 
 ## Coding standards
 

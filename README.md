@@ -4,8 +4,8 @@ LGTM is an orchestrator for AI coding agents. You give it a prompt and a
 repository; it runs an agent on a runner in a git worktree, streams the
 output back, runs the repository's checks, reviews the diff, and then lets
 you approve it, open a pull request, and merge. Runners can be this machine,
-another machine, or a container that exits when it is done. There is a CLI
-and a native desktop app.
+another machine, or a container that exits when it is done. There is a CLI;
+the desktop and web apps are being rebuilt on Tauri.
 
 ## Install
 
@@ -60,8 +60,6 @@ to add it to the fleet.
 - `lgtm tasks`, `show`, `logs`, `diff`, and `runners` show what is going on.
 - Policy in the repository can retry, fix failing checks, and auto-approve
   or auto-merge.
-- The desktop app (`apps/desktop`) lists tasks and shows activity, a
-  coloured diff, checks, and plans in a review pane.
 
 ## Orchestration
 
@@ -227,11 +225,9 @@ the defaults stay.
 - `crates/orchestrator` — task state, runner WebSocket, HTTP API, policy
 - `crates/agent` — the runner: git worktrees, agent runs, checks, review
 - `crates/client` — HTTP/WebSocket client for the orchestrator API
-- `crates/diff` — patch parsing, unified/split layouts, and the file tree for the review pane
 - `crates/github` — pull requests, issues, CI status
 - `crates/linear` — Linear issues
 - `crates/cli` — `lgtm`, the developer command
-- `apps/desktop` — the GPUI desktop app
 
 Checks: `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`,
@@ -253,11 +249,10 @@ else yet.
 
 ## Notifications
 
-You should not have to watch LGTM. The desktop app raises an OS notification
-when a task needs a person — ready for review, failed, timed out, runner
-lost, merged, asks for a permission, conflicts with its base branch, or a
-pull request review requests changes. Settings → Notifications turns it off;
-it is on by default.
+You should not have to watch LGTM. `lgtm serve --webhook URL` (or
+`LGTM_WEBHOOK`) POSTs an event whenever a task needs a person — ready for
+review, failed, timed out, runner lost, merged, asks for a permission,
+conflicts with its base branch, or a pull request review requests changes.
 
 `lgtm serve --webhook URL` (or `LGTM_WEBHOOK`) POSTs the same events, so
 Slack, email, or anything else can hang off one URL:

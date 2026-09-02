@@ -10,7 +10,6 @@ LGTM is a Rust workspace. There is no JavaScript toolchain.
 - `crates/client` — HTTP/WebSocket client for the orchestrator API
 - `crates/github`, `crates/linear` — the two issue sources
 - `crates/cli` — `lgtm`, the developer command
-- `apps/desktop` — the GPUI desktop app
 
 ## Checks
 
