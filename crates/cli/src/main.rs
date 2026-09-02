@@ -113,6 +113,10 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
         Command::Runners => runners(client).await,
         Command::Login { name } => login(client, name).await,
         Command::Users { command } => users_command(client, command).await,
+        Command::Ask { question } => {
+            println!("{}", client.ask(&question).await?);
+            Ok(0)
+        }
         Command::Mcp => mcp::serve(client).await,
         Command::Run {
             target,

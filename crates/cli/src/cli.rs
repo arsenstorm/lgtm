@@ -49,6 +49,8 @@ pub enum Command {
         #[command(subcommand)]
         command: Option<UserCommand>,
     },
+    /// Ask the shared agent a question about the workspace
+    Ask { question: String },
     /// Run a prompt as a task and stream its output
     Run {
         #[command(flatten)]
