@@ -80,6 +80,7 @@ fn brand(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
 fn nav(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
     let home = app.selected.is_none() && app.page == Page::Home;
     let batches = app.selected.is_none() && app.page == Page::Batches;
+    let activity = app.selected.is_none() && app.page == Page::Activity;
     div()
         .flex()
         .flex_col()
@@ -95,6 +96,9 @@ fn nav(app: &LgtmApp, t: &Tokens, cx: &mut Context<LgtmApp>) -> Div {
                 cx.listener(|this, _: &ClickEvent, _, cx| this.show_page(Page::Batches, cx)),
             ),
         )
+        .child(nav_row(&ACTIVITY, activity, t).on_click(
+            cx.listener(|this, _: &ClickEvent, _, cx| this.show_page(Page::Activity, cx)),
+        ))
 }
 
 /// The shared sidebar row: 28px tall, `accent` on hover, `accent` plus
@@ -130,6 +134,11 @@ const BATCHES: NavItem = NavItem {
     id: "batches",
     icon: "list-checks",
     label: "Batches",
+};
+const ACTIVITY: NavItem = NavItem {
+    id: "activity",
+    icon: "activity",
+    label: "Activity",
 };
 
 fn nav_row(item: &NavItem, active: bool, t: &Tokens) -> gpui::Stateful<Div> {
@@ -363,6 +372,10 @@ fn session_row(
                 .min_w_0()
                 .truncate()
                 .child(session_title(session)),
+        )
+        .when_some(
+            crate::app::owner_label(app.owner_name(session.created_by.as_deref()), t),
+            |this, owner| this.child(owner),
         )
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.show_page(Page::Session(open.clone()), cx)

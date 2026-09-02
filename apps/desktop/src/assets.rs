@@ -22,6 +22,7 @@ macro_rules! icons {
 }
 
 icons![
+    "activity",
     "arrow-up",
     "check",
     "chevron-down",

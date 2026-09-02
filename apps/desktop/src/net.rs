@@ -5,11 +5,12 @@
 //! back over an unbounded channel that the GPUI side drains (see `App::pump`).
 
 use lgtm_client::{
-    BatchRequest, BatchResponse, Client, NewSession, PromoteTodo, SessionMessage, TaskDetail,
+    ActivityLine, BatchRequest, BatchResponse, Client, NewSession, PromoteTodo, SessionMessage,
+    TaskDetail,
 };
 use lgtm_protocol::{
     Batch, GoalSummary, Memory, PlanVersion, RunnerStatus, Session, SessionDetail, Stats,
-    StoredEvent, Task, TaskSpec, TaskStatus, Todo,
+    StoredEvent, Task, TaskSpec, TaskStatus, Todo, User,
 };
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -25,6 +26,8 @@ const NOTES_INTERVAL: Duration = Duration::from_secs(5);
 /// along on one poll in ten rather than on all of them.
 const STATS_EVERY: u32 = 10;
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
+/// How much of the workspace feed the Activity page holds.
+const ACTIVITY_LIMIT: u32 = 50;
 /// How much of the first message names the thread it starts.
 const SESSION_TITLE: usize = 60;
 
@@ -37,6 +40,10 @@ pub struct Lists {
     pub batches: Vec<Batch>,
     pub goals: Vec<GoalSummary>,
     pub sessions: Vec<Session>,
+    /// Everyone with a token here, so a `created_by` id can be given a name.
+    pub users: Vec<User>,
+    /// The workspace feed, newest first.
+    pub activity: Vec<ActivityLine>,
     /// `None` on the polls that skipped stats; the view keeps the last ones.
     pub stats: Option<Stats>,
 }
@@ -163,6 +170,8 @@ async fn fetch_lists(client: &Client, with_stats: bool) -> Result<Lists, String>
     let batches = client.batches().await.unwrap_or_default();
     let goals = client.goals().await.unwrap_or_default();
     let sessions = client.sessions(None).await.unwrap_or_default();
+    let users = client.users().await.unwrap_or_default();
+    let activity = client.activity(ACTIVITY_LIMIT).await.unwrap_or_default();
     let stats = match with_stats {
         true => client.stats(None).await.ok(),
         false => None,
@@ -173,6 +182,8 @@ async fn fetch_lists(client: &Client, with_stats: bool) -> Result<Lists, String>
         batches,
         goals,
         sessions,
+        users,
+        activity,
         stats,
     })
 }

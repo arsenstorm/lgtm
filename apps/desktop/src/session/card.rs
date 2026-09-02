@@ -157,6 +157,10 @@ fn header(app: &LgtmApp, task: &Task, now: u64, t: &Tokens) -> Div {
                 .truncate()
                 .child(prompt_preview(&task.spec.prompt, TITLE)),
         )
+        .when_some(
+            crate::app::owner_label(app.owner_name(task.created_by.as_deref()), t),
+            |this, owner| this.child(owner),
+        )
         .child(
             div()
                 .flex_shrink_0()

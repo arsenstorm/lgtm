@@ -11,7 +11,9 @@ use crate::net::{self, Msg};
 use crate::project::ProjectTab;
 use crate::render::Line;
 use crate::theme::{tokens, SPACE, STATUS_H, TEXT_BODY, TEXT_SECONDARY, UI_FONT};
-use crate::{batches, home, import, palette, panes, project, session, settings, sidebar, titlebar};
+use crate::{
+    activity, batches, home, import, palette, panes, project, session, settings, sidebar, titlebar,
+};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, AppContext as _, Context, Div, Entity, FocusHandle, Focusable, ImageFormat,
@@ -19,10 +21,10 @@ use gpui::{
     Subscription, Task as GpuiTask, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
-use lgtm_client::Client;
+use lgtm_client::{ActivityLine, Client};
 use lgtm_protocol::{
     Batch, GoalSummary, Memory, Overlap, PlanVersion, RunnerStatus, Session, SessionDetail, Stats,
-    StoredEvent, Task, Todo,
+    StoredEvent, Task, Todo, User,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -50,6 +52,8 @@ pub enum Pane {
 pub enum Page {
     Home,
     Batches,
+    /// The workspace feed: what everyone has been doing.
+    Activity,
     /// One repository, by the slug the sidebar groups its sessions under.
     Project(String),
     /// One chat thread, by session id.
@@ -230,6 +234,10 @@ pub struct LgtmApp {
     pub batches: Vec<Batch>,
     pub goals: Vec<GoalSummary>,
     pub sessions: Vec<Session>,
+    /// Everyone with a token here, so a `created_by` id can be given a name.
+    pub users: Vec<User>,
+    /// The workspace feed, newest first.
+    pub activity: Vec<ActivityLine>,
     /// The open session, refreshed on the same tick as the lists.
     pub session: Option<SessionDetail>,
     /// Events per task of the open session, for the tasks whose detail has
@@ -297,6 +305,8 @@ impl LgtmApp {
             batches: Vec::new(),
             goals: Vec::new(),
             sessions: Vec::new(),
+            users: Vec::new(),
+            activity: Vec::new(),
             session: None,
             session_events: Vec::new(),
             memories: Vec::new(),
@@ -469,6 +479,23 @@ fn bind_actions(root: Div, cx: &mut Context<LgtmApp>) -> Div {
 }
 
 impl LgtmApp {
+    /// The display name behind a `created_by` id; the raw id when the user
+    /// record is gone, `None` for the shared token or automation.
+    pub fn owner_name(&self, created_by: Option<&str>) -> Option<String> {
+        owner_name(&self.users, created_by)
+    }
+}
+
+fn owner_name(users: &[User], created_by: Option<&str>) -> Option<String> {
+    let id = created_by?;
+    let name = users
+        .iter()
+        .find(|user| user.id == id)
+        .map_or(id, |user| user.name.as_str());
+    Some(name.to_string())
+}
+
+impl LgtmApp {
     /// The sidebar and whatever the selection or page puts beside it.
     fn main_area(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         div()
@@ -488,6 +515,7 @@ impl LgtmApp {
         }
         match self.page.clone() {
             Page::Batches => batches::page(self, cx),
+            Page::Activity => activity::page(self, cx),
             Page::Project(slug) => project::page(self, &slug, cx),
             Page::Session(_) => session::page(self, window, cx),
             Page::Home => home::home(self, window, cx),
@@ -551,6 +579,18 @@ impl Render for LgtmApp {
     }
 }
 
+/// A small muted label naming who asked for something. `None` renders
+/// nothing at all: a one-person workspace should look as it always has.
+pub fn owner_label(name: Option<String>, t: &crate::theme::Tokens) -> Option<Div> {
+    Some(
+        div()
+            .flex_shrink_0()
+            .text_size(px(TEXT_SECONDARY))
+            .text_color(t.muted_fg)
+            .child(name?),
+    )
+}
+
 /// The image formats gpui decodes from bytes. Anything else is an artefact
 /// the Review tab only names.
 pub fn artefact_format(name: &str) -> Option<ImageFormat> {
@@ -559,5 +599,28 @@ pub fn artefact_format(name: &str) -> Option<ImageFormat> {
         "jpg" | "jpeg" => Some(ImageFormat::Jpeg),
         "gif" => Some(ImageFormat::Gif),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user(id: &str, name: &str) -> User {
+        User {
+            id: id.into(),
+            name: name.into(),
+            created_at: 0,
+            revoked: false,
+        }
+    }
+
+    #[test]
+    fn an_owner_resolves_to_a_name_and_falls_back_to_its_id() {
+        let users = [user("u1", "Ada")];
+        assert_eq!(owner_name(&users, Some("u1")).as_deref(), Some("Ada"));
+        assert_eq!(owner_name(&users, Some("gone")).as_deref(), Some("gone"));
+        assert_eq!(owner_name(&users, None), None);
+        assert_eq!(owner_name(&[], Some("u1")).as_deref(), Some("u1"));
     }
 }
