@@ -55,6 +55,12 @@ pub enum Env {
 
 pub async fn serve(client: &Client) -> Result<i32> {
     let env = require_env();
+    // An orchestration pass names its goal on every call, so the orchestrator
+    // — not just `under_goal` below — holds it to that goal's tasks.
+    let client = &match &env {
+        Env::Orchestrate { goal_id, .. } => client.clone().scoped_to_goal(goal_id.clone()),
+        _ => client.clone(),
+    };
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut stdout = tokio::io::stdout();
     while let Some(line) = lines.next_line().await? {
@@ -300,7 +306,9 @@ async fn orchestration_call(
 }
 
 /// The pass was woken by one goal and may only act on that goal's tasks;
-/// reading another goal's task is what the workspace tools are for.
+/// reading another goal's task is what the workspace tools are for. The
+/// orchestrator enforces the same rule from the goal header; this check is
+/// here to fail the model faster, and with a sentence it can act on.
 async fn under_goal(client: &Client, task_id: &str, goal: &str) -> Result<()> {
     let detail = client.task(task_id).await?;
     if detail.task.spec.goal.as_deref() != Some(goal) {

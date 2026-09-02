@@ -351,10 +351,15 @@ struct MessageBody {
 async fn message(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
     body: Result<Json<MessageBody>, JsonRejection>,
 ) -> Result<Json<Task>, ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
     let mut state = app.state.lock().unwrap();
+    goal_scoped(
+        &headers,
+        &state.tasks.get(&id).ok_or(CmdError::NotFound)?.task,
+    )?;
     let (task, changed) = state.message(&id, body.text)?;
     app.persist_ids(&mut state, &changed);
     Ok(Json(task))
@@ -371,10 +376,15 @@ struct RetryBody {
 async fn retry(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
     body: Result<Json<RetryBody>, JsonRejection>,
 ) -> Result<Json<Task>, ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
     let mut state = app.state.lock().unwrap();
+    goal_scoped(
+        &headers,
+        &state.tasks.get(&id).ok_or(CmdError::NotFound)?.task,
+    )?;
     let (task, changed) = state.retry(
         &id,
         RetryInto {
@@ -582,12 +592,34 @@ async fn interrupt(
 /// its approve is held to the policy a person may waive.
 const ORCHESTRATOR_HEADER: &str = "x-lgtm-orchestrator";
 
+/// Header naming the goal an orchestration pass was woken for. A person's
+/// client never sets it.
+const GOAL_HEADER: &str = "x-lgtm-goal";
+
+/// When the caller named the goal it acts for, the task must be under it.
+fn goal_scoped(headers: &axum::http::HeaderMap, task: &Task) -> Result<(), ApiError> {
+    let Some(goal) = headers.get(GOAL_HEADER).and_then(|v| v.to_str().ok()) else {
+        return Ok(());
+    };
+    if task.spec.goal.as_deref() == Some(goal) {
+        return Ok(());
+    }
+    Err(ApiError(
+        StatusCode::FORBIDDEN,
+        format!("task is under another goal; this pass acts for goal {goal}"),
+    ))
+}
+
 async fn approve(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<Task>, ApiError> {
     let mut state = app.state.lock().unwrap();
+    goal_scoped(
+        &headers,
+        &state.tasks.get(&id).ok_or(CmdError::NotFound)?.task,
+    )?;
     if headers.contains_key(ORCHESTRATOR_HEADER) {
         let task = state.tasks.get(&id).ok_or(CmdError::NotFound)?;
         policy_clean(&task.task)?;

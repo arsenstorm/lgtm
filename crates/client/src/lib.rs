@@ -29,12 +29,18 @@ use types::{
 /// reads it, and only to hold the loop to the checks and the review.
 pub const ORCHESTRATOR_HEADER: &str = "X-LGTM-Orchestrator";
 
+/// Names the goal an orchestration pass was woken for. When present, the
+/// task-write routes refuse tasks under any other goal — the client-side
+/// check in `lgtm mcp` becomes advisory UX, not the boundary.
+pub const GOAL_HEADER: &str = "X-LGTM-Goal";
+
 #[derive(Clone)]
 pub struct Client {
     base: String,
     token: String,
     http: reqwest::Client,
     connector: Option<Connector>,
+    goal: Option<String>,
 }
 
 impl Client {
@@ -45,7 +51,15 @@ impl Client {
             token: token.into(),
             http: reqwest::Client::new(),
             connector: None,
+            goal: None,
         }
+    }
+
+    /// A client whose writes carry the goal an orchestration pass acts for,
+    /// which the orchestrator holds it to.
+    pub fn scoped_to_goal(mut self, goal: impl Into<String>) -> Self {
+        self.goal = Some(goal.into());
+        self
     }
 
     /// Like [`Client::new`], but trusts `ca_pem` (a PEM-encoded CA certificate)
@@ -89,14 +103,23 @@ impl Client {
             token: token.into(),
             http,
             connector: Some(Connector::Rustls(Arc::new(tls_config))),
+            goal: None,
         })
+    }
+
+    /// Bearer token plus, for a goal-scoped client, the goal header — one
+    /// place so the three verb helpers cannot drift apart.
+    fn authed(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        let req = req.bearer_auth(&self.token);
+        match &self.goal {
+            Some(goal) => req.header(GOAL_HEADER, goal),
+            None => req,
+        }
     }
 
     async fn get<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
         let resp = self
-            .http
-            .get(format!("{}{path}", self.base))
-            .bearer_auth(&self.token)
+            .authed(self.http.get(format!("{}{path}", self.base)))
             .send()
             .await?;
         Self::handle(resp).await
@@ -107,10 +130,7 @@ impl Client {
         path: &str,
         body: Option<&impl Serialize>,
     ) -> anyhow::Result<T> {
-        let mut req = self
-            .http
-            .post(format!("{}{path}", self.base))
-            .bearer_auth(&self.token);
+        let mut req = self.authed(self.http.post(format!("{}{path}", self.base)));
         if let Some(b) = body {
             req = req.json(b);
         }
@@ -124,9 +144,7 @@ impl Client {
         body: &impl Serialize,
     ) -> anyhow::Result<T> {
         let resp = self
-            .http
-            .patch(format!("{}{path}", self.base))
-            .bearer_auth(&self.token)
+            .authed(self.http.patch(format!("{}{path}", self.base)))
             .json(body)
             .send()
             .await?;
@@ -195,9 +213,10 @@ impl Client {
     /// Approve, held to what the checks and the review cleared.
     pub async fn approve_as_orchestrator(&self, id: &str) -> anyhow::Result<lgtm_protocol::Task> {
         let resp = self
-            .http
-            .post(format!("{}/api/tasks/{id}/approve", self.base))
-            .bearer_auth(&self.token)
+            .authed(
+                self.http
+                    .post(format!("{}/api/tasks/{id}/approve", self.base)),
+            )
             .header(ORCHESTRATOR_HEADER, "1")
             .send()
             .await?;
@@ -222,9 +241,7 @@ impl Client {
 
     async fn no_content(&self, path: &str, body: &impl Serialize) -> anyhow::Result<()> {
         let resp = self
-            .http
-            .post(format!("{}{path}", self.base))
-            .bearer_auth(&self.token)
+            .authed(self.http.post(format!("{}{path}", self.base)))
             .json(body)
             .send()
             .await?;
@@ -328,10 +345,7 @@ impl Client {
         repository: Option<&str>,
         pending: bool,
     ) -> anyhow::Result<Vec<lgtm_protocol::Memory>> {
-        let mut req = self
-            .http
-            .get(format!("{}/api/memories", self.base))
-            .bearer_auth(&self.token);
+        let mut req = self.authed(self.http.get(format!("{}/api/memories", self.base)));
         // A git URL needs escaping, which reqwest's query builder does.
         let mut query = Vec::new();
         if let Some(repository) = repository {
@@ -420,9 +434,7 @@ impl Client {
     /// The 204 carries no body, so nothing is deserialized here.
     pub async fn delete_memory(&self, id: &str) -> anyhow::Result<()> {
         let resp = self
-            .http
-            .delete(format!("{}/api/memories/{id}", self.base))
-            .bearer_auth(&self.token)
+            .authed(self.http.delete(format!("{}/api/memories/{id}", self.base)))
             .send()
             .await?;
         if resp.status().is_success() {
@@ -455,10 +467,7 @@ impl Client {
         &self,
         repository: Option<&str>,
     ) -> anyhow::Result<Vec<lgtm_protocol::Session>> {
-        let mut req = self
-            .http
-            .get(format!("{}/api/sessions", self.base))
-            .bearer_auth(&self.token);
+        let mut req = self.authed(self.http.get(format!("{}/api/sessions", self.base)));
         if let Some(repository) = repository {
             req = req.query(&[("repository", repository)]);
         }
@@ -484,10 +493,7 @@ impl Client {
         &self,
         repository: Option<&str>,
     ) -> anyhow::Result<Vec<lgtm_protocol::Todo>> {
-        let mut req = self
-            .http
-            .get(format!("{}/api/todos", self.base))
-            .bearer_auth(&self.token);
+        let mut req = self.authed(self.http.get(format!("{}/api/todos", self.base)));
         if let Some(repository) = repository {
             req = req.query(&[("repository", repository)]);
         }
@@ -543,9 +549,7 @@ impl Client {
     /// The 204 carries no body, so nothing is deserialized here.
     pub async fn delete_todo(&self, id: &str) -> anyhow::Result<()> {
         let resp = self
-            .http
-            .delete(format!("{}/api/todos/{id}", self.base))
-            .bearer_auth(&self.token)
+            .authed(self.http.delete(format!("{}/api/todos/{id}", self.base)))
             .send()
             .await?;
         if resp.status().is_success() {
@@ -570,9 +574,10 @@ impl Client {
     /// One artefact's bytes, as the runner sent them.
     pub async fn artefact(&self, id: &str, name: &str) -> anyhow::Result<Vec<u8>> {
         let resp = self
-            .http
-            .get(format!("{}/api/tasks/{id}/artefacts/{name}", self.base))
-            .bearer_auth(&self.token)
+            .authed(
+                self.http
+                    .get(format!("{}/api/tasks/{id}/artefacts/{name}", self.base)),
+            )
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -605,9 +610,10 @@ impl Client {
     /// Kills the task's shell. Detaching from it does not.
     pub async fn close_terminal(&self, id: &str) -> anyhow::Result<()> {
         let resp = self
-            .http
-            .delete(format!("{}/api/tasks/{id}/terminal", self.base))
-            .bearer_auth(&self.token)
+            .authed(
+                self.http
+                    .delete(format!("{}/api/tasks/{id}/terminal", self.base)),
+            )
             .send()
             .await?;
         if resp.status().is_success() {
