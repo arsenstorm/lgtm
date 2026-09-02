@@ -5,7 +5,12 @@
 //! With `LGTM_GOAL_ID` set it is the orchestration loop's server instead, and
 //! carries the tools that inspect and act on a whole goal. Every one of those
 //! goes through the endpoints a person uses, so LGTM validates them the same
-//! way, and every call lands on the ended task's event log.
+//! way, and every call lands on the ended task's event log. The loop may read
+//! the whole workspace but may only act on the goal that woke it.
+//!
+//! With `LGTM_ASK` set it answers `lgtm ask`, which reads and never writes.
+
+use std::collections::HashMap;
 
 use anyhow::Result;
 use lgtm_client::{Client, Orchestrated, Retry};
@@ -16,14 +21,36 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 const PROTOCOL: &str = "2024-11-05";
 /// How much of a task's chatter `task_inspect` carries.
 const RECENT_EVENTS: usize = 20;
+/// How much of the workspace `tasks_list` shows before a model drowns in it.
+const TASK_LINES: usize = 50;
+/// The tools a task's own run gets, in the order they are listed.
+const RUN_TOOLS: [&str; 7] = [
+    "memories_list",
+    "memory_propose",
+    "todos_list",
+    "todo_create",
+    "scratchpad_read",
+    "scratchpad_write",
+    "request_network",
+];
+/// The goal tools `lgtm ask` keeps: both only read.
+const ASK_GOAL_TOOLS: [&str; 2] = ["task_inspect", "runner_list"];
 
 /// Which run this server answers for. The harness spawns it with no
 /// arguments of its own, so the runner passes this in the environment.
-pub struct Env {
-    task_id: String,
-    repository: String,
-    /// Set only for the orchestration loop, which unlocks the goal tools.
-    goal_id: Option<String>,
+pub enum Env {
+    /// One agent run inside a task.
+    Run { task_id: String, repository: String },
+    /// The orchestration loop for one goal: run tools plus goal and
+    /// workspace tools.
+    Orchestrate {
+        task_id: String,
+        repository: String,
+        goal_id: String,
+    },
+    /// `lgtm ask`: workspace reads only, so a question can never create,
+    /// message, or approve work.
+    Ask,
 }
 
 pub async fn serve(client: &Client) -> Result<i32> {
@@ -46,11 +73,20 @@ pub async fn serve(client: &Client) -> Result<i32> {
 fn require_env() -> Env {
     let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
     match (var("LGTM_TASK_ID"), var("LGTM_REPOSITORY")) {
-        (Some(task_id), Some(repository)) => Env {
-            task_id,
-            repository,
-            goal_id: var("LGTM_GOAL_ID"),
+        // The task vars outrank LGTM_ASK: a stray exported LGTM_ASK must
+        // never strip a real run or loop pass down to the ask reads.
+        (Some(task_id), Some(repository)) => match var("LGTM_GOAL_ID") {
+            Some(goal_id) => Env::Orchestrate {
+                task_id,
+                repository,
+                goal_id,
+            },
+            None => Env::Run {
+                task_id,
+                repository,
+            },
         },
+        _ if var("LGTM_ASK").is_some() => Env::Ask,
         _ => {
             eprintln!("lgtm mcp needs LGTM_TASK_ID and LGTM_REPOSITORY; the runner sets them");
             std::process::exit(2);
@@ -77,7 +113,7 @@ async fn reply(method: &str, params: &Value, client: &Client, env: &Env) -> Resu
             "capabilities": { "tools": {} },
             "serverInfo": { "name": "lgtm", "version": env!("CARGO_PKG_VERSION") },
         })),
-        "tools/list" => Ok(json!({ "tools": tools(env.goal_id.is_some()) })),
+        "tools/list" => Ok(json!({ "tools": tools(env) })),
         "ping" => Ok(json!({})),
         "tools/call" => Ok(match called(params, client, env).await {
             Ok(text) => json!({ "content": [{ "type": "text", "text": text }] }),
@@ -97,14 +133,14 @@ async fn called(params: &Value, client: &Client, env: &Env) -> Result<String> {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     let args = params.get("arguments").cloned().unwrap_or(Value::Null);
     let done = call(name, &args, client, env).await;
-    if env.goal_id.is_some() {
+    if let Env::Orchestrate { task_id, .. } = env {
         let outcome = match &done {
             Ok(text) => text.clone(),
             Err(err) => format!("{err:#}"),
         };
         let _ = client
             .orchestrated(
-                &env.task_id,
+                task_id,
                 &Orchestrated {
                     action: name,
                     reason: text(&args, "reason"),
@@ -122,7 +158,40 @@ fn first_line(text: &str) -> &str {
 }
 
 async fn call(name: &str, args: &Value, client: &Client, env: &Env) -> Result<String> {
-    let repository = Some(env.repository.as_str());
+    match env {
+        Env::Ask => ask_call(name, args, client).await,
+        Env::Run {
+            task_id,
+            repository,
+        } => run_call(name, args, client, task_id, repository).await,
+        Env::Orchestrate {
+            task_id,
+            repository,
+            goal_id,
+        } => match RUN_TOOLS.contains(&name) {
+            true => run_call(name, args, client, task_id, repository).await,
+            false => orchestration_call(name, args, client, goal_id).await,
+        },
+    }
+}
+
+/// `lgtm ask`: the workspace reads, and the two goal tools that only read.
+async fn ask_call(name: &str, args: &Value, client: &Client) -> Result<String> {
+    match name {
+        "task_inspect" => task_inspect(client, string(args, "task_id")?).await,
+        "runner_list" => runner_list(client).await,
+        _ => workspace_call(name, args, client).await,
+    }
+}
+
+async fn run_call(
+    name: &str,
+    args: &Value,
+    client: &Client,
+    task_id: &str,
+    repository: &str,
+) -> Result<String> {
+    let repository = Some(repository);
     match name {
         "memories_list" => Ok(joined(
             client
@@ -131,7 +200,7 @@ async fn call(name: &str, args: &Value, client: &Client, env: &Env) -> Result<St
                 .iter()
                 .map(|m| format!("- {}", m.content)),
         )),
-        "memory_propose" => propose(client, repository, env, args).await,
+        "memory_propose" => propose(client, repository, task_id, args).await,
         "todos_list" => Ok(joined(
             client
                 .todos(repository)
@@ -153,15 +222,15 @@ async fn call(name: &str, args: &Value, client: &Client, env: &Env) -> Result<St
                 .await?;
             Ok(todo.id)
         }
-        "scratchpad_read" => Ok(client.task(&env.task_id).await?.task.scratchpad),
+        "scratchpad_read" => Ok(client.task(task_id).await?.task.scratchpad),
         "scratchpad_write" => {
             client
-                .set_scratchpad(&env.task_id, string(args, "content")?)
+                .set_scratchpad(task_id, string(args, "content")?)
                 .await?;
             Ok("notes saved".to_string())
         }
-        "request_network" => request_network(client, env, args).await,
-        _ => orchestration_call(name, args, client, env).await,
+        "request_network" => request_network(client, task_id, args).await,
+        _ => anyhow::bail!("no such tool: {name}"),
     }
 }
 
@@ -171,20 +240,16 @@ async fn orchestration_call(
     name: &str,
     args: &Value,
     client: &Client,
-    env: &Env,
+    goal: &str,
 ) -> Result<String> {
-    let goal = env
-        .goal_id
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("no such tool: {name}"))?;
     match name {
         "goal_inspect" => goal_inspect(client, goal).await,
         "task_inspect" => task_inspect(client, string(args, "task_id")?).await,
         "task_create" => task_create(client, goal, args).await,
         "task_message" => {
-            client
-                .tell(string(args, "task_id")?, string(args, "text")?)
-                .await?;
+            let task = string(args, "task_id")?;
+            under_goal(client, task, goal).await?;
+            client.tell(task, string(args, "text")?).await?;
             Ok("sent".to_string())
         }
         "task_retry" => {
@@ -193,33 +258,183 @@ async fn orchestration_call(
                 executor: serde_json::from_value(args.get("executor").cloned().unwrap_or_default())
                     .ok(),
             };
-            client.retry(string(args, "task_id")?, &into).await?;
+            let task = string(args, "task_id")?;
+            under_goal(client, task, goal).await?;
+            client.retry(task, &into).await?;
             Ok("requeued".to_string())
         }
         "task_approve" => {
-            client
-                .approve_as_orchestrator(string(args, "task_id")?)
-                .await?;
+            let task = string(args, "task_id")?;
+            under_goal(client, task, goal).await?;
+            client.approve_as_orchestrator(task).await?;
             Ok("approved".to_string())
         }
-        "runner_list" => Ok(joined(client.runners().await?.iter().map(|runner| {
-            let executors: Vec<&str> = runner.info.executors.iter().map(|e| e.binary()).collect();
-            format!(
-                "{} {} running {}/{}",
-                runner.info.name,
-                executors.join(","),
-                runner.running.len(),
-                runner.info.slots,
-            )
-        }))),
+        "runner_list" => runner_list(client).await,
         "wait" => {
             client
                 .set_attention(goal, Some(string(args, "reason")?))
                 .await?;
             Ok("recorded".to_string())
         }
+        _ => workspace_call(name, args, client).await,
+    }
+}
+
+/// The pass was woken by one goal and may only act on that goal's tasks;
+/// reading another goal's task is what the workspace tools are for.
+async fn under_goal(client: &Client, task_id: &str, goal: &str) -> Result<()> {
+    let detail = client.task(task_id).await?;
+    if detail.task.spec.goal.as_deref() != Some(goal) {
+        anyhow::bail!(
+            "task {task_id} is under another goal; this pass may only act on tasks under goal {goal}"
+        );
+    }
+    Ok(())
+}
+
+async fn runner_list(client: &Client) -> Result<String> {
+    Ok(joined(client.runners().await?.iter().map(|runner| {
+        let executors: Vec<&str> = runner.info.executors.iter().map(|e| e.binary()).collect();
+        format!(
+            "{} {} running {}/{}",
+            runner.info.name,
+            executors.join(","),
+            runner.running.len(),
+            runner.info.slots,
+        )
+    })))
+}
+
+/// Reads across the whole workspace: the loop is told what else is happening
+/// before it decides, and `lgtm ask` gets nothing but these.
+async fn workspace_call(name: &str, args: &Value, client: &Client) -> Result<String> {
+    match name {
+        "goals_list" => goals_list(client).await,
+        "sessions_list" => sessions_list(client).await,
+        "tasks_list" => tasks_list(client).await,
+        "activity" => activity(client, args).await,
         _ => anyhow::bail!("no such tool: {name}"),
     }
+}
+
+/// `created_by` is an id; a person reads names, so every workspace line
+/// resolves it once per call.
+async fn owners(client: &Client) -> Result<HashMap<String, String>> {
+    Ok(client
+        .users()
+        .await?
+        .into_iter()
+        .map(|user| (user.id, user.name))
+        .collect())
+}
+
+fn owner<'a>(owners: &'a HashMap<String, String>, id: Option<&'a str>) -> &'a str {
+    match id {
+        Some(id) => owners.get(id).map(String::as_str).unwrap_or(id),
+        None => "-",
+    }
+}
+
+/// The clone URL is too long for a line that already carries a prompt.
+fn repo_short(url: &str) -> &str {
+    let last = url.trim_end_matches('/').rsplit('/').next().unwrap_or(url);
+    last.strip_suffix(".git").unwrap_or(last)
+}
+
+/// Compact enough to prefix every activity line: minutes, then hours, then
+/// days.
+fn age(now: u64, at: u64) -> String {
+    let minutes = now.saturating_sub(at) / 60_000;
+    match minutes {
+        0..=59 => format!("{minutes}m"),
+        60..=2879 => format!("{}h", minutes / 60),
+        _ => format!("{}d", minutes / 1440),
+    }
+}
+
+async fn goals_list(client: &Client) -> Result<String> {
+    let owners = owners(client).await?;
+    let mut goals = client.goals().await?;
+    goals.sort_by_key(|summary| std::cmp::Reverse(summary.goal.created_at));
+    Ok(joined(goals.iter().map(|summary| {
+        let goal = &summary.goal;
+        let line = format!(
+            "{} {} {} {} \"{}\"",
+            goal.id,
+            status_word(summary.status),
+            owner(&owners, goal.created_by.as_deref()),
+            summary.tasks.total(),
+            first_line(&goal.objective),
+        );
+        match &goal.attention {
+            Some(why) => format!("{line}\n  needs a person: {why}"),
+            None => line,
+        }
+    })))
+}
+
+async fn sessions_list(client: &Client) -> Result<String> {
+    let owners = owners(client).await?;
+    let mut sessions = client.sessions(None).await?;
+    sessions.sort_by_key(|session| std::cmp::Reverse(session.created_at));
+    Ok(joined(sessions.iter().map(|session| {
+        let title = match session.title.is_empty() {
+            true => "-",
+            false => &session.title,
+        };
+        format!(
+            "{} {} {} \"{title}\"",
+            session.id,
+            owner(&owners, session.created_by.as_deref()),
+            repo_short(&session.repository),
+        )
+    })))
+}
+
+async fn tasks_list(client: &Client) -> Result<String> {
+    let owners = owners(client).await?;
+    let mut tasks = client.tasks().await?;
+    tasks.sort_by_key(|task| std::cmp::Reverse(task.created_at));
+    let all: Vec<&Task> = tasks.iter().collect();
+    Ok(joined(tasks.iter().take(TASK_LINES).map(|task| {
+        let mut line = format!(
+            "{} {} {} {} \"{}\"",
+            task.id,
+            status_word(task.status),
+            owner(&owners, task.created_by.as_deref()),
+            repo_short(&task.spec.repository),
+            first_line(&task.spec.prompt),
+        );
+        if !task.status.is_terminal() {
+            for overlap in lgtm_protocol::overlaps(task, &all) {
+                line.push_str(&format!(
+                    " [overlaps {}: {} files]",
+                    overlap.task,
+                    overlap.files.len()
+                ));
+            }
+        }
+        line
+    })))
+}
+
+async fn activity(client: &Client, args: &Value) -> Result<String> {
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(30) as u32;
+    let now = crate::now_ms();
+    Ok(joined(client.activity(limit).await?.iter().map(|line| {
+        let detail = match line.detail.is_empty() {
+            true => String::new(),
+            false => format!(": {}", line.detail),
+        };
+        format!(
+            "{} {} {} {} {}{detail}",
+            age(now, line.at),
+            line.task,
+            line.owner.as_deref().unwrap_or("-"),
+            repo_short(&line.repository),
+            line.event,
+        )
+    })))
 }
 
 async fn goal_inspect(client: &Client, goal: &str) -> Result<String> {
@@ -363,11 +578,11 @@ async fn task_create(client: &Client, goal: &str, args: &Value) -> Result<String
 async fn propose(
     client: &Client,
     repository: Option<&str>,
-    env: &Env,
+    task_id: &str,
     args: &Value,
 ) -> Result<String> {
     let memory = client
-        .propose_memory(repository, string(args, "content")?, &env.task_id)
+        .propose_memory(repository, string(args, "content")?, task_id)
         .await?;
     Ok(proposed_reply(&memory.id))
 }
@@ -378,14 +593,13 @@ fn proposed_reply(id: &str) -> String {
 
 /// A run can't be paused mid-flight to ask a person, so the request is only
 /// recorded; `lgtm allow` answers it before the task's next run.
-async fn request_network(client: &Client, env: &Env, args: &Value) -> Result<String> {
+async fn request_network(client: &Client, task_id: &str, args: &Value) -> Result<String> {
     let host = string(args, "host")?;
     client
-        .request_permission(&env.task_id, "network", host, string(args, "reason")?)
+        .request_permission(task_id, "network", host, string(args, "reason")?)
         .await?;
     Ok(format!(
-        "recorded; a person can allow it with: lgtm allow {} {host}",
-        env.task_id
+        "recorded; a person can allow it with: lgtm allow {task_id} {host}"
     ))
 }
 
@@ -403,9 +617,28 @@ fn joined(lines: impl Iterator<Item = String>) -> String {
     lines.collect::<Vec<_>>().join("\n")
 }
 
-fn tools(goal: bool) -> Value {
+fn tools(env: &Env) -> Value {
+    Value::Array(match env {
+        Env::Run { .. } => run_tools(),
+        Env::Orchestrate { .. } => {
+            let mut tools = run_tools();
+            tools.extend(goal_tools());
+            tools.extend(workspace_tools());
+            tools
+        }
+        Env::Ask => {
+            let mut tools = workspace_tools();
+            tools.extend(goal_tools().into_iter().filter(|tool| {
+                ASK_GOAL_TOOLS.contains(&tool["name"].as_str().unwrap_or_default())
+            }));
+            tools
+        }
+    })
+}
+
+fn run_tools() -> Vec<Value> {
     let string = |about: &str| json!({ "type": "string", "description": about });
-    let mut tools = vec![
+    vec![
         tool("memories_list", "Facts recorded for this repository that every agent run is told.", json!({}), &[]),
         tool("memory_propose", "Propose a fact worth telling every later run. It waits as a pending memory until a person approves it.", json!({ "content": string("The fact, in one sentence.") }), &["content"]),
         tool("todos_list", "Open todos for this repository.", json!({}), &[]),
@@ -413,11 +646,18 @@ fn tools(goal: bool) -> Value {
         tool("scratchpad_read", "The working notes kept for this task.", json!({}), &[]),
         tool("scratchpad_write", "Replace the working notes for this task.", json!({ "content": string("The full notes, in markdown.") }), &["content"]),
         tool("request_network", "Ask a person to allow this task to reach a host its sandbox refused. Recorded for the task's next run, not this one.", json!({ "host": string("The host to allow, e.g. registry.internal."), "reason": string("Why the run needs it.") }), &["host", "reason"]),
-    ];
-    if goal {
-        tools.extend(goal_tools());
-    }
-    Value::Array(tools)
+    ]
+}
+
+/// Reads over the whole workspace, not one goal: what else is running, who
+/// started it, and where two tasks are about to collide.
+fn workspace_tools() -> Vec<Value> {
+    vec![
+        tool("goals_list", "Every goal in the workspace: id, status, owner, task count, objective.", json!({}), &[]),
+        tool("sessions_list", "Every chat session in the workspace: id, owner, repository, title.", json!({}), &[]),
+        tool("tasks_list", "Every task in the workspace: id, status, owner, repository, prompt — and which unmerged tasks changed the same files.", json!({}), &[]),
+        tool("activity", "The most recent events across every task: who did what, where.", json!({ "limit": { "type": "integer", "description": "How many lines, default 30." } }), &[]),
+    ]
 }
 
 fn goal_tools() -> Vec<Value> {
@@ -453,22 +693,34 @@ mod tests {
     use super::*;
 
     fn env(goal_id: Option<&str>) -> Env {
-        Env {
-            task_id: "t1".to_string(),
-            repository: "https://example.com/r.git".to_string(),
-            goal_id: goal_id.map(str::to_string),
+        let task_id = "t1".to_string();
+        let repository = "https://example.com/r.git".to_string();
+        match goal_id {
+            Some(goal_id) => Env::Orchestrate {
+                task_id,
+                repository,
+                goal_id: goal_id.to_string(),
+            },
+            None => Env::Run {
+                task_id,
+                repository,
+            },
         }
     }
 
-    async fn answer(request: Value, goal_id: Option<&str>) -> Option<Value> {
+    async fn answer_in(request: Value, env: Env) -> Option<Value> {
         let client = Client::new("http://127.0.0.1:1", "tok");
-        handle(&request, &client, &env(goal_id)).await
+        handle(&request, &client, &env).await
     }
 
-    async fn tool_names(goal_id: Option<&str>) -> Vec<String> {
-        let reply = answer(
+    async fn answer(request: Value, goal_id: Option<&str>) -> Option<Value> {
+        answer_in(request, env(goal_id)).await
+    }
+
+    async fn names_in(env: Env) -> Vec<String> {
+        let reply = answer_in(
             json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
-            goal_id,
+            env,
         )
         .await
         .unwrap();
@@ -478,6 +730,19 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect()
+    }
+
+    async fn tool_names(goal_id: Option<&str>) -> Vec<String> {
+        names_in(env(goal_id)).await
+    }
+
+    #[test]
+    fn the_run_tool_names_and_their_schemas_cannot_drift() {
+        let names: Vec<String> = run_tools()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names, RUN_TOOLS);
     }
 
     #[test]
@@ -535,6 +800,67 @@ mod tests {
                 "{name} missing: {names:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn orchestrate_mode_adds_the_workspace_tools() {
+        let with_goal = tool_names(Some("g1")).await;
+        let plain = tool_names(None).await;
+        for name in ["goals_list", "sessions_list", "tasks_list", "activity"] {
+            assert!(
+                with_goal.contains(&name.to_string()),
+                "{name} missing: {with_goal:?}"
+            );
+            assert!(!plain.contains(&name.to_string()), "{name} leaked to a run");
+        }
+    }
+
+    #[tokio::test]
+    async fn ask_mode_serves_only_workspace_reads() {
+        assert_eq!(
+            names_in(Env::Ask).await,
+            [
+                "goals_list",
+                "sessions_list",
+                "tasks_list",
+                "activity",
+                "task_inspect",
+                "runner_list"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_write_tool_is_refused_in_ask_mode() {
+        for name in ["task_create", "task_approve"] {
+            let call = json!({
+                "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                "params": { "name": name, "arguments": { "task_id": "t2" } },
+            });
+            let reply = answer_in(call, Env::Ask).await.unwrap();
+            assert_eq!(reply["result"]["isError"], true, "{name}");
+            assert!(reply["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("no such tool"));
+        }
+    }
+
+    #[test]
+    fn repo_short_keeps_the_repository_name() {
+        assert_eq!(repo_short("https://github.com/o/lgtm.git"), "lgtm");
+        assert_eq!(repo_short("https://github.com/o/lgtm"), "lgtm");
+        assert_eq!(repo_short("lgtm"), "lgtm");
+    }
+
+    #[test]
+    fn age_counts_minutes_then_hours_then_days() {
+        let now = 10 * 24 * 60 * 60_000;
+        assert_eq!(age(now, now), "0m");
+        assert_eq!(age(now, now - 59 * 60_000), "59m");
+        assert_eq!(age(now, now - 60 * 60_000), "1h");
+        assert_eq!(age(now, now - 47 * 60 * 60_000), "47h");
+        assert_eq!(age(now, now - 48 * 60 * 60_000), "2d");
     }
 
     #[tokio::test]
