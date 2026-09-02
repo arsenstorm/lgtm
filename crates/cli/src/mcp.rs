@@ -176,12 +176,31 @@ async fn call(name: &str, args: &Value, client: &Client, env: &Env) -> Result<St
 }
 
 /// `lgtm ask`: the workspace reads, and the two goal tools that only read.
+/// `todos_list` here spans the workspace, unlike the run tool of the same
+/// name, because "what is everyone working on" includes work nobody started.
 async fn ask_call(name: &str, args: &Value, client: &Client) -> Result<String> {
     match name {
         "task_inspect" => task_inspect(client, string(args, "task_id")?).await,
         "runner_list" => runner_list(client).await,
+        "todos_list" => workspace_todos(client).await,
         _ => workspace_call(name, args, client).await,
     }
+}
+
+async fn workspace_todos(client: &Client) -> Result<String> {
+    let owners = owners(client).await?;
+    let mut todos = client.todos(None).await?;
+    todos.retain(|todo| todo.status == TodoStatus::Open);
+    todos.sort_by_key(|todo| std::cmp::Reverse(todo.created_at));
+    Ok(joined(todos.iter().map(|todo| {
+        format!(
+            "{} {} {} {}",
+            todo.id,
+            owner(&owners, todo.created_by.as_deref()),
+            todo.repository.as_deref().map(repo_short).unwrap_or("-"),
+            todo.title,
+        )
+    })))
 }
 
 async fn run_call(
@@ -628,6 +647,12 @@ fn tools(env: &Env) -> Value {
         }
         Env::Ask => {
             let mut tools = workspace_tools();
+            tools.push(tool(
+                "todos_list",
+                "Open todos across the whole workspace: id, owner, repository, title.",
+                json!({}),
+                &[],
+            ));
             tools.extend(goal_tools().into_iter().filter(|tool| {
                 ASK_GOAL_TOOLS.contains(&tool["name"].as_str().unwrap_or_default())
             }));
@@ -824,6 +849,7 @@ mod tests {
                 "sessions_list",
                 "tasks_list",
                 "activity",
+                "todos_list",
                 "task_inspect",
                 "runner_list"
             ]

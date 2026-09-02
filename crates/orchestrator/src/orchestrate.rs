@@ -142,9 +142,9 @@ fn ask_prompt(question: &str) -> String {
     format!(
         "You are the shared engineering agent for this workspace. A person asks:\n\n\
          {question}\n\n\
-         Answer from the lgtm tools (goals_list, tasks_list, sessions_list, activity, \
-         task_inspect, runner_list). Name people by name and tasks by id. A few short \
-         paragraphs at most."
+         Answer from the lgtm tools (goals_list, tasks_list, sessions_list, todos_list, \
+         activity, task_inspect, runner_list). Name people by name and tasks by id. A few \
+         short paragraphs at most."
     )
 }
 
