@@ -10,6 +10,11 @@ import {
 import { SidebarMenuAction } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
+// Every row keeps a fixed slot in its right corner: the status mark centres in
+// it and the menu sits exactly over it, so the title truncates before either
+// and the dots land where the mark was.
+export const ROW_SLOT = "ml-auto flex w-5 shrink-0 justify-center";
+
 // The row's own hover group has to be named, because a project's task rows
 // sit inside the project's `menu-item`: with the generic reveal, reaching one
 // project would light up the dots on every task under it.
@@ -48,13 +53,13 @@ export function RowMenu({
           <SidebarMenuAction
             aria-label={`Manage ${title}`}
             className={cn(
-              "text-muted-foreground aria-expanded:opacity-100 md:opacity-0",
+              "right-2 text-muted-foreground aria-expanded:opacity-100 md:opacity-0",
               className
             )}
           />
         }
       >
-        <DotsIcon aria-hidden="true" className="size-4" />
+        <DotsIcon aria-hidden="true" className="size-3.5" />
       </DropdownMenuTrigger>
 
       <DropdownMenuContent

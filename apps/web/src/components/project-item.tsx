@@ -11,7 +11,7 @@ import {
   type IconComponent,
   SquareWarningIcon,
 } from "@/components/icons";
-import { RowMenu, SUB_ROW_REVEAL } from "@/components/row-menu";
+import { ROW_SLOT, RowMenu, SUB_ROW_REVEAL } from "@/components/row-menu";
 import { STATUS } from "@/components/task-list";
 import { Button } from "@/components/ui/button";
 import {
@@ -271,18 +271,20 @@ function TaskSubRow({ task }: { task: Task }) {
         <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent)]">
           {title}
         </span>
-        {attention ? (
-          // SidebarMenuSubButton force-colours its direct `svg` children, so
-          // the icon keeps its tone only inside a span. The menu takes this
-          // corner when the row is reached, so the mark steps aside.
-          <span
-            aria-label={label}
-            className="ml-auto flex shrink-0 transition-opacity group-focus-within/menu-sub-item:opacity-0 group-hover/menu-sub-item:opacity-0 group-has-[[aria-expanded=true]]/menu-sub-item:opacity-0"
-            role="img"
-          >
-            <attention.icon className={cn("size-3.5", attention.className)} />
-          </span>
-        ) : null}
+        <span className={ROW_SLOT}>
+          {attention ? (
+            // SidebarMenuSubButton force-colours its direct `svg` children, so
+            // the icon keeps its tone only inside a span. The menu takes this
+            // corner when the row is reached, so the mark steps aside.
+            <span
+              aria-label={label}
+              className="flex transition-opacity group-focus-within/menu-sub-item:opacity-0 group-hover/menu-sub-item:opacity-0 group-has-[[aria-expanded=true]]/menu-sub-item:opacity-0"
+              role="img"
+            >
+              <attention.icon className={cn("size-3.5", attention.className)} />
+            </span>
+          ) : null}
+        </span>
       </SidebarMenuSubButton>
       <RowMenu
         className={SUB_ROW_REVEAL}
