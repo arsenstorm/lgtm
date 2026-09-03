@@ -183,9 +183,15 @@ pub(super) fn spawn_title(app: Arc<App>, id: lgtm_protocol::TaskId, prompt: Stri
     tokio::spawn(async move {
         let executor = {
             let state = app.state.lock().unwrap();
-            choose_executor(&state, || {
-                crate::orchestrate::pick(crate::orchestrate::Choice::Auto)
-            })
+            state
+                .tasks
+                .get(&id)
+                .map(|record| record.task.spec.executor)
+                .or_else(|| {
+                    choose_executor(&state, || {
+                        crate::orchestrate::pick(crate::orchestrate::Choice::Auto)
+                    })
+                })
         };
         let Some(executor) = executor else { return };
         let answer = match crate::infer::infer(&app, executor, TITLE_SYSTEM, &prompt).await {
