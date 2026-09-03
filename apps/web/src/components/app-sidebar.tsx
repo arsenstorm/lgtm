@@ -189,7 +189,7 @@ export function AppSidebar({
 
       <SidebarContent>
         <SidebarGroup className="pt-0">
-          <SidebarGroupContent className="flex flex-col gap-2">
+          <SidebarGroupContent className="flex flex-col gap-1">
             <SidebarMenu>
               <SidebarMenuItem>
                 {/* Placeholder: the web app has no creation flow yet, tasks are
