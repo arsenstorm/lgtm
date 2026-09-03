@@ -642,6 +642,7 @@ async fn todo_command(client: &Client, command: TodoCommand) -> anyhow::Result<i
                 priority,
                 assignee: assignee.map(Some),
                 blockers: (!blocked_by.is_empty()).then_some(blocked_by),
+                ..Default::default()
             };
             client.update_todo(&id, &patch).await?;
             println!("todo {id} updated");

@@ -557,3 +557,183 @@ async fn an_empty_title_is_rejected() {
         Some(StatusCode::BAD_REQUEST)
     );
 }
+
+#[tokio::test]
+async fn editing_an_agent_proposal_approves_the_memory() {
+    let app = app();
+    let body = serde_json::from_value(serde_json::json!({
+        "content": "the build needs bun",
+        "source": "agent",
+    }))
+    .unwrap();
+    let (_, Json(memory)) = memories::create_memory(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Ok(Json(body)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        memory.verification,
+        lgtm_protocol::Verification::AgentProposed
+    );
+
+    let patch = serde_json::from_value(serde_json::json!({ "content": "needs bun 1.2" })).unwrap();
+    let Json(edited) =
+        memories::update_memory(State(app.clone()), Path(memory.id.clone()), Ok(Json(patch)))
+            .await
+            .unwrap();
+    assert_eq!(edited.content, "needs bun 1.2");
+    assert_eq!(
+        edited.verification,
+        lgtm_protocol::Verification::UserApproved
+    );
+
+    let blank = serde_json::from_value(serde_json::json!({ "content": "  " })).unwrap();
+    assert_eq!(
+        memories::update_memory(State(app.clone()), Path(memory.id), Ok(Json(blank)))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::BAD_REQUEST)
+    );
+    let patch = serde_json::from_value(serde_json::json!({ "content": "x" })).unwrap();
+    assert_eq!(
+        memories::update_memory(State(app), Path("deadbeef".into()), Ok(Json(patch)))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::NOT_FOUND)
+    );
+}
+
+async fn new_todo(app: &Arc<App>) -> lgtm_protocol::Todo {
+    let body = serde_json::from_value(serde_json::json!({ "title": "ship it" })).unwrap();
+    let (_, Json(todo)) = todos::create_todo(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Ok(Json(body)),
+    )
+    .await
+    .unwrap();
+    todo
+}
+
+#[tokio::test]
+async fn a_comment_is_attributed_and_read_back_with_its_todo() {
+    let app = app();
+    let todo = new_todo(&app).await;
+    let body = serde_json::from_value(serde_json::json!({ "body": " looks good " })).unwrap();
+    let (code, Json(comment)) = todos::create_comment(
+        State(app.clone()),
+        Extension(AuthedUser(Some("u1".into()))),
+        Path(todo.id.clone()),
+        Ok(Json(body)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(code, StatusCode::CREATED);
+    assert_eq!(comment.body, "looks good");
+    assert_eq!(comment.author.as_deref(), Some("u1"));
+
+    let Json(detail) = todos::get_todo(State(app.clone()), Path(todo.id.clone()))
+        .await
+        .unwrap();
+    assert_eq!(detail.todo.id, todo.id);
+    assert_eq!(detail.comments, vec![comment]);
+
+    todos::delete_todo(State(app.clone()), Path(todo.id.clone()))
+        .await
+        .unwrap();
+    assert!(app.state.lock().unwrap().todo_comments.is_empty());
+    assert_eq!(
+        todos::get_todo(State(app), Path(todo.id))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::NOT_FOUND)
+    );
+}
+
+#[tokio::test]
+async fn an_empty_comment_is_rejected_and_an_unknown_todo_404s() {
+    let app = app();
+    let todo = new_todo(&app).await;
+    let blank = serde_json::from_value(serde_json::json!({ "body": "   " })).unwrap();
+    assert_eq!(
+        todos::create_comment(
+            State(app.clone()),
+            Extension(AuthedUser(None)),
+            Path(todo.id),
+            Ok(Json(blank)),
+        )
+        .await
+        .err()
+        .map(|err| err.0),
+        Some(StatusCode::BAD_REQUEST)
+    );
+    let body = serde_json::from_value(serde_json::json!({ "body": "hi" })).unwrap();
+    assert_eq!(
+        todos::create_comment(
+            State(app),
+            Extension(AuthedUser(None)),
+            Path("deadbeef".into()),
+            Ok(Json(body)),
+        )
+        .await
+        .err()
+        .map(|err| err.0),
+        Some(StatusCode::NOT_FOUND)
+    );
+}
+
+#[tokio::test]
+async fn a_scratchpad_is_created_listed_archived_and_deleted() {
+    let app = app();
+    let body = serde_json::from_value(serde_json::json!({
+        "repository": "https://example.com/repo.git",
+        "content": "",
+    }))
+    .unwrap();
+    let (code, Json(pad)) = scratchpads::create_scratchpad(
+        State(app.clone()),
+        Extension(AuthedUser(Some("u1".into()))),
+        Ok(Json(body)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(code, StatusCode::CREATED);
+    assert_eq!(pad.created_by.as_deref(), Some("u1"));
+    assert!(pad.content.is_empty());
+
+    let patch = serde_json::from_value(serde_json::json!({
+        "content": "# notes",
+        "archived": true,
+    }))
+    .unwrap();
+    let Json(updated) =
+        scratchpads::update_scratchpad(State(app.clone()), Path(pad.id.clone()), Ok(Json(patch)))
+            .await
+            .unwrap();
+    assert_eq!(updated.content, "# notes");
+    assert!(updated.archived);
+
+    let query = serde_json::from_value(serde_json::json!({
+        "repository": "https://example.com/repo.git",
+    }))
+    .unwrap();
+    let Json(listed) = scratchpads::list_scratchpads(State(app.clone()), Query(query)).await;
+    assert_eq!(listed, vec![updated]);
+
+    let status = scratchpads::delete_scratchpad(State(app.clone()), Path(pad.id.clone()))
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        scratchpads::get_scratchpad(State(app), Path(pad.id))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::NOT_FOUND)
+    );
+}

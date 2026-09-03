@@ -1911,3 +1911,105 @@ fn a_foreign_workspace_memory_is_not_told_to_runs() {
     state.workspace = None;
     assert_eq!(state.memories_for("https://example.com/repo.git").len(), 1);
 }
+
+#[test]
+fn editing_an_agent_proposal_approves_it() {
+    let mut state = State::default();
+    let proposed = state.create_memory(
+        None,
+        "the build needs bun".into(),
+        MemorySource::Agent,
+        None,
+        None,
+    );
+    let approved = state.create_memory(None, "no yarn".into(), MemorySource::User, None, None);
+
+    let edited = state
+        .edit_memory(&proposed.id, "the build needs bun 1.2".into())
+        .unwrap();
+    assert_eq!(edited.content, "the build needs bun 1.2");
+    assert_eq!(edited.verification, Verification::UserApproved);
+    // An approved memory is left approved, not re-verified into anything else.
+    let edited = state.edit_memory(&approved.id, "no npm".into()).unwrap();
+    assert_eq!(edited.verification, Verification::UserApproved);
+    assert!(state.edit_memory("deadbeef", "x".into()).is_none());
+}
+
+#[test]
+fn a_todos_comments_read_oldest_first() {
+    let mut state = State::default();
+    let todo = state.create_todo(None, "t".into(), String::new(), None);
+    let first = state
+        .create_todo_comment(&todo.id, "first".into(), Some("arsen".into()))
+        .unwrap();
+    let second = state
+        .create_todo_comment(&todo.id, "second".into(), None)
+        .unwrap();
+    // Two comments in the same millisecond must still read in the order they
+    // were written.
+    state.todo_comments.get_mut(&first.id).unwrap().created_at = 1;
+    state.todo_comments.get_mut(&second.id).unwrap().created_at = 2;
+
+    let thread = state.todo_comments(&todo.id);
+    assert_eq!(
+        thread.iter().map(|c| c.body.as_str()).collect::<Vec<_>>(),
+        ["first", "second"]
+    );
+    assert_eq!(thread[0].author.as_deref(), Some("arsen"));
+    assert!(state
+        .create_todo_comment("deadbeef", "orphan".into(), None)
+        .is_none());
+}
+
+#[test]
+fn deleting_a_todo_deletes_its_comments() {
+    let mut state = State::default();
+    let todo = state.create_todo(None, "t".into(), String::new(), None);
+    let other = state.create_todo(None, "other".into(), String::new(), None);
+    let comment = state
+        .create_todo_comment(&todo.id, "mine".into(), None)
+        .unwrap();
+    let kept = state
+        .create_todo_comment(&other.id, "theirs".into(), None)
+        .unwrap();
+
+    let removed = state.remove_todo(&todo.id).unwrap();
+
+    assert_eq!(removed, [comment.id]);
+    assert!(state.todo_comments(&todo.id).is_empty());
+    assert!(state.todo_comments.contains_key(&kept.id));
+    assert!(state.remove_todo(&todo.id).is_none());
+}
+
+#[test]
+fn a_scratchpad_bumps_updated_at_only_when_the_content_changes() {
+    let mut state = State::default();
+    let pad = state.create_scratchpad(None, "notes".into(), Some("arsen".into()));
+    assert_eq!(pad.updated_at, pad.created_at);
+    state.scratchpads.get_mut(&pad.id).unwrap().updated_at = 1;
+
+    let same = state
+        .update_scratchpad(&pad.id, Some("notes".into()), None)
+        .unwrap();
+    assert_eq!(same.updated_at, 1);
+    let archived = state.update_scratchpad(&pad.id, None, Some(true)).unwrap();
+    assert!(archived.archived);
+    assert_eq!(archived.updated_at, 1);
+
+    let written = state
+        .update_scratchpad(&pad.id, Some("more notes".into()), None)
+        .unwrap();
+    assert_eq!(written.content, "more notes");
+    assert!(written.updated_at > 1);
+}
+
+#[test]
+fn a_scratchpad_is_gone_once_deleted() {
+    let mut state = State::default();
+    let pad = state.create_scratchpad(None, String::new(), None);
+    assert!(state.remove_scratchpad(&pad.id));
+    assert!(!state.remove_scratchpad(&pad.id));
+    assert!(state
+        .update_scratchpad(&pad.id, Some("x".into()), None)
+        .is_none());
+}

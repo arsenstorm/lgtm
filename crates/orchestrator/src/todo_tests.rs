@@ -227,3 +227,59 @@ fn update_clears_the_assignee_when_patched_to_null() {
         .unwrap();
     assert_eq!(cleared.assignee, None);
 }
+
+#[test]
+fn update_rewrites_the_title_and_description() {
+    let mut state = state();
+    let todo = state.create_todo(None, "t".into(), "old".into(), None);
+    let updated = state
+        .update_todo(
+            &todo.id,
+            TodoPatch {
+                title: Some("  a better title  ".into()),
+                description: Some("new".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(updated.title, "a better title");
+    assert_eq!(updated.description, "new");
+}
+
+#[test]
+fn update_refuses_an_empty_title() {
+    let mut state = state();
+    let todo = state.create_todo(None, "t".into(), String::new(), None);
+    let err = state
+        .update_todo(
+            &todo.id,
+            TodoPatch {
+                title: Some("   ".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(err, UpdateTodoError::EmptyTitle));
+    assert_eq!(state.todos[&todo.id].title, "t");
+}
+
+#[test]
+fn update_moves_to_any_status_including_back_out_of_done() {
+    let mut state = state();
+    let todo = state.create_todo(None, "t".into(), String::new(), None);
+    let patch = |status| TodoPatch {
+        status: Some(status),
+        ..Default::default()
+    };
+    state.finish_todo(&todo.id);
+
+    let reopened = state
+        .update_todo(&todo.id, patch(TodoStatus::Open))
+        .unwrap();
+    assert_eq!(reopened.status, TodoStatus::Open);
+    // Patching to the status it already has is a no-op, not a refusal.
+    let again = state
+        .update_todo(&todo.id, patch(TodoStatus::Open))
+        .unwrap();
+    assert_eq!(again.status, TodoStatus::Open);
+}

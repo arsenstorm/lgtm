@@ -6,6 +6,7 @@ mod credentials;
 mod events;
 mod goals;
 mod memories;
+mod scratchpads;
 mod sessions;
 mod terminal;
 mod todos;
@@ -102,7 +103,10 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
             "/memories",
             get(memories::list_memories).post(memories::create_memory),
         )
-        .route("/memories/{id}", delete(memories::delete_memory))
+        .route(
+            "/memories/{id}",
+            delete(memories::delete_memory).patch(memories::update_memory),
+        )
         .route("/memories/{id}/approve", post(memories::approve_memory))
         .route("/goals", get(goals::list_goals).post(goals::create_goal))
         .route("/goals/{id}", get(goals::get_goal))
@@ -110,10 +114,23 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/todos", get(todos::list_todos).post(todos::create_todo))
         .route(
             "/todos/{id}",
-            delete(todos::delete_todo).patch(todos::update_todo),
+            get(todos::get_todo)
+                .delete(todos::delete_todo)
+                .patch(todos::update_todo),
         )
+        .route("/todos/{id}/comments", post(todos::create_comment))
         .route("/todos/{id}/done", post(todos::finish_todo))
         .route("/todos/{id}/promote", post(todos::promote_todo))
+        .route(
+            "/scratchpads",
+            get(scratchpads::list_scratchpads).post(scratchpads::create_scratchpad),
+        )
+        .route(
+            "/scratchpads/{id}",
+            get(scratchpads::get_scratchpad)
+                .patch(scratchpads::update_scratchpad)
+                .delete(scratchpads::delete_scratchpad),
+        )
         .route("/goals/{id}/plans", get(goals::get_goal_plans))
         .route(
             "/sessions",

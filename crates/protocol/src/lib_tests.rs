@@ -507,6 +507,9 @@ fn todo_is_blocked_only_by_an_unfinished_blocker() {
 #[test]
 fn todo_patch_round_trips_and_distinguishes_absent_from_clearing() {
     round_trip(TodoPatch {
+        title: Some("new title".into()),
+        description: Some("more".into()),
+        status: Some(TodoStatus::InProgress),
         priority: Some(Priority::High),
         assignee: Some(Some("arsen".into())),
         blockers: Some(vec!["11111111".into()]),

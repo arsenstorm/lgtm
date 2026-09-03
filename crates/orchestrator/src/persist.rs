@@ -1,7 +1,9 @@
 //! One JSON file per task under `<data_dir>/tasks`, one per batch under
 //! `<data_dir>/batches`, one per memory under `<data_dir>/memories`, one per
-//! goal under `<data_dir>/goals`, one per todo under `<data_dir>/todos`, and
-//! one per session under `<data_dir>/sessions`.
+//! goal under `<data_dir>/goals`, one per todo under `<data_dir>/todos`, one
+//! per todo comment under `<data_dir>/todo_comments`, one per scratchpad
+//! under `<data_dir>/scratchpads`, and one per session under
+//! `<data_dir>/sessions`.
 //!
 //! A task's events are append-only: rewriting `<id>.json` on every event
 //! meant copying the whole history back to disk each time, so events live in
@@ -11,7 +13,9 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use lgtm_protocol::{Batch, Goal, Memory, Overlap, Session, StoredEvent, Task, TaskId, Todo};
+use lgtm_protocol::{
+    Batch, Goal, Memory, Overlap, Scratchpad, Session, StoredEvent, Task, TaskId, Todo, TodoComment,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
@@ -43,6 +47,10 @@ pub enum Persist {
     Goal(Goal),
     Todo(Todo),
     RemoveTodo(String),
+    TodoComment(TodoComment),
+    RemoveTodoComment(String),
+    Scratchpad(Scratchpad),
+    RemoveScratchpad(String),
     Session(Session),
     RemoveSession(String),
     /// The whole users store; users are few and change rarely, so the file
@@ -85,6 +93,8 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
     let memories = dir.join("memories");
     let goals = dir.join("goals");
     let todos = dir.join("todos");
+    let todo_comments = dir.join("todo_comments");
+    let scratchpads = dir.join("scratchpads");
     let sessions = dir.join("sessions");
     let artefacts = dir.join("artefacts");
     while let Some(item) = rx.recv().await {
@@ -109,6 +119,10 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
             Persist::Goal(goal) => save_goal(&goals, &goal),
             Persist::Todo(todo) => save_todo(&todos, &todo),
             Persist::RemoveTodo(id) => remove_by_id(&todos, "todo", &id),
+            Persist::TodoComment(comment) => save_todo_comment(&todo_comments, &comment),
+            Persist::RemoveTodoComment(id) => remove_by_id(&todo_comments, "todo comment", &id),
+            Persist::Scratchpad(scratchpad) => save_scratchpad(&scratchpads, &scratchpad),
+            Persist::RemoveScratchpad(id) => remove_by_id(&scratchpads, "scratchpad", &id),
             Persist::Session(session) => save_session(&sessions, &session),
             Persist::RemoveSession(id) => remove_by_id(&sessions, "session", &id),
             Persist::Users(users) => save_users(&dir, &users),
@@ -223,6 +237,14 @@ pub fn save_memory(dir: &Path, memory: &Memory) {
 
 pub fn save_todo(dir: &Path, todo: &Todo) {
     save_by_id(dir, "todo", &todo.id, todo);
+}
+
+pub fn save_todo_comment(dir: &Path, comment: &TodoComment) {
+    save_by_id(dir, "todo comment", &comment.id, comment);
+}
+
+pub fn save_scratchpad(dir: &Path, scratchpad: &Scratchpad) {
+    save_by_id(dir, "scratchpad", &scratchpad.id, scratchpad);
 }
 
 pub fn save_session(dir: &Path, session: &Session) {
@@ -435,6 +457,14 @@ pub fn load_all_goals(dir: &Path) -> Vec<Goal> {
 
 pub fn load_all_todos(dir: &Path) -> Vec<Todo> {
     load_dir(dir, |todo: &Todo| todo.id.as_str())
+}
+
+pub fn load_all_todo_comments(dir: &Path) -> Vec<TodoComment> {
+    load_dir(dir, |comment: &TodoComment| comment.id.as_str())
+}
+
+pub fn load_all_scratchpads(dir: &Path) -> Vec<Scratchpad> {
+    load_dir(dir, |scratchpad: &Scratchpad| scratchpad.id.as_str())
 }
 
 pub fn load_all_sessions(dir: &Path) -> Vec<Session> {

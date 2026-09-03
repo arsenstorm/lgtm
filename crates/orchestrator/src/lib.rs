@@ -157,6 +157,10 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     std::fs::create_dir_all(&goals_dir)?;
     let todos_dir = data_dir.join("todos");
     std::fs::create_dir_all(&todos_dir)?;
+    let todo_comments_dir = data_dir.join("todo_comments");
+    std::fs::create_dir_all(&todo_comments_dir)?;
+    let scratchpads_dir = data_dir.join("scratchpads");
+    std::fs::create_dir_all(&scratchpads_dir)?;
     let sessions_dir = data_dir.join("sessions");
     std::fs::create_dir_all(&sessions_dir)?;
     let mut state = State {
@@ -182,6 +186,12 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     }
     for todo in persist::load_all_todos(&todos_dir) {
         state.todos.insert(todo.id.clone(), todo);
+    }
+    for comment in persist::load_all_todo_comments(&todo_comments_dir) {
+        state.todo_comments.insert(comment.id.clone(), comment);
+    }
+    for scratchpad in persist::load_all_scratchpads(&scratchpads_dir) {
+        state.scratchpads.insert(scratchpad.id.clone(), scratchpad);
     }
     for session in persist::load_all_sessions(&sessions_dir) {
         state.sessions.insert(session.id.clone(), session);

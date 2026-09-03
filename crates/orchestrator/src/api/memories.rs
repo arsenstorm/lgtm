@@ -83,6 +83,33 @@ pub(super) async fn create_memory(
     Ok((StatusCode::CREATED, Json(memory)))
 }
 
+/// Body of `PATCH /api/memories/:id`.
+#[derive(Deserialize)]
+pub(super) struct MemoryEdit {
+    content: String,
+}
+
+pub(super) async fn update_memory(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<MemoryEdit>, JsonRejection>,
+) -> Result<Json<Memory>, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let content = body.content.trim();
+    if content.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "content is required".into(),
+        ));
+    }
+    let mut state = app.state.lock().unwrap();
+    let memory = state
+        .edit_memory(&id, content.to_string())
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "memory not found".into()))?;
+    app.persist_memory(&memory);
+    Ok(Json(memory))
+}
+
 pub(super) async fn approve_memory(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,

@@ -19,6 +19,7 @@ pub enum UpdateTodoError {
     NotFound,
     UnknownBlocker(String),
     SelfBlocker,
+    EmptyTitle,
 }
 
 fn wire_status(status: TodoStatus) -> &'static str {
@@ -92,11 +93,17 @@ impl State {
         Ok((task, changed))
     }
 
-    /// Applies the fields a `PATCH /todos/:id` body actually sent.
+    /// Applies the fields a `PATCH /todos/:id` body actually sent. Any status
+    /// transition is allowed: a person may reopen a todo someone called done.
     pub fn update_todo(&mut self, id: &str, patch: TodoPatch) -> Result<Todo, UpdateTodoError> {
         if !self.todos.contains_key(id) {
             return Err(UpdateTodoError::NotFound);
         }
+        // A todo with no title is unusable, so a patch may not empty one.
+        let title = match patch.title.as_deref().map(str::trim) {
+            Some("") => return Err(UpdateTodoError::EmptyTitle),
+            title => title.map(str::to_string),
+        };
         if let Some(blockers) = &patch.blockers {
             for blocker in blockers {
                 if blocker == id {
@@ -108,6 +115,15 @@ impl State {
             }
         }
         let todo = self.todos.get_mut(id).expect("checked above");
+        if let Some(title) = title {
+            todo.title = title;
+        }
+        if let Some(description) = patch.description {
+            todo.description = description;
+        }
+        if let Some(status) = patch.status {
+            todo.status = status;
+        }
         if let Some(priority) = patch.priority {
             todo.priority = priority;
         }

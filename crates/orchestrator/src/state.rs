@@ -8,8 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
     first_line_title, goal_status, Batch, Goal, GoalSummary, Memory, MemorySource,
-    OrchestratorMessage, Session, StoredEvent, Task, TaskEvent, TaskId, TaskSpec, TaskStatus, Todo,
-    TodoStatus, Verification,
+    OrchestratorMessage, Scratchpad, Session, StoredEvent, Task, TaskEvent, TaskId, TaskSpec,
+    TaskStatus, Todo, TodoComment, TodoStatus, Verification,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -166,6 +166,24 @@ impl App {
     pub fn forget_todo(&self, id: &str) {
         let _ = self.persist.send(Persist::RemoveTodo(id.to_string()));
     }
+
+    pub fn persist_todo_comment(&self, comment: &TodoComment) {
+        let _ = self.persist.send(Persist::TodoComment(comment.clone()));
+    }
+
+    pub fn forget_todo_comment(&self, id: &str) {
+        let _ = self
+            .persist
+            .send(Persist::RemoveTodoComment(id.to_string()));
+    }
+
+    pub fn persist_scratchpad(&self, scratchpad: &Scratchpad) {
+        let _ = self.persist.send(Persist::Scratchpad(scratchpad.clone()));
+    }
+
+    pub fn forget_scratchpad(&self, id: &str) {
+        let _ = self.persist.send(Persist::RemoveScratchpad(id.to_string()));
+    }
 }
 
 /// Everyone besides the person who raised the task who has worked on it, in
@@ -211,6 +229,10 @@ pub struct State {
     pub sessions: HashMap<String, Session>,
     /// Lightweight notes about work to do, by id.
     pub todos: HashMap<String, Todo>,
+    /// Comments on todos, by id. A comment points back with `todo`.
+    pub todo_comments: HashMap<String, TodoComment>,
+    /// Standalone markdown documents, by id.
+    pub scratchpads: HashMap<String, Scratchpad>,
     /// Accept tasks no connected runner can run, because provisioning is on
     /// and a runner for them is a queue away.
     pub queue_without_runners: bool,
@@ -445,6 +467,18 @@ impl State {
         Some(memory.clone())
     }
 
+    /// Rewrites a memory's content. `None` if there is no such memory.
+    ///
+    /// An approved memory stays approved, but rewriting an agent's proposal
+    /// approves it: putting the words in yourself is a stronger sign-off than
+    /// pressing approve.
+    pub fn edit_memory(&mut self, id: &str, content: String) -> Option<Memory> {
+        let memory = self.memories.get_mut(id)?;
+        memory.content = content;
+        memory.verification = Verification::UserApproved;
+        Some(memory.clone())
+    }
+
     pub fn remove_memory(&mut self, id: &str) -> bool {
         self.memories.remove(id).is_some()
     }
@@ -635,8 +669,115 @@ impl State {
         todo
     }
 
-    pub fn remove_todo(&mut self, id: &str) -> bool {
-        self.todos.remove(id).is_some()
+    /// Forgets a todo and its thread. `None` when there is no such todo;
+    /// otherwise the ids of the comments that went with it, for the caller to
+    /// forget on disk too.
+    pub fn remove_todo(&mut self, id: &str) -> Option<Vec<String>> {
+        self.todos.remove(id)?;
+        let comments: Vec<String> = self
+            .todo_comments
+            .values()
+            .filter(|comment| comment.todo == id)
+            .map(|comment| comment.id.clone())
+            .collect();
+        for comment in &comments {
+            self.todo_comments.remove(comment);
+        }
+        Some(comments)
+    }
+
+    fn new_todo_comment_id(&self) -> String {
+        std::iter::repeat_with(random_id)
+            .find(|id| !self.todo_comments.contains_key(id))
+            .unwrap_or_default()
+    }
+
+    /// `None` when there is no such todo: a comment on nothing is a 404, not
+    /// an orphan.
+    pub fn create_todo_comment(
+        &mut self,
+        todo: &str,
+        body: String,
+        author: Option<String>,
+    ) -> Option<TodoComment> {
+        if !self.todos.contains_key(todo) {
+            return None;
+        }
+        let comment = TodoComment {
+            id: self.new_todo_comment_id(),
+            todo: todo.to_string(),
+            author,
+            body,
+            created_at: now_ms(),
+        };
+        self.todo_comments
+            .insert(comment.id.clone(), comment.clone());
+        Some(comment)
+    }
+
+    /// A todo's thread, oldest first: a thread reads downward.
+    pub fn todo_comments(&self, todo: &str) -> Vec<TodoComment> {
+        let mut out: Vec<TodoComment> = self
+            .todo_comments
+            .values()
+            .filter(|comment| comment.todo == todo)
+            .cloned()
+            .collect();
+        out.sort_by_key(|comment| comment.created_at);
+        out
+    }
+
+    fn new_scratchpad_id(&self) -> String {
+        std::iter::repeat_with(random_id)
+            .find(|id| !self.scratchpads.contains_key(id))
+            .unwrap_or_default()
+    }
+
+    pub fn create_scratchpad(
+        &mut self,
+        repository: Option<String>,
+        content: String,
+        created_by: Option<String>,
+    ) -> Scratchpad {
+        let now = now_ms();
+        let scratchpad = Scratchpad {
+            id: self.new_scratchpad_id(),
+            repository,
+            content,
+            created_at: now,
+            updated_at: now,
+            archived: false,
+            workspace: self.workspace.clone(),
+            created_by,
+        };
+        tracing::info!(scratchpad = %scratchpad.id, "scratchpad created");
+        self.scratchpads
+            .insert(scratchpad.id.clone(), scratchpad.clone());
+        scratchpad
+    }
+
+    /// Rewrites a document, archives it, or both. `None` when there is no such
+    /// scratchpad. `updated_at` tracks the content alone, so archiving does
+    /// not make a document look freshly written.
+    pub fn update_scratchpad(
+        &mut self,
+        id: &str,
+        content: Option<String>,
+        archived: Option<bool>,
+    ) -> Option<Scratchpad> {
+        let scratchpad = self.scratchpads.get_mut(id)?;
+        if let Some(content) = content.filter(|content| *content != scratchpad.content) {
+            scratchpad.content = content;
+            scratchpad.updated_at = now_ms();
+        }
+        if let Some(archived) = archived {
+            scratchpad.archived = archived;
+        }
+        Some(scratchpad.clone())
+    }
+
+    pub fn remove_scratchpad(&mut self, id: &str) -> bool {
+        self.scratchpads.remove(id).is_some()
     }
 
     /// Marks a todo done, whatever its current status.

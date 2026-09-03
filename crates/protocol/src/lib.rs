@@ -758,12 +758,62 @@ impl Todo {
     }
 }
 
+/// A comment on a todo, from a person or an agent run.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct TodoComment {
+    pub id: String,
+    /// The todo it belongs to.
+    pub todo: String,
+    /// The user who wrote it; `None` for the shared token or automation.
+    #[serde(default)]
+    pub author: Option<String>,
+    pub body: String,
+    /// Unix milliseconds.
+    pub created_at: u64,
+}
+
+/// Body of `GET /api/todos/:id`: the todo and its thread, oldest first.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct TodoDetail {
+    pub todo: Todo,
+    pub comments: Vec<TodoComment>,
+}
+
+/// A standalone markdown document; agents and people both read and write
+/// these, unlike a task's scratchpad which lives and dies with its task.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Scratchpad {
+    pub id: String,
+    /// Git URL; `None` is not tied to a repository.
+    #[serde(default)]
+    pub repository: Option<String>,
+    pub content: String,
+    /// Unix milliseconds.
+    pub created_at: u64,
+    /// Unix milliseconds; bumped only when `content` changes.
+    pub updated_at: u64,
+    #[serde(default)]
+    pub archived: bool,
+    /// The workspace this belongs to; one per orchestrator until teams exist.
+    #[serde(default)]
+    pub workspace: Option<String>,
+    /// The user who created this; `None` for the shared token or automation.
+    #[serde(default)]
+    pub created_by: Option<String>,
+}
+
 /// A partial update for `PATCH /todos/:id`. A field absent from the request
 /// body leaves that part of the todo unchanged; `assignee`'s outer `Option`
 /// carries that distinction (`None` = unchanged) while the inner one clears
 /// the assignee (`Some(None)`).
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct TodoPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<TodoStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<Priority>,
     #[serde(
