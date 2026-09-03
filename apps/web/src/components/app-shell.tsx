@@ -21,7 +21,7 @@ export function AppShell({ tasks, children }: { tasks: Task[]; children: React.R
       <AppSidebar variant="inset" tasks={tasks} />
       <SidebarInset className="min-h-0">
         <SiteHeader />
-        <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
+        <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain scrollbar-gutter-stable">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   )
