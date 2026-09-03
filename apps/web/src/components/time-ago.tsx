@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
+import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 /**
@@ -103,7 +103,9 @@ function ZoneRow({ zone, at, timeZone }: { zone: string; at: number; timeZone?: 
   const { date, time } = wallClock(at, timeZone)
   return (
     <>
-      <span className="rounded bg-background/20 px-1 py-px font-mono text-[10px]">{zone}</span>
+      <span className="rounded bg-muted px-1 py-px font-mono text-[10px] text-muted-foreground">
+        {zone}
+      </span>
       <span>{date}</span>
       <span className="text-end font-mono tabular-nums">{time}</span>
     </>
@@ -114,8 +116,15 @@ export function TimeAgo({ at, className }: { at: number; className?: string }) {
   const reference = useSyncExternalStore(subscribe, now, now)
 
   return (
-    <Tooltip>
-      <TooltipTrigger
+    // Built on the Base UI parts, not ui/tooltip: the house tooltip is an
+    // inverted one-line chip with an arrow, and a three-row card in inverse
+    // video reads as a glare. This is a popover-palette card, arrowless, and
+    // quick — a timestamp lookup is a glance, not a reveal.
+    // Base UI keys open delay off the Provider, not the Root; a provider per
+    // instance is just context and costs nothing.
+    <TooltipPrimitive.Provider delay={100}>
+      <TooltipPrimitive.Root>
+      <TooltipPrimitive.Trigger
         render={
           <time
             dateTime={new Date(at).toISOString()}
@@ -126,19 +135,23 @@ export function TimeAgo({ at, className }: { at: number; className?: string }) {
         }
       >
         {short(at, reference)}
-      </TooltipTrigger>
-      <TooltipContent className="block max-w-none px-3 py-2">
-        <p suppressHydrationWarning className="mb-1.5 text-background/70">
-          {long(at, reference)}
-        </p>
-        <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1">
-          <ZoneRow zone="UTC" at={at} timeZone="UTC" />
-          {/* Local rows only exist client-side in spirit, but rendering them on
-              the server with the server's zone is harmless: the tooltip cannot
-              open before hydration. */}
-          <ZoneRow zone={localZoneName(at)} at={at} />
-        </div>
-      </TooltipContent>
-    </Tooltip>
+      </TooltipPrimitive.Trigger>
+      <TooltipPrimitive.Portal>
+        <TooltipPrimitive.Positioner side="top" sideOffset={6} className="isolate z-50">
+          <TooltipPrimitive.Popup className="z-50 rounded-lg bg-popover px-3 py-2 text-popover-foreground text-xs shadow-md ring-1 ring-foreground/10 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95">
+            <p suppressHydrationWarning className="mb-1.5 text-muted-foreground">
+              {long(at, reference)}
+            </p>
+            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1">
+              <ZoneRow zone="UTC" at={at} timeZone="UTC" />
+              {/* Rendering the local row on the server with the server's zone is
+                  harmless: the tooltip cannot open before hydration. */}
+              <ZoneRow zone={localZoneName(at)} at={at} />
+            </div>
+          </TooltipPrimitive.Popup>
+        </TooltipPrimitive.Positioner>
+      </TooltipPrimitive.Portal>
+      </TooltipPrimitive.Root>
+    </TooltipPrimitive.Provider>
   )
 }
