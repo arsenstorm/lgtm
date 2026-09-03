@@ -900,7 +900,7 @@
   stroke: color-mix(in srgb, #34d399 22%, transparent);
 }
 @media (prefers-color-scheme: dark) {
-  .card {
+  :global(:root:not([data-theme])) .card {
     color: #f5f5f5;
     background: #1a1a1a;
     box-shadow:
