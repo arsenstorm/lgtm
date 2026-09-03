@@ -184,6 +184,18 @@ export const askChat = createServerFn({ method: "POST" })
       })
   );
 
+export const updateChat = createServerFn({ method: "POST" })
+  .validator(
+    (input: { id: string; title?: string; archived?: boolean }) => input
+  )
+  .handler(
+    async ({ data }): Promise<Chat> =>
+      api<Chat>(`/chats/${data.id}`, {
+        body: { archived: data.archived, title: data.title },
+        method: "PATCH",
+      })
+  );
+
 export const approveTask = createServerFn({ method: "POST" })
   .validator((id: string) => id)
   .handler(

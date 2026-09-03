@@ -1,10 +1,11 @@
-import { Plus, PlusCircle } from "@phosphor-icons/react";
+import { CaretRight, Plus, PlusCircle } from "@phosphor-icons/react";
 import { Link, useMatchRoute } from "@tanstack/react-router";
 import type { ComponentProps, FormEvent } from "react";
 import { useCallback, useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 
 import { AccountMenu } from "@/components/account-menu";
+import { ChatItem } from "@/components/chat-item";
 import {
   ActivityIcon,
   AiDeveloperIcon,
@@ -18,6 +19,11 @@ import {
 import type { Project } from "@/components/project-item";
 import { ProjectItem } from "@/components/project-item";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,6 +70,16 @@ const PROJECTS_OPEN_KEY = "lgtm-projects-open";
 // ponytail: the newest eight; a full list gets its own page when threads
 // pile up.
 const RECENT_CHATS = 8;
+
+// Group headings share the projects' open map; no repository url starts with
+// a colon, so these keys cannot collide with one.
+const PROJECTS_GROUP = ":projects";
+const CHATS_GROUP = ":chats";
+
+// The caret is row furniture: out of the way until the heading is reached,
+// always on where there is no hover to reach it with.
+const GROUP_CARET =
+  "ml-1 text-muted-foreground opacity-0 transition-[opacity,transform] duration-200 pointer-coarse:opacity-100 group-focus-within/group:opacity-100 group-hover/group:opacity-100 group-data-[panel-open]/label:rotate-90";
 
 type OpenMap = Record<string, boolean>;
 
@@ -152,6 +168,9 @@ export function AppSidebar({
   const [creatingProject, setCreatingProject] = useState(false);
   const projectInputId = useId();
   const projects = groupByProject(tasks, records);
+  const shownChats = chats
+    .filter((chat) => !chat.archived)
+    .slice(0, RECENT_CHATS);
 
   // Project records carry the prefix and id the manage menu needs, but they are
   // loaded by the root route, which this component does not own. Fetching them
@@ -187,6 +206,15 @@ export function AppSidebar({
         return next;
       }),
     []
+  );
+
+  const setProjectsGroupOpen = useCallback(
+    (isOpen: boolean) => setProjectOpen(PROJECTS_GROUP, isOpen),
+    [setProjectOpen]
+  );
+  const setChatsGroupOpen = useCallback(
+    (isOpen: boolean) => setProjectOpen(CHATS_GROUP, isOpen),
+    [setProjectOpen]
   );
 
   const showAddProject = useCallback(() => setAddingProject(true), []);
@@ -276,17 +304,21 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup className="group/projects">
-          <SidebarGroupLabel>Projects</SidebarGroupLabel>
+        <Collapsible
+          onOpenChange={setProjectsGroupOpen}
+          open={open[PROJECTS_GROUP] ?? true}
+          render={<SidebarGroup className="group/group" />}
+        >
+          <GroupHeading>Projects</GroupHeading>
           <SidebarGroupAction
             aria-label="Add project"
-            className="opacity-0 pointer-coarse:opacity-100 transition-opacity group-focus-within/projects:opacity-100 group-hover/projects:opacity-100"
+            className="opacity-0 pointer-coarse:opacity-100 transition-opacity group-focus-within/group:opacity-100 group-hover/group:opacity-100"
             onClick={showAddProject}
             type="button"
           >
             <Plus aria-hidden="true" />
           </SidebarGroupAction>
-          <SidebarGroupContent>
+          <CollapsibleContent render={<SidebarGroupContent />}>
             {addingProject ? (
               <form className="mb-2 px-2" onSubmit={addProject}>
                 <label className="sr-only" htmlFor={projectInputId}>
@@ -338,44 +370,47 @@ export function AppSidebar({
                 ))}
               </SidebarMenu>
             )}
-          </SidebarGroupContent>
-        </SidebarGroup>
+          </CollapsibleContent>
+        </Collapsible>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Your chats</SidebarGroupLabel>
-          <SidebarGroupContent>
-            {chats.length === 0 ? (
+        <Collapsible
+          onOpenChange={setChatsGroupOpen}
+          open={open[CHATS_GROUP] ?? true}
+          render={<SidebarGroup className="group/group" />}
+        >
+          <GroupHeading>Your chats</GroupHeading>
+          <CollapsibleContent render={<SidebarGroupContent />}>
+            {shownChats.length === 0 ? (
               <p className="px-2 py-1 text-sidebar-foreground/70 text-sm">
                 No chats yet
               </p>
             ) : (
               <SidebarMenu className="gap-1">
-                {chats.slice(0, RECENT_CHATS).map((chat) => (
-                  <SidebarMenuItem key={chat.id}>
-                    <SidebarMenuButton
-                      isActive={
-                        !!matchRoute({
-                          params: { id: chat.id },
-                          to: "/chats/$id",
-                        })
-                      }
-                      render={<Link params={{ id: chat.id }} to="/chats/$id" />}
-                    >
-                      <MsgsIcon aria-hidden="true" />
-                      <span className="truncate">{chat.title}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                {shownChats.map((chat) => (
+                  <ChatItem chat={chat} key={chat.id} />
                 ))}
               </SidebarMenu>
             )}
-          </SidebarGroupContent>
-        </SidebarGroup>
+          </CollapsibleContent>
+        </Collapsible>
       </SidebarContent>
 
       <SidebarFooter>
         <AccountMenu />
       </SidebarFooter>
     </Sidebar>
+  );
+}
+
+function GroupHeading({ children }: { children: string }) {
+  return (
+    <SidebarGroupLabel
+      className="group/label w-full cursor-pointer hover:text-sidebar-foreground"
+      render={<CollapsibleTrigger />}
+    >
+      <span>{children}</span>
+      <CaretRight aria-hidden="true" className={GROUP_CARET} />
+    </SidebarGroupLabel>
   );
 }
 

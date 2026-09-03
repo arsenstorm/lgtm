@@ -297,6 +297,7 @@ export interface ChatTurn {
 /** A conversation with the read-only workspace agent. Nothing in it changes
  * state. */
 export interface Chat {
+  archived: boolean;
   created_at: number;
   created_by: string | null;
   id: string;
