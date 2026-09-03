@@ -2,7 +2,7 @@
 
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
-import { SidebarSimple } from "@phosphor-icons/react";
+import { SidebarToggleIcon } from "@/components/icons";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { Button } from "@/components/ui/button";
@@ -257,6 +257,8 @@ function SidebarTrigger({
   onClick,
   ...props
 }: React.ComponentProps<typeof Button>) {
+  const { open, openMobile, isMobile } = useSidebar();
+  const shown = isMobile ? openMobile : open;
   const { toggleSidebar } = useSidebar();
 
   return (
@@ -272,7 +274,7 @@ function SidebarTrigger({
       variant="ghost"
       {...props}
     >
-      <SidebarSimple />
+      <SidebarToggleIcon show={!shown} />
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   );
