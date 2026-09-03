@@ -29,7 +29,7 @@ import {
 } from "@/lib/lgtm/server";
 import type { Scratchpad } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
-import { padTitle } from "@/routes/scratchpads";
+import { padTitle, TagsRow } from "@/routes/scratchpads";
 
 export const Route = createFileRoute("/scratchpads_/$id")({
   loader: ({ params }) => getScratchpad({ data: params.id }),
@@ -37,7 +37,7 @@ export const Route = createFileRoute("/scratchpads_/$id")({
   errorComponent: ScratchpadError,
 });
 
-type Action = "archive" | "delete";
+type Action = "archive" | "delete" | "tags";
 
 type SaveState = "idle" | "saving" | "saved";
 
@@ -190,6 +190,17 @@ function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
     [run, pad.archived, pad.id]
   );
 
+  const setTags = useCallback(
+    (tags: string[], message: string) => {
+      run(
+        "tags",
+        () => updateScratchpad({ data: { id: pad.id, tags } }),
+        message
+      );
+    },
+    [run, pad.id]
+  );
+
   const onDelete = useCallback(async () => {
     if (!armed) {
       setArmed(true);
@@ -231,6 +242,8 @@ function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
               </span>
             )}
           </div>
+
+          <TagsRow disabled={busy} onChange={setTags} tags={pad.tags} />
         </div>
 
         <div className="flex shrink-0 items-center gap-2">

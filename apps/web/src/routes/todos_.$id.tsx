@@ -40,6 +40,7 @@ import type {
   TodoStatus,
 } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
+import { TagsRow } from "@/routes/scratchpads";
 import { MARK } from "@/routes/todos";
 
 export const Route = createFileRoute("/todos_/$id")({
@@ -123,20 +124,26 @@ function TodoDetailPage() {
     // own gutters.
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
       <header className="flex flex-col gap-4">
-        <EditableTitle
-          onSave={(title) => patch({ title }, "Title updated")}
-          pending={pending}
-          value={todo.title}
-        >
-          <h1
-            className={cn(
-              "min-w-0 flex-1 text-pretty font-semibold text-2xl tracking-tight",
-              done && "text-muted-foreground line-through"
-            )}
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="font-mono text-muted-foreground text-xs">
+            {todo.display_id}
+          </span>
+
+          <EditableTitle
+            onSave={(title) => patch({ title }, "Title updated")}
+            pending={pending}
+            value={todo.title}
           >
-            {todo.title}
-          </h1>
-        </EditableTitle>
+            <h1
+              className={cn(
+                "min-w-0 flex-1 text-pretty font-semibold text-2xl tracking-tight",
+                done && "text-muted-foreground line-through"
+              )}
+            >
+              {todo.title}
+            </h1>
+          </EditableTitle>
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip
@@ -167,6 +174,12 @@ function TodoDetailPage() {
             </span>
           ) : null}
         </div>
+
+        <TagsRow
+          disabled={pending}
+          onChange={(tags, message) => patch({ tags }, message)}
+          tags={todo.tags}
+        />
 
         <Meta todo={todo} />
       </header>

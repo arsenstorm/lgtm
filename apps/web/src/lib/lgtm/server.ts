@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type {
   ActivityEntry,
   Memory,
+  Project,
   RunnerStatus,
   Scratchpad,
   Session,
@@ -81,6 +82,10 @@ export const getMemories = createServerFn({ method: "GET" }).handler(
 
 export const getTodos = createServerFn({ method: "GET" }).handler(
   async (): Promise<Todo[]> => api<Todo[]>("/todos")
+);
+
+export const getProjects = createServerFn({ method: "GET" }).handler(
+  async (): Promise<Project[]> => api<Project[]>("/projects")
 );
 
 export const getSessions = createServerFn({ method: "GET" }).handler(
@@ -181,6 +186,7 @@ export const updateTodo = createServerFn({ method: "POST" })
         priority?: TodoPriority;
         assignee?: string | null;
         blockers?: string[];
+        tags?: string[];
       };
     }) => input
   )
@@ -208,14 +214,23 @@ export const createScratchpad = createServerFn({ method: "POST" })
 
 export const updateScratchpad = createServerFn({ method: "POST" })
   .validator(
-    (input: { id: string; content?: string; archived?: boolean }) => input
+    (input: {
+      id: string;
+      content?: string;
+      archived?: boolean;
+      tags?: string[];
+    }) => input
   )
   .handler(
     async ({ data }): Promise<Scratchpad> =>
       api<Scratchpad>(`/scratchpads/${data.id}`, {
         // JSON.stringify drops undefined members on its own, so an omitted
         // field never reaches the orchestrator as an explicit null.
-        body: { archived: data.archived, content: data.content },
+        body: {
+          archived: data.archived,
+          content: data.content,
+          tags: data.tags,
+        },
         method: "PATCH",
       })
   );

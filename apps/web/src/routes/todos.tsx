@@ -150,7 +150,7 @@ function TodoRow({ todo }: { todo: Todo }) {
         role="img"
       />
       <span className="shrink-0 font-mono text-muted-foreground text-xs">
-        {todo.id}
+        {todo.display_id}
       </span>
       <Mark
         aria-label={label}

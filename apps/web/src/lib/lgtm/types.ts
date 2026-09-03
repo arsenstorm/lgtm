@@ -177,6 +177,16 @@ export interface Memory {
   workspace: string | null;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  /** The next todo sequence number this project will hand out. */
+  next_number: number;
+  /** Prefixes every todo's display id, e.g. "L" in "L-3". */
+  prefix: string;
+  repository: string | null;
+}
+
 export type TodoStatus = "open" | "in_progress" | "done";
 export type TodoPriority = "low" | "medium" | "high";
 
@@ -186,10 +196,14 @@ export interface Todo {
   created_at: number;
   created_by: string | null;
   description: string;
+  /** Server-computed: the project prefix plus `number`, e.g. "L-3". */
+  display_id: string;
   id: string;
+  number: number;
   priority: TodoPriority;
   repository: string | null;
   status: TodoStatus;
+  tags: string[];
   task: string | null;
   title: string;
   workspace: string | null;
@@ -217,6 +231,7 @@ export interface Scratchpad {
   id: string;
   /** Null is not tied to a repository. */
   repository: string | null;
+  tags: string[];
   /** Bumped only when content changes. */
   updated_at: number;
   workspace: string | null;

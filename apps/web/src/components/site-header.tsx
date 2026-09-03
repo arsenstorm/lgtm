@@ -19,13 +19,13 @@ function useTitle(): string {
   if (task) {
     return `Task ${task.id}`;
   }
-  const todo = matchRoute({ to: "/todos/$id" });
-  if (todo) {
-    return `Todo ${todo.id}`;
+  // The hex id says nothing a reader wants; the todo page leads with its own
+  // display id, and a scratchpad with its title.
+  if (matchRoute({ to: "/todos/$id" })) {
+    return "Todo";
   }
-  const scratchpad = matchRoute({ to: "/scratchpads/$id" });
-  if (scratchpad) {
-    return `Scratchpad ${scratchpad.id}`;
+  if (matchRoute({ to: "/scratchpads/$id" })) {
+    return "Scratchpad";
   }
   for (const [to, title] of TITLES) {
     if (matchRoute({ to })) {
