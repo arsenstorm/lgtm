@@ -167,7 +167,7 @@ export function TimeAgo({ at, className }: { at: number; className?: string }) {
             side="top"
             sideOffset={6}
           >
-            <TooltipPrimitive.Popup className="data-closed:fade-out-0 data-closed:zoom-out-95 data-open:fade-in-0 data-open:zoom-in-95 z-50 rounded-lg bg-popover px-3 py-2 text-popover-foreground text-xs shadow-md ring-1 ring-foreground/10 data-closed:animate-out data-open:animate-in">
+            <TooltipPrimitive.Popup className="data-closed:fade-out-0 data-closed:zoom-out-95 data-open:fade-in-0 data-open:zoom-in-95 z-50 rounded-lg bg-popover px-3 py-2 text-popover-foreground text-xs border border-border shadow-md data-closed:animate-out data-open:animate-in">
               <p
                 className="mb-1.5 text-muted-foreground"
                 suppressHydrationWarning
