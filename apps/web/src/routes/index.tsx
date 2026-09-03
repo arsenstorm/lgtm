@@ -1,26 +1,30 @@
+import { Combobox } from "@base-ui/react/combobox";
 import {
   ArrowUp,
-  CaretDown,
+  Check,
   CircleNotch,
-  GitBranch,
-  HardDrives,
-  Sparkle,
+  MagnifyingGlass,
+  Plus,
 } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { LgtmLogo } from "@/components/app-sidebar";
-import { FolderIcon } from "@/components/icons";
+import {
+  AiDeveloperIcon,
+  CodeBranchIcon,
+  FolderIcon,
+  MagicWandSparkleIcon,
+} from "@/components/icons";
+import {
+  type LlmModel,
+  MODELS,
+  ModelSelector,
+} from "@/components/model-selector";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createTask,
@@ -28,7 +32,7 @@ import {
   getProjects,
   getRunners,
 } from "@/lib/lgtm/server";
-import type { Executor } from "@/lib/lgtm/types";
+import type { ReasoningEffort } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -53,10 +57,51 @@ export const Route = createFileRoute("/")({
 const CONTROL =
   "flex items-center gap-1.5 rounded-sm text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50";
 
-const EXECUTORS: { value: Executor; label: string }[] = [
-  { value: "claude", label: "Claude" },
-  { value: "codex", label: "Codex" },
-];
+const MODEL_PREFERENCES_KEY = "lgtm-model-preferences";
+
+function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return value === "low" || value === "medium" || value === "high";
+}
+
+function readModelPreferences(): {
+  configurations: Record<string, ReasoningEffort>;
+  model: LlmModel;
+} | null {
+  try {
+    const stored = window.localStorage.getItem(MODEL_PREFERENCES_KEY);
+    const parsed = stored ? JSON.parse(stored) : null;
+    const selected = MODELS.find(
+      (candidate) => candidate.value === parsed?.model
+    );
+    if (!selected) {
+      return null;
+    }
+    const configurations: Record<string, ReasoningEffort> = {};
+    for (const candidate of MODELS) {
+      const effort = parsed?.configurations?.[candidate.value];
+      if (isReasoningEffort(effort)) {
+        configurations[candidate.value] = effort;
+      }
+    }
+    return { configurations, model: selected };
+  } catch {
+    return null;
+  }
+}
+
+function saveModelPreferences(
+  model: string,
+  configurations: Record<string, ReasoningEffort>
+) {
+  try {
+    window.localStorage.setItem(
+      MODEL_PREFERENCES_KEY,
+      JSON.stringify({ configurations, model })
+    );
+  } catch {
+    // The choices still work for this page when storage is unavailable.
+  }
+}
 
 function NewTaskPage() {
   const { projects, runners } = Route.useLoaderData();
@@ -65,26 +110,107 @@ function NewTaskPage() {
 
   // Repositories come from the projects the orchestrator already numbers;
   // the "general" (repository-less) bucket cannot host a task.
-  const repositories = projects.filter((p) => p.repository !== null);
+  const repositories = useMemo(
+    () => projects.filter((candidate) => candidate.repository !== null),
+    [projects]
+  );
   const project = repositories.find((p) => p.repository === repo);
   const repository = project?.repository ?? "";
+  const projectOptions = useMemo(
+    () =>
+      repositories.flatMap((candidate) =>
+        candidate.repository
+          ? [{ label: candidate.name, value: candidate.repository }]
+          : []
+      ),
+    [repositories]
+  );
 
   const [branch, setBranch] = useState("main");
-  const [editingBranch, setEditingBranch] = useState(false);
+  const [branches, setBranches] = useState(["main"]);
   const [runner, setRunner] = useState<string | null>(null);
-  const [executor, setExecutor] = useState<Executor>("claude");
+  const [model, setModel] = useState<LlmModel>(MODELS[0]);
+  const [modelConfigurations, setModelConfigurations] = useState<
+    Record<string, ReasoningEffort>
+  >({});
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<"enhance" | "submit" | null>(null);
 
   const busy = pending !== null;
+  const runnerOptions = useMemo(
+    () => [
+      { label: "Auto", value: "" },
+      ...runners
+        .filter((candidate) =>
+          candidate.info.executors.includes(model.executor)
+        )
+        .map((candidate) => ({
+          detail: `${candidate.running.length}/${candidate.info.slots}`,
+          label: candidate.info.name,
+          value: candidate.info.name,
+        })),
+    ],
+    [model.executor, runners]
+  );
+
+  useEffect(() => {
+    const preferences = readModelPreferences();
+    if (preferences) {
+      setModel(preferences.model);
+      setModelConfigurations(preferences.configurations);
+    }
+  }, []);
+
+  const changeModelConfiguration = useCallback(
+    (value: string, effort: ReasoningEffort) => {
+      setModelConfigurations((current) => {
+        const next = { ...current, [value]: effort };
+        saveModelPreferences(model.value, next);
+        return next;
+      });
+    },
+    [model.value]
+  );
+  const changeModel = useCallback(
+    (nextModel: LlmModel) => {
+      setModel(nextModel);
+      saveModelPreferences(nextModel.value, modelConfigurations);
+      if (
+        runner &&
+        !runners
+          .find((candidate) => candidate.info.name === runner)
+          ?.info.executors.includes(nextModel.executor)
+      ) {
+        setRunner(null);
+      }
+    },
+    [modelConfigurations, runner, runners]
+  );
+  const changeBranch = useCallback((nextBranch: string) => {
+    setBranch(nextBranch);
+    setBranches((current) =>
+      current.includes(nextBranch) ? current : [...current, nextBranch]
+    );
+  }, []);
 
   // Picking a project rewrites this page's URL rather than navigating: the
   // draft in the textarea has to survive the change.
-  function pick(next: string) {
-    navigate({ replace: true, search: { repo: next }, to: "/" });
-  }
+  const pick = useCallback(
+    (next: string) =>
+      navigate({ replace: true, search: { repo: next }, to: "/" }),
+    [navigate]
+  );
+  const changeRunner = useCallback(
+    (next: string) => setRunner(next === "" ? null : next),
+    []
+  );
+  const changeDraft = useCallback(
+    (event: React.ChangeEvent<HTMLTextAreaElement>) =>
+      setDraft(event.currentTarget.value),
+    []
+  );
 
-  async function enhance() {
+  const enhance = useCallback(async () => {
     const prompt = draft.trim();
     if (prompt === "" || repository === "" || busy) {
       return;
@@ -102,13 +228,21 @@ function NewTaskPage() {
     } finally {
       setPending(null);
     }
-  }
+  }, [busy, draft, repository]);
 
-  async function submit() {
+  const submit = useCallback(async () => {
     const prompt = draft.trim();
     if (prompt === "" || repository === "" || busy) {
       return;
     }
+    const selectedRunner = runners.find(
+      (candidate) => candidate.info.name === runner
+    );
+    const compatibleRunner = selectedRunner?.info.executors.includes(
+      model.executor
+    )
+      ? runner
+      : null;
     setPending("submit");
     try {
       const task = await createTask({
@@ -116,8 +250,10 @@ function NewTaskPage() {
           repository,
           base_branch: branch.trim() === "" ? "main" : branch.trim(),
           prompt,
-          executor,
-          runner,
+          executor: model.executor,
+          model: model.model,
+          reasoning_effort: modelConfigurations[model.value] ?? "medium",
+          runner: compatibleRunner,
         },
       });
       // The task page already narrates the whole lifecycle; nothing to stage here.
@@ -126,7 +262,28 @@ function NewTaskPage() {
       toast.error(error instanceof Error ? error.message : String(error));
       setPending(null);
     }
-  }
+  }, [
+    branch,
+    busy,
+    draft,
+    model.executor,
+    model.model,
+    model.value,
+    modelConfigurations,
+    navigate,
+    repository,
+    runner,
+    runners,
+  ]);
+  const submitOnShortcut = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        submit();
+      }
+    },
+    [submit]
+  );
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-4 py-6 sm:px-6">
@@ -136,10 +293,14 @@ function NewTaskPage() {
           {project ? (
             <>
               What should we build in{" "}
-              <RepositoryPicker
+              <CompactSwitcher
+                ariaLabel="Select project"
+                emptyMessage="No matching projects"
                 label={project.name}
-                onPick={pick}
-                repositories={repositories}
+                name="heading-project-search"
+                onValueChange={pick}
+                options={projectOptions}
+                placeholder="Search projects…"
                 trigger={
                   // The decoration keeps its muted colour; the name dims toward
                   // it and the underline drops away on hover. Chromium animates
@@ -149,13 +310,12 @@ function NewTaskPage() {
                     type="button"
                   />
                 }
+                value={repository}
               />
               ?
             </>
           ) : (
-            // Nothing is preselected, so the heading asks the question the
-            // rear pill answers: pick a project first.
-            "What should we build?"
+            "Choose a project to get started"
           )}
         </h1>
       </div>
@@ -163,17 +323,37 @@ function NewTaskPage() {
       <div className="sticky bottom-6 mt-8 flex flex-col">
         {/* The rear pill sits behind the composer and only shows its top edge:
             one step of luminance between page and card, no border. */}
-        <RepositoryPicker
-          label={project ? project.name : "Choose project"}
-          onPick={pick}
-          repositories={repositories}
-          trigger={
-            <Control
-              className="mx-3.5 -mb-4 rounded-t-[18px] bg-foreground/3 px-4 pt-2 pb-6 text-left dark:bg-foreground/4"
-              icon={FolderIcon}
-            />
-          }
-        />
+        <div className="mx-3.5 -mb-4 flex flex-wrap items-center gap-3 rounded-t-[18px] bg-foreground/3 px-4 pt-2 pb-6 text-left dark:bg-foreground/4">
+          <CompactSwitcher
+            ariaLabel="Select project"
+            emptyMessage="No matching projects"
+            label={project ? project.name : "Choose project"}
+            name="project-search"
+            onValueChange={pick}
+            options={projectOptions}
+            placeholder="Search projects…"
+            trigger={<Control icon={FolderIcon} />}
+            value={repository}
+          />
+
+          <CompactSwitcher
+            ariaLabel="Select runner"
+            emptyMessage="No matching runners"
+            label={runner ?? "Auto"}
+            name="runner-search"
+            onValueChange={changeRunner}
+            options={runnerOptions}
+            placeholder="Search runners…"
+            trigger={<Control icon={AiDeveloperIcon} />}
+            value={runner ?? ""}
+          />
+
+          <BranchSwitcher
+            branches={branches}
+            onValueChange={changeBranch}
+            value={branch}
+          />
+        </div>
 
         {/* In light mode --card equals --background, so this hairline is the
             only thing separating the composer from the page. */}
@@ -181,18 +361,13 @@ function NewTaskPage() {
           <Textarea
             aria-label="Task prompt"
             className="max-h-64 min-h-20 resize-none border-0 bg-transparent px-3 py-3 shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0 dark:bg-transparent"
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                submit();
-              }
-            }}
+            onChange={changeDraft}
+            onKeyDown={submitOnShortcut}
             placeholder="Describe your task..."
             value={draft}
           />
 
-          <div className="flex items-center gap-3 px-4 pb-4">
+          <div className="flex flex-wrap items-center gap-3 px-4 pb-4">
             <button
               className={cn(CONTROL, "disabled:opacity-40")}
               disabled={busy || draft.trim() === "" || repository === ""}
@@ -202,96 +377,34 @@ function NewTaskPage() {
               {pending === "enhance" ? (
                 <CircleNotch className="size-4 animate-spin" />
               ) : (
-                <Sparkle className="size-4" />
+                <MagicWandSparkleIcon className="size-4" />
               )}
               Enhance
             </button>
 
-            <div aria-hidden="true" className="h-4 w-px bg-border/60" />
-
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Control icon={HardDrives} />}>
-                {runner ?? "Any runner"}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem onClick={() => setRunner(null)}>
-                  Any runner
-                </DropdownMenuItem>
-                {runners.map((r) => (
-                  <DropdownMenuItem
-                    key={r.info.name}
-                    onClick={() => setRunner(r.info.name)}
-                  >
-                    {r.info.name}
-                    <span className="ml-auto text-muted-foreground text-xs">
-                      {r.running.length}/{r.info.slots}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {editingBranch ? (
-              <input
-                autoFocus
-                className="w-28 rounded-sm bg-transparent font-mono text-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                defaultValue={branch}
-                onBlur={() => setEditingBranch(false)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    setBranch(event.currentTarget.value);
-                    setEditingBranch(false);
-                  }
-                  if (event.key === "Escape") {
-                    setEditingBranch(false);
-                  }
-                }}
+            <div className="ml-auto flex min-w-0 items-center gap-2">
+              <ModelSelector
+                configurations={modelConfigurations}
+                disabled={busy}
+                model={model}
+                onConfigurationChange={changeModelConfiguration}
+                onModelChange={changeModel}
               />
-            ) : (
-              <Control icon={GitBranch} onClick={() => setEditingBranch(true)}>
-                {branch}
-              </Control>
-            )}
 
-            <div className="flex-1" />
-
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <button
-                    className="flex items-center gap-1 rounded-sm font-medium text-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                    type="button"
-                  />
-                }
+              <Button
+                aria-label="Queue task"
+                className="size-8 shrink-0 rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-40"
+                disabled={busy || draft.trim() === "" || repository === ""}
+                onClick={submit}
+                size="icon"
               >
-                {EXECUTORS.find((e) => e.value === executor)?.label}
-                <CaretDown className="size-3 text-muted-foreground" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {EXECUTORS.map(({ value, label }) => (
-                  <DropdownMenuItem
-                    key={value}
-                    onClick={() => setExecutor(value)}
-                  >
-                    {label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <Button
-              aria-label="Queue task"
-              className="ml-1 size-8 rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-40"
-              disabled={busy || draft.trim() === "" || repository === ""}
-              onClick={submit}
-              size="icon"
-            >
-              {pending === "submit" ? (
-                <CircleNotch className="animate-spin" />
-              ) : (
-                <ArrowUp />
-              )}
-            </Button>
+                {pending === "submit" ? (
+                  <CircleNotch className="animate-spin" />
+                ) : (
+                  <ArrowUp />
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -299,37 +412,256 @@ function NewTaskPage() {
   );
 }
 
-function RepositoryPicker({
-  repositories,
-  label,
-  onPick,
-  trigger,
+function BranchSwitcher({
+  branches,
+  onValueChange,
+  value,
 }: {
-  label: string;
-  onPick: (repository: string) => void;
-  repositories: { id: string; name: string; repository: string | null }[];
-  trigger: React.ReactElement;
+  branches: string[];
+  onValueChange: (branch: string) => void;
+  value: string;
 }) {
+  const [inputValue, setInputValue] = useState("");
+  const [open, setOpen] = useState(false);
+  const customBranch = inputValue.trim();
+  const canUseCustomBranch =
+    customBranch !== "" && !branches.includes(customBranch);
+  const sortedBranches = useMemo(
+    () => [...branches].sort((a, b) => a.localeCompare(b)),
+    [branches]
+  );
+
+  const selectBranch = useCallback(
+    (branch: string) => {
+      onValueChange(branch);
+      setInputValue("");
+      setOpen(false);
+    },
+    [onValueChange]
+  );
+  const handleValueChange = useCallback(
+    (branch: string | null) => {
+      if (branch) {
+        selectBranch(branch);
+      }
+    },
+    [selectBranch]
+  );
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    setInputValue("");
+    setOpen(nextOpen);
+  }, []);
+  const selectCustomBranch = useCallback(
+    () => selectBranch(customBranch),
+    [customBranch, selectBranch]
+  );
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={trigger}>{label}</DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {repositories.length === 0 ? (
-          <DropdownMenuItem disabled>
-            No repositories yet — run a task from the CLI first
-          </DropdownMenuItem>
-        ) : (
-          repositories.map((p) => (
-            <DropdownMenuItem
-              key={p.id}
-              onClick={() => p.repository && onPick(p.repository)}
-            >
-              {p.name}
-            </DropdownMenuItem>
-          ))
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Combobox.Root<string>
+      autoHighlight
+      inputValue={inputValue}
+      items={sortedBranches}
+      onInputValueChange={setInputValue}
+      onOpenChange={handleOpenChange}
+      onValueChange={handleValueChange}
+      open={open}
+      value={value}
+    >
+      <Combobox.Trigger
+        aria-label="Select base branch"
+        render={<Control icon={CodeBranchIcon} />}
+      >
+        {value}
+      </Combobox.Trigger>
+      <Combobox.Portal>
+        <Combobox.Positioner
+          align="center"
+          className="z-50"
+          side="top"
+          sideOffset={6}
+        >
+          <Combobox.Popup className="w-[min(16rem,var(--available-width))] overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md outline-none ring-1 ring-foreground/10 dark:shadow-none">
+            <Combobox.InputGroup className="flex items-center gap-2 border-foreground/10 border-b px-3">
+              <MagnifyingGlass
+                aria-hidden="true"
+                className="size-5 shrink-0 text-muted-foreground sm:size-4"
+              />
+              <Combobox.Input
+                aria-label="Search branches"
+                autoComplete="off"
+                autoFocus
+                className="h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground sm:h-9 sm:text-sm"
+                name="branch-search"
+                placeholder="Search branches…"
+                spellCheck={false}
+              />
+            </Combobox.InputGroup>
+            <Combobox.List className="max-h-44 overflow-y-auto">
+              {(branch: string) => (
+                <Combobox.Item
+                  className="m-1 flex cursor-default items-center gap-2 rounded-md px-2 py-2 text-base outline-none data-highlighted:bg-accent sm:py-1.5 sm:text-sm"
+                  key={branch}
+                  value={branch}
+                >
+                  <span className="min-w-0 flex-1 truncate">{branch}</span>
+                  {branch === value ? (
+                    <Check
+                      aria-hidden="true"
+                      className="size-5 shrink-0 sm:size-4"
+                    />
+                  ) : null}
+                </Combobox.Item>
+              )}
+            </Combobox.List>
+            {canUseCustomBranch ? (
+              <div className="border-foreground/10 border-t p-1">
+                <button
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-base outline-none hover:bg-accent focus-visible:bg-accent sm:py-1.5 sm:text-sm"
+                  onClick={selectCustomBranch}
+                  type="button"
+                >
+                  <Plus
+                    aria-hidden="true"
+                    className="size-5 shrink-0 text-muted-foreground sm:size-4"
+                  />
+                  <span className="min-w-0 truncate">
+                    Use “{customBranch}” as base
+                  </span>
+                </button>
+              </div>
+            ) : (
+              <Combobox.Empty>
+                <p className="px-3 py-2 text-base text-muted-foreground sm:text-sm">
+                  No matching branches
+                </p>
+              </Combobox.Empty>
+            )}
+          </Combobox.Popup>
+        </Combobox.Positioner>
+      </Combobox.Portal>
+    </Combobox.Root>
+  );
+}
+
+interface SwitcherOption {
+  detail?: string;
+  label: string;
+  value: string;
+}
+
+function isSameOption(item: SwitcherOption, value: SwitcherOption): boolean {
+  return item.value === value.value;
+}
+
+function CompactSwitcher({
+  ariaLabel,
+  emptyMessage,
+  label,
+  name,
+  onValueChange,
+  options,
+  placeholder,
+  trigger,
+  value,
+}: {
+  ariaLabel: string;
+  emptyMessage: string;
+  label: string;
+  name: string;
+  onValueChange: (value: string) => void;
+  options: SwitcherOption[];
+  placeholder: string;
+  trigger: React.ReactElement;
+  value: string;
+}) {
+  const [inputValue, setInputValue] = useState("");
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value) ?? null;
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    setInputValue("");
+    setOpen(nextOpen);
+  }, []);
+  const handleValueChange = useCallback(
+    (option: SwitcherOption | null) => {
+      if (option) {
+        onValueChange(option.value);
+        setOpen(false);
+      }
+    },
+    [onValueChange]
+  );
+
+  return (
+    <Combobox.Root<SwitcherOption>
+      autoHighlight
+      inputValue={inputValue}
+      isItemEqualToValue={isSameOption}
+      items={options}
+      onInputValueChange={setInputValue}
+      onOpenChange={handleOpenChange}
+      onValueChange={handleValueChange}
+      open={open}
+      value={selected}
+    >
+      <Combobox.Trigger aria-label={ariaLabel} render={trigger}>
+        {label}
+      </Combobox.Trigger>
+      <Combobox.Portal>
+        <Combobox.Positioner
+          align="center"
+          className="z-50"
+          side="top"
+          sideOffset={6}
+        >
+          <Combobox.Popup className="w-[min(16rem,var(--available-width))] overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md outline-none ring-1 ring-foreground/10 dark:shadow-none">
+            <Combobox.InputGroup className="flex items-center gap-2 border-foreground/10 border-b px-3">
+              <MagnifyingGlass
+                aria-hidden="true"
+                className="size-5 shrink-0 text-muted-foreground sm:size-4"
+              />
+              <Combobox.Input
+                aria-label={placeholder}
+                autoComplete="off"
+                autoFocus
+                className="h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground sm:h-9 sm:text-sm"
+                name={name}
+                placeholder={placeholder}
+                spellCheck={false}
+              />
+            </Combobox.InputGroup>
+            <Combobox.List className="max-h-44 overflow-y-auto">
+              {(option: SwitcherOption) => (
+                <Combobox.Item
+                  className="m-1 flex cursor-default items-center gap-2 rounded-md px-2 py-2 text-base outline-none data-highlighted:bg-accent sm:py-1.5 sm:text-sm"
+                  key={option.value}
+                  value={option}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {option.label}
+                  </span>
+                  {option.detail ? (
+                    <div className="shrink-0 text-muted-foreground text-sm tabular-nums sm:text-xs">
+                      {option.detail}
+                    </div>
+                  ) : null}
+                  {option.value === value ? (
+                    <Check
+                      aria-hidden="true"
+                      className="size-5 shrink-0 sm:size-4"
+                    />
+                  ) : null}
+                </Combobox.Item>
+              )}
+            </Combobox.List>
+            <Combobox.Empty>
+              <p className="px-3 py-2 text-base text-muted-foreground sm:text-sm">
+                {emptyMessage}
+              </p>
+            </Combobox.Empty>
+          </Combobox.Popup>
+        </Combobox.Positioner>
+      </Combobox.Portal>
+    </Combobox.Root>
   );
 }
 

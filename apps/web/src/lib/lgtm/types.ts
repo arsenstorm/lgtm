@@ -13,6 +13,7 @@ export type TaskStatus =
   | "cancelled";
 
 export type Executor = "claude" | "codex";
+export type ReasoningEffort = "low" | "medium" | "high";
 export type SandboxProfile = "off" | "standard" | "strict" | "custom";
 export type ExecutionStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -82,6 +83,7 @@ export interface TaskSpec {
   kind: string;
   model: string | null;
   prompt: string;
+  reasoning_effort: ReasoningEffort | null;
   repository: string;
   runner: string | null;
   sandbox: SandboxProfile | null;
@@ -94,6 +96,7 @@ export interface NewTaskSpec {
   executor: Executor;
   model?: string | null;
   prompt: string;
+  reasoning_effort?: ReasoningEffort | null;
   repository: string;
   runner?: string | null;
   sandbox?: SandboxProfile | null;
