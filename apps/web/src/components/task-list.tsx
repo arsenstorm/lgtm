@@ -147,7 +147,7 @@ function TaskRow({ task }: { task: Task }) {
 
         <TimeAgo
           at={task.created_at}
-          className="grow text-end text-muted-foreground tabular-nums sm:w-16 sm:grow-0"
+          className="grow text-end text-muted-foreground tabular-nums sm:w-16 sm:shrink-0 sm:grow-0"
         />
       </Link>
     </li>
