@@ -1,99 +1,108 @@
 export type TaskStatus =
-  | 'queued' | 'running' | 'awaiting_review' | 'changes_requested'
-  | 'conflicted' | 'approved' | 'merged' | 'rejected' | 'failed'
-  | 'timed_out' | 'runner_lost' | 'cancelled'
+  | "queued"
+  | "running"
+  | "awaiting_review"
+  | "changes_requested"
+  | "conflicted"
+  | "approved"
+  | "merged"
+  | "rejected"
+  | "failed"
+  | "timed_out"
+  | "runner_lost"
+  | "cancelled";
 
-export type Executor = 'claude' | 'codex'
-export type SandboxProfile = 'off' | 'standard' | 'strict' | 'custom'
-export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+export type Executor = "claude" | "codex";
+export type SandboxProfile = "off" | "standard" | "strict" | "custom";
+export type ExecutionStatus = "running" | "completed" | "failed" | "cancelled";
 
 export interface RunnerInfo {
-  name: string
-  os: string
-  arch: string
-  executors: Executor[]
-  slots: number
-  ephemeral: boolean
-  capabilities: string[]
-  cpu_cores: number
-  memory_mb: number
+  arch: string;
+  capabilities: string[];
+  cpu_cores: number;
+  ephemeral: boolean;
+  executors: Executor[];
+  memory_mb: number;
+  name: string;
+  os: string;
+  slots: number;
 }
 
 export interface RunnerStatus {
-  info: RunnerInfo
-  running: string[]
+  info: RunnerInfo;
+  running: string[];
 }
 
 export interface ValidationResult {
-  name: string
-  command: string
-  ok: boolean
-  output_tail: string
+  command: string;
+  name: string;
+  ok: boolean;
+  output_tail: string;
 }
 
 export interface Finding {
-  severity: 'blocking' | 'warning'
-  file: string
-  line: number | null
-  message: string
+  file: string;
+  line: number | null;
+  message: string;
+  severity: "blocking" | "warning";
 }
 
 export interface Review {
-  findings: Finding[]
-  executor: Executor | null
+  executor: Executor | null;
+  findings: Finding[];
 }
 
 export interface Execution {
-  attempt: number
-  runner: string
-  executor: Executor
-  model: string | null
-  started_at: number
-  finished_at: number | null
-  status: ExecutionStatus
-  error: string | null
-  cost_usd: number
-  validation: ValidationResult[]
-  artefacts: string[]
+  artefacts: string[];
+  attempt: number;
+  cost_usd: number;
+  error: string | null;
+  executor: Executor;
+  finished_at: number | null;
+  model: string | null;
+  runner: string;
+  started_at: number;
+  status: ExecutionStatus;
+  validation: ValidationResult[];
 }
 
 export interface TaskResult {
-  branch: string
-  diff: string
-  changed_files: string[]
-  validation: ValidationResult[]
-  review: Review | null
-  cost_usd: number
+  branch: string;
+  changed_files: string[];
+  cost_usd: number;
+  diff: string;
+  review: Review | null;
+  validation: ValidationResult[];
 }
 
 export interface TaskSpec {
-  repository: string
-  base_branch: string
-  prompt: string
-  executor: Executor
-  runner: string | null
-  kind: string
-  sandbox: SandboxProfile | null
-  model: string | null
-  created_by: string | null
+  base_branch: string;
+  created_by: string | null;
+  executor: Executor;
+  kind: string;
+  model: string | null;
+  prompt: string;
+  repository: string;
+  runner: string | null;
+  sandbox: SandboxProfile | null;
 }
 
 export interface Task {
-  id: string
-  spec: TaskSpec
-  status: TaskStatus
-  runner: string | null
-  created_at: number
-  result: TaskResult | null
-  error: string | null
-  executions: Execution[]
-  scratchpad: string
-  files: string[]
+  created_at: number;
+  error: string | null;
+  executions: Execution[];
+  files: string[];
+  id: string;
+  result: TaskResult | null;
+  runner: string | null;
+  scratchpad: string;
+  spec: TaskSpec;
+  status: TaskStatus;
 }
 
 export interface Overlap {
-  task: string
-  files: string[]
+  files: string[];
+  task: string;
 }
 
 /** Anything `res.json()` can hand back. Stating it explicitly lets the
@@ -104,132 +113,132 @@ export type JsonValue =
   | boolean
   | null
   | JsonValue[]
-  | { [key: string]: JsonValue }
+  | { [key: string]: JsonValue };
 
 export interface StoredEvent {
-  at: number
-  event: { type: string; [key: string]: JsonValue }
+  at: number;
+  event: { type: string; [key: string]: JsonValue };
 }
 
 export interface TaskDetail {
-  task: Task
-  events: StoredEvent[]
-  overlaps: Overlap[]
+  events: StoredEvent[];
+  overlaps: Overlap[];
+  task: Task;
 }
 
 export interface ExecutorStats {
-  executor: Executor
-  attempts: number
-  completed: number
-  failed: number
+  attempts: number;
+  completed: number;
+  executor: Executor;
+  failed: number;
 }
 
 export interface RunnerStats {
-  runner: string
-  attempts: number
-  failed: number
-  median_ms: number
+  attempts: number;
+  failed: number;
+  median_ms: number;
+  runner: string;
 }
 
 export interface Stats {
-  since: number
-  tasks: number
-  queued: number
-  running: number
-  awaiting_review: number
-  approved: number
-  merged: number
-  failed: number
-  cancelled: number
-  rejected: number
-  median_execution_ms: number
-  median_queue_ms: number
-  retried_tasks: number
-  cost_usd: number
-  by_executor: ExecutorStats[]
-  by_runner: RunnerStats[]
-  budget_daily_usd: number | null
-  spent_today: number
+  approved: number;
+  awaiting_review: number;
+  budget_daily_usd: number | null;
+  by_executor: ExecutorStats[];
+  by_runner: RunnerStats[];
+  cancelled: number;
+  cost_usd: number;
+  failed: number;
+  median_execution_ms: number;
+  median_queue_ms: number;
+  merged: number;
+  queued: number;
+  rejected: number;
+  retried_tasks: number;
+  running: number;
+  since: number;
+  spent_today: number;
+  tasks: number;
 }
 
-export type MemorySource = 'user' | 'agent'
-export type MemoryVerification = 'agent_proposed' | 'user_approved'
+export type MemorySource = "user" | "agent";
+export type MemoryVerification = "agent_proposed" | "user_approved";
 
 export interface Memory {
-  id: string
+  content: string;
+  created_at: number;
+  created_by: string | null;
+  id: string;
+  proposed_by: string | null;
   /** Null applies to every repository. */
-  repository: string | null
-  content: string
-  created_at: number
-  source: MemorySource
-  verification: MemoryVerification
-  proposed_by: string | null
-  workspace: string | null
-  created_by: string | null
+  repository: string | null;
+  source: MemorySource;
+  verification: MemoryVerification;
+  workspace: string | null;
 }
 
-export type TodoStatus = 'open' | 'in_progress' | 'done'
-export type TodoPriority = 'low' | 'medium' | 'high'
+export type TodoStatus = "open" | "in_progress" | "done";
+export type TodoPriority = "low" | "medium" | "high";
 
 export interface Todo {
-  id: string
-  repository: string | null
-  title: string
-  description: string
-  status: TodoStatus
-  created_at: number
-  task: string | null
-  priority: TodoPriority
-  assignee: string | null
-  blockers: string[]
-  workspace: string | null
-  created_by: string | null
+  assignee: string | null;
+  blockers: string[];
+  created_at: number;
+  created_by: string | null;
+  description: string;
+  id: string;
+  priority: TodoPriority;
+  repository: string | null;
+  status: TodoStatus;
+  task: string | null;
+  title: string;
+  workspace: string | null;
 }
 
 export interface TodoComment {
-  id: string
-  todo: string
   /** The user who wrote it; null for the shared token or automation. */
-  author: string | null
-  body: string
-  created_at: number
+  author: string | null;
+  body: string;
+  created_at: number;
+  id: string;
+  todo: string;
 }
 
 export interface TodoDetail {
-  todo: Todo
-  comments: TodoComment[]
+  comments: TodoComment[];
+  todo: Todo;
 }
 
 export interface Scratchpad {
-  id: string
+  archived: boolean;
+  content: string;
+  created_at: number;
+  created_by: string | null;
+  id: string;
   /** Null is not tied to a repository. */
-  repository: string | null
-  content: string
-  created_at: number
+  repository: string | null;
   /** Bumped only when content changes. */
-  updated_at: number
-  archived: boolean
-  workspace: string | null
-  created_by: string | null
+  updated_at: number;
+  workspace: string | null;
 }
 
 export interface Session {
-  id: string
-  repository: string
-  base_branch: string
+  archived: boolean;
+  base_branch: string;
+  created_at: number;
+  created_by: string | null;
+  id: string;
+  repository: string;
   /** The first message cut to 60 chars; empty until one is sent. */
-  title: string
-  created_at: number
-  workspace: string | null
-  created_by: string | null
-  archived: boolean
+  title: string;
+  workspace: string | null;
 }
 
 export interface ActivityEntry {
-  at: number
-  task: string
-  owner: string
-  repository: string
-  event: string
-  detail: string
+  at: number;
+  detail: string;
+  event: string;
+  owner: string;
+  repository: string;
+  task: string;
 }

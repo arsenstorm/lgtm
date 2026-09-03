@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import type { Icon } from "@phosphor-icons/react";
 import {
   ChatCircleText,
   CheckCircle,
@@ -12,143 +12,154 @@ import {
   Prohibit,
   Timer,
   XCircle,
-} from '@phosphor-icons/react'
-import type { Icon } from '@phosphor-icons/react'
+} from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
 
-import { TimeAgo } from '@/components/time-ago'
-import type { Task, TaskStatus } from '@/lib/lgtm/types'
-import { cn } from '@/lib/utils'
+import { TimeAgo } from "@/components/time-ago";
+import type { Task, TaskStatus } from "@/lib/lgtm/types";
+import { cn } from "@/lib/utils";
 
 /**
  * Tone groups the twelve statuses into the four things an operator actually
  * does next: wait, act, celebrate, investigate. Colour alone can't carry that,
  * so every status also keeps a distinct glyph and its spelled-out label.
  */
-type Tone = 'idle' | 'live' | 'attention' | 'done' | 'broken'
+type Tone = "idle" | "live" | "attention" | "done" | "broken";
 
 export const STATUS: Record<
   TaskStatus,
   { label: string; icon: Icon; tone: Tone }
 > = {
-  queued: { label: 'Queued', icon: Clock, tone: 'idle' },
-  running: { label: 'Running', icon: CircleNotch, tone: 'live' },
-  awaiting_review: { label: 'Awaiting review', icon: Eye, tone: 'attention' },
-  changes_requested: { label: 'Changes requested', icon: ChatCircleText, tone: 'attention' },
-  conflicted: { label: 'Conflicted', icon: GitBranch, tone: 'attention' },
-  approved: { label: 'Approved', icon: CheckCircle, tone: 'done' },
-  merged: { label: 'Merged', icon: GitMerge, tone: 'done' },
-  rejected: { label: 'Rejected', icon: Prohibit, tone: 'idle' },
-  failed: { label: 'Failed', icon: XCircle, tone: 'broken' },
-  timed_out: { label: 'Timed out', icon: Timer, tone: 'broken' },
-  runner_lost: { label: 'Runner lost', icon: Plugs, tone: 'broken' },
-  cancelled: { label: 'Cancelled', icon: MinusCircle, tone: 'idle' },
-}
+  approved: { icon: CheckCircle, label: "Approved", tone: "done" },
+  awaiting_review: { icon: Eye, label: "Awaiting review", tone: "attention" },
+  cancelled: { icon: MinusCircle, label: "Cancelled", tone: "idle" },
+  changes_requested: {
+    icon: ChatCircleText,
+    label: "Changes requested",
+    tone: "attention",
+  },
+  conflicted: { icon: GitBranch, label: "Conflicted", tone: "attention" },
+  failed: { icon: XCircle, label: "Failed", tone: "broken" },
+  merged: { icon: GitMerge, label: "Merged", tone: "done" },
+  queued: { icon: Clock, label: "Queued", tone: "idle" },
+  rejected: { icon: Prohibit, label: "Rejected", tone: "idle" },
+  runner_lost: { icon: Plugs, label: "Runner lost", tone: "broken" },
+  running: { icon: CircleNotch, label: "Running", tone: "live" },
+  timed_out: { icon: Timer, label: "Timed out", tone: "broken" },
+};
 
 const TONE_TEXT: Record<Tone, string> = {
-  idle: 'text-muted-foreground',
-  live: 'text-blue-700 dark:text-blue-400',
-  attention: 'text-amber-700 dark:text-amber-400',
-  done: 'text-emerald-700 dark:text-emerald-400',
-  broken: 'text-red-700 dark:text-red-400',
-}
+  attention: "text-amber-700 dark:text-amber-400",
+  broken: "text-red-700 dark:text-red-400",
+  done: "text-emerald-700 dark:text-emerald-400",
+  idle: "text-muted-foreground",
+  live: "text-blue-700 dark:text-blue-400",
+};
 
 const UNITS: [ms: number, suffix: string][] = [
-  [86_400_000, 'd'],
-  [3_600_000, 'h'],
-  [60_000, 'm'],
-  [1_000, 's'],
-]
+  [86_400_000, "d"],
+  [3_600_000, "h"],
+  [60_000, "m"],
+  [1000, "s"],
+];
 
 /** Coarse duration — "4h", "12d". Used for ages, windows and medians alike. */
 export function shortSpan(ms: number): string {
-  const abs = Math.max(0, ms)
+  const abs = Math.max(0, ms);
   for (const [size, suffix] of UNITS) {
-    if (abs >= size) return `${Math.floor(abs / size)}${suffix}`
+    if (abs >= size) {
+      return `${Math.floor(abs / size)}${suffix}`;
+    }
   }
-  return '0s'
+  return "0s";
 }
 
 // Superseded by <TimeAgo>; still imported by pages mid-migration.
 export function relativeAge(atMs: number): string {
-  return `${shortSpan(Date.now() - atMs)} ago`
+  return `${shortSpan(Date.now() - atMs)} ago`;
 }
 
 function firstLine(prompt: string): string {
-  const line = prompt.split('\n', 1)[0]?.trim()
-  return line ? line : '(no prompt)'
+  const line = prompt.split("\n", 1)[0]?.trim();
+  return line ? line : "(no prompt)";
 }
 
 export function TaskList({ tasks }: { tasks: Task[] }) {
   if (tasks.length === 0) {
     return (
-      <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-foreground/15 p-8 text-center">
-        <h2 className="text-base font-medium">No tasks yet</h2>
-        <p className="max-w-[52ch] text-base text-pretty text-muted-foreground sm:text-sm">
-          Tasks appear here the moment the orchestrator accepts one. Queue the first from your
-          terminal:
+      <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-xl border border-foreground/15 border-dashed p-8 text-center">
+        <h2 className="font-medium text-base">No tasks yet</h2>
+        <p className="max-w-[52ch] text-pretty text-base text-muted-foreground sm:text-sm">
+          Tasks appear here the moment the orchestrator accepts one. Queue the
+          first from your terminal:
         </p>
-        <code className="mt-1 text-sm">lgtm task &quot;fix the flaky login test&quot;</code>
+        <code className="mt-1 text-sm">
+          lgtm task &quot;fix the flaky login test&quot;
+        </code>
       </div>
-    )
+    );
   }
 
   return (
-    <ul role="list" className="-mx-2 divide-y divide-foreground/5">
+    <ul className="-mx-2 divide-y divide-foreground/5" role="list">
       {tasks.map((task) => (
         <TaskRow key={task.id} task={task} />
       ))}
     </ul>
-  )
+  );
 }
 
 function TaskRow({ task }: { task: Task }) {
-  const { label, icon: Icon, tone } = STATUS[task.status]
-  const needsHuman = tone === 'attention'
+  const { label, icon: Icon, tone } = STATUS[task.status];
+  const needsHuman = tone === "attention";
 
   return (
     <li>
       <Link
-        to="/tasks/$id"
-        params={{ id: task.id }}
         className={cn(
-          'relative flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-2 py-2.5 text-sm hover:bg-foreground/4 sm:flex-nowrap sm:gap-x-4',
+          "relative flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-2 py-2.5 text-sm hover:bg-foreground/4 sm:flex-nowrap sm:gap-x-4",
           // A bar, not just a hue: rows a human is blocking on stay findable
           // at a glance and in a screenshot printed in greyscale.
           needsHuman &&
-            'before:absolute before:inset-y-1 before:start-0 before:w-0.5 before:rounded-full before:bg-amber-500 before:content-[""]',
+            'before:absolute before:inset-y-1 before:start-0 before:w-0.5 before:rounded-full before:bg-amber-500 before:content-[""]'
         )}
+        params={{ id: task.id }}
+        to="/tasks/$id"
       >
         <span
           className={cn(
-            'flex w-40 shrink-0 items-center gap-1.5 font-medium whitespace-nowrap',
-            TONE_TEXT[tone],
+            "flex w-40 shrink-0 items-center gap-1.5 whitespace-nowrap font-medium",
+            TONE_TEXT[tone]
           )}
         >
           <Icon
-            className={cn(
-              'size-4 h-lh shrink-0',
-              task.status === 'running' && 'motion-safe:animate-spin [animation-duration:1.8s]',
-            )}
             aria-hidden="true"
+            className={cn(
+              "size-4 h-lh shrink-0",
+              task.status === "running" &&
+                "[animation-duration:1.8s] motion-safe:animate-spin"
+            )}
           />
           {label}
         </span>
 
-        <span className="w-16 shrink-0 font-mono tabular-nums text-muted-foreground">
+        <span className="w-16 shrink-0 font-mono text-muted-foreground tabular-nums">
           {task.id.slice(0, 8)}
         </span>
 
-        <p className="order-last min-w-0 basis-full truncate text-base text-foreground sm:order-none sm:basis-auto sm:flex-1 sm:text-sm">
+        <p className="order-last min-w-0 basis-full truncate text-base text-foreground sm:order-none sm:flex-1 sm:basis-auto sm:text-sm">
           {firstLine(task.spec.prompt)}
         </p>
 
-        <span className="w-24 shrink-0 truncate text-muted-foreground">{task.runner ?? '—'}</span>
+        <span className="w-24 shrink-0 truncate text-muted-foreground">
+          {task.runner ?? "—"}
+        </span>
 
         <TimeAgo
           at={task.created_at}
-          className="grow text-end tabular-nums text-muted-foreground sm:w-16 sm:grow-0"
+          className="grow text-end text-muted-foreground tabular-nums sm:w-16 sm:grow-0"
         />
       </Link>
     </li>
-  )
+  );
 }

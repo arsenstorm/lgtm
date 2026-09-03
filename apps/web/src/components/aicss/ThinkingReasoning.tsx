@@ -1,7 +1,7 @@
 "use client";
 
-import styles from "./ThinkingReasoning.module.css";
 import { useEffect, useRef, useState } from "react";
+import styles from "./ThinkingReasoning.module.css";
 
 const SENTENCES = [
   "Reading the request and the current selection, then locating the jwt.verify call inside the auth middleware.",
@@ -32,7 +32,7 @@ export function ThinkingReasoning() {
   // the summary and the user can toggle it back open.
   const [open, setOpen] = useState(false);
   // Which soft fades to show while scrolling the unfolded reasoning.
-  const [fade, setFade] = useState({ top: false, bottom: true });
+  const [fade, setFade] = useState({ bottom: true, top: false });
   const viewportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,18 +69,22 @@ export function ThinkingReasoning() {
 
   const onScroll = () => {
     const el = viewportRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     setFade({
-      top: el.scrollTop > 1,
       bottom: el.scrollTop + el.clientHeight < el.scrollHeight - 1,
+      top: el.scrollTop > 1,
     });
   };
 
   const toggle = () => {
     const next = !open;
     if (next) {
-      setFade({ top: false, bottom: true });
-      if (viewportRef.current) viewportRef.current.scrollTop = 0;
+      setFade({ bottom: true, top: false });
+      if (viewportRef.current) {
+        viewportRef.current.scrollTop = 0;
+      }
     }
     setOpen(next);
   };
@@ -88,37 +92,67 @@ export function ThinkingReasoning() {
   return (
     <div className={styles.tr}>
       <button
-        type="button"
-        className={styles.trHeader + (done ? " " + styles.isClickable : "")}
         aria-expanded={expanded}
         aria-label="Toggle thought"
+        className={styles.trHeader + (done ? " " + styles.isClickable : "")}
         onClick={done ? toggle : undefined}
+        type="button"
       >
         {done ? (
           <span className={styles.trLabel}>
             <span className={styles.trVerb}>Thought</span> for {ELAPSED_S}s
           </span>
         ) : (
-          <span className={styles.trLabel + " " + styles.trShimmer}>Thinking…</span>
+          <span className={styles.trLabel + " " + styles.trShimmer}>
+            Thinking…
+          </span>
         )}
         {done && (
-          <svg className={styles.trChevron} viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
-            <path d="m4.5 15.75 7.5-7.5 7.5 7.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <svg
+            aria-hidden="true"
+            className={styles.trChevron}
+            height="12"
+            viewBox="0 0 24 24"
+            width="12"
+          >
+            <path
+              d="m4.5 15.75 7.5-7.5 7.5 7.5"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.8"
+            />
           </svg>
         )}
       </button>
 
-      <div className={styles.trCollapsible + (expanded ? "" : " " + styles.isCollapsed)}>
+      <div
+        className={
+          styles.trCollapsible + (expanded ? "" : " " + styles.isCollapsed)
+        }
+      >
         <div className={styles.trInner}>
           <div
-            ref={viewportRef}
-            className={styles.trViewport + (scrollable ? " " + styles.isScroll : "")}
-            style={{ height: `${viewH}px`, WebkitMaskImage: mask, maskImage: mask }}
+            className={
+              styles.trViewport + (scrollable ? " " + styles.isScroll : "")
+            }
             onScroll={scrollable ? onScroll : undefined}
+            ref={viewportRef}
+            style={{
+              height: `${viewH}px`,
+              maskImage: mask,
+              WebkitMaskImage: mask,
+            }}
           >
-            <div className={styles.trStream} style={{ transform: `translateY(${translate}px)` }}>
+            <div
+              className={styles.trStream}
+              style={{ transform: `translateY(${translate}px)` }}
+            >
               {SENTENCES.slice(0, count).map((line, i) => (
-                <p key={i} className={styles.trSentence}>{line}</p>
+                <p className={styles.trSentence} key={i}>
+                  {line}
+                </p>
               ))}
             </div>
           </div>

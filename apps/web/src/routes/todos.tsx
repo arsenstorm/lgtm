@@ -1,12 +1,24 @@
-import { CaretRight, CellSignalHigh, CellSignalLow, CellSignalMedium, CheckCircle, Circle, CircleHalf } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import {
+  CaretRight,
+  CellSignalHigh,
+  CellSignalLow,
+  CellSignalMedium,
+  CheckCircle,
+  Circle,
+  CircleHalf,
+} from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { projectName } from "@/components/app-sidebar";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { TimeAgo } from "@/components/time-ago";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { getTodos } from "@/lib/lgtm/server";
 import type { Todo, TodoPriority, TodoStatus } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
@@ -17,14 +29,21 @@ export const Route = createFileRoute("/todos")({
   errorComponent: TodosError,
 });
 
-export const MARK: Record<TodoStatus, { icon: Icon; label: string; className: string }> = {
+export const MARK: Record<
+  TodoStatus,
+  { icon: Icon; label: string; className: string }
+> = {
   open: { icon: Circle, label: "Open", className: "text-muted-foreground" },
   in_progress: {
     icon: CircleHalf,
     label: "In progress",
     className: "text-amber-600 dark:text-amber-400",
   },
-  done: { icon: CheckCircle, label: "Done", className: "text-emerald-700 dark:text-emerald-400" },
+  done: {
+    icon: CheckCircle,
+    label: "Done",
+    className: "text-emerald-700 dark:text-emerald-400",
+  },
 };
 
 // The bars read as a ramp; colour would just repeat what the shape says.
@@ -47,7 +66,9 @@ function TodosPage() {
     todos: todos
       .filter((todo) => todo.status === status)
       .sort(
-        (a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || b.created_at - a.created_at,
+        (a, b) =>
+          PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
+          b.created_at - a.created_at
       ),
   })).filter((group) => group.todos.length > 0);
 
@@ -57,7 +78,9 @@ function TodosPage() {
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <div className="flex items-baseline gap-3">
         <h1 className="font-medium text-xl tracking-tight">Todos</h1>
-        <span className="text-muted-foreground text-sm tabular-nums">{openCount} open</span>
+        <span className="text-muted-foreground text-sm tabular-nums">
+          {openCount} open
+        </span>
       </div>
 
       {groups.length === 0 ? (
@@ -83,9 +106,15 @@ function StatusGroup({ status, todos }: { status: TodoStatus; todos: Todo[] }) {
           aria-hidden="true"
           className="size-3 text-muted-foreground transition-transform duration-200 group-data-[panel-open]/header:rotate-90"
         />
-        <Mark aria-hidden="true" className={cn("size-4", className)} weight={status === "done" ? "fill" : "regular"} />
+        <Mark
+          aria-hidden="true"
+          className={cn("size-4", className)}
+          weight={status === "done" ? "fill" : "regular"}
+        />
         <span className="font-medium">{label}</span>
-        <span className="text-muted-foreground tabular-nums">{todos.length}</span>
+        <span className="text-muted-foreground tabular-nums">
+          {todos.length}
+        </span>
       </CollapsibleTrigger>
 
       <CollapsibleContent>
@@ -110,7 +139,7 @@ function TodoRow({ todo }: { todo: Todo }) {
     <Link
       className={cn(
         "flex items-center gap-2.5 rounded-md py-1.5 pr-2 pl-7 text-sm hover:bg-foreground/4",
-        done && "text-muted-foreground",
+        done && "text-muted-foreground"
       )}
       params={{ id: todo.id }}
       to="/todos/$id"
@@ -120,16 +149,28 @@ function TodoRow({ todo }: { todo: Todo }) {
         className="size-4 shrink-0 text-muted-foreground"
         role="img"
       />
-      <span className="shrink-0 font-mono text-muted-foreground text-xs">{todo.id}</span>
-      <Mark aria-label={label} className={cn("size-4 shrink-0", className)} role="img" weight={done ? "fill" : "regular"} />
+      <span className="shrink-0 font-mono text-muted-foreground text-xs">
+        {todo.id}
+      </span>
+      <Mark
+        aria-label={label}
+        className={cn("size-4 shrink-0", className)}
+        role="img"
+        weight={done ? "fill" : "regular"}
+      />
       <span className="min-w-0 truncate">{todo.title}</span>
       {todo.blockers.length > 0 && (
-        <span className="shrink-0 text-muted-foreground text-xs">blocked by {todo.blockers.length}</span>
+        <span className="shrink-0 text-muted-foreground text-xs">
+          blocked by {todo.blockers.length}
+        </span>
       )}
       <span className="ml-auto hidden shrink-0 text-muted-foreground text-xs sm:block">
         {todo.repository ? projectName(todo.repository) : "every repository"}
       </span>
-      <TimeAgo at={todo.created_at} className="w-16 shrink-0 text-end text-muted-foreground text-xs tabular-nums" />
+      <TimeAgo
+        at={todo.created_at}
+        className="w-16 shrink-0 text-end text-muted-foreground text-xs tabular-nums"
+      />
     </Link>
   );
 }

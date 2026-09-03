@@ -1,7 +1,7 @@
 "use client";
 
-import styles from "./CodeBlock.module.css";
 import { useState } from "react";
+import styles from "./CodeBlock.module.css";
 
 export function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false);
@@ -15,14 +15,58 @@ export function CodeBlock({ lang, code }: { lang: string; code: string }) {
     <div className={styles.cb}>
       <div className={styles.cbHead}>
         <span className={styles.cbFile}>
-          <svg className={styles.cbIcon} viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="m8 6-6 6 6 6M16 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          <svg
+            aria-hidden="true"
+            className={styles.cbIcon}
+            height="15"
+            viewBox="0 0 24 24"
+            width="15"
+          >
+            <path
+              d="m8 6-6 6 6 6M16 6l6 6-6 6"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.8"
+            />
+          </svg>
           <span className={styles.cbLang}>{lang}</span>
         </span>
-        <button className={styles.cbCopy} onClick={copy} aria-label={copied ? "Copied" : "Copy code"}>
+        <button
+          aria-label={copied ? "Copied" : "Copy code"}
+          className={styles.cbCopy}
+          onClick={copy}
+        >
           {copied ? (
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m4.5 12.75 6 6 9-13.5" /></svg>
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="13"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+              width="13"
+            >
+              <path d="m4.5 12.75 6 6 9-13.5" />
+            </svg>
           ) : (
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2.5" /><path d="M5 15a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2" /></svg>
+            <svg
+              aria-hidden="true"
+              fill="none"
+              height="13"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.7"
+              viewBox="0 0 24 24"
+              width="13"
+            >
+              <rect height="11" rx="2.5" width="11" x="9" y="9" />
+              <path d="M5 15a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2" />
+            </svg>
           )}
           <span>{copied ? "Copied" : "Copy"}</span>
         </button>

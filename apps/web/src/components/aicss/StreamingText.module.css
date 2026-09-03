@@ -17,9 +17,38 @@
   }
 }
 
-.prose { max-width: 100%; font-size: 14px; line-height: 19px; color: var(--st-fg, #1a1a1a); overflow-wrap: anywhere; }
-.caret { display: inline-block; width: 8px; height: 1.05em; margin-left: 2px; background: var(--st-caret, #0b0d12); vertical-align: text-bottom; animation: caret-blink 1s step-end infinite; }
+.prose {
+  max-width: 100%;
+  font-size: 14px;
+  line-height: 19px;
+  color: var(--st-fg, #1a1a1a);
+  overflow-wrap: anywhere;
+}
+.caret {
+  display: inline-block;
+  width: 8px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--st-caret, #0b0d12);
+  animation: caret-blink 1s step-end infinite;
+}
 /* solid while streaming, blink only once idle (matches the live component) */
-.caretSteady { animation: none; opacity: 1; }
-@keyframes caret-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .caret { animation: none; } }
+.caretSteady {
+  opacity: 1;
+  animation: none;
+}
+@keyframes caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    animation: none;
+  }
+}

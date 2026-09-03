@@ -1,4 +1,22 @@
 {
+  "name": "lgtm-web",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "build": "vite build",
+    "cf-typegen": "wrangler types",
+    "check": "ultracite check",
+    "deploy": "npm run build && wrangler deploy",
+    "dev": "vite dev --port 3000",
+    "fix": "ultracite fix",
+    "generate-routes": "tsr generate",
+    "prepare": "husky",
+    "preview": "npm run build && vite preview",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@phosphor-icons/react": "^2.1.10",
@@ -41,24 +59,6 @@
     "ultracite": "7.10.7",
     "vite": "^8.0.0",
     "wrangler": "^4.128.0"
-  },
-  "name": "lgtm-web",
-  "scripts": {
-    "dev": "vite dev --port 3000",
-    "generate-routes": "tsr generate",
-    "build": "vite build",
-    "preview": "npm run build && vite preview",
-    "deploy": "npm run build && wrangler deploy",
-    "cf-typegen": "wrangler types",
-    "typecheck": "tsc --noEmit",
-    "check": "ultracite check",
-    "fix": "ultracite fix",
-    "prepare": "husky"
-  },
-  "type": "module",
-  "private": true,
-  "imports": {
-    "#/*": "./src/*"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

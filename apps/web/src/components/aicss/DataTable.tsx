@@ -1,7 +1,7 @@
 "use client";
 
-import styles from "./DataTable.module.css";
 import type { CSSProperties } from "react";
+import styles from "./DataTable.module.css";
 
 // Official brand marks (paths from simple-icons, viewBox 0 0 24 24).
 const OPENAI =
@@ -14,22 +14,35 @@ const META =
 type Row = { model: string; context: string; price: string };
 
 const ROWS: Row[] = [
-  { model: "gpt-4o", context: "128k", price: "$5.00" },
-  { model: "claude-3.5", context: "200k", price: "$3.00" },
-  { model: "llama-3.1", context: "128k", price: "$0.90" },
+  { context: "128k", model: "gpt-4o", price: "$5.00" },
+  { context: "200k", model: "claude-3.5", price: "$3.00" },
+  { context: "128k", model: "llama-3.1", price: "$0.90" },
 ];
 
 function brandOf(model: string) {
-  if (model.startsWith("gpt")) return { bg: "#10a37f", glyph: OPENAI };
-  if (model.startsWith("claude")) return { bg: "#d97757", glyph: ANTHROPIC };
+  if (model.startsWith("gpt")) {
+    return { bg: "#10a37f", glyph: OPENAI };
+  }
+  if (model.startsWith("claude")) {
+    return { bg: "#d97757", glyph: ANTHROPIC };
+  }
   return { bg: "#0866ff", glyph: META };
 }
 
 function ModelIcon({ model }: { model: string }) {
   const brand = brandOf(model);
   return (
-    <span className={styles.modelIcon} style={{ background: brand.bg } as CSSProperties}>
-      <svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" aria-hidden>
+    <span
+      className={styles.modelIcon}
+      style={{ background: brand.bg } as CSSProperties}
+    >
+      <svg
+        aria-hidden
+        fill="currentColor"
+        height="9"
+        viewBox="0 0 24 24"
+        width="9"
+      >
         <path d={brand.glyph} />
       </svg>
     </span>
@@ -41,12 +54,14 @@ export function DataTable({ rows = ROWS }: { rows?: Row[] }) {
     <div className={styles.tbl}>
       <div className={styles.tblHead}>
         {["Model", "Context", "$/1M in"].map((h) => (
-          <div key={h} className={styles.tblCell}>{h}</div>
+          <div className={styles.tblCell} key={h}>
+            {h}
+          </div>
         ))}
       </div>
       <div className={styles.tblBody}>
         {rows.map((r) => (
-          <div key={r.model} className={styles.tblRow}>
+          <div className={styles.tblRow} key={r.model}>
             <div className={styles.tblCell}>
               <span className={styles.modelCell}>
                 <ModelIcon model={r.model} />

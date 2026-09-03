@@ -1,31 +1,38 @@
-import { Link } from '@tanstack/react-router'
+import { Link } from "@tanstack/react-router";
 
-import { Badge } from '@/components/ui/badge'
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import type { RunnerStatus } from '@/lib/lgtm/types'
-import { cn } from '@/lib/utils'
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import type { RunnerStatus } from "@/lib/lgtm/types";
+import { cn } from "@/lib/utils";
 
 function gigabytes(mb: number): string {
-  return mb >= 1024 ? `${Math.round(mb / 1024)} GB` : `${mb} MB`
+  return mb >= 1024 ? `${Math.round(mb / 1024)} GB` : `${mb} MB`;
 }
 
 export function RunnerList({ runners }: { runners: RunnerStatus[] }) {
   if (runners.length === 0) {
     return (
-      <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-foreground/15 p-8 text-center">
-        <h2 className="text-base font-medium">No runners connected</h2>
-        <p className="max-w-[52ch] text-base text-pretty text-muted-foreground sm:text-sm">
-          A runner registers itself over WebSocket and shows up here with its slots and
-          capabilities. Start one on the machine that should do the work:
+      <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-xl border border-foreground/15 border-dashed p-8 text-center">
+        <h2 className="font-medium text-base">No runners connected</h2>
+        <p className="max-w-[52ch] text-pretty text-base text-muted-foreground sm:text-sm">
+          A runner registers itself over WebSocket and shows up here with its
+          slots and capabilities. Start one on the machine that should do the
+          work:
         </p>
         <code className="mt-1 text-sm">lgtm runner --name my-laptop</code>
       </div>
-    )
+    );
   }
 
   return (
     <div className="@container">
-      <ul role="list" className="grid gap-4 @3xl:grid-cols-2">
+      <ul className="grid @3xl:grid-cols-2 gap-4" role="list">
         {runners.map((runner) => (
           <li key={runner.info.name}>
             <RunnerCard runner={runner} />
@@ -33,20 +40,21 @@ export function RunnerList({ runners }: { runners: RunnerStatus[] }) {
         ))}
       </ul>
     </div>
-  )
+  );
 }
 
 function RunnerCard({ runner }: { runner: RunnerStatus }) {
-  const { info, running } = runner
-  const busy = running.length
+  const { info, running } = runner;
+  const busy = running.length;
 
   return (
     <Card className="h-full">
       <CardHeader>
         <CardTitle className="truncate">{info.name}</CardTitle>
-        <div className="text-sm text-muted-foreground">
-          <span className="font-mono">{info.os}</span> · <span className="font-mono">{info.arch}</span>
-          {info.ephemeral ? ' · ephemeral' : null}
+        <div className="text-muted-foreground text-sm">
+          <span className="font-mono">{info.os}</span> ·{" "}
+          <span className="font-mono">{info.arch}</span>
+          {info.ephemeral ? " · ephemeral" : null}
         </div>
         <CardAction>
           <SlotMeter busy={busy} slots={info.slots} />
@@ -92,10 +100,10 @@ function RunnerCard({ runner }: { runner: RunnerStatus }) {
               <div className="flex flex-wrap gap-x-3 gap-y-1">
                 {running.map((id) => (
                   <Link
-                    key={id}
-                    to="/tasks/$id"
-                    params={{ id }}
                     className="font-mono tabular-nums underline-offset-4 hover:underline"
+                    key={id}
+                    params={{ id }}
+                    to="/tasks/$id"
                   >
                     {id.slice(0, 8)}
                   </Link>
@@ -106,39 +114,46 @@ function RunnerCard({ runner }: { runner: RunnerStatus }) {
         </dl>
       </CardContent>
     </Card>
-  )
+  );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dt className="text-muted-foreground text-sm">{label}</dt>
       <dd className="text-base sm:text-sm">{children}</dd>
     </div>
-  )
+  );
 }
 
 function SlotMeter({ busy, slots }: { busy: number; slots: number }) {
   return (
     <div className="flex flex-col items-end gap-1.5">
-      <div className="text-sm tabular-nums text-muted-foreground">
-        <span className="font-medium text-foreground">{busy}</span> of {slots} slots
+      <div className="text-muted-foreground text-sm tabular-nums">
+        <span className="font-medium text-foreground">{busy}</span> of {slots}{" "}
+        slots
       </div>
       <div
+        aria-label={`${busy} of ${slots} slots busy`}
         className="flex flex-wrap justify-end gap-1"
         role="img"
-        aria-label={`${busy} of ${slots} slots busy`}
       >
         {Array.from({ length: slots }, (_, slot) => (
           <span
-            key={slot}
             className={cn(
-              'h-1.5 w-6 rounded-full',
-              slot < busy ? 'bg-foreground' : 'bg-foreground/15',
+              "h-1.5 w-6 rounded-full",
+              slot < busy ? "bg-foreground" : "bg-foreground/15"
             )}
+            key={slot}
           />
         ))}
       </div>
     </div>
-  )
+  );
 }

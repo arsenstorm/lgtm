@@ -1,49 +1,49 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  ArrowElbowDownLeft,
+  ArrowsOutSimple,
   CaretDown,
   CaretUp,
-  ArrowElbowDownLeft,
+  ChatsCircle,
+  CheckSquare,
   DownloadSimple,
   ListChecks,
-  CheckSquare,
-  ArrowsOutSimple,
-  ChatsCircle,
   Terminal,
   X,
 } from "@phosphor-icons/react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import styles from "./ApprovalCard.module.css";
 
 export type ApprovalVariant = "questions" | "command" | "plan";
 
 export interface ApprovalQuestion {
   id: string;
-  prompt: string;
   options: string[];
+  prompt: string;
 }
 
 export interface ApprovalPlanStep {
+  detail?: string;
   id: string;
   title: string;
-  detail?: string;
 }
 
 const DEFAULT_QUESTIONS: ApprovalQuestion[] = [
   {
     id: "q1",
-    prompt: "Which auth approach should we use?",
     options: ["Session cookies", "JWT bearer", "OAuth only"],
+    prompt: "Which auth approach should we use?",
   },
   {
     id: "q2",
-    prompt: "Where should secrets live?",
     options: [".env.local", "Vault / secrets manager", "CI only"],
+    prompt: "Where should secrets live?",
   },
   {
     id: "q3",
-    prompt: "Ship behind a feature flag?",
     options: ["Yes - gradual rollout", "No - full release"],
+    prompt: "Ship behind a feature flag?",
   },
 ];
 
@@ -51,34 +51,34 @@ const DEFAULT_COMMAND = "pnpm db:migrate && pnpm build";
 
 const DEFAULT_PLAN: ApprovalPlanStep[] = [
   {
+    detail: "Create + apply SQL, keep rollback script",
     id: "p1",
     title: "Add migration for sessions table",
-    detail: "Create + apply SQL, keep rollback script",
   },
   {
+    detail: "Protect /account and /api/checkout",
     id: "p2",
     title: "Wire auth middleware",
-    detail: "Protect /account and /api/checkout",
   },
   {
+    detail: "Magic-link path and happy-path e2e",
     id: "p3",
     title: "Update login flow + tests",
-    detail: "Magic-link path and happy-path e2e",
   },
   {
+    detail: "Profile, sessions, and danger zone",
     id: "p4",
     title: "Add account settings page",
-    detail: "Profile, sessions, and danger zone",
   },
   {
+    detail: "Protect auth and checkout endpoints",
     id: "p5",
     title: "Tighten CSRF + rate limits",
-    detail: "Protect auth and checkout endpoints",
   },
   {
+    detail: "Changelog + support snippet",
     id: "p6",
     title: "Write rollout notes",
-    detail: "Changelog + support snippet",
   },
 ];
 
@@ -99,15 +99,17 @@ function RollingDigits({ value }: { value: string }) {
   const [dir, setDir] = useState<"up" | "down">("up");
 
   useEffect(() => {
-    if (prevRef.current === value) return;
+    if (prevRef.current === value) {
+      return;
+    }
     const from = prevRef.current;
     prevRef.current = value;
-    const fromN = parseInt(from, 10);
-    const toN = parseInt(value, 10);
+    const fromN = Number.parseInt(from, 10);
+    const toN = Number.parseInt(value, 10);
     setDir(
       Number.isFinite(fromN) && Number.isFinite(toN) && toN < fromN
         ? "down"
-        : "up",
+        : "up"
     );
     setOldVal(from);
     setNewVal(value);
@@ -140,7 +142,7 @@ function RollingDigits({ value }: { value: string }) {
         const n = chars[i] ?? "";
         if (!rolling || o === n) {
           return (
-            <span key={`${i}-${n}`} className={styles.digitStatic}>
+            <span className={styles.digitStatic} key={`${i}-${n}`}>
               {n}
             </span>
           );
@@ -148,7 +150,7 @@ function RollingDigits({ value }: { value: string }) {
         const top = dir === "down" ? n : o;
         const bottom = dir === "down" ? o : n;
         return (
-          <span key={`${i}-${o}-${n}-${dir}`} className={styles.digitRoll}>
+          <span className={styles.digitRoll} key={`${i}-${o}-${n}-${dir}`}>
             <span
               className={styles.digitRollInner}
               data-dir={dir}
@@ -170,42 +172,42 @@ function TodoDashedIcon() {
   const gap = 1 / dots - dash;
   return (
     <svg
+      aria-hidden="true"
       className={styles.todoIcon}
+      height="16"
       viewBox="0 0 24 24"
       width="16"
-      height="16"
-      aria-hidden="true"
     >
       <circle
         cx="12"
         cy="12"
-        r="9"
         fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
         pathLength={1}
+        r="9"
+        stroke="currentColor"
         strokeDasharray={`${dash} ${gap}`}
         strokeLinecap="round"
+        strokeWidth="1.8"
       />
     </svg>
   );
 }
 
 export interface ApprovalCardProps {
-  variant?: ApprovalVariant;
-  questions?: ApprovalQuestion[];
+  approveLabel?: string;
+  className?: string;
   command?: string;
   cwd?: string;
-  plan?: ApprovalPlanStep[];
-  planTitle?: string;
-  planSummary?: string;
-  planPreviewCount?: number;
-  title?: string;
-  approveLabel?: string;
-  rejectLabel?: string;
   onApprove?: (payload?: { answers?: Record<string, string> }) => void;
   onReject?: () => void;
-  className?: string;
+  plan?: ApprovalPlanStep[];
+  planPreviewCount?: number;
+  planSummary?: string;
+  planTitle?: string;
+  questions?: ApprovalQuestion[];
+  rejectLabel?: string;
+  title?: string;
+  variant?: ApprovalVariant;
 }
 
 export function ApprovalCard({
@@ -226,7 +228,7 @@ export function ApprovalCard({
 }: ApprovalCardProps) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [otherSelected, setOtherSelected] = useState<Record<string, boolean>>(
-    {},
+    {}
   );
   const [customDraft, setCustomDraft] = useState<Record<string, string>>({});
   const [step, setStep] = useState(0);
@@ -243,12 +245,17 @@ export function ApprovalCard({
   const [qTrackY, setQTrackY] = useState(0);
   const [qAnimate, setQAnimate] = useState(false);
 
-  useEffect(() => {
-    return () => {
-      if (advanceTimer.current) clearTimeout(advanceTimer.current);
-      if (autoFadeTimer.current) clearTimeout(autoFadeTimer.current);
-    };
-  }, []);
+  useEffect(
+    () => () => {
+      if (advanceTimer.current) {
+        clearTimeout(advanceTimer.current);
+      }
+      if (autoFadeTimer.current) {
+        clearTimeout(autoFadeTimer.current);
+      }
+    },
+    []
+  );
 
   const safeStep = Math.min(step, Math.max(questions.length - 1, 0));
   const allAnswered =
@@ -257,14 +264,18 @@ export function ApprovalCard({
   const stepLabel = `${safeStep + 1} / ${questions.length}`;
 
   const isOtherChoice = (q: ApprovalQuestion) => {
-    if (otherSelected[q.id]) return true;
+    if (otherSelected[q.id]) {
+      return true;
+    }
     const a = answers[q.id];
     return Boolean(a) && !q.options.includes(a);
   };
 
   const syncQuestionSlide = (animate: boolean) => {
     const item = questionRefs.current[safeStep];
-    if (!item) return;
+    if (!item) {
+      return;
+    }
     const reduce =
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -287,8 +298,12 @@ export function ApprovalCard({
   }, [variant, safeStep, questions, answers]);
 
   useEffect(() => {
-    if (variant !== "questions") return;
-    const id = requestAnimationFrame(() => syncQuestionSlide(qMeasured.current));
+    if (variant !== "questions") {
+      return;
+    }
+    const id = requestAnimationFrame(() =>
+      syncQuestionSlide(qMeasured.current)
+    );
     return () => cancelAnimationFrame(id);
   }, [variant, safeStep, questions]);
 
@@ -326,7 +341,9 @@ export function ApprovalCard({
     if (variant === "questions") {
       const a = nextAnswers ?? answers;
       const ok = questions.every((q) => Boolean(a[q.id]?.trim()));
-      if (!ok) return;
+      if (!ok) {
+        return;
+      }
       onApprove?.({ answers: a });
       return;
     }
@@ -338,15 +355,21 @@ export function ApprovalCard({
   };
 
   const cancelAutoApprove = () => {
-    if (autoUI !== "active") return;
+    if (autoUI !== "active") {
+      return;
+    }
     autoFired.current = true;
     setAutoUI("leaving");
-    if (autoFadeTimer.current) clearTimeout(autoFadeTimer.current);
+    if (autoFadeTimer.current) {
+      clearTimeout(autoFadeTimer.current);
+    }
     autoFadeTimer.current = setTimeout(() => setAutoUI("gone"), 280);
   };
 
   useEffect(() => {
-    if (variant !== "plan" || autoUI !== "active") return;
+    if (variant !== "plan" || autoUI !== "active") {
+      return;
+    }
     const id = window.setInterval(() => {
       setAutoSecs((s) => Math.max(0, s - 1));
     }, 1000);
@@ -354,8 +377,12 @@ export function ApprovalCard({
   }, [variant, autoUI]);
 
   useEffect(() => {
-    if (variant !== "plan" || autoUI !== "active") return;
-    if (autoSecs > 0 || autoFired.current) return;
+    if (variant !== "plan" || autoUI !== "active") {
+      return;
+    }
+    if (autoSecs > 0 || autoFired.current) {
+      return;
+    }
     autoFired.current = true;
     onApprove?.();
   }, [autoSecs, variant, autoUI, onApprove]);
@@ -364,7 +391,9 @@ export function ApprovalCard({
     setOtherSelected((prev) => ({ ...prev, [questionId]: false }));
     setAnswers((prev) => ({ ...prev, [questionId]: opt }));
     if (safeStep < questions.length - 1) {
-      if (advanceTimer.current) clearTimeout(advanceTimer.current);
+      if (advanceTimer.current) {
+        clearTimeout(advanceTimer.current);
+      }
       advanceTimer.current = setTimeout(() => {
         setStep((s) => Math.min(s + 1, questions.length - 1));
       }, ADVANCE_MS);
@@ -372,13 +401,18 @@ export function ApprovalCard({
   };
 
   const selectOther = (questionId: string) => {
-    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    if (advanceTimer.current) {
+      clearTimeout(advanceTimer.current);
+    }
     setOtherSelected((prev) => ({ ...prev, [questionId]: true }));
     const draft = customDraft[questionId]?.trim() ?? "";
     setAnswers((prev) => {
       const next = { ...prev };
-      if (draft) next[questionId] = draft;
-      else delete next[questionId];
+      if (draft) {
+        next[questionId] = draft;
+      } else {
+        delete next[questionId];
+      }
       return next;
     });
     requestAnimationFrame(() => {
@@ -392,15 +426,25 @@ export function ApprovalCard({
     setAnswers((prev) => {
       const next = { ...prev };
       const trimmed = text.trim();
-      if (trimmed) next[questionId] = trimmed;
-      else delete next[questionId];
+      if (trimmed) {
+        next[questionId] = trimmed;
+      } else {
+        delete next[questionId];
+      }
       return next;
     });
   };
 
   const commitCustom = (questionId: string, raw?: string) => {
-    const text = (raw ?? customDraft[questionId] ?? answers[questionId] ?? "").trim();
-    if (!text) return;
+    const text = (
+      raw ??
+      customDraft[questionId] ??
+      answers[questionId] ??
+      ""
+    ).trim();
+    if (!text) {
+      return;
+    }
     setCustomDraft((prev) => ({
       ...prev,
       [questionId]: raw ?? prev[questionId] ?? text,
@@ -409,7 +453,9 @@ export function ApprovalCard({
     const nextAnswers = { ...answers, [questionId]: text };
     setAnswers(nextAnswers);
     if (safeStep < questions.length - 1) {
-      if (advanceTimer.current) clearTimeout(advanceTimer.current);
+      if (advanceTimer.current) {
+        clearTimeout(advanceTimer.current);
+      }
       setStep((s) => Math.min(s + 1, questions.length - 1));
       return;
     }
@@ -417,7 +463,9 @@ export function ApprovalCard({
   };
 
   const goToStep = (next: number) => {
-    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    if (advanceTimer.current) {
+      clearTimeout(advanceTimer.current);
+    }
     setStep(Math.min(Math.max(next, 0), questions.length - 1));
   };
 
@@ -433,11 +481,19 @@ export function ApprovalCard({
       className={`${styles.card}${className ? ` ${className}` : ""}`}
       data-variant={variant}
       onKeyDown={(e) => {
-        if (e.key !== "Enter") return;
-        if (variant !== "questions") return;
-        if (safeStep !== questions.length - 1 || !canContinue) return;
+        if (e.key !== "Enter") {
+          return;
+        }
+        if (variant !== "questions") {
+          return;
+        }
+        if (safeStep !== questions.length - 1 || !canContinue) {
+          return;
+        }
         const el = e.target as HTMLElement;
-        if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") return;
+        if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+          return;
+        }
         if (
           el.closest(`.${styles.btnGhost}`) ||
           el.closest(`.${styles.btnPrimary}`)
@@ -450,7 +506,7 @@ export function ApprovalCard({
     >
       <div className={styles.head}>
         <span className={styles.icon} data-variant={variant}>
-          <Icon className={styles.iconSvg} aria-hidden />
+          <Icon aria-hidden className={styles.iconSvg} />
         </span>
         <div className={styles.headText}>
           <div className={styles.title}>{resolvedTitle}</div>
@@ -458,23 +514,31 @@ export function ApprovalCard({
         {variant === "plan" && (
           <div className={styles.headActions}>
             <button
-              type="button"
-              className={styles.headAction}
               aria-label="Download plan"
+              className={styles.headAction}
               onClick={(e) => e.preventDefault()}
+              type="button"
             >
-              <DownloadSimple className={styles.headActionIcon} strokeWidth={2} aria-hidden />
+              <DownloadSimple
+                aria-hidden
+                className={styles.headActionIcon}
+                strokeWidth={2}
+              />
             </button>
             <button
-              type="button"
-              className={styles.headAction}
               aria-label="Expand plan"
+              className={styles.headAction}
               onClick={(e) => {
                 e.preventDefault();
                 setPlanExpanded(true);
               }}
+              type="button"
             >
-              <ArrowsOutSimple className={styles.headActionIcon} strokeWidth={2} aria-hidden />
+              <ArrowsOutSimple
+                aria-hidden
+                className={styles.headActionIcon}
+                strokeWidth={2}
+              />
             </button>
           </div>
         )}
@@ -482,33 +546,33 @@ export function ApprovalCard({
 
       {variant === "questions" && questions.length > 0 && (
         <div
-          className={styles.questionsViewport}
-          style={qViewportH != null ? { height: qViewportH } : undefined}
-          data-animate={qAnimate ? "true" : undefined}
           aria-live="polite"
+          className={styles.questionsViewport}
+          data-animate={qAnimate ? "true" : undefined}
+          style={qViewportH == null ? undefined : { height: qViewportH }}
         >
           <div
             className={styles.questionsTrack}
-            style={{ transform: `translate3d(0, ${-qTrackY}px, 0)` }}
             data-animate={qAnimate ? "true" : undefined}
+            style={{ transform: `translate3d(0, ${-qTrackY}px, 0)` }}
           >
             {questions.map((q, qi) => {
               const active = qi === safeStep;
               return (
                 <div
+                  aria-hidden={active ? undefined : true}
+                  className={styles.question}
+                  data-active={active ? "true" : undefined}
                   key={q.id}
                   ref={(el) => {
                     questionRefs.current[qi] = el;
                   }}
-                  className={styles.question}
-                  data-active={active ? "true" : undefined}
-                  aria-hidden={active ? undefined : true}
                 >
                   <div className={styles.qPrompt}>{q.prompt}</div>
                   <div
+                    aria-label={q.prompt}
                     className={styles.options}
                     role="radiogroup"
-                    aria-label={q.prompt}
                   >
                     {q.options.map((opt, oi) => {
                       const selected =
@@ -516,20 +580,22 @@ export function ApprovalCard({
                       const letter = String.fromCharCode(65 + oi);
                       return (
                         <button
-                          key={opt}
-                          type="button"
-                          role="radio"
                           aria-checked={selected}
-                          tabIndex={active ? 0 : -1}
                           className={styles.option}
                           data-selected={selected ? "true" : undefined}
+                          key={opt}
                           onClick={(e) => {
                             e.preventDefault();
-                            if (!active) return;
+                            if (!active) {
+                              return;
+                            }
                             selectOption(q.id, opt);
                           }}
+                          role="radio"
+                          tabIndex={active ? 0 : -1}
+                          type="button"
                         >
-                          <span className={styles.key} aria-hidden>
+                          <span aria-hidden className={styles.key}>
                             {letter}
                           </span>
                           {opt}
@@ -538,7 +604,7 @@ export function ApprovalCard({
                     })}
                     {(() => {
                       const otherLetter = String.fromCharCode(
-                        65 + q.options.length,
+                        65 + q.options.length
                       );
                       const otherOn = isOtherChoice(q);
                       const draft =
@@ -550,56 +616,68 @@ export function ApprovalCard({
                           : "");
                       return (
                         <div
-                          role="radio"
                           aria-checked={otherOn}
-                          tabIndex={active ? 0 : -1}
                           className={styles.option}
-                          data-selected={otherOn ? "true" : undefined}
                           data-other="true"
+                          data-selected={otherOn ? "true" : undefined}
                           onClick={(e) => {
                             e.preventDefault();
-                            if (!active) return;
+                            if (!active) {
+                              return;
+                            }
                             selectOther(q.id);
                           }}
                           onKeyDown={(e) => {
-                            if (!active) return;
-                            if (e.target !== e.currentTarget) return;
+                            if (!active) {
+                              return;
+                            }
+                            if (e.target !== e.currentTarget) {
+                              return;
+                            }
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();
                               selectOther(q.id);
                             }
                           }}
+                          role="radio"
+                          tabIndex={active ? 0 : -1}
                         >
-                          <span className={styles.key} aria-hidden>
+                          <span aria-hidden className={styles.key}>
                             {otherLetter}
                           </span>
                           <input
-                            ref={(el) => {
-                              customInputRefs.current[q.id] = el;
-                            }}
-                            className={styles.optionInput}
-                            type="text"
-                            value={draft}
-                            placeholder="Something else…"
-                            tabIndex={active && otherOn ? 0 : -1}
                             aria-label={`Custom answer for: ${q.prompt}`}
+                            className={styles.optionInput}
+                            onChange={(e) => {
+                              if (!active) {
+                                return;
+                              }
+                              updateCustom(q.id, e.target.value);
+                            }}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (!active) return;
+                              if (!active) {
+                                return;
+                              }
                               selectOther(q.id);
-                            }}
-                            onChange={(e) => {
-                              if (!active) return;
-                              updateCustom(q.id, e.target.value);
                             }}
                             onKeyDown={(e) => {
                               e.stopPropagation();
-                              if (!active) return;
+                              if (!active) {
+                                return;
+                              }
                               if (e.key === "Enter") {
                                 e.preventDefault();
                                 commitCustom(q.id, e.currentTarget.value);
                               }
                             }}
+                            placeholder="Something else…"
+                            ref={(el) => {
+                              customInputRefs.current[q.id] = el;
+                            }}
+                            tabIndex={active && otherOn ? 0 : -1}
+                            type="text"
+                            value={draft}
                           />
                         </div>
                       );
@@ -629,9 +707,9 @@ export function ApprovalCard({
             <div className={styles.todoHead}>
               <span className={styles.todoHeadIcon}>
                 <ListChecks
+                  aria-hidden
                   className={styles.todoListIcon}
                   strokeWidth={2}
-                  aria-hidden
                 />
               </span>
               <span className={styles.todoTitle}>To-dos</span>
@@ -639,7 +717,7 @@ export function ApprovalCard({
             </div>
             <ul className={styles.todoList}>
               {planPreview.map((stepItem) => (
-                <li key={stepItem.id} className={styles.todoItem}>
+                <li className={styles.todoItem} key={stepItem.id}>
                   <span className={styles.todoIconWrap}>
                     <TodoDashedIcon />
                   </span>
@@ -656,9 +734,11 @@ export function ApprovalCard({
                 >
                   <div className={styles.todoInner}>
                     <div className={styles.todoRest}>
-                      <ul className={`${styles.todoList} ${styles.todoListFlush}`}>
+                      <ul
+                        className={`${styles.todoList} ${styles.todoListFlush}`}
+                      >
                         {planRest.map((stepItem) => (
-                          <li key={stepItem.id} className={styles.todoItem}>
+                          <li className={styles.todoItem} key={stepItem.id}>
                             <span className={styles.todoIconWrap}>
                               <TodoDashedIcon />
                             </span>
@@ -672,34 +752,44 @@ export function ApprovalCard({
                   </div>
                 </div>
                 <button
-                  type="button"
-                  className={styles.todoMore}
                   aria-expanded={planExpanded}
+                  className={styles.todoMore}
                   onClick={(e) => {
                     e.preventDefault();
                     setPlanExpanded((open) => !open);
                   }}
+                  type="button"
                 >
-                  <span className={styles.todoMoreIcon} aria-hidden>
+                  <span aria-hidden className={styles.todoMoreIcon}>
                     <svg
+                      aria-hidden
                       className={styles.todoMoreGlyph}
                       viewBox="0 0 24 24"
-                      aria-hidden
                     >
                       {planExpanded ? (
                         <rect
-                          x="4.75"
-                          y="11.25"
-                          width="14.5"
+                          fill="currentColor"
                           height="1.5"
                           rx="0.75"
-                          fill="currentColor"
+                          width="14.5"
+                          x="4.75"
+                          y="11.25"
                         />
                       ) : (
                         <>
-                          <circle cx="6" cy="12" r="1.25" fill="currentColor" />
-                          <circle cx="12" cy="12" r="1.25" fill="currentColor" />
-                          <circle cx="18" cy="12" r="1.25" fill="currentColor" />
+                          <circle cx="6" cy="12" fill="currentColor" r="1.25" />
+                          <circle
+                            cx="12"
+                            cy="12"
+                            fill="currentColor"
+                            r="1.25"
+                          />
+                          <circle
+                            cx="18"
+                            cy="12"
+                            fill="currentColor"
+                            r="1.25"
+                          />
                         </>
                       )}
                     </svg>
@@ -715,100 +805,100 @@ export function ApprovalCard({
       <div className={styles.actions}>
         {variant === "questions" ? (
           <div
-            className={styles.stepNav}
             aria-label={`Question ${safeStep + 1} of ${questions.length}`}
+            className={styles.stepNav}
           >
             <button
-              type="button"
-              className={styles.stepArrow}
               aria-label="Previous question"
+              className={styles.stepArrow}
               disabled={safeStep <= 0}
               onClick={(e) => {
                 e.preventDefault();
                 goToStep(safeStep - 1);
               }}
+              type="button"
             >
               <CaretUp
+                aria-hidden
                 className={styles.stepArrowIcon}
                 strokeWidth={2}
-                aria-hidden
               />
             </button>
-            <span className={styles.stepBadge} aria-live="polite">
+            <span aria-live="polite" className={styles.stepBadge}>
               <RollingDigits value={stepLabel} />
             </span>
             <button
-              type="button"
-              className={styles.stepArrow}
               aria-label="Next question"
+              className={styles.stepArrow}
               disabled={safeStep >= questions.length - 1}
               onClick={(e) => {
                 e.preventDefault();
                 goToStep(safeStep + 1);
               }}
+              type="button"
             >
               <CaretDown
+                aria-hidden
                 className={styles.stepArrowIcon}
                 strokeWidth={2}
-                aria-hidden
               />
             </button>
           </div>
         ) : variant === "plan" && autoUI !== "gone" ? (
           <div
+            aria-label={`Auto approve in ${autoSecs} seconds`}
+            aria-live="polite"
             className={`${styles.autoApprove}${
               autoUI === "leaving" ? ` ${styles.autoApproveOut}` : ""
             }`}
-            aria-live="polite"
-            aria-label={`Auto approve in ${autoSecs} seconds`}
           >
             <span className={styles.autoApproveTip}>
-            <button
-              type="button"
-              className={styles.autoApproveCancel}
-              aria-label="Cancel auto approve"
-              disabled={autoUI !== "active"}
-              onClick={(e) => {
-                e.preventDefault();
-                cancelAutoApprove();
-              }}
-            >
-              <svg
-                className={styles.autoApprovePie}
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                aria-hidden
+              <button
+                aria-label="Cancel auto approve"
+                className={styles.autoApproveCancel}
+                disabled={autoUI !== "active"}
+                onClick={(e) => {
+                  e.preventDefault();
+                  cancelAutoApprove();
+                }}
+                type="button"
               >
-                <circle
-                  className={styles.autoApprovePieTrack}
-                  cx="12"
-                  cy="12"
-                  r="9"
-                  fill="none"
-                  strokeWidth="1.8"
-                />
-                <circle
-                  className={styles.autoApprovePieFill}
-                  cx="12"
-                  cy="12"
-                  r="9"
-                  fill="none"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  pathLength={1}
-                  strokeDasharray={1}
-                  style={{
-                    strokeDashoffset:
-                      1 - (AUTO_APPROVE_SECS - autoSecs) / AUTO_APPROVE_SECS,
-                  }}
-                  transform="rotate(-90 12 12)"
-                />
-              </svg>
-              <span className={styles.autoApproveCancelGlyph} aria-hidden>
-                <X size={8} strokeWidth={2.5} />
-              </span>
-            </button>
+                <svg
+                  aria-hidden
+                  className={styles.autoApprovePie}
+                  height="16"
+                  viewBox="0 0 24 24"
+                  width="16"
+                >
+                  <circle
+                    className={styles.autoApprovePieTrack}
+                    cx="12"
+                    cy="12"
+                    fill="none"
+                    r="9"
+                    strokeWidth="1.8"
+                  />
+                  <circle
+                    className={styles.autoApprovePieFill}
+                    cx="12"
+                    cy="12"
+                    fill="none"
+                    pathLength={1}
+                    r="9"
+                    strokeDasharray={1}
+                    strokeLinecap="round"
+                    strokeWidth="1.8"
+                    style={{
+                      strokeDashoffset:
+                        1 - (AUTO_APPROVE_SECS - autoSecs) / AUTO_APPROVE_SECS,
+                    }}
+                    transform="rotate(-90 12 12)"
+                  />
+                </svg>
+                <span aria-hidden className={styles.autoApproveCancelGlyph}>
+                  <X size={8} strokeWidth={2.5} />
+                </span>
+              </button>
             </span>
             <span className={styles.autoApproveLabel}>
               Auto Approve in{" "}
@@ -819,34 +909,34 @@ export function ApprovalCard({
             </span>
           </div>
         ) : (
-          <span className={styles.actionsSpacer} aria-hidden />
+          <span aria-hidden className={styles.actionsSpacer} />
         )}
         <div className={styles.actionBtns}>
           <button
-            type="button"
             className={styles.btnGhost}
             onClick={(e) => {
               e.preventDefault();
               handleReject();
             }}
+            type="button"
           >
             {resolvedReject}
           </button>
           <button
-            type="button"
             className={styles.btnPrimary}
             disabled={!canContinue}
             onClick={(e) => {
               e.preventDefault();
               handleApprove();
             }}
+            type="button"
           >
             {resolvedApprove}
             <ArrowElbowDownLeft
+              aria-hidden
               className={styles.btnSubmitIcon}
               size={12}
               strokeWidth={2}
-              aria-hidden
             />
           </button>
         </div>

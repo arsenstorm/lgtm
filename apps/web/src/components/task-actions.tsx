@@ -1,78 +1,98 @@
-import { useEffect, useRef, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
-import { useRouter } from '@tanstack/react-router'
+import type { Icon } from "@phosphor-icons/react";
 import {
   ArrowCounterClockwise,
   Check,
   CircleNotch,
   PaperPlaneTilt,
   Trash,
-} from '@phosphor-icons/react'
-import type { Icon } from '@phosphor-icons/react'
-import { toast } from 'sonner'
+} from "@phosphor-icons/react";
+import { useRouter } from "@tanstack/react-router";
+import type { FormEvent, ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { approveTask, rejectTask, retryTask, sendFollowUp } from '@/lib/lgtm/server'
-import type { Task, TaskStatus } from '@/lib/lgtm/types'
-import { cn } from '@/lib/utils'
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  approveTask,
+  rejectTask,
+  retryTask,
+  sendFollowUp,
+} from "@/lib/lgtm/server";
+import type { Task, TaskStatus } from "@/lib/lgtm/types";
+import { cn } from "@/lib/utils";
 
-type Action = 'approve' | 'reject' | 'retry' | 'follow-up'
+type Action = "approve" | "reject" | "retry" | "follow-up";
 
-const REVIEWABLE: TaskStatus[] = ['awaiting_review', 'conflicted']
-const RETRYABLE: TaskStatus[] = ['failed', 'timed_out', 'runner_lost', 'cancelled']
+const REVIEWABLE: TaskStatus[] = ["awaiting_review", "conflicted"];
+const RETRYABLE: TaskStatus[] = [
+  "failed",
+  "timed_out",
+  "runner_lost",
+  "cancelled",
+];
 
 /** Long enough to read "Confirm reject", short enough that a forgotten arm
  *  cannot still be live when the next person reaches the keyboard. */
-const DISARM_MS = 4000
+const DISARM_MS = 4000;
 
 export function TaskActions({ task }: { task: Task }) {
-  const router = useRouter()
-  const [pending, setPending] = useState<Action | null>(null)
-  const [armed, setArmed] = useState(false)
-  const [followUp, setFollowUp] = useState('')
-  const rejectRef = useRef<HTMLButtonElement>(null)
+  const router = useRouter();
+  const [pending, setPending] = useState<Action | null>(null);
+  const [armed, setArmed] = useState(false);
+  const [followUp, setFollowUp] = useState("");
+  const rejectRef = useRef<HTMLButtonElement>(null);
 
   // Arming reject puts the page in a mode, and a mode nobody meant to enter has
   // to expire on its own: a pointer anywhere else, Escape, or the timeout.
   useEffect(() => {
-    if (!armed) return
+    if (!armed) {
+      return;
+    }
 
-    const disarm = () => setArmed(false)
+    const disarm = () => setArmed(false);
     const onPointerDown = (event: PointerEvent) => {
-      if (!rejectRef.current?.contains(event.target as Node)) disarm()
-    }
+      if (!rejectRef.current?.contains(event.target as Node)) {
+        disarm();
+      }
+    };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') disarm()
-    }
+      if (event.key === "Escape") {
+        disarm();
+      }
+    };
 
-    const timer = window.setTimeout(disarm, DISARM_MS)
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
+    const timer = window.setTimeout(disarm, DISARM_MS);
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
     return () => {
-      window.clearTimeout(timer)
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [armed])
+      window.clearTimeout(timer);
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [armed]);
 
-  const busy = pending !== null
+  const busy = pending !== null;
 
-  async function run(action: Action, call: () => Promise<Task>, message: string) {
-    setPending(action)
-    setArmed(false)
+  async function run(
+    action: Action,
+    call: () => Promise<Task>,
+    message: string
+  ) {
+    setPending(action);
+    setArmed(false);
     try {
-      await call()
-      toast.success(message)
-      await router.invalidate()
-      return true
+      await call();
+      toast.success(message);
+      await router.invalidate();
+      return true;
     } catch (error) {
       // The orchestrator's refusal reason is the whole message; genericising it
       // would throw away the only thing that says what to do next.
-      toast.error(error instanceof Error ? error.message : String(error))
-      return false
+      toast.error(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
-      setPending(null)
+      setPending(null);
     }
   }
 
@@ -81,75 +101,97 @@ export function TaskActions({ task }: { task: Task }) {
       <Panel>
         <div className="flex flex-wrap items-center gap-3">
           <Button
-            size="lg"
             className="relative"
             disabled={busy}
-            onClick={() => run('retry', () => retryTask({ data: task.id }), 'Task requeued')}
+            onClick={() =>
+              run("retry", () => retryTask({ data: task.id }), "Task requeued")
+            }
+            size="lg"
           >
-            <ActionIcon icon={ArrowCounterClockwise} busy={pending === 'retry'} />
+            <ActionIcon
+              busy={pending === "retry"}
+              icon={ArrowCounterClockwise}
+            />
             Retry
             <TouchTarget />
           </Button>
         </div>
-        <Hint>Queues the task again on the same runner and executor, as a new paid run.</Hint>
+        <Hint>
+          Queues the task again on the same runner and executor, as a new paid
+          run.
+        </Hint>
       </Panel>
-    )
+    );
   }
 
-  if (!REVIEWABLE.includes(task.status)) return null
+  if (!REVIEWABLE.includes(task.status)) {
+    return null;
+  }
 
   // On a conflict the agent, not the reviewer, is the one who can move the task
   // forward — so the follow-up leads and approve steps back to a quiet button.
-  const conflicted = task.status === 'conflicted'
+  const conflicted = task.status === "conflicted";
 
   async function submitFollowUp(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const text = followUp.trim()
-    if (!text || busy) return
+    event.preventDefault();
+    const text = followUp.trim();
+    if (!text || busy) {
+      return;
+    }
     const sent = await run(
-      'follow-up',
+      "follow-up",
       () => sendFollowUp({ data: { id: task.id, text } }),
-      'Follow-up sent',
-    )
-    if (sent) setFollowUp('')
+      "Follow-up sent"
+    );
+    if (sent) {
+      setFollowUp("");
+    }
   }
 
   const decide = (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3">
         <Button
-          size="lg"
-          variant={conflicted ? 'outline' : 'default'}
           className="relative"
           disabled={busy}
           onClick={() =>
-            run('approve', () => approveTask({ data: task.id }), 'Task approved — branch pushed')
+            run(
+              "approve",
+              () => approveTask({ data: task.id }),
+              "Task approved — branch pushed"
+            )
           }
+          size="lg"
+          variant={conflicted ? "outline" : "default"}
         >
-          <ActionIcon icon={Check} busy={pending === 'approve'} />
+          <ActionIcon busy={pending === "approve"} icon={Check} />
           Approve
           <TouchTarget />
         </Button>
         <Button
-          ref={rejectRef}
-          size="lg"
-          variant="destructive"
           className={cn(
-            'relative',
+            "relative",
             // The variant's own `dark:` classes outrank an unprefixed override,
             // so the armed fill has to be stated for both themes.
             armed &&
-              'bg-destructive text-destructive-foreground hover:bg-destructive/90 dark:bg-destructive dark:hover:bg-destructive/90',
+              "bg-destructive text-destructive-foreground hover:bg-destructive/90 dark:bg-destructive dark:hover:bg-destructive/90"
           )}
           disabled={busy}
           onClick={() =>
             armed
-              ? run('reject', () => rejectTask({ data: task.id }), 'Task rejected — worktree discarded')
+              ? run(
+                  "reject",
+                  () => rejectTask({ data: task.id }),
+                  "Task rejected — worktree discarded"
+                )
               : setArmed(true)
           }
+          ref={rejectRef}
+          size="lg"
+          variant="destructive"
         >
-          <ActionIcon icon={Trash} busy={pending === 'reject'} />
-          {armed ? 'Confirm reject' : 'Reject'}
+          <ActionIcon busy={pending === "reject"} icon={Trash} />
+          {armed ? "Confirm reject" : "Reject"}
           <TouchTarget />
         </Button>
       </div>
@@ -157,41 +199,43 @@ export function TaskActions({ task }: { task: Task }) {
         {/* Both strings are kept under one line at 60ch so arming the button
             does not reflow the form below it. */}
         {armed
-          ? 'Deletes the worktree and branch. This cannot be undone.'
-          : 'Approve pushes the branch. Reject discards the work.'}
+          ? "Deletes the worktree and branch. This cannot be undone."
+          : "Approve pushes the branch. Reject discards the work."}
       </Hint>
     </div>
-  )
+  );
 
   const respond = (
     <form className="flex flex-col gap-2" onSubmit={submitFollowUp}>
       <div className="flex gap-3">
         <Input
-          name="follow-up"
           aria-label="Follow-up instructions for the agent"
-          placeholder={
-            conflicted ? 'Tell the agent how to resolve the conflict…' : 'Ask for a change…'
-          }
           className="h-9 max-w-md"
-          value={followUp}
           disabled={busy}
+          name="follow-up"
           onChange={(event) => setFollowUp(event.target.value)}
+          placeholder={
+            conflicted
+              ? "Tell the agent how to resolve the conflict…"
+              : "Ask for a change…"
+          }
+          value={followUp}
         />
         <Button
-          type="submit"
-          size="lg"
-          variant={conflicted ? 'default' : 'outline'}
           className="relative"
-          disabled={busy || followUp.trim() === ''}
+          disabled={busy || followUp.trim() === ""}
+          size="lg"
+          type="submit"
+          variant={conflicted ? "default" : "outline"}
         >
-          <ActionIcon icon={PaperPlaneTilt} busy={pending === 'follow-up'} />
+          <ActionIcon busy={pending === "follow-up"} icon={PaperPlaneTilt} />
           Send follow-up
           <TouchTarget />
         </Button>
       </div>
       <Hint>Resumes the agent with these instructions, as a new paid run.</Hint>
     </form>
-  )
+  );
 
   return (
     <Panel>
@@ -199,7 +243,7 @@ export function TaskActions({ task }: { task: Task }) {
       <div className="border-t" />
       {conflicted ? decide : respond}
     </Panel>
-  )
+  );
 }
 
 function Panel({ children }: { children: ReactNode }) {
@@ -210,27 +254,32 @@ function Panel({ children }: { children: ReactNode }) {
     >
       {children}
     </section>
-  )
+  );
 }
 
 function Hint({ children, live }: { children: ReactNode; live?: boolean }) {
   return (
     <p
-      aria-live={live ? 'polite' : undefined}
-      className="max-w-[60ch] text-xs text-muted-foreground text-pretty"
+      aria-live={live ? "polite" : undefined}
+      className="max-w-[60ch] text-pretty text-muted-foreground text-xs"
     >
       {children}
     </p>
-  )
+  );
 }
 
 /** Swapping the leading icon for the spinner, rather than adding one, keeps the
  *  button the same width while it works. */
 function ActionIcon({ icon: Icon, busy }: { icon: Icon; busy: boolean }) {
   if (busy) {
-    return <CircleNotch data-icon="inline-start" className="motion-safe:animate-spin" />
+    return (
+      <CircleNotch
+        className="motion-safe:animate-spin"
+        data-icon="inline-start"
+      />
+    );
   }
-  return <Icon data-icon="inline-start" />
+  return <Icon data-icon="inline-start" />;
 }
 
 /** A 36px control is under the touch minimum; this grows the tap area on coarse
@@ -239,7 +288,7 @@ function TouchTarget() {
   return (
     <span
       aria-hidden="true"
-      className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
+      className="-translate-1/2 absolute top-1/2 left-1/2 pointer-fine:hidden size-[max(100%,3rem)]"
     />
-  )
+  );
 }
