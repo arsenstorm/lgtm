@@ -1,10 +1,13 @@
 import { Link } from "@tanstack/react-router";
 
+import { Orb } from "@/components/aicss/Orb";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardAction,
   CardContent,
+  CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -14,6 +17,10 @@ import { cn } from "@/lib/utils";
 function gigabytes(mb: number): string {
   return mb >= 1024 ? `${Math.round(mb / 1024)} GB` : `${mb} MB`;
 }
+
+// os:* and arch:* capabilities repeat the platform line in the header, so the
+// chip row keeps only the tools a task could actually require.
+const PLATFORM_CAPABILITY = /^(os|arch):/;
 
 export function RunnerList({ runners }: { runners: RunnerStatus[] }) {
   if (runners.length === 0) {
@@ -46,88 +53,109 @@ export function RunnerList({ runners }: { runners: RunnerStatus[] }) {
 function RunnerCard({ runner }: { runner: RunnerStatus }) {
   const { info, running } = runner;
   const busy = running.length;
+  const tools = info.capabilities.filter(
+    (capability) => !PLATFORM_CAPABILITY.test(capability)
+  );
 
   return (
-    <Card className="h-full">
+    <Card className="h-full justify-between gap-4">
       <CardHeader>
-        <CardTitle className="truncate">{info.name}</CardTitle>
-        <div className="text-muted-foreground text-sm">
-          <span className="font-mono">{info.os}</span> ·{" "}
-          <span className="font-mono">{info.arch}</span>
-          {info.ephemeral ? " · ephemeral" : null}
-        </div>
+        <CardTitle className="flex items-baseline gap-2">
+          <span className="truncate">{info.name}</span>
+          {info.ephemeral ? <Badge variant="outline">ephemeral</Badge> : null}
+        </CardTitle>
+        <CardDescription className="font-mono">
+          {info.os} · {info.arch}
+        </CardDescription>
         <CardAction>
           <SlotMeter busy={busy} slots={info.slots} />
         </CardAction>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
-          <Field label="Executors">
-            <div className="flex flex-wrap gap-1">
-              {info.executors.map((executor) => (
-                <Badge key={executor} variant="outline">
-                  {executor}
-                </Badge>
-              ))}
-            </div>
-          </Field>
-          <Field label="Hardware">
-            <span className="tabular-nums">
-              {info.cpu_cores} cores · {gigabytes(info.memory_mb)}
-            </span>
-          </Field>
+        <dl className="grid grid-cols-3">
+          <Stat className="pr-4" label="Cores">
+            <span className="tabular-nums">{info.cpu_cores}</span>
+          </Stat>
+          <Stat className="border-border border-l px-4" label="Memory">
+            <span className="tabular-nums">{gigabytes(info.memory_mb)}</span>
+          </Stat>
+          <Stat className="border-border border-l pl-4" label="Executors">
+            {info.executors.join(", ")}
+          </Stat>
         </dl>
 
-        <dl className="flex flex-col gap-3">
-          <Field label="Capabilities">
-            {info.capabilities.length === 0 ? (
-              <span className="text-muted-foreground">none declared</span>
+        <dl>
+          <Stat label="Tools">
+            {tools.length === 0 ? (
+              <span>none declared</span>
             ) : (
-              <div className="flex flex-wrap gap-1">
-                {info.capabilities.map((capability) => (
-                  <Badge key={capability} variant="secondary">
+              <span className="flex flex-wrap gap-1">
+                {tools.map((capability) => (
+                  <Badge
+                    className="font-mono font-normal"
+                    key={capability}
+                    variant="secondary"
+                  >
                     {capability}
                   </Badge>
                 ))}
-              </div>
+              </span>
             )}
-          </Field>
-          <Field label="Running now">
-            {busy === 0 ? (
-              <span className="text-muted-foreground">idle</span>
-            ) : (
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
-                {running.map((id) => (
-                  <Link
-                    className="font-mono tabular-nums underline-offset-4 hover:underline"
-                    key={id}
-                    params={{ id }}
-                    to="/tasks/$id"
-                  >
-                    {id.slice(0, 8)}
-                  </Link>
-                ))}
-              </div>
-            )}
-          </Field>
+          </Stat>
         </dl>
       </CardContent>
+
+      <CardFooter className="gap-2.5">
+        {busy === 0 ? (
+          <>
+            <Orb label="Idle" size={18} variant="G5" />
+            <span className="text-muted-foreground">Idle</span>
+          </>
+        ) : (
+          <>
+            <Orb label="Working" size={18} variant="S3" />
+            <span className="text-muted-foreground">
+              Running{" "}
+              <span className="font-medium text-foreground tabular-nums">
+                {busy}
+              </span>{" "}
+              {busy === 1 ? "task" : "tasks"}
+            </span>
+            <span className="flex flex-wrap gap-x-3 gap-y-1">
+              {running.map((id) => (
+                <Link
+                  className="font-mono tabular-nums underline-offset-4 hover:underline"
+                  key={id}
+                  params={{ id }}
+                  to="/tasks/$id"
+                >
+                  {id.slice(0, 8)}
+                </Link>
+              ))}
+            </span>
+          </>
+        )}
+      </CardFooter>
     </Card>
   );
 }
 
-function Field({
+function Stat({
   label,
+  className,
   children,
 }: {
-  label: string;
   children: React.ReactNode;
+  className?: string;
+  label: string;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <dt className="text-muted-foreground text-sm">{label}</dt>
-      <dd className="text-base sm:text-sm">{children}</dd>
+    <div className={cn("flex min-w-0 flex-col gap-1", className)}>
+      <dt className="font-medium text-sm">{label}</dt>
+      <dd className="text-muted-foreground text-sm [&_a]:text-foreground">
+        {children}
+      </dd>
     </div>
   );
 }
