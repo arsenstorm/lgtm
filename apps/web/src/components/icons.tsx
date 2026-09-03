@@ -1,4 +1,5 @@
-import type { SVGProps } from "react";
+import type { ComponentType, SVGProps } from "react";
+import { useId } from "react";
 
 type IconProps = SVGProps<SVGSVGElement>;
 
@@ -362,6 +363,299 @@ export function SidebarToggleIcon({
         d="M14.25,2H3.75c-1.517,0-2.75,1.233-2.75,2.75V13.25c0,1.517,1.233,2.75,2.75,2.75H14.25c1.517,0,2.75-1.233,2.75-2.75V4.75c0-1.517-1.233-2.75-2.75-2.75Zm1.25,11.25c0,.689-.561,1.25-1.25,1.25H7V3.5h7.25c.689,0,1.25,.561,1.25,1.25V13.25Z"
         fill="currentColor"
       />
+    </Base>
+  );
+}
+
+export type IconComponent = ComponentType<IconProps>;
+
+const ROTATION = {
+  down: "rotate(90 9 9)",
+  left: "rotate(180 9 9)",
+  right: undefined,
+  up: "rotate(-90 9 9)",
+} as const;
+
+/** One glyph turned, so a disclosure can animate between two directions. */
+export function ChevronIcon({
+  direction = "right",
+  ...props
+}: { direction?: keyof typeof ROTATION } & IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="M13.28 8.46999L7.03 2.21999C6.737 1.92699 6.262 1.92699 5.969 2.21999C5.676 2.51299 5.676 2.98803 5.969 3.28103L11.689 9.001L5.969 14.721C5.676 15.014 5.676 15.489 5.969 15.782C6.115 15.928 6.307 16.002 6.499 16.002C6.691 16.002 6.883 15.929 7.029 15.782L13.279 9.53201C13.572 9.23901 13.572 8.76403 13.279 8.47103L13.28 8.46999Z"
+        fill="currentColor"
+        transform={ROTATION[direction]}
+      />
+    </Base>
+  );
+}
+
+/** The arc fades along its length; ids come from `useId` so two spinners on
+ *  one page do not share a gradient. */
+export function LoaderIcon(props: IconProps) {
+  const id = useId();
+  const arc =
+    "M9 16.25C13.0041 16.25 16.25 13.0041 16.25 9C16.25 4.99594 13.0041 1.75 9 1.75";
+  const fade =
+    "M9 16.25C4.99594 16.25 1.75 13.0041 1.75 9C1.75 4.99594 4.99594 1.75 9 1.75";
+  return (
+    <Base {...props}>
+      <defs>
+        <linearGradient
+          gradientUnits="userSpaceOnUse"
+          id={`${id}a`}
+          x1="9"
+          x2="9"
+          y1="2.5"
+          y2="16.25"
+        >
+          <stop stopColor="currentColor" stopOpacity="0.5" />
+          <stop offset="1" stopColor="currentColor" />
+        </linearGradient>
+        <linearGradient
+          gradientUnits="userSpaceOnUse"
+          id={`${id}b`}
+          x1="9"
+          x2="9"
+          y1="2.5"
+          y2="16.25"
+        >
+          <stop stopColor="currentColor" stopOpacity="0.5" />
+          <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={arc} stroke={`url(#${id}a)`} strokeWidth="1.5" />
+      <path d={fade} stroke={`url(#${id}b)`} strokeWidth="1.5" />
+      <circle cx="9" cy="16.25" fill="currentColor" r="0.75" />
+    </Base>
+  );
+}
+
+export function WarningIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path {...STROKE} d="M9 2.75V10.75" />
+      <path
+        d="M9 16C9.551 16 10 15.551 10 15C10 14.449 9.551 14 9 14C8.449 14 8 14.449 8 15C8 15.551 8.449 16 9 16Z"
+        fill="currentColor"
+      />
+    </Base>
+  );
+}
+
+export function ArrowBackIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="M13.75,15H4.25c-1.517,0-2.75-1.233-2.75-2.75v-3c0-.414,.336-.75,.75-.75s.75,.336,.75,.75v3c0,.689,.561,1.25,1.25,1.25H13.75c.689,0,1.25-.561,1.25-1.25V6.75c0-.689-.561-1.25-1.25-1.25H4.008c-.414,0-.75-.336-.75-.75s.336-.75,.75-.75H13.75c1.517,0,2.75,1.233,2.75,2.75v5.5c0,1.517-1.233,2.75-2.75,2.75Z"
+        fill="currentColor"
+      />
+      <path
+        d="M6.75,8.5c-.192,0-.384-.073-.53-.22l-2.992-2.992c-.293-.293-.293-.768,0-1.061L6.22,1.235c.293-.293,.768-.293,1.061,0s.293,.768,0,1.061l-2.462,2.462,2.462,2.462c.293,.293,.293,.768,0,1.061-.146,.146-.338,.22-.53,.22Z"
+        fill="currentColor"
+      />
+    </Base>
+  );
+}
+
+export function ArrowUpIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path {...STROKE} d="M9 2.75V15.25" />
+      <path {...STROKE} d="M4.75 7L9 2.75L13.25 7" />
+    </Base>
+  );
+}
+
+export function ArchiveIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="M2.75 5.25H15.25V13.75C15.25 14.854 14.354 15.75 13.25 15.75H4.75C3.646 15.75 2.75 14.854 2.75 13.75V5.25Z"
+        fill="currentColor"
+        fillOpacity="0.3"
+      />
+      <path {...STROKE} d="M2.75 5.25L5 2.25H13L15.25 5.25" />
+      <path
+        {...STROKE}
+        d="M2.75 5.25H15.25V13.75C15.25 14.854 14.354 15.75 13.25 15.75H4.75C3.646 15.75 2.75 14.854 2.75 13.75V5.25Z"
+      />
+      <path {...STROKE} d="M11 8.25H7" />
+    </Base>
+  );
+}
+
+export function CheckIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="M6.5001 14C6.3077 14 6.1163 13.9268 5.9698 13.7803L2.21981 10.0303C1.92681 9.7373 1.92681 9.2627 2.21981 8.9698C2.51281 8.6769 2.98741 8.6768 3.28031 8.9698L6.50001 12.1895L14.7197 3.9698C15.0127 3.6768 15.4873 3.6768 15.7802 3.9698C16.0731 4.2628 16.0732 4.7374 15.7802 5.0303L7.03022 13.7803C6.88372 13.9268 6.6925 14 6.5001 14Z"
+        fill="currentColor"
+      />
+    </Base>
+  );
+}
+
+export function CircleCheckIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="M9.00012 17C13.4184 17 17.0001 13.4183 17.0001 9C17.0001 4.58172 13.4184 1 9.00012 1C4.58184 1 1.00012 4.58172 1.00012 9C1.00012 13.4183 4.58184 17 9.00012 17Z"
+        fill="currentColor"
+        opacity="0.4"
+      />
+      <path
+        d="M8.00012 12.5C7.78822 12.5 7.58512 12.4102 7.44252 12.252L5.19252 9.752C4.91522 9.4439 4.94051 8.9698 5.24821 8.6924C5.55581 8.4155 6.02851 8.44 6.30781 8.7481L7.95622 10.5801L11.6564 5.79151C11.9103 5.46341 12.381 5.40329 12.7091 5.65669C13.0362 5.90959 13.0968 6.3808 12.8439 6.7085L8.59391 12.2085C8.45721 12.3848 8.25012 12.4912 8.02852 12.4995C8.01872 12.5 8.00982 12.5 8.00012 12.5Z"
+        fill="currentColor"
+      />
+    </Base>
+  );
+}
+
+export function CircleWarningIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="M9 16.25C13.004 16.25 16.25 13.004 16.25 9C16.25 4.996 13.004 1.75 9 1.75C4.996 1.75 1.75 4.996 1.75 9C1.75 13.004 4.996 16.25 9 16.25Z"
+        fill="currentColor"
+        opacity="0.3"
+      />
+      <path
+        {...STROKE}
+        d="M9 16.25C13.004 16.25 16.25 13.004 16.25 9C16.25 4.996 13.004 1.75 9 1.75C4.996 1.75 1.75 4.996 1.75 9C1.75 13.004 4.996 16.25 9 16.25Z"
+      />
+      <path {...STROKE} d="M9 5.431V9.5" />
+      <path
+        d="M9 13.417C8.448 13.417 8 12.968 8 12.417C8 11.866 8.448 11.417 9 11.417C9.552 11.417 10 11.866 10 12.417C10 12.968 9.552 13.417 9 13.417Z"
+        fill="currentColor"
+      />
+    </Base>
+  );
+}
+
+export function CircleXIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="M9 16.25C13.0041 16.25 16.25 13.0041 16.25 9C16.25 4.99594 13.0041 1.75 9 1.75C4.99594 1.75 1.75 4.99594 1.75 9C1.75 13.0041 4.99594 16.25 9 16.25Z"
+        fill="currentColor"
+        fillOpacity="0.3"
+      />
+      <path
+        {...STROKE}
+        d="M9 16.25C13.0041 16.25 16.25 13.0041 16.25 9C16.25 4.99594 13.0041 1.75 9 1.75C4.99594 1.75 1.75 4.99594 1.75 9C1.75 13.0041 4.99594 16.25 9 16.25Z"
+      />
+      <path {...STROKE} d="M6.25 6.25L11.75 11.75" />
+      <path {...STROKE} d="M11.75 6.25L6.25 11.75" />
+    </Base>
+  );
+}
+
+export function ComposeIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="M7.75 10.25C7.75 10.25 10.0838 10.1662 10.909 9.34101L15.784 4.46601C16.4053 3.84471 16.4053 2.83731 15.784 2.21601C15.1627 1.59471 14.1553 1.59471 13.534 2.21601L8.659 7.09101C7.8809 7.86911 7.75 10.25 7.75 10.25Z"
+        fill="currentColor"
+        fillOpacity="0.3"
+      />
+      <path
+        {...STROKE}
+        d="M15.25 9.2422V13.25C15.25 14.355 14.355 15.25 13.25 15.25H4.75C3.645 15.25 2.75 14.355 2.75 13.25V4.75C2.75 3.645 3.645 2.75 4.75 2.75H8.75781"
+      />
+      <path
+        {...STROKE}
+        d="M7.75 10.25C7.75 10.25 10.0838 10.1662 10.909 9.34101L15.784 4.46601C16.4053 3.84471 16.4053 2.83731 15.784 2.21601C15.1627 1.59471 14.1553 1.59471 13.534 2.21601L8.659 7.09101C7.8809 7.86911 7.75 10.25 7.75 10.25Z"
+      />
+    </Base>
+  );
+}
+
+export function SearchIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path {...STROKE} d="M15.75 15.75L11.6386 11.6386" />
+      <path
+        {...STROKE}
+        d="M7.75 13.25C10.7875 13.25 13.25 10.7875 13.25 7.75C13.25 4.7125 10.7875 2.25 7.75 2.25C4.7125 2.25 2.25 4.7125 2.25 7.75C2.25 10.7875 4.7125 13.25 7.75 13.25Z"
+      />
+    </Base>
+  );
+}
+
+export function PencilIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="M13.953 7.57801L15.062 6.46901C15.648 5.88301 15.648 4.93301 15.062 4.34801L13.653 2.93901C13.067 2.35301 12.117 2.35301 11.532 2.93901L10.423 4.04801L13.953 7.57801Z"
+        fill="currentColor"
+        fillOpacity="0.3"
+      />
+      <path
+        {...STROKE}
+        d="M13.953 7.57801L15.062 6.46901C15.648 5.88301 15.648 4.93301 15.062 4.34801L13.653 2.93901C13.067 2.35301 12.117 2.35301 11.532 2.93901L10.423 4.04801L13.953 7.57801Z"
+      />
+      <path
+        {...STROKE}
+        d="M8.6544 5.81464L4.147 10.322C3.897 10.572 3.718 10.884 3.627 11.226L2.5 15.499L6.773 14.372C7.115 14.282 7.427 14.102 7.677 13.852L12.1844 9.34463"
+      />
+      <path {...STROKE} d="M10.4044 7.56464L6.26501 11.704" />
+    </Base>
+  );
+}
+
+export function PlusIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path {...STROKE} d="M9 3.25V14.75" />
+      <path {...STROKE} d="M3.25 9H14.75" />
+    </Base>
+  );
+}
+
+export function TagIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M3.25,2.25h4.922c.53,0,1.039,.211,1.414,.586l5.75,5.75c.781,.781,.781,2.047,0,2.828l-3.922,3.922c-.781,.781-2.047,.781-2.828,0L2.836,9.586c-.375-.375-.586-.884-.586-1.414V3.25c0-.552,.448-1,1-1Z"
+      />
+      <circle cx="6.25" cy="6.25" fill="currentColor" r="1.25" />
+    </Base>
+  );
+}
+
+export function TrashIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="M3.40771 5L3.90253 14.3892C3.97873 15.8531 5.18472 17 6.64862 17H11.3527C12.8166 17 14.0226 15.853 14.0988 14.3896L14.5936 5H3.40771Z"
+        fill="currentColor"
+        opacity="0.4"
+      />
+      <path
+        d="M7.37407 14.0001C6.98007 14.0001 6.64908 13.69 6.62608 13.2901L6.37608 8.7901C6.35408 8.3801 6.67008 8.02006 7.08308 8.00006C7.48908 7.98006 7.85107 8.29002 7.87407 8.71002L8.12407 13.21C8.14707 13.62 7.83007 13.9801 7.41707 14.0001H7.37407Z"
+        fill="currentColor"
+      />
+      <path
+        d="M10.6261 14.0001H10.5831C10.1701 13.9801 9.85408 13.62 9.87608 13.21L10.1261 8.71002C10.1491 8.29012 10.4981 7.98006 10.9171 8.00006C11.3301 8.02006 11.6471 8.3801 11.6241 8.7901L11.3741 13.2901C11.3521 13.69 11.0211 14.0001 10.6261 14.0001Z"
+        fill="currentColor"
+      />
+      <path
+        d="M15.25 4H12V2.75C12 1.7852 11.2148 1 10.25 1H7.75C6.7852 1 6 1.7852 6 2.75V4H2.75C2.3359 4 2 4.3359 2 4.75C2 5.1641 2.3359 5.5 2.75 5.5H15.25C15.6641 5.5 16 5.1641 16 4.75C16 4.3359 15.6641 4 15.25 4ZM7.5 2.75C7.5 2.6143 7.6143 2.5 7.75 2.5H10.25C10.3857 2.5 10.5 2.6143 10.5 2.75V4H7.5V2.75Z"
+        fill="currentColor"
+      />
+    </Base>
+  );
+}
+
+export function XIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path {...STROKE} d="M14 4L4 14" />
+      <path {...STROKE} d="M4 4L14 14" />
     </Base>
   );
 }
