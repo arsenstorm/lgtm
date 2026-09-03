@@ -1,18 +1,17 @@
-import type { Icon } from "@phosphor-icons/react";
 import {
   ArrowCounterClockwise,
   Check,
-  CircleNotch,
   PaperPlaneTilt,
   Trash,
 } from "@phosphor-icons/react";
-import { useRouter } from "@tanstack/react-router";
 import type { FormEvent, ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useState } from "react";
 
+import { ActionIcon } from "@/components/action-icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAction } from "@/hooks/use-action";
+import { ARMED_CLASS, useArmedConfirm } from "@/hooks/use-armed-confirm";
 import {
   approveTask,
   rejectTask,
@@ -32,69 +31,10 @@ const RETRYABLE: TaskStatus[] = [
   "cancelled",
 ];
 
-/** Long enough to read "Confirm reject", short enough that a forgotten arm
- *  cannot still be live when the next person reaches the keyboard. */
-const DISARM_MS = 4000;
-
 export function TaskActions({ task }: { task: Task }) {
-  const router = useRouter();
-  const [pending, setPending] = useState<Action | null>(null);
-  const [armed, setArmed] = useState(false);
   const [followUp, setFollowUp] = useState("");
-  const rejectRef = useRef<HTMLButtonElement>(null);
-
-  // Arming reject puts the page in a mode, and a mode nobody meant to enter has
-  // to expire on its own: a pointer anywhere else, Escape, or the timeout.
-  useEffect(() => {
-    if (!armed) {
-      return;
-    }
-
-    const disarm = () => setArmed(false);
-    const onPointerDown = (event: PointerEvent) => {
-      if (!rejectRef.current?.contains(event.target as Node)) {
-        disarm();
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        disarm();
-      }
-    };
-
-    const timer = window.setTimeout(disarm, DISARM_MS);
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [armed]);
-
-  const busy = pending !== null;
-
-  async function run(
-    action: Action,
-    call: () => Promise<Task>,
-    message: string
-  ) {
-    setPending(action);
-    setArmed(false);
-    try {
-      await call();
-      toast.success(message);
-      await router.invalidate();
-      return true;
-    } catch (error) {
-      // The orchestrator's refusal reason is the whole message; genericising it
-      // would throw away the only thing that says what to do next.
-      toast.error(error instanceof Error ? error.message : String(error));
-      return false;
-    } finally {
-      setPending(null);
-    }
-  }
+  const { armed, arm, disarm, ref: rejectRef } = useArmedConfirm();
+  const { pending, busy, run } = useAction<Action>({ onStart: disarm });
 
   if (RETRYABLE.includes(task.status)) {
     return (
@@ -169,13 +109,7 @@ export function TaskActions({ task }: { task: Task }) {
           <TouchTarget />
         </Button>
         <Button
-          className={cn(
-            "relative",
-            // The variant's own `dark:` classes outrank an unprefixed override,
-            // so the armed fill has to be stated for both themes.
-            armed &&
-              "bg-destructive text-destructive-foreground hover:bg-destructive/90 dark:bg-destructive dark:hover:bg-destructive/90"
-          )}
+          className={cn("relative", armed && ARMED_CLASS)}
           disabled={busy}
           onClick={() =>
             armed
@@ -184,7 +118,7 @@ export function TaskActions({ task }: { task: Task }) {
                   () => rejectTask({ data: task.id }),
                   "Task rejected — worktree discarded"
                 )
-              : setArmed(true)
+              : arm()
           }
           ref={rejectRef}
           size="lg"
@@ -266,20 +200,6 @@ function Hint({ children, live }: { children: ReactNode; live?: boolean }) {
       {children}
     </p>
   );
-}
-
-/** Swapping the leading icon for the spinner, rather than adding one, keeps the
- *  button the same width while it works. */
-function ActionIcon({ icon: Icon, busy }: { icon: Icon; busy: boolean }) {
-  if (busy) {
-    return (
-      <CircleNotch
-        className="motion-safe:animate-spin"
-        data-icon="inline-start"
-      />
-    );
-  }
-  return <Icon data-icon="inline-start" />;
 }
 
 /** A 36px control is under the touch minimum; this grows the tap area on coarse

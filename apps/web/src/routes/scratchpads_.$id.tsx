@@ -1,27 +1,21 @@
-import type { Icon } from "@phosphor-icons/react";
-import {
-  Archive,
-  ArrowCounterClockwise,
-  CircleNotch,
-  Trash,
-} from "@phosphor-icons/react";
+import { Archive, ArrowCounterClockwise, Trash } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
-import {
-  createFileRoute,
-  useNavigate,
-  useRouter,
-} from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ActionIcon } from "@/components/action-icon";
 import { projectName } from "@/components/app-sidebar";
 import { EditorToc } from "@/components/editor-toc";
 import type { EditorHeading } from "@/components/markdown-editor";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { OrchestratorError } from "@/components/orchestrator-error";
+import { TagsRow } from "@/components/tags-row";
 import { TimeAgo } from "@/components/time-ago";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useAction } from "@/hooks/use-action";
+import { ARMED_CLASS, useArmedConfirm } from "@/hooks/use-armed-confirm";
 import {
   deleteScratchpad,
   getScratchpad,
@@ -29,7 +23,7 @@ import {
 } from "@/lib/lgtm/server";
 import type { Scratchpad } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
-import { padTitle, TagsRow } from "@/routes/scratchpads";
+import { padTitle } from "@/routes/scratchpads";
 
 export const Route = createFileRoute("/scratchpads_/$id")({
   loader: ({ params }) => getScratchpad({ data: params.id }),
@@ -52,10 +46,6 @@ const SAVE_LABEL: Record<SaveState, string> = {
 /** Long enough to notice, short enough not to become furniture. */
 const SAVED_MS = 2000;
 
-/** Long enough to read "Confirm delete", short enough that a forgotten arm
- *  cannot still be live when the next person reaches the keyboard. */
-const DISARM_MS = 4000;
-
 function ScratchpadPage() {
   const pad = Route.useLoaderData();
   // Everything below — the derived title, the outline, the queued markdown — is
@@ -64,46 +54,15 @@ function ScratchpadPage() {
 }
 
 function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
-  const router = useRouter();
   const navigate = useNavigate();
-  const [pending, setPending] = useState<Action | null>(null);
-  const [armed, setArmed] = useState(false);
   const [title, setTitle] = useState(() => padTitle(pad.content));
   const [headings, setHeadings] = useState<EditorHeading[]>([]);
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const deleteRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const queued = useRef<string | null>(null);
   const inFlight = useRef<Promise<unknown> | null>(null);
-
-  // Arming delete puts the page in a mode, and a mode nobody meant to enter has
-  // to expire on its own: a pointer anywhere else, Escape, or the timeout.
-  useEffect(() => {
-    if (!armed) {
-      return;
-    }
-
-    const disarm = () => setArmed(false);
-    const onPointerDown = (event: PointerEvent) => {
-      if (!deleteRef.current?.contains(event.target as Node)) {
-        disarm();
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        disarm();
-      }
-    };
-
-    const timer = window.setTimeout(disarm, DISARM_MS);
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [armed]);
+  const { armed, arm, disarm, ref: deleteRef } = useArmedConfirm();
+  const { pending, busy, run } = useAction<Action>({ onStart: disarm });
 
   useEffect(() => {
     if (saveState !== "saved") {
@@ -156,29 +115,6 @@ function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
     [save]
   );
 
-  const busy = pending !== null;
-
-  const run = useCallback(
-    async (action: Action, call: () => Promise<unknown>, message: string) => {
-      setPending(action);
-      setArmed(false);
-      try {
-        await call();
-        toast.success(message);
-        await router.invalidate();
-        return true;
-      } catch (error) {
-        // The orchestrator's refusal reason is the whole message; genericising
-        // it would throw away the only thing that says what to do next.
-        toast.error(error instanceof Error ? error.message : String(error));
-        return false;
-      } finally {
-        setPending(null);
-      }
-    },
-    [router]
-  );
-
   const archive = useCallback(
     () =>
       run(
@@ -203,7 +139,7 @@ function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
 
   const onDelete = useCallback(async () => {
     if (!armed) {
-      setArmed(true);
+      arm();
       return;
     }
     const deleted = await run(
@@ -214,7 +150,7 @@ function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
     if (deleted) {
       await navigate({ to: "/scratchpads" });
     }
-  }, [armed, navigate, run, pad.id]);
+  }, [armed, arm, navigate, run, pad.id]);
 
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
@@ -261,12 +197,7 @@ function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
             {pad.archived ? "Unarchive" : "Archive"}
           </Button>
           <Button
-            className={cn(
-              // The variant's own `dark:` classes outrank an unprefixed
-              // override, so the armed fill has to be stated for both themes.
-              armed &&
-                "bg-destructive text-destructive-foreground hover:bg-destructive/90 dark:bg-destructive dark:hover:bg-destructive/90"
-            )}
+            className={cn(armed && ARMED_CLASS)}
             disabled={busy}
             onClick={onDelete}
             ref={deleteRef}
@@ -298,26 +229,6 @@ function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
       </div>
     </article>
   );
-}
-
-/** Swapping the leading icon for the spinner, rather than adding one, keeps the
- *  button the same width while it works. */
-function ActionIcon({
-  icon: IconComponent,
-  busy,
-}: {
-  icon: Icon;
-  busy: boolean;
-}) {
-  if (busy) {
-    return (
-      <CircleNotch
-        className="motion-safe:animate-spin"
-        data-icon="inline-start"
-      />
-    );
-  }
-  return <IconComponent data-icon="inline-start" />;
 }
 
 function ScratchpadError(props: ErrorComponentProps) {

@@ -5,7 +5,7 @@ import {
   PencilSimple,
 } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import type { FormEvent, ReactNode } from "react";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -14,6 +14,7 @@ import { projectName } from "@/components/app-sidebar";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { PriorityIcon } from "@/components/priority-icon";
+import { TagsRow } from "@/components/tags-row";
 import { TimeAgo } from "@/components/time-ago";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useAction } from "@/hooks/use-action";
 import {
   commentOnTodo,
   getTodo,
@@ -39,7 +41,6 @@ import type {
   TodoStatus,
 } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
-import { TagsRow } from "@/routes/scratchpads";
 import { MARK } from "@/routes/todos";
 
 export const Route = createFileRoute("/todos_/$id")({
@@ -85,30 +86,17 @@ type SaveState = "idle" | "saving" | "saved";
 
 function TodoDetailPage() {
   const { todo, comments, blocking } = Route.useLoaderData();
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-
-  async function run(call: () => Promise<unknown>, message: string) {
-    setPending(true);
-    try {
-      await call();
-      toast.success(message);
-      await router.invalidate();
-      return true;
-    } catch (error) {
-      // The orchestrator's refusal reason is the whole message; genericising it
-      // would throw away the only thing that says what to do next.
-      toast.error(error instanceof Error ? error.message : String(error));
-      return false;
-    } finally {
-      setPending(false);
-    }
-  }
+  const { busy: pending, run } = useAction();
 
   const patch = (
     fields: Parameters<typeof updateTodo>[0]["data"]["patch"],
     message: string
-  ) => run(() => updateTodo({ data: { id: todo.id, patch: fields } }), message);
+  ) =>
+    run(
+      "patch",
+      () => updateTodo({ data: { id: todo.id, patch: fields } }),
+      message
+    );
 
   const done = todo.status === "done";
 
@@ -184,6 +172,7 @@ function TodoDetailPage() {
         createdAt={todo.created_at}
         onSend={(body) =>
           run(
+            "comment",
             () => commentOnTodo({ data: { id: todo.id, body } }),
             "Comment added"
           )

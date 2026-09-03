@@ -1,16 +1,17 @@
-import type { Icon } from "@phosphor-icons/react";
-import { Check, CircleNotch, PencilSimple, Trash } from "@phosphor-icons/react";
+import { Check, PencilSimple, Trash } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 
+import { ActionIcon } from "@/components/action-icon";
 import { projectName } from "@/components/app-sidebar";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { TimeAgo } from "@/components/time-ago";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useAction } from "@/hooks/use-action";
+import { ARMED_CLASS, useArmedConfirm } from "@/hooks/use-armed-confirm";
 import {
   approveMemory,
   deleteMemory,
@@ -98,71 +99,13 @@ function MemoriesPage() {
 
 type Action = "save" | "delete" | "approve";
 
-/** Long enough to read "Confirm delete", short enough that a forgotten arm
- *  cannot still be live when the next person reaches the keyboard. */
-const DISARM_MS = 4000;
-
 function MemoryRow({ memory }: { memory: Memory }) {
-  const router = useRouter();
-  const [pending, setPending] = useState<Action | null>(null);
-  const [armed, setArmed] = useState(false);
   // null means "not editing" — an empty draft is a distinct, valid state.
   const [draft, setDraft] = useState<string | null>(null);
-  const deleteRef = useRef<HTMLButtonElement>(null);
+  const { armed, arm, disarm, ref: deleteRef } = useArmedConfirm();
+  const { pending, busy, run } = useAction<Action>({ onStart: disarm });
 
-  // Arming delete puts the row in a mode, and a mode nobody meant to enter has
-  // to expire on its own: a pointer anywhere else, Escape, or the timeout.
-  useEffect(() => {
-    if (!armed) {
-      return;
-    }
-
-    const disarm = () => setArmed(false);
-    const onPointerDown = (event: PointerEvent) => {
-      if (!deleteRef.current?.contains(event.target as Node)) {
-        disarm();
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        disarm();
-      }
-    };
-
-    const timer = window.setTimeout(disarm, DISARM_MS);
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.clearTimeout(timer);
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [armed]);
-
-  const busy = pending !== null;
   const proposed = memory.verification === "agent_proposed";
-
-  async function run(
-    action: Action,
-    call: () => Promise<unknown>,
-    message: string
-  ) {
-    setPending(action);
-    setArmed(false);
-    try {
-      await call();
-      toast.success(message);
-      await router.invalidate();
-      return true;
-    } catch (error) {
-      // The orchestrator's refusal reason is the whole message; genericising it
-      // would throw away the only thing that says what to do next.
-      toast.error(error instanceof Error ? error.message : String(error));
-      return false;
-    } finally {
-      setPending(null);
-    }
-  }
 
   const edited = (draft ?? "").trim();
 
@@ -256,13 +199,7 @@ function MemoryRow({ memory }: { memory: Memory }) {
         </Button>
         <Button
           aria-label={armed ? "Confirm delete memory" : "Delete memory"}
-          className={cn(
-            armed
-              ? // The variant's own `dark:` classes outrank an unprefixed
-                // override, so the armed fill has to be stated for both themes.
-                "bg-destructive text-destructive-foreground hover:bg-destructive/90 dark:bg-destructive dark:hover:bg-destructive/90"
-              : "text-muted-foreground"
-          )}
+          className={cn(armed ? ARMED_CLASS : "text-muted-foreground")}
           disabled={busy}
           onClick={() =>
             armed
@@ -271,7 +208,7 @@ function MemoryRow({ memory }: { memory: Memory }) {
                   () => deleteMemory({ data: memory.id }),
                   "Memory deleted"
                 )
-              : setArmed(true)
+              : arm()
           }
           ref={deleteRef}
           size={armed ? "sm" : "icon-sm"}
@@ -302,20 +239,6 @@ function MemoryRow({ memory }: { memory: Memory }) {
       />
     </div>
   );
-}
-
-/** Swapping the icon for the spinner, rather than adding one, keeps the button
- *  the same width while it works. */
-function ActionIcon({ icon: Icon, busy }: { icon: Icon; busy: boolean }) {
-  if (busy) {
-    return (
-      <CircleNotch
-        className="motion-safe:animate-spin"
-        data-icon="inline-start"
-      />
-    );
-  }
-  return <Icon data-icon="inline-start" />;
 }
 
 function MemoriesError(props: ErrorComponentProps) {
