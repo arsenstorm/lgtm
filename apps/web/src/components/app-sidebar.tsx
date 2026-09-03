@@ -5,7 +5,6 @@ import {
   CheckSquareOffset,
   DotsThree,
   DotsThreeVertical,
-  HardDrives,
   Moon,
   NotePencil,
   Notepad,
@@ -20,7 +19,7 @@ import type { ComponentProps } from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { FolderIcon, TasksIcon } from "@/components/icons";
+import { AiDeveloperIcon, FolderIcon, TasksIcon } from "@/components/icons";
 import { STATUS } from "@/components/task-list";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -64,7 +63,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { exact: true, icon: TasksIcon, label: "Tasks", to: "/tasks" },
-  { exact: false, icon: HardDrives, label: "Runners", to: "/runners" },
+  { exact: false, icon: AiDeveloperIcon, label: "Runners", to: "/runners" },
   { exact: false, icon: CheckSquareOffset, label: "Todos", to: "/todos" },
   { exact: false, icon: Brain, label: "Memories", to: "/memories" },
   { exact: false, icon: Notepad, label: "Scratchpads", to: "/scratchpads" },
@@ -417,14 +416,14 @@ function ProjectItem({
       <SidebarMenuItem>
         {/* The right padding keeps the name's truncation clear of the actions
             that sit over this row. */}
-        <CollapsibleTrigger render={<SidebarMenuButton className="pr-20" />}>
+        <CollapsibleTrigger render={<SidebarMenuButton className="pr-14" />}>
           <FolderIcon aria-hidden="true" open={open} />
-          <span>{project.name}</span>
+          <span className="min-w-0 truncate">{project.name}</span>
           <CaretRight
             aria-hidden="true"
             className={cn(
               REVEAL,
-              "ml-auto transition-[opacity,transform] duration-200 group-data-[panel-open]/menu-button:rotate-90"
+              "text-muted-foreground transition-[opacity,transform,color] duration-200 hover:text-foreground group-data-[panel-open]/menu-button:rotate-90"
             )}
           />
         </CollapsibleTrigger>
@@ -436,7 +435,7 @@ function ProjectItem({
             REVEAL,
             // The menu is portalled out of the row, so hover ends the moment it
             // opens — without this its own trigger would vanish under it.
-            "absolute top-1 right-7 flex items-center gap-0.5 transition-opacity has-[[aria-expanded=true]]:opacity-100"
+            "absolute top-1 right-1 flex items-center gap-0.5 transition-opacity has-[[aria-expanded=true]]:opacity-100"
           )}
         >
           <DropdownMenu>

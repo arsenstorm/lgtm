@@ -1,10 +1,5 @@
 import type { SVGProps } from "react";
 
-// Arsen's icon set (src/icons/18-*.svg), inlined as components so they take
-// currentColor and Tailwind sizing like the Phosphor icons they replace. The
-// set grows as he adds files; keep one component per glyph, same order as the
-// directory.
-
 type IconProps = SVGProps<SVGSVGElement>;
 
 function Base(props: IconProps) {
@@ -79,6 +74,48 @@ export function TasksIcon(props: IconProps) {
         {...STROKE}
         d="M12.4012 2.74996C12.0022 2.06146 11.2151 1.64841 10.38 1.77291L3.45602 2.80196C2.36402 2.96386 1.61003 3.98093 1.77203 5.07393L2.75002 11.6547"
       />
+    </Base>
+  );
+}
+
+export function AiDeveloperIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="m14.9245,16.25h-6.175l1.868-4.203c.08-.181.259-.297.457-.297h5.406c.362,0,.604.372.457.703l-1.556,3.5c-.08.181-.259.297-.457.297Z"
+        fill="currentColor"
+        opacity=".3"
+      />
+      <rect
+        fill="currentColor"
+        height="6.5"
+        opacity=".3"
+        rx="2"
+        ry="2"
+        width="8.5"
+        x="3.75"
+        y="1.75"
+      />
+      <path {...STROKE} d="m1.9525,14c1.298-1.958,3.522-3.25,6.047-3.25" />
+      <path
+        {...STROKE}
+        d="m14.9245,16.25h-6.175l1.868-4.203c.08-.181.259-.297.457-.297h5.406c.362,0,.604.372.457.703l-1.556,3.5c-.08.181-.259.297-.457.297Z"
+      />
+      <line {...STROKE} x1="8.7495" x2="5.7495" y1="16.25" y2="16.25" />
+      <rect
+        {...STROKE}
+        fill="none"
+        height="6.5"
+        rx="2"
+        ry="2"
+        width="8.5"
+        x="3.75"
+        y="1.75"
+      />
+      <circle cx="6.75" cy="5.75" fill="currentColor" r=".75" />
+      <circle cx="9.75" cy="5.75" fill="currentColor" r=".75" />
+      <line {...STROKE} x1="12.25" x2="13.5" y1="5.25" y2="5.25" />
+      <line {...STROKE} x1="2.5" x2="3.75" y1="5.25" y2="5.25" />
     </Base>
   );
 }
