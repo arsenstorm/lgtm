@@ -129,9 +129,6 @@ function toggleTheme() {
   window.setTimeout(() => root.removeAttribute("data-theme-switching"), 80);
   root.classList.remove("light", "dark");
   root.classList.add(next);
-  // aicss components key on [data-theme]; without it their own
-  // prefers-color-scheme blocks win on an OS-dark machine.
-  root.dataset.theme = next;
   root.style.colorScheme = next;
 
   try {
