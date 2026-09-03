@@ -1,12 +1,7 @@
 import {
   CaretRight,
-  DotsThree,
-  DotsThreeVertical,
-  Moon,
   NotePencil,
   PlusCircle,
-  SignOut,
-  Sun,
   WarningCircle,
 } from "@phosphor-icons/react";
 import { Link, useMatchRoute, useRouter } from "@tanstack/react-router";
@@ -18,10 +13,14 @@ import {
   ActivityIcon,
   AiDeveloperIcon,
   BrainSparkleIcon,
+  DotsIcon,
   FolderIcon,
   ListCheckboxIcon,
+  MoonStarsIcon,
   MsgsIcon,
   NotesIcon,
+  SignOutIcon,
+  SunIcon,
   TasksIcon,
 } from "@/components/icons";
 import { STATUS } from "@/components/task-list";
@@ -337,7 +336,7 @@ function MoreItem() {
         <DropdownMenuTrigger
           render={<SidebarMenuButton className="text-sidebar-foreground/70" />}
         >
-          <DotsThree aria-hidden="true" />
+          <DotsIcon aria-hidden="true" />
           <span>More</span>
         </DropdownMenuTrigger>
 
@@ -453,7 +452,7 @@ function ProjectItem({
                 />
               }
             >
-              <DotsThree aria-hidden="true" className="size-4" />
+              <DotsIcon aria-hidden="true" className="size-4" />
             </DropdownMenuTrigger>
 
             <DropdownMenuContent
@@ -579,7 +578,7 @@ function AccountMenu() {
             }
           >
             <Identity />
-            <DotsThreeVertical aria-hidden="true" className="ml-auto size-4" />
+            <DotsIcon aria-hidden="true" className="ml-auto size-4" vertical />
           </DropdownMenuTrigger>
 
           <DropdownMenuContent
@@ -606,14 +605,14 @@ function AccountMenu() {
               {/* The theme is only known from the class the pre-paint script
                   wrote, so both states ship in the markup and CSS picks one.
                   Deriving it in React would mismatch on hydration and flash. */}
-              <Moon aria-hidden="true" className="dark:hidden" />
-              <Sun aria-hidden="true" className="hidden dark:block" />
+              <MoonStarsIcon aria-hidden="true" className="dark:hidden" />
+              <SunIcon aria-hidden="true" className="hidden dark:block" />
               <span className="dark:hidden">Dark mode</span>
               <span className="hidden dark:inline">Light mode</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="gap-2 px-2 py-1.5" disabled>
-              <SignOut aria-hidden="true" />
+              <SignOutIcon aria-hidden="true" />
               Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>

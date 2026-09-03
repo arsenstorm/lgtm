@@ -200,6 +200,96 @@ export function NotesIcon(props: IconProps) {
   );
 }
 
+function Dot({ x, y }: { x: number; y: number }) {
+  return (
+    <path
+      {...STROKE}
+      d={`M${x} ${y + 0.5}C${x + 0.276} ${y + 0.5} ${x + 0.5} ${y + 0.276} ${x + 0.5} ${y}C${x + 0.5} ${y - 0.276} ${x + 0.276} ${y - 0.5} ${x} ${y - 0.5}C${x - 0.276} ${y - 0.5} ${x - 0.5} ${y - 0.276} ${x - 0.5} ${y}C${x - 0.5} ${y + 0.276} ${x - 0.276} ${y + 0.5} ${x} ${y + 0.5}Z`}
+      fill="currentColor"
+    />
+  );
+}
+
+export function DotsIcon({
+  vertical,
+  ...props
+}: { vertical?: boolean } & IconProps) {
+  const dots = vertical
+    ? [
+        [9, 3.25],
+        [9, 9],
+        [9, 14.75],
+      ]
+    : [
+        [3.25, 9],
+        [9, 9],
+        [14.75, 9],
+      ];
+  return (
+    <Base {...props}>
+      {dots.map(([x, y]) => (
+        <Dot key={`${x}-${y}`} x={x} y={y} />
+      ))}
+    </Base>
+  );
+}
+
+export function SunIcon(props: IconProps) {
+  const disc =
+    "M9 13.25C11.3472 13.25 13.25 11.3472 13.25 9C13.25 6.65279 11.3472 4.75 9 4.75C6.65279 4.75 4.75 6.65279 4.75 9C4.75 11.3472 6.65279 13.25 9 13.25Z";
+  const rays = [
+    "M9 1.25V2.25",
+    "M14.48 3.52L13.773 4.227",
+    "M16.75 9H15.75",
+    "M14.48 14.48L13.773 13.773",
+    "M9 16.75V15.75",
+    "M3.52 14.48L4.227 13.773",
+    "M1.25 9H2.25",
+    "M3.52 3.52L4.227 4.227",
+  ];
+  return (
+    <Base {...props}>
+      <path d={disc} fill="currentColor" fillOpacity="0.3" />
+      {rays.map((d) => (
+        <path {...STROKE} d={d} key={d} />
+      ))}
+      <path {...STROKE} d={disc} />
+    </Base>
+  );
+}
+
+export function MoonStarsIcon(props: IconProps) {
+  const crescent =
+    "M13 11.75C9.548 11.75 6.75 8.952 6.75 5.5C6.75 4.148 7.183 2.901 7.912 1.878C4.548 2.506 2 5.453 2 9C2 13.004 5.246 16.25 9.25 16.25C12.622 16.25 15.448 13.944 16.259 10.826C15.309 11.409 14.196 11.75 13 11.75Z";
+  return (
+    <Base {...props}>
+      <path d={crescent} fill="currentColor" fillOpacity="0.3" />
+      <path {...STROKE} d={crescent} />
+      <path
+        d="M12.743 4.492L11.797 4.177L11.481 3.23C11.379 2.924 10.872 2.924 10.77 3.23L10.454 4.177L9.508 4.492C9.355 4.543 9.251 4.686 9.251 4.848C9.251 5.01 9.355 5.153 9.508 5.204L10.454 5.519L10.77 6.466C10.821 6.619 10.964 6.722 11.125 6.722C11.286 6.722 11.43 6.618 11.48 6.466L11.796 5.519L12.742 5.204C12.895 5.153 12.999 5.01 12.999 4.848C12.999 4.686 12.895 4.543 12.742 4.492H12.743Z"
+        fill="currentColor"
+      />
+      <path
+        d="M14.25 8.5C14.6642 8.5 15 8.16421 15 7.75C15 7.33579 14.6642 7 14.25 7C13.8358 7 13.5 7.33579 13.5 7.75C13.5 8.16421 13.8358 8.5 14.25 8.5Z"
+        fill="currentColor"
+      />
+    </Base>
+  );
+}
+
+export function SignOutIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M9.75 2.75H13.25C14.355 2.75 15.25 3.645 15.25 4.75V13.25C15.25 14.355 14.355 15.25 13.25 15.25H9.75"
+      />
+      <path {...STROKE} d="M6.25 5.5L2.75 9L6.25 12.5" />
+      <path {...STROKE} d="M2.75 9H10.25" />
+    </Base>
+  );
+}
+
 /** `show` points the inner arrow outward; the frame is identical. */
 export function SidebarToggleIcon({
   show,
