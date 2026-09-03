@@ -24,8 +24,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Extension, Json, Router};
 use lgtm_protocol::{
-    overlaps, plan_versions, Executor, OrchestratorMessage, PlanVersion, RunnerStatus,
-    SandboxProfile, Stats, Task, TaskEvent, TaskKind, TaskSpec, TaskStatus,
+    overlaps, plan_versions, Executor, OrchestratorMessage, PlanVersion, ReasoningEffort,
+    RunnerStatus, SandboxProfile, Stats, Task, TaskEvent, TaskKind, TaskSpec, TaskStatus,
 };
 use serde::Deserialize;
 
@@ -287,6 +287,8 @@ struct FromIssueBody {
     #[serde(default)]
     review_executor: Option<Executor>,
     model: Option<String>,
+    #[serde(default)]
+    reasoning_effort: Option<ReasoningEffort>,
 }
 
 async fn create_task_from_issue(
@@ -313,6 +315,7 @@ async fn create_task_from_issue(
         requirements: body.requirements,
         review_executor: body.review_executor,
         model: body.model,
+        reasoning_effort: body.reasoning_effort,
     };
     queue(
         &app,
@@ -347,6 +350,8 @@ struct FromLinearBody {
     #[serde(default)]
     review_executor: Option<Executor>,
     model: Option<String>,
+    #[serde(default)]
+    reasoning_effort: Option<ReasoningEffort>,
 }
 
 async fn create_task_from_linear(
@@ -373,6 +378,7 @@ async fn create_task_from_linear(
         requirements: body.requirements,
         review_executor: body.review_executor,
         model: body.model,
+        reasoning_effort: body.reasoning_effort,
     };
     queue(
         &app,

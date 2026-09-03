@@ -7,7 +7,9 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use lgtm_protocol::{Executor, SandboxProfile, Session, SessionDetail, Task, TaskKind, TaskSpec};
+use lgtm_protocol::{
+    Executor, ReasoningEffort, SandboxProfile, Session, SessionDetail, Task, TaskKind, TaskSpec,
+};
 use serde::Deserialize;
 
 use super::{conflict, ApiError, AuthedUser};
@@ -129,6 +131,8 @@ pub(super) struct MessageBody {
     #[serde(default)]
     model: Option<String>,
     #[serde(default)]
+    reasoning_effort: Option<ReasoningEffort>,
+    #[serde(default)]
     review_executor: Option<Executor>,
     /// A plan message proposes steps instead of making a change.
     #[serde(default)]
@@ -156,6 +160,7 @@ fn message_spec(session: &Session, id: &str, body: MessageBody) -> TaskSpec {
         goal: None,
         review_executor: body.review_executor,
         model: body.model,
+        reasoning_effort: body.reasoning_effort,
         allowed_hosts: Vec::new(),
         session: Some(id.to_string()),
         created_by: None,

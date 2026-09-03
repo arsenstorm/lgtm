@@ -592,6 +592,7 @@ async fn task_create(client: &Client, goal: &str, args: &Value) -> Result<String
         requirements: first.spec.requirements.clone(),
         review_executor: None,
         model: None,
+        reasoning_effort: None,
         goal: Some(goal.to_string()),
         allowed_hosts: Vec::new(),
         session: None,

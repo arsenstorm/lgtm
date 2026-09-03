@@ -22,6 +22,7 @@ fn spec() -> TaskSpec {
         goal: None,
         review_executor: None,
         model: None,
+        reasoning_effort: None,
         allowed_hosts: Vec::new(),
         session: None,
         created_by: None,

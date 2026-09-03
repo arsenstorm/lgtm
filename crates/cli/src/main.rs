@@ -407,6 +407,7 @@ impl Target {
             goal: None,
             review_executor: self.review_with,
             model: self.model,
+            reasoning_effort: None,
             allowed_hosts: Vec::new(),
             session: self.session,
             created_by: None,

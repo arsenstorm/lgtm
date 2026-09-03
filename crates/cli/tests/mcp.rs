@@ -34,6 +34,7 @@ fn seed(dir: &std::path::Path) {
             requirements: Vec::new(),
             review_executor: None,
             model: None,
+            reasoning_effort: None,
             goal: None,
             allowed_hosts: Vec::new(),
             session: None,

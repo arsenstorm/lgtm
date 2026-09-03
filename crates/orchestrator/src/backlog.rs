@@ -2,8 +2,8 @@
 //! the locking and the storing.
 
 use lgtm_protocol::{
-    BatchSummary, Executor, IssueRef, LinearRef, SandboxProfile, Task, TaskKind, TaskSpec,
-    TaskStatus,
+    BatchSummary, Executor, IssueRef, LinearRef, ReasoningEffort, SandboxProfile, Task, TaskKind,
+    TaskSpec, TaskStatus,
 };
 
 use crate::state::State;
@@ -51,6 +51,7 @@ pub struct SpecInput {
     pub requirements: Vec<String>,
     pub review_executor: Option<Executor>,
     pub model: Option<String>,
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 impl SpecInput {
@@ -73,6 +74,7 @@ impl SpecInput {
             goal: None,
             review_executor: self.review_executor,
             model: self.model,
+            reasoning_effort: self.reasoning_effort,
             allowed_hosts: Vec::new(),
             session: None,
             created_by: None,

@@ -58,6 +58,7 @@ fn candidate(number: u64) -> Candidate {
         requirements: Vec::new(),
         review_executor: None,
         model: None,
+        reasoning_effort: None,
     };
     github_candidate(&issue(number), &repo(), input)
 }
@@ -74,6 +75,7 @@ fn github_candidate_builds_the_from_issue_shape() {
         requirements: Vec::new(),
         review_executor: None,
         model: None,
+        reasoning_effort: None,
     };
     let candidate = github_candidate(&issue(12), &repo(), input);
     assert_eq!(candidate.key, "#12");

@@ -79,6 +79,7 @@ impl State {
             review_executor: None,
             requirements: Vec::new(),
             model: None,
+            reasoning_effort: None,
             allowed_hosts: Vec::new(),
             session: None,
             created_by: into.created_by,

@@ -910,6 +910,7 @@ mod tests {
                 goal: None,
                 review_executor: None,
                 model: model.map(str::to_string),
+                reasoning_effort: None,
                 allowed_hosts: Vec::new(),
                 session: None,
                 created_by: None,

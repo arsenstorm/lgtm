@@ -30,6 +30,7 @@ fn sample_task() -> Task {
             goal: Some("g1".into()),
             review_executor: None,
             model: Some("opus".into()),
+            reasoning_effort: Some(ReasoningEffort::High),
             allowed_hosts: Vec::new(),
             session: Some("s1".into()),
             created_by: None,
@@ -72,6 +73,14 @@ fn round_trip<T: Serialize + for<'de> Deserialize<'de> + PartialEq + std::fmt::D
     let json = serde_json::to_string(&v).unwrap();
     let back: T = serde_json::from_str(&json).unwrap();
     assert_eq!(v, back, "{json}");
+}
+
+#[test]
+fn older_task_specs_default_reasoning_to_the_harness_setting() {
+    let mut value = serde_json::to_value(sample_task().spec).unwrap();
+    value.as_object_mut().unwrap().remove("reasoning_effort");
+    let spec: TaskSpec = serde_json::from_value(value).unwrap();
+    assert_eq!(spec.reasoning_effort, None);
 }
 
 #[test]

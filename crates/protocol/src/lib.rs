@@ -40,6 +40,24 @@ impl Executor {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningEffort {
+    Low,
+    Medium,
+    High,
+}
+
+impl ReasoningEffort {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReasoningEffort::Low => "low",
+            ReasoningEffort::Medium => "medium",
+            ReasoningEffort::High => "high",
+        }
+    }
+}
+
 /// How much of the host an agent run may touch. Enforcement is the runner's
 /// job and is per platform, so a profile can mean less than it says here.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -233,6 +251,9 @@ pub struct TaskSpec {
     /// Passed to the harness as its model flag; `None` is the harness default.
     #[serde(default)]
     pub model: Option<String>,
+    /// Passed to the harness for this task; `None` keeps its model default.
+    #[serde(default)]
+    pub reasoning_effort: Option<ReasoningEffort>,
     /// Hosts a person allowed for this task on top of the repository's allowlist.
     #[serde(default)]
     pub allowed_hosts: Vec<String>,

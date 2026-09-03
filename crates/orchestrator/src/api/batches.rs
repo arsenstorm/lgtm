@@ -7,7 +7,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
 use lgtm_protocol::{
-    Batch, BatchSource, BatchSummary, Executor, SandboxProfile, Task, TaskId, TaskKind,
+    Batch, BatchSource, BatchSummary, Executor, ReasoningEffort, SandboxProfile, Task, TaskId,
+    TaskKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +50,8 @@ pub(super) struct BatchRequest {
     #[serde(default)]
     review_executor: Option<Executor>,
     model: Option<String>,
+    #[serde(default)]
+    reasoning_effort: Option<ReasoningEffort>,
 }
 
 #[derive(Serialize)]
@@ -198,6 +201,7 @@ fn candidates(
         requirements: body.requirements.clone(),
         review_executor: body.review_executor,
         model: body.model.clone(),
+        reasoning_effort: body.reasoning_effort,
     };
     match fetched {
         Fetched::Github(repo, issues) => issues

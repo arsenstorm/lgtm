@@ -180,6 +180,7 @@ fn child_spec(spec: &TaskSpec, step: &PlanStep, depends_on: Vec<TaskId>, parent:
         goal: spec.goal.clone(),
         review_executor: None,
         model: spec.model.clone(),
+        reasoning_effort: spec.reasoning_effort,
         allowed_hosts: Vec::new(),
         session: None,
         // The plan's creator asked for every step, so children keep the
