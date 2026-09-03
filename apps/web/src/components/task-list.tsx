@@ -17,7 +17,7 @@ import { Link } from "@tanstack/react-router";
 
 import { TimeAgo } from "@/components/time-ago";
 import type { Task, TaskStatus } from "@/lib/lgtm/types";
-import { cn } from "@/lib/utils";
+import { cn, firstLine } from "@/lib/utils";
 
 /**
  * Tone groups the twelve statuses into the four things an operator actually
@@ -72,11 +72,6 @@ export function shortSpan(ms: number): string {
     }
   }
   return "0s";
-}
-
-function firstLine(prompt: string): string {
-  const line = prompt.split("\n", 1)[0]?.trim();
-  return line ? line : "(no prompt)";
 }
 
 export function TaskList({ tasks }: { tasks: Task[] }) {
