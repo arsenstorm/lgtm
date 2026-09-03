@@ -4,7 +4,6 @@ import {
   FileText,
   GitBranch,
   ShieldSlash,
-  SidebarSimple,
   Warning,
   WarningCircle,
   XCircle,
@@ -13,7 +12,6 @@ import type { ReactNode } from "react";
 
 import { DiffView } from "@/components/diff-view";
 import { FilePath } from "@/components/file-path";
-import { Button } from "@/components/ui/button";
 import type {
   Finding,
   TaskDetail,
@@ -22,19 +20,20 @@ import type {
 } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 
+const HTTP_PROTOCOL = /^https?:\/\//;
+const DOT_GIT = /\.git$/;
+
 /** The Codex-style pinned summary: everything a reviewer checks lives here so
  * the transcript stays a conversation. */
 export function TaskSummaryPanel({
   detail,
   className,
-  onClose,
 }: {
   className?: string;
   detail: TaskDetail;
-  onClose: () => void;
 }) {
   const { task } = detail;
-  const result = task.result;
+  const { result } = task;
   const findings = result?.review ? sortFindings(result.review.findings) : [];
   const checks = result ? sortChecks(result.validation) : [];
 
@@ -43,17 +42,6 @@ export function TaskSummaryPanel({
       aria-label="Task summary"
       className={cn("flex min-w-0 flex-col gap-8", className)}
     >
-      {/* The floating card covers the header's toggle, so it carries its own
-          way out. */}
-      <Button
-        aria-label="Hide summary panel"
-        className="-mb-6 self-end text-muted-foreground"
-        onClick={onClose}
-        size="icon-sm"
-        variant="ghost"
-      >
-        <SidebarSimple aria-hidden="true" className="size-4.5 -scale-x-100" />
-      </Button>
       <Environment detail={detail} />
 
       <Section count={result?.changed_files.length} title="Changes">
@@ -88,10 +76,10 @@ export function TaskSummaryPanel({
       {findings.length > 0 ? (
         <Section count={findings.length} title="Review">
           <ul className="divide-y rounded-lg border">
-            {findings.map((finding, index) => (
+            {findings.map((finding) => (
               <FindingRow
                 finding={finding}
-                key={`${finding.file}:${finding.line}:${index}`}
+                key={`${finding.file}:${finding.line}:${finding.message}`}
               />
             ))}
           </ul>
@@ -119,8 +107,8 @@ function Environment({ detail }: { detail: TaskDetail }) {
 
   return (
     <Section title="Environment">
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
-        <Fact term="Repository">
+      <dl className="grid grid-cols-2 gap-x-5 gap-y-4">
+        <Fact className="col-span-2" term="Repository">
           <RepositoryValue url={spec.repository} />
         </Fact>
         <Fact term="Base branch">
@@ -130,10 +118,8 @@ function Environment({ detail }: { detail: TaskDetail }) {
           </span>
         </Fact>
         {task.result ? (
-          <Fact term="Result branch">
-            <span className="font-mono [overflow-wrap:anywhere]">
-              {task.result.branch}
-            </span>
+          <Fact className="col-span-2" term="Result branch">
+            <span className="break-words font-mono">{task.result.branch}</span>
           </Fact>
         ) : null}
         <Fact term="Runner">{task.runner ?? spec.runner ?? <Unset />}</Fact>
@@ -196,9 +182,9 @@ function FindingRow({ finding }: { finding: Finding }) {
       )}
       <div className="flex min-w-0 flex-col gap-1">
         <p className="max-w-[54ch] text-pretty text-sm">{finding.message}</p>
-        <p className="font-mono text-muted-foreground text-xs [overflow-wrap:anywhere]">
+        <p className="break-words font-mono text-muted-foreground text-xs">
           {finding.file}
-          {finding.line == null ? null : `:${finding.line}`}
+          {finding.line === null ? null : `:${finding.line}`}
         </p>
       </div>
     </li>
@@ -272,10 +258,10 @@ function Section({
   return (
     <section className="flex min-w-0 flex-col gap-3">
       <div className="flex items-baseline gap-2">
-        <h2 className="font-medium text-muted-foreground text-xs uppercase tracking-[0.08em]">
+        <h3 className="font-medium text-muted-foreground text-xs uppercase tracking-[0.08em]">
           {title}
-        </h2>
-        {count == null ? null : (
+        </h3>
+        {count === undefined ? null : (
           <span className="text-muted-foreground/70 text-xs tabular-nums">
             {count}
           </span>
@@ -286,11 +272,19 @@ function Section({
   );
 }
 
-function Fact({ term, children }: { children: ReactNode; term: string }) {
+function Fact({
+  term,
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+  term: string;
+}) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <dt className="text-muted-foreground text-xs">{term}</dt>
-      <dd className="font-medium text-sm">{children}</dd>
+    <div className={cn("flex min-w-0 flex-col gap-1", className)}>
+      <dt className="text-muted-foreground text-xs leading-none">{term}</dt>
+      <dd className="font-medium text-sm leading-5">{children}</dd>
     </div>
   );
 }
@@ -300,14 +294,14 @@ function Unset({ label = "—" }: { label?: string }) {
 }
 
 function RepositoryValue({ url }: { url: string }) {
-  const label = url.replace(/^https?:\/\//, "").replace(/\.git$/, "");
+  const label = url.replace(HTTP_PROTOCOL, "").replace(DOT_GIT, "");
   if (!url.startsWith("http")) {
-    return <span className="[overflow-wrap:anywhere]">{label}</span>;
+    return <span className="break-words">{label}</span>;
   }
   return (
     <a
-      className="underline decoration-muted-foreground/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-current"
-      href={url.replace(/\.git$/, "")}
+      className="break-words underline decoration-from-font decoration-muted-foreground/40 underline-offset-2 [text-decoration-skip-ink:auto] [text-underline-position:from-font] hover:decoration-current"
+      href={url.replace(DOT_GIT, "")}
       rel="noreferrer"
       target="_blank"
     >

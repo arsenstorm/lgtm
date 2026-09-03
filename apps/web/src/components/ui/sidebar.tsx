@@ -2,9 +2,9 @@
 
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
-import { SidebarToggleIcon } from "@/components/icons";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
+import { SidebarToggleIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -56,12 +56,16 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  cookieName = SIDEBAR_COOKIE_NAME,
+  keyboardShortcut = SIDEBAR_KEYBOARD_SHORTCUT,
   className,
   style,
   children,
   ...props
 }: React.ComponentProps<"div"> & {
+  cookieName?: string | null;
   defaultOpen?: boolean;
+  keyboardShortcut?: string | null;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -81,10 +85,11 @@ function SidebarProvider({
         _setOpen(openState);
       }
 
-      // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
+      if (cookieName) {
+        document.cookie = `${cookieName}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
+      }
     },
-    [setOpenProp, open]
+    [cookieName, setOpenProp, open]
   );
 
   // Helper to toggle the sidebar.
@@ -96,11 +101,11 @@ function SidebarProvider({
 
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
+    if (!keyboardShortcut) {
+      return;
+    }
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
-        (event.metaKey || event.ctrlKey)
-      ) {
+      if (event.key === keyboardShortcut && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         toggleSidebar();
       }
@@ -108,7 +113,7 @@ function SidebarProvider({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleSidebar]);
+  }, [keyboardShortcut, toggleSidebar]);
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
