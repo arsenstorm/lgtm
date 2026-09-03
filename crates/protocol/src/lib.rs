@@ -594,6 +594,57 @@ pub struct SessionDetail {
     pub tasks: Vec<Task>,
 }
 
+/// One conversation with the read-only workspace agent. Nothing in it changes
+/// state: work is queued only when a person takes a turn to the composer.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Chat {
+    pub id: String,
+    /// The first question, cut the way a session title is.
+    pub title: String,
+    /// Unix milliseconds.
+    pub created_at: u64,
+    /// The workspace this belongs to; one per orchestrator until teams exist.
+    #[serde(default)]
+    pub workspace: Option<String>,
+    /// The user who asked first; `None` for the shared token or automation.
+    #[serde(default)]
+    pub created_by: Option<String>,
+    pub turns: Vec<ChatTurn>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatRole {
+    Person,
+    Agent,
+}
+
+/// One side of one exchange. An agent turn carries what the screen draws
+/// around its prose: the ids it referred to, the tools it called, and how
+/// long it took. A failed turn's text is the reason.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ChatTurn {
+    pub role: ChatRole,
+    pub text: String,
+    /// Unix milliseconds.
+    pub at: u64,
+    #[serde(default)]
+    pub refs: Vec<String>,
+    #[serde(default)]
+    pub steps: Vec<ChatStep>,
+    #[serde(default)]
+    pub worked_ms: u64,
+    #[serde(default)]
+    pub failed: bool,
+}
+
+/// One tool call the agent made, named as the MCP server names it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ChatStep {
+    pub tool: String,
+    pub detail: String,
+}
+
 /// The block prepended to an agent prompt, or empty when there is nothing.
 pub fn knowledge_block(memories: &[Memory]) -> String {
     if memories.is_empty() {
