@@ -114,7 +114,7 @@ function RunnerCard({ runner }: { runner: RunnerStatus }) {
           </>
         ) : (
           <>
-            <Orb label="Working" size={18} variant="S3" />
+            <Orb label="Working" size={18} variant="G3" />
             <span className="text-muted-foreground">
               Running{" "}
               <span className="font-medium text-foreground tabular-nums">

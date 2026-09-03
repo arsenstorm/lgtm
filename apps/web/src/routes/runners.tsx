@@ -14,20 +14,11 @@ export const Route = createFileRoute("/runners")({
 
 function RunnersPage() {
   const { runners } = Route.useLoaderData();
-  const busy = runners.reduce(
-    (total, runner) => total + runner.running.length,
-    0
-  );
-  const slots = runners.reduce((total, runner) => total + runner.info.slots, 0);
-
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters.
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-      <PageHeading
-        meta={runners.length === 0 ? "0" : `${busy} of ${slots} slots busy`}
-        title="Runners"
-      />
+      <PageHeading meta={`${runners.length} online`} title="Runners" />
       <RunnerList runners={runners} />
     </div>
   );
