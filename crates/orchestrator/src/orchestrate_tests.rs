@@ -182,4 +182,6 @@ fn an_ask_prompt_carries_the_question_and_no_write_tools() {
     assert!(text.contains("who is on auth?"), "{text}");
     assert!(!text.contains("task_create"), "{text}");
     assert!(!text.contains("task_approve"), "{text}");
+    assert!(text.contains("at most three short sentences"), "{text}");
+    assert!(text.contains("their exact id"), "{text}");
 }
