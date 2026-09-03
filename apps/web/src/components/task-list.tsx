@@ -133,7 +133,7 @@ function TaskRow({ task }: { task: Task }) {
           {label}
         </span>
 
-        <span className="w-16 shrink-0 font-mono text-muted-foreground tabular-nums">
+        <span className="w-18 shrink-0 font-mono text-muted-foreground tabular-nums">
           {task.id.slice(0, 8)}
         </span>
 
