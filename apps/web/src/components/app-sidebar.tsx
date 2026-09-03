@@ -122,6 +122,11 @@ function toggleTheme() {
   const root = document.documentElement;
   const next = root.classList.contains("dark") ? "light" : "dark";
 
+  // Hundreds of elements carry transition-colors; letting them all animate
+  // makes the flip look staggered. The attribute suppresses transitions for
+  // the switch and leaves once the new theme has painted.
+  root.setAttribute("data-theme-switching", "");
+  window.setTimeout(() => root.removeAttribute("data-theme-switching"), 80);
   root.classList.remove("light", "dark");
   root.classList.add(next);
   // aicss components key on [data-theme]; without it their own
@@ -600,6 +605,9 @@ function AccountMenu() {
                 menu copies, so the rhythm is restated here. */}
             <DropdownMenuItem
               className="gap-2 px-2 py-1.5"
+              // Toggling the theme is something you do to see the result; the
+              // menu closing would hide the very thing being compared.
+              closeOnClick={false}
               onClick={toggleTheme}
             >
               {/* The theme is only known from the class the pre-paint script

@@ -111,6 +111,12 @@
   --sidebar-ring: oklch(0.552 0.016 285.938);
 }
 
+[data-theme-switching] *,
+[data-theme-switching] *::before,
+[data-theme-switching] *::after {
+  transition: none !important;
+}
+
 @layer base {
   * {
     border-color: var(--border);
