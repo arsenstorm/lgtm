@@ -91,8 +91,14 @@ impl Pump {
                 OutputStream::Stdout => structured(&line, self.executor),
                 OutputStream::Stderr => Vec::new(),
             };
-            self.ctx
-                .emit(&self.task_id, TaskEvent::Output { stream, line });
+            // A stream-json run's stdout is wire protocol, mined into the
+            // semantic events above; forwarding the raw line as well shows
+            // readers the same thing twice, as chatter. The tail sink above
+            // still keeps every line for failure diagnostics.
+            if !(stream == OutputStream::Stdout && wire_line(&line)) {
+                self.ctx
+                    .emit(&self.task_id, TaskEvent::Output { stream, line });
+            }
             for event in events {
                 self.ctx.emit(&self.task_id, event);
             }
@@ -118,6 +124,12 @@ impl Pump {
             push_tail(tail, line);
         }
     }
+}
+
+/// A line of the executor's JSON wire protocol, as opposed to stray plain
+/// output from the process or something it spawned.
+fn wire_line(line: &str) -> bool {
+    serde_json::from_str::<Value>(line).is_ok_and(|value| value.is_object())
 }
 
 fn push_tail(tail: &Tail, line: &str) {
@@ -326,6 +338,14 @@ mod tests {
 
     fn codex(line: &str) -> Vec<TaskEvent> {
         structured(line, Executor::Codex)
+    }
+
+    #[test]
+    fn wire_lines_are_json_objects_only() {
+        assert!(wire_line(r#"{"type":"assistant","message":{}}"#));
+        assert!(!wire_line("warning: something plain"));
+        assert!(!wire_line("[1,2,3]"));
+        assert!(!wire_line(""));
     }
 
     #[test]
