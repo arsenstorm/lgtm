@@ -37,6 +37,7 @@ function toggleTheme() {
   window.setTimeout(() => root.removeAttribute("data-theme-switching"), 80);
   root.classList.remove("light", "dark");
   root.classList.add(next);
+  root.dataset.theme = next;
   root.style.colorScheme = next;
 
   try {

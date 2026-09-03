@@ -1,0 +1,1040 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 12px;
+  color: #1a1a1a;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 2px 4px rgba(0, 0, 0, 0.02);
+  animation: ap-card-in 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes ap-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  height: 24px;
+  overflow: visible;
+}
+.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: #1a1a1a;
+  background: #f7f8fa;
+  border-radius: 6px;
+}
+.icon[data-variant="questions"] {
+  color: #3b82f6;
+  background: color-mix(in srgb, #3b82f6 12%, #ffffff);
+}
+.icon[data-variant="command"] {
+  color: #d98404;
+  background: color-mix(in srgb, #d98404 14%, #ffffff);
+}
+.icon[data-variant="plan"] {
+  color: #15a06a;
+  background: color-mix(in srgb, #15a06a 12%, #ffffff);
+}
+.iconSvg {
+  width: 14px;
+  height: 14px;
+}
+.headText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+.headActions {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  align-items: center;
+  margin-left: auto;
+}
+.headAction {
+  position: relative;
+  z-index: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  color: #a1a1a1;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+}
+.headAction:hover {
+  color: #1a1a1a;
+  background: color-mix(in srgb, #1a1a1a 6%, transparent);
+}
+.headAction:active {
+  transform: scale(0.99);
+}
+.headActionIcon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.title {
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+.planIntro {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 2px;
+}
+.planHeadline {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #1a1a1a;
+  letter-spacing: -0.01em;
+}
+.planSummary {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #a1a1a1;
+  white-space: pre-line;
+}
+.questionsViewport {
+  width: 100%;
+  padding: 1px;
+  margin: -1px;
+  overflow: hidden;
+}
+.questionsViewport[data-animate="true"] {
+  transition: height 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.questionsTrack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  will-change: transform;
+}
+.questionsTrack[data-animate="true"] {
+  transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.question {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  opacity: 0;
+}
+.question[data-active="true"] {
+  opacity: 1;
+}
+.questionsTrack[data-animate="true"] .question {
+  transition: opacity 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.question:not([data-active="true"]) {
+  pointer-events: none;
+}
+.qPrompt {
+  padding-left: 2px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.option {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 5px;
+  margin: 0;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: #1a1a1a;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0.5px solid rgba(0, 0, 0, 0.08);
+  border-radius: 7px;
+  transition: background-color 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.option:hover:not([data-selected="true"]) {
+  background: #fafafa;
+}
+.option[data-selected="true"] {
+  background: #ffffff;
+  border-color: transparent;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 2px 4px rgba(0, 0, 0, 0.02);
+}
+.optionInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: #1a1a1a;
+  outline: none;
+  background: transparent;
+  border: 0;
+}
+.optionInput::placeholder {
+  color: #a1a1a1;
+}
+.option:active:not([data-other="true"]) {
+  transform: scale(0.99);
+}
+.option[data-other="true"],
+.option[data-other="true"]:active {
+  cursor: text;
+  transform: none;
+}
+.key {
+  position: relative;
+  z-index: 0;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: #a1a1a1;
+  letter-spacing: 0;
+  background: color-mix(in srgb, #1a1a1a 6%, transparent);
+  border: 0;
+  border-radius: 4px;
+  transition: color 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.key::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  background: #0b0d12;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.option[data-selected="true"] .key {
+  color: #ffffff;
+  border: 0;
+}
+.option[data-selected="true"] .key::before {
+  opacity: 1;
+}
+.cmdBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px 10px;
+  background: #fafafa;
+  border-radius: 8px;
+}
+.cwd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #a1a1a1;
+}
+.cmd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #1a1a1a;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.todoWell {
+  padding: 8px 12px 10px;
+  background: #fafafa;
+  border-radius: 8px;
+}
+.todoHead {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-height: 22px;
+  font-size: 13px;
+  color: #1a1a1a;
+}
+.todoHeadIcon {
+  position: relative;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: #1a1a1a;
+}
+.todoListIcon {
+  position: absolute;
+  inset: 0;
+  width: 14px;
+  height: 14px;
+  margin: auto;
+}
+.todoTitle {
+  font-weight: 500;
+}
+.todoCount {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: #a1a1a1;
+}
+.todoList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 0;
+  margin: 0;
+  font-size: 13px;
+  list-style: none;
+}
+.todoListFlush {
+  padding-top: 0;
+}
+.todoItem {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  line-height: 18px;
+  color: #a1a1a1;
+}
+.todoIconWrap {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+.todoIcon {
+  position: absolute;
+  inset: 0;
+  width: 16px;
+  height: 16px;
+  color: #a1a1a1;
+  opacity: 1;
+}
+.todoLabel {
+  font-weight: 400;
+  color: #a1a1a1;
+}
+.todoCollapsible {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.todoCollapsed {
+  grid-template-rows: 0fr;
+  pointer-events: none;
+  opacity: 0;
+}
+.todoInner {
+  min-height: 0;
+  overflow: hidden;
+}
+.todoRest {
+  padding-top: 8px;
+}
+.todoMore {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 0;
+  margin: 8px 0 0;
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  color: #a1a1a1;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  transition: color 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.todoMoreIcon {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+.todoMoreGlyph {
+  width: 16px;
+  height: 16px;
+}
+.todoMore:hover {
+  color: #1a1a1a;
+}
+.todoMore:active {
+  transform: scale(0.99);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0;
+  padding-left: 2px;
+}
+.actionsSpacer {
+  flex: none;
+  width: 0;
+}
+.actionBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+.btnGhost,
+.btnPrimary {
+  position: relative;
+  z-index: 0;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 5px 11px;
+  margin: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+}
+.btnSubmitIcon {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+.btnGhost::before,
+.btnPrimary::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  border-radius: 999px;
+  transition: background 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.btnGhost {
+  color: #1a1a1a;
+}
+.btnGhost::before {
+  background: color-mix(in srgb, #1a1a1a 6%, transparent);
+}
+.btnGhost:hover::before {
+  background: color-mix(in srgb, #1a1a1a 10%, transparent);
+}
+.btnGhost:active,
+.btnPrimary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.btnPrimary {
+  color: #ffffff;
+}
+.btnPrimary::before {
+  background: #0b0d12;
+}
+.btnPrimary:hover:not(:disabled)::before {
+  background: #2a2f3a;
+}
+.btnPrimary:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+.stepNav {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+  color: #a1a1a1;
+}
+.stepArrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  line-height: 0;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  transition: color 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.stepArrow:hover:not(:disabled) {
+  color: #1a1a1a;
+}
+.stepArrow:active:not(:disabled) {
+  transform: scale(0.99);
+}
+.stepArrow:disabled {
+  cursor: default;
+  opacity: 0.28;
+}
+.stepArrowIcon {
+  width: 14px;
+  height: 14px;
+}
+.stepBadge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: #a1a1a1;
+  letter-spacing: -0.1px;
+  white-space: nowrap;
+  border: 0;
+}
+.digitStatic {
+  display: inline;
+}
+.digitRoll {
+  position: relative;
+  display: inline-block;
+  height: 1em;
+  overflow: hidden;
+  line-height: 1em;
+  vertical-align: -0.05em;
+}
+.digitRollInner {
+  display: flex;
+  flex-direction: column;
+  transition: transform 350ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.digitRollInner[data-dir="down"] {
+  transform: translateY(-1em);
+}
+.digitRollInner[data-dir="up"][data-shifted="true"] {
+  transform: translateY(-1em);
+}
+.digitRollInner[data-dir="down"][data-shifted="true"] {
+  transform: translateY(0);
+}
+.digitRollInner span {
+  height: 1em;
+  line-height: 1em;
+}
+.autoApprove {
+  display: inline-flex;
+  flex: none;
+  gap: 5px;
+  align-items: center;
+  min-width: 0;
+  color: #a1a1a1;
+  transition: opacity 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.autoApproveOut {
+  pointer-events: none;
+  opacity: 0;
+}
+.autoApproveTip {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  line-height: 0;
+}
+.autoApproveTip::after {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  padding: 4px 5px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+  pointer-events: none;
+  content: "Cancel";
+  background: rgba(29, 29, 29, 0.6);
+  border-radius: 6px;
+  opacity: 0;
+  filter: blur(2px);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transform: translateX(-50%) translateY(1px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    filter 0.15s ease;
+}
+.autoApproveTip:hover::after,
+.autoApproveTip:focus-within::after {
+  opacity: 1;
+  filter: blur(0);
+  transform: translateX(-50%) translateY(0);
+}
+.autoApproveCancel {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: #15a06a;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+.autoApproveCancel:disabled {
+  cursor: default;
+}
+.autoApproveLabel {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+.autoApproveSecs {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  vertical-align: baseline;
+}
+.autoApprovePie {
+  display: block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: inherit;
+  transition: opacity 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.autoApproveCancelGlyph {
+  position: absolute;
+  inset: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #15a06a;
+  pointer-events: none;
+  background: color-mix(in srgb, #15a06a 22%, transparent);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.autoApproveCancel:hover .autoApprovePie,
+.autoApproveCancel:focus-visible .autoApprovePie {
+  opacity: 0;
+}
+.autoApproveCancel:hover .autoApproveCancelGlyph,
+.autoApproveCancel:focus-visible .autoApproveCancelGlyph {
+  opacity: 1;
+}
+.autoApprovePieTrack {
+  stroke: color-mix(in srgb, #15a06a 22%, transparent);
+}
+.autoApprovePieFill {
+  stroke: currentColor;
+  transition: stroke-dashoffset 1s linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    animation: none;
+  }
+  .questionsViewport[data-animate="true"],
+  .questionsTrack[data-animate="true"],
+  .questionsTrack[data-animate="true"] .question {
+    transition: none;
+  }
+  .digitRollInner {
+    transition: none;
+  }
+  .autoApprovePieFill {
+    transition: none;
+  }
+  .autoApprove,
+  .autoApprovePie,
+  .autoApproveCancelGlyph {
+    transition: none;
+  }
+  .option,
+  .key,
+  .key::before,
+  .btnGhost,
+  .btnPrimary,
+  .btnGhost::before,
+  .btnPrimary::before,
+  .stepArrow {
+    transition: none;
+  }
+}
+:global([data-theme="dark"]) .card,
+:global(.dark) .card {
+  color: #f5f5f5;
+  background: #1a1a1a;
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.3);
+}
+:global([data-theme="dark"]) .icon,
+:global(.dark) .icon {
+  color: #f5f5f5;
+  background: #101010;
+}
+:global([data-theme="dark"]) .icon[data-variant="questions"],
+:global(.dark) .icon[data-variant="questions"] {
+  color: #60a5fa;
+  background: color-mix(in srgb, #3b82f6 18%, #1a1a1a);
+}
+:global([data-theme="dark"]) .icon[data-variant="command"],
+:global(.dark) .icon[data-variant="command"] {
+  color: #f5b14c;
+  background: color-mix(in srgb, #f5b14c 14%, #1a1a1a);
+}
+:global([data-theme="dark"]) .icon[data-variant="plan"],
+:global(.dark) .icon[data-variant="plan"] {
+  color: #34d399;
+  background: color-mix(in srgb, #34d399 12%, #1a1a1a);
+}
+:global([data-theme="dark"]) .headAction,
+:global(.dark) .headAction {
+  color: #737373;
+}
+:global([data-theme="dark"]) .headAction:hover,
+:global(.dark) .headAction:hover {
+  color: #f5f5f5;
+  background: color-mix(in srgb, #f5f5f5 6%, transparent);
+}
+:global([data-theme="dark"]) .planHeadline,
+:global(.dark) .planHeadline {
+  color: #f5f5f5;
+}
+:global([data-theme="dark"]) .planSummary,
+:global(.dark) .planSummary {
+  color: #a3a3a3;
+}
+:global([data-theme="dark"]) .option:not([data-selected="true"]),
+:global(.dark) .option:not([data-selected="true"]) {
+  color: #f5f5f5;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+:global([data-theme="dark"]) .option:hover:not([data-selected="true"]),
+:global(.dark) .option:hover:not([data-selected="true"]) {
+  background: #101010;
+}
+:global([data-theme="dark"]) .option[data-selected="true"],
+:global(.dark) .option[data-selected="true"] {
+  background: #1a1a1a;
+  border-color: transparent;
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.16),
+    0 2px 4px rgba(0, 0, 0, 0.12);
+}
+:global([data-theme="dark"]) .optionInput,
+:global(.dark) .optionInput {
+  color: #f5f5f5;
+}
+:global([data-theme="dark"]) .optionInput::placeholder,
+:global(.dark) .optionInput::placeholder {
+  color: #737373;
+}
+:global([data-theme="dark"]) .key,
+:global(.dark) .key {
+  color: #737373;
+  background: color-mix(in srgb, #f5f5f5 6%, transparent);
+}
+:global([data-theme="dark"]) .key::before,
+:global(.dark) .key::before {
+  background: #f5f5f5;
+}
+:global([data-theme="dark"]) .option[data-selected="true"] .key,
+:global(.dark) .option[data-selected="true"] .key {
+  color: #0a0a0a;
+}
+:global([data-theme="dark"]) .cmdBlock,
+:global(.dark) .cmdBlock {
+  background: #101010;
+}
+:global([data-theme="dark"]) .cwd,
+:global(.dark) .cwd {
+  color: #737373;
+}
+:global([data-theme="dark"]) .cmd,
+:global(.dark) .cmd {
+  color: #f5f5f5;
+}
+:global([data-theme="dark"]) .todoWell,
+:global(.dark) .todoWell {
+  background: #101010;
+}
+:global([data-theme="dark"]) .todoHead,
+:global(.dark) .todoHead {
+  color: #f5f5f5;
+}
+:global([data-theme="dark"]) .todoHeadIcon,
+:global(.dark) .todoHeadIcon {
+  color: #f5f5f5;
+}
+:global([data-theme="dark"]) .todoCount,
+:global([data-theme="dark"]) .todoItem,
+:global([data-theme="dark"]) .todoIcon,
+:global([data-theme="dark"]) .todoLabel,
+:global([data-theme="dark"]) .todoMore,
+:global(.dark) .todoCount,
+:global(.dark) .todoItem,
+:global(.dark) .todoIcon,
+:global(.dark) .todoLabel,
+:global(.dark) .todoMore {
+  color: #737373;
+}
+:global([data-theme="dark"]) .todoMore:hover,
+:global(.dark) .todoMore:hover {
+  color: #f5f5f5;
+}
+:global([data-theme="dark"]) .btnGhost,
+:global(.dark) .btnGhost {
+  color: #f5f5f5;
+}
+:global([data-theme="dark"]) .btnGhost::before,
+:global(.dark) .btnGhost::before {
+  background: color-mix(in srgb, #f5f5f5 6%, transparent);
+}
+:global([data-theme="dark"]) .btnGhost:hover::before,
+:global(.dark) .btnGhost:hover::before {
+  background: color-mix(in srgb, #f5f5f5 10%, transparent);
+}
+:global([data-theme="dark"]) .btnPrimary,
+:global(.dark) .btnPrimary {
+  color: #0a0a0a;
+}
+:global([data-theme="dark"]) .btnPrimary::before,
+:global(.dark) .btnPrimary::before {
+  background: #f5f5f5;
+}
+:global([data-theme="dark"]) .btnPrimary:hover:not(:disabled)::before,
+:global(.dark) .btnPrimary:hover:not(:disabled)::before {
+  background: #ffffff;
+}
+:global([data-theme="dark"]) .stepNav,
+:global([data-theme="dark"]) .stepBadge,
+:global(.dark) .stepNav,
+:global(.dark) .stepBadge {
+  color: #737373;
+}
+:global([data-theme="dark"]) .stepArrow:hover:not(:disabled),
+:global(.dark) .stepArrow:hover:not(:disabled) {
+  color: #f5f5f5;
+}
+:global([data-theme="dark"]) .autoApprove,
+:global(.dark) .autoApprove {
+  color: #737373;
+}
+:global([data-theme="dark"]) .autoApproveCancel,
+:global(.dark) .autoApproveCancel {
+  color: #34d399;
+}
+:global([data-theme="dark"]) .autoApproveTip::after,
+:global(.dark) .autoApproveTip::after {
+  background: rgba(255, 255, 255, 0.12);
+}
+:global([data-theme="dark"]) .autoApproveCancelGlyph,
+:global(.dark) .autoApproveCancelGlyph {
+  color: #34d399;
+  background: color-mix(in srgb, #34d399 22%, transparent);
+}
+:global([data-theme="dark"]) .autoApprovePieTrack,
+:global(.dark) .autoApprovePieTrack {
+  stroke: color-mix(in srgb, #34d399 22%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  :global(:root:not([data-theme])) .card {
+    color: #f5f5f5;
+    background: #1a1a1a;
+    box-shadow:
+      0 0 0 0.5px rgba(255, 255, 255, 0.12),
+      0 1px 2px rgba(0, 0, 0, 0.4),
+      0 2px 4px rgba(0, 0, 0, 0.3);
+  }
+  .icon {
+    color: #f5f5f5;
+    background: #101010;
+  }
+  .icon[data-variant="questions"] {
+    color: #60a5fa;
+    background: color-mix(in srgb, #3b82f6 18%, #1a1a1a);
+  }
+  .icon[data-variant="command"] {
+    color: #f5b14c;
+    background: color-mix(in srgb, #f5b14c 14%, #1a1a1a);
+  }
+  .icon[data-variant="plan"] {
+    color: #34d399;
+    background: color-mix(in srgb, #34d399 12%, #1a1a1a);
+  }
+  .headAction {
+    color: #737373;
+  }
+  .headAction:hover {
+    color: #f5f5f5;
+    background: color-mix(in srgb, #f5f5f5 6%, transparent);
+  }
+  .planHeadline {
+    color: #f5f5f5;
+  }
+  .planSummary {
+    color: #a3a3a3;
+  }
+  .option:not([data-selected="true"]) {
+    color: #f5f5f5;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+  .option:hover:not([data-selected="true"]) {
+    background: #101010;
+  }
+  .option[data-selected="true"] {
+    background: #1a1a1a;
+    border-color: transparent;
+    box-shadow:
+      0 0 0 0.5px rgba(255, 255, 255, 0.12),
+      0 1px 2px rgba(0, 0, 0, 0.16),
+      0 2px 4px rgba(0, 0, 0, 0.12);
+  }
+  .optionInput {
+    color: #f5f5f5;
+  }
+  .optionInput::placeholder {
+    color: #737373;
+  }
+  .key {
+    color: #737373;
+    background: color-mix(in srgb, #f5f5f5 6%, transparent);
+  }
+  .key::before {
+    background: #f5f5f5;
+  }
+  .option[data-selected="true"] .key {
+    color: #0a0a0a;
+  }
+  .cmdBlock {
+    background: #101010;
+  }
+  .cwd {
+    color: #737373;
+  }
+  .cmd {
+    color: #f5f5f5;
+  }
+  .todoWell {
+    background: #101010;
+  }
+  .todoHead {
+    color: #f5f5f5;
+  }
+  .todoHeadIcon {
+    color: #f5f5f5;
+  }
+  .todoCount,
+  .todoItem,
+  .todoIcon,
+  .todoLabel,
+  .todoMore {
+    color: #737373;
+  }
+  .todoMore:hover {
+    color: #f5f5f5;
+  }
+  .btnGhost {
+    color: #f5f5f5;
+  }
+  .btnGhost::before {
+    background: color-mix(in srgb, #f5f5f5 6%, transparent);
+  }
+  .btnGhost:hover::before {
+    background: color-mix(in srgb, #f5f5f5 10%, transparent);
+  }
+  .btnPrimary {
+    color: #0a0a0a;
+  }
+  .btnPrimary::before {
+    background: #f5f5f5;
+  }
+  .btnPrimary:hover:not(:disabled)::before {
+    background: #ffffff;
+  }
+  .stepNav,
+  .stepBadge {
+    color: #737373;
+  }
+  .stepArrow:hover:not(:disabled) {
+    color: #f5f5f5;
+  }
+  .autoApprove {
+    color: #737373;
+  }
+  .autoApproveCancel {
+    color: #34d399;
+  }
+  .autoApproveTip::after {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .autoApproveCancelGlyph {
+    color: #34d399;
+    background: color-mix(in srgb, #34d399 22%, transparent);
+  }
+  .autoApprovePieTrack {
+    stroke: color-mix(in srgb, #34d399 22%, transparent);
+  }
+}
