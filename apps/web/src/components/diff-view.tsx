@@ -68,7 +68,7 @@ export function DiffView({
     <div className="flex flex-col gap-3">
       {files.map((file) => (
         <div
-          className="overflow-hidden rounded-lg ring-1 ring-foreground/10"
+          className="overflow-hidden rounded-lg border border-border"
           key={file.cacheKey ?? file.name}
         >
           <FileDiff fileDiff={file} options={options} />
