@@ -303,7 +303,7 @@ function ProjectItem({ project }: { project: Project }) {
         </CollapsibleTrigger>
 
         <CollapsibleContent>
-          <SidebarMenuSub>
+          <SidebarMenuSub className="mr-0 pr-0">
             {shown.map((task) => {
               const { label } = STATUS[task.status];
               const attention = ATTENTION[task.status];
@@ -319,7 +319,7 @@ function ProjectItem({ project }: { project: Project }) {
                     }
                     render={<Link params={{ id: task.id }} to="/tasks/$id" />}
                   >
-                    <span className="min-w-0 flex-1 truncate">
+                    <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent)]">
                       {firstLine(task.spec.prompt)}
                     </span>
                     {attention && (
