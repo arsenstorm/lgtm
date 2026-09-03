@@ -40,7 +40,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { createProject, getProjects } from "@/lib/lgtm/server";
-import type { Project as ProjectRecord, Task } from "@/lib/lgtm/types";
+import type { Chat, Project as ProjectRecord, Task } from "@/lib/lgtm/types";
 
 const NAV = [
   { exact: true, icon: TasksIcon, label: "Tasks", to: "/tasks" },
@@ -61,6 +61,9 @@ const DOT_GIT = /\.git$/;
 const REPOSITORY_SEPARATOR = /[/:]/;
 
 const PROJECTS_OPEN_KEY = "lgtm-projects-open";
+// ponytail: the newest eight; a full list gets its own page when threads
+// pile up.
+const RECENT_CHATS = 8;
 
 type OpenMap = Record<string, boolean>;
 
@@ -138,9 +141,10 @@ export function LgtmLogo({ className }: { className?: string }) {
 }
 
 export function AppSidebar({
+  chats,
   tasks,
   ...props
-}: { tasks: Task[] } & ComponentProps<typeof Sidebar>) {
+}: { chats: Chat[]; tasks: Task[] } & ComponentProps<typeof Sidebar>) {
   const matchRoute = useMatchRoute();
   const [records, setRecords] = useState<ProjectRecord[]>([]);
   const [open, setOpen] = useState<OpenMap>({});
@@ -331,6 +335,36 @@ export function AppSidebar({
                       (r) => r.repository === project.repository
                     )}
                   />
+                ))}
+              </SidebarMenu>
+            )}
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Your chats</SidebarGroupLabel>
+          <SidebarGroupContent>
+            {chats.length === 0 ? (
+              <p className="px-2 py-1 text-sidebar-foreground/70 text-sm">
+                No chats yet
+              </p>
+            ) : (
+              <SidebarMenu className="gap-1">
+                {chats.slice(0, RECENT_CHATS).map((chat) => (
+                  <SidebarMenuItem key={chat.id}>
+                    <SidebarMenuButton
+                      isActive={
+                        !!matchRoute({
+                          params: { id: chat.id },
+                          to: "/chats/$id",
+                        })
+                      }
+                      render={<Link params={{ id: chat.id }} to="/chats/$id" />}
+                    >
+                      <MsgsIcon aria-hidden="true" />
+                      <span className="truncate">{chat.title}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
                 ))}
               </SidebarMenu>
             )}

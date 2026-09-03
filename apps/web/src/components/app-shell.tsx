@@ -13,7 +13,7 @@ import {
   SidebarProvider,
   useSidebar,
 } from "@/components/ui/sidebar";
-import type { Task, TaskDetail } from "@/lib/lgtm/types";
+import type { Chat, Task, TaskDetail } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 
 const TASK_PANEL_KEY = "lgtm-task-panel-open";
@@ -45,9 +45,11 @@ function useTaskPanelOpen() {
 }
 
 export function AppShell({
+  chats,
   tasks,
   children,
 }: {
+  chats: Chat[];
   tasks: Task[];
   children: React.ReactNode;
 }) {
@@ -63,16 +65,20 @@ export function AppShell({
         } as CSSProperties
       }
     >
-      <AppSidebar tasks={tasks} variant="inset" />
-      <AppFrame tasks={tasks}>{children}</AppFrame>
+      <AppSidebar chats={chats} tasks={tasks} variant="inset" />
+      <AppFrame chats={chats} tasks={tasks}>
+        {children}
+      </AppFrame>
     </SidebarProvider>
   );
 }
 
 function AppFrame({
+  chats,
   tasks,
   children,
 }: {
+  chats: Chat[];
   tasks: Task[];
   children: React.ReactNode;
 }) {
@@ -108,6 +114,7 @@ function AppFrame({
         )}
       >
         <SiteHeader
+          chats={chats}
           leftSidebar={{
             shown: leftShown,
             toggle: leftSidebar.toggleSidebar,
@@ -115,7 +122,7 @@ function AppFrame({
           task={taskDetail?.task}
           tasks={tasks}
         />
-        <div className="scrollbar-gutter-stable min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain">
+        <div className="scrollbar-gutter-stable min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
           {children}
         </div>
       </main>

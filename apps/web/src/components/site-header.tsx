@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useSidebar } from "@/components/ui/sidebar";
-import type { Task, TaskStatus } from "@/lib/lgtm/types";
+import type { Chat, Task, TaskStatus } from "@/lib/lgtm/types";
 import { cn, taskTitle } from "@/lib/utils";
 
 const TITLES = [
@@ -19,7 +19,7 @@ const TITLES = [
 ] as const;
 
 /** The header names where you are; the pages themselves lead with content. */
-function useTitle(tasks: Task[]): string {
+function useTitle(tasks: Task[], chats: Chat[]): string {
   const matchRoute = useMatchRoute();
   // The composer is the home route; the task list lives at /tasks.
   if (matchRoute({ to: "/" })) {
@@ -29,6 +29,10 @@ function useTitle(tasks: Task[]): string {
   if (match) {
     const task = tasks.find((candidate) => candidate.id === match.id);
     return task ? taskTitle(task) : `Task ${match.id}`;
+  }
+  const chat = matchRoute({ to: "/chats/$id" });
+  if (chat) {
+    return chats.find((candidate) => candidate.id === chat.id)?.title ?? "Chat";
   }
   // The hex id says nothing a reader wants; the todo page leads with its own
   // display id, and a scratchpad with its title.
@@ -48,14 +52,16 @@ function useTitle(tasks: Task[]): string {
 
 export function SiteHeader({
   tasks,
+  chats,
   task,
   leftSidebar,
 }: {
+  chats: Chat[];
   leftSidebar: { shown: boolean; toggle: () => void };
   task?: Task;
   tasks: Task[];
 }) {
-  const title = useTitle(tasks);
+  const title = useTitle(tasks, chats);
   const rightSidebar = useSidebar();
   const rightShown = rightSidebar.isMobile
     ? rightSidebar.openMobile
