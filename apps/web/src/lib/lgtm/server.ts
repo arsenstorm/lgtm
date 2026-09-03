@@ -155,6 +155,16 @@ export const enhancePrompt = createServerFn({ method: "POST" })
       api<{ prompt: string }>("/enhance", { body: data, method: "POST" })
   );
 
+// One bounded pass of the read-only workspace agent. The orchestrator answers
+// 409 when --orchestrate is off or a question is already running; `api` keeps
+// that reason on the thrown message.
+export const askWorkspace = createServerFn({ method: "POST" })
+  .validator((input: { question: string }) => input)
+  .handler(
+    async ({ data }): Promise<{ answer: string }> =>
+      api<{ answer: string }>("/ask", { body: data, method: "POST" })
+  );
+
 export const approveTask = createServerFn({ method: "POST" })
   .validator((id: string) => id)
   .handler(

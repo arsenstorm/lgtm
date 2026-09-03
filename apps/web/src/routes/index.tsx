@@ -17,6 +17,8 @@ import {
   CodeBranchIcon,
   FolderIcon,
   MagicWandSparkleIcon,
+  MsgsIcon,
+  TasksIcon,
 } from "@/components/icons";
 import {
   type LlmModel,
@@ -26,6 +28,7 @@ import {
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useWorkspaceChat, WorkspaceChat } from "@/components/workspace-chat";
 import {
   createTask,
   enhancePrompt,
@@ -58,6 +61,19 @@ const CONTROL =
   "flex items-center gap-1.5 rounded-sm text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50";
 
 const MODEL_PREFERENCES_KEY = "lgtm-model-preferences";
+
+const COPY = {
+  chat: {
+    label: "Message",
+    placeholder: "Ask about the workspace, or describe work…",
+    send: "Send",
+  },
+  task: {
+    label: "Task prompt",
+    placeholder: "Describe your task...",
+    send: "Queue task",
+  },
+} as const;
 
 function isReasoningEffort(value: unknown): value is ReasoningEffort {
   return value === "low" || value === "medium" || value === "high";
@@ -103,6 +119,15 @@ function saveModelPreferences(
   }
 }
 
+function heading(mode: "chat" | "task", project: string | undefined): string {
+  if (mode === "chat") {
+    return project ? "What should we work on in" : "What should we work on?";
+  }
+  return project
+    ? "What should we build in"
+    : "Choose a project to get started";
+}
+
 function NewTaskPage() {
   const { projects, runners } = Route.useLoaderData();
   const { repo } = Route.useSearch();
@@ -134,7 +159,11 @@ function NewTaskPage() {
     Record<string, ReasoningEffort>
   >({});
   const [draft, setDraft] = useState("");
-  const [pending, setPending] = useState<"enhance" | "submit" | null>(null);
+  const [pending, setPending] = useState<
+    "ask" | "brief" | "enhance" | "submit" | null
+  >(null);
+  const chat = useWorkspaceChat({ pending, repository, setPending });
+  const { mode, turns } = chat;
 
   const busy = pending !== null;
   const runnerOptions = useMemo(
@@ -210,6 +239,22 @@ function NewTaskPage() {
     []
   );
 
+  const ask = useCallback(async () => {
+    const asked = draft.trim();
+    setDraft("");
+    const answered = await chat.ask(asked);
+    if (!answered) {
+      setDraft(asked);
+    }
+  }, [chat, draft]);
+
+  const createTaskFromChat = useCallback(async () => {
+    const brief = await chat.createTask();
+    if (brief !== null) {
+      setDraft(brief);
+    }
+  }, [chat]);
+
   const enhance = useCallback(async () => {
     const prompt = draft.trim();
     if (prompt === "" || repository === "" || busy) {
@@ -275,50 +320,84 @@ function NewTaskPage() {
     runner,
     runners,
   ]);
+  // Enter sends a chat line the way it does in a task's follow-up box; queuing
+  // a task keeps the deliberate Cmd+Enter it always had.
   const submitOnShortcut = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      if (event.key !== "Enter") {
+        return;
+      }
+      if (mode === "chat" && !event.shiftKey) {
+        event.preventDefault();
+        ask();
+      } else if (mode === "task" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         submit();
       }
     },
-    [submit]
+    [ask, mode, submit]
   );
+
+  const createTaskButton = (
+    <button
+      className={cn(CONTROL, "disabled:opacity-40")}
+      disabled={busy}
+      onClick={createTaskFromChat}
+      type="button"
+    >
+      {pending === "brief" ? (
+        <CircleNotch className="size-4 animate-spin" />
+      ) : (
+        <TasksIcon className="size-4" />
+      )}
+      Create task
+    </button>
+  );
+  const canSend =
+    !busy && draft.trim() !== "" && (mode === "chat" || repository !== "");
+  const send = { chat: ask, task: submit }[mode];
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-4 py-6 sm:px-6">
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-        <LgtmLogo className="size-8 text-muted-foreground" />
-        <h1 className="font-semibold text-2xl tracking-tight sm:text-3xl">
-          {project ? (
-            <>
-              What should we build in{" "}
-              <CompactSwitcher
-                ariaLabel="Select project"
-                emptyMessage="No matching projects"
-                label={project.name}
-                name="heading-project-search"
-                onValueChange={pick}
-                options={projectOptions}
-                placeholder="Search projects…"
-                trigger={
-                  // The decoration keeps its muted colour; the name dims toward
-                  // it and the underline drops away on hover. Chromium animates
-                  // text-underline-offset, elsewhere the colour fade carries it.
-                  <button
-                    className="rounded-sm text-foreground underline decoration-muted-foreground/50 decoration-dashed underline-offset-4 outline-none transition-[color,text-underline-offset] duration-300 hover:text-muted-foreground hover:underline-offset-[7px] focus-visible:ring-2 focus-visible:ring-ring/50"
-                    type="button"
-                  />
-                }
-                value={repository}
-              />
-              ?
-            </>
-          ) : (
-            "Choose a project to get started"
-          )}
-        </h1>
-      </div>
+      {turns.length > 0 ? (
+        <WorkspaceChat
+          action={createTaskButton}
+          pending={pending === "ask"}
+          turns={turns}
+        />
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+          <LgtmLogo className="size-8 text-muted-foreground" />
+          <h1 className="font-semibold text-2xl tracking-tight sm:text-3xl">
+            {heading(mode, project?.name)}
+            {project ? (
+              <>
+                {" "}
+                <CompactSwitcher
+                  ariaLabel="Select project"
+                  emptyMessage="No matching projects"
+                  label={project.name}
+                  name="heading-project-search"
+                  onValueChange={pick}
+                  options={projectOptions}
+                  placeholder="Search projects…"
+                  trigger={
+                    // The decoration keeps its muted colour; the name dims toward
+                    // it and the underline drops away on hover. Chromium animates
+                    // text-underline-offset, elsewhere the colour fade carries it.
+                    <button
+                      className="rounded-sm text-foreground underline decoration-muted-foreground/50 decoration-dashed underline-offset-4 outline-none transition-[color,text-underline-offset] duration-300 hover:text-muted-foreground hover:underline-offset-[7px] focus-visible:ring-2 focus-visible:ring-ring/50"
+                      type="button"
+                    />
+                  }
+                  value={repository}
+                />
+                ?
+              </>
+            ) : null}
+          </h1>
+        </div>
+      )}
 
       <div className="sticky bottom-6 mt-8 flex flex-col">
         {/* The rear pill sits behind the composer and only shows its top edge:
@@ -336,69 +415,90 @@ function NewTaskPage() {
             value={repository}
           />
 
-          <CompactSwitcher
-            ariaLabel="Select runner"
-            emptyMessage="No matching runners"
-            label={runner ?? "Auto"}
-            name="runner-search"
-            onValueChange={changeRunner}
-            options={runnerOptions}
-            placeholder="Search runners…"
-            trigger={<Control icon={AiDeveloperIcon} />}
-            value={runner ?? ""}
-          />
+          {mode === "task" ? (
+            <>
+              <CompactSwitcher
+                ariaLabel="Select runner"
+                emptyMessage="No matching runners"
+                label={runner ?? "Auto"}
+                name="runner-search"
+                onValueChange={changeRunner}
+                options={runnerOptions}
+                placeholder="Search runners…"
+                trigger={<Control icon={AiDeveloperIcon} />}
+                value={runner ?? ""}
+              />
 
-          <BranchSwitcher
-            branches={branches}
-            onValueChange={changeBranch}
-            value={branch}
-          />
+              <BranchSwitcher
+                branches={branches}
+                onValueChange={changeBranch}
+                value={branch}
+              />
+            </>
+          ) : null}
         </div>
 
         {/* In light mode --card equals --background, so this hairline is the
             only thing separating the composer from the page. */}
         <div className="relative flex flex-col rounded-[18px] border border-foreground/6 bg-card transition-colors focus-within:border-foreground/15">
           <Textarea
-            aria-label="Task prompt"
+            aria-label={COPY[mode].label}
             className="max-h-64 min-h-20 resize-none border-0 bg-transparent px-3 py-3 shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0 dark:bg-transparent"
             onChange={changeDraft}
             onKeyDown={submitOnShortcut}
-            placeholder="Describe your task..."
+            placeholder={COPY[mode].placeholder}
             value={draft}
           />
 
           <div className="flex flex-wrap items-center gap-3 px-4 pb-4">
-            <button
-              className={cn(CONTROL, "disabled:opacity-40")}
-              disabled={busy || draft.trim() === "" || repository === ""}
-              onClick={enhance}
-              type="button"
-            >
-              {pending === "enhance" ? (
-                <CircleNotch className="size-4 animate-spin" />
-              ) : (
-                <MagicWandSparkleIcon className="size-4" />
-              )}
-              Enhance
-            </button>
+            {mode === "chat" ? (
+              createTaskButton
+            ) : (
+              <>
+                <button
+                  className={CONTROL}
+                  disabled={busy}
+                  onClick={chat.backToChat}
+                  type="button"
+                >
+                  <MsgsIcon className="size-4" />
+                  Chat
+                </button>
+                <button
+                  className={cn(CONTROL, "disabled:opacity-40")}
+                  disabled={busy || draft.trim() === "" || repository === ""}
+                  onClick={enhance}
+                  type="button"
+                >
+                  {pending === "enhance" ? (
+                    <CircleNotch className="size-4 animate-spin" />
+                  ) : (
+                    <MagicWandSparkleIcon className="size-4" />
+                  )}
+                  Enhance
+                </button>
+              </>
+            )}
 
             <div className="ml-auto flex min-w-0 items-center gap-2">
-              <ModelSelector
-                configurations={modelConfigurations}
-                disabled={busy}
-                model={model}
-                onConfigurationChange={changeModelConfiguration}
-                onModelChange={changeModel}
-              />
+              {mode === "task" ? (
+                <ModelSelector
+                  configurations={modelConfigurations}
+                  disabled={busy}
+                  model={model}
+                  onConfigurationChange={changeModelConfiguration}
+                  onModelChange={changeModel}
+                />
+              ) : null}
 
               <Button
-                aria-label="Queue task"
+                aria-label={COPY[mode].send}
                 className="size-8 shrink-0 rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-40"
-                disabled={busy || draft.trim() === "" || repository === ""}
-                onClick={submit}
+                disabled={!canSend}
+                onClick={send}
                 size="icon"
               >
-                {pending === "submit" ? (
+                {pending === "ask" || pending === "submit" ? (
                   <CircleNotch className="animate-spin" />
                 ) : (
                   <ArrowUp />
