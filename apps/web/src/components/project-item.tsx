@@ -63,7 +63,7 @@ const ATTENTION: Partial<
 // Row furniture stays out of the way until the row is reached. A coarse
 // pointer has no hover to reach it with, so there it is always on.
 const REVEAL =
-  "pointer-coarse:opacity-100 opacity-0 group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100";
+  "pointer-coarse:opacity-100 opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100";
 
 export function ProjectItem({
   onOpenChange,
@@ -125,83 +125,87 @@ export function ProjectItem({
       <SidebarMenuItem>
         {/* The right padding keeps the name's truncation clear of the actions
             that sit over this row. */}
-        <CollapsibleTrigger render={<SidebarMenuButton className="pr-14" />}>
-          <FolderIcon aria-hidden="true" open={open} />
-          <span className="min-w-0 truncate">{project.name}</span>
-          <ChevronIcon
-            aria-hidden="true"
+        {/* The row is its own hover group: the item also holds the task rows
+            below, and reaching one of those must not light this row up. */}
+        <div className="group/row relative">
+          <CollapsibleTrigger render={<SidebarMenuButton className="pr-14" />}>
+            <FolderIcon aria-hidden="true" open={open} />
+            <span className="min-w-0 truncate">{project.name}</span>
+            <ChevronIcon
+              aria-hidden="true"
+              className={cn(
+                REVEAL,
+                "text-muted-foreground transition-[opacity,transform,color] duration-200 hover:text-foreground group-data-[panel-open]/menu-button:rotate-90"
+              )}
+            />
+          </CollapsibleTrigger>
+
+          {/* A click anywhere inside the trigger toggles the collapsible, so the
+            actions cannot be nested in it — they overlay the row as a sibling. */}
+          <div
             className={cn(
               REVEAL,
-              "text-muted-foreground transition-[opacity,transform,color] duration-200 hover:text-foreground group-data-[panel-open]/menu-button:rotate-90"
+              // The menu is portalled out of the row, so hover ends the moment it
+              // opens — without this its own trigger would vanish under it.
+              "absolute top-0 right-0 flex items-center gap-0.5 transition-opacity has-[[aria-expanded=true]]:opacity-100"
             )}
-          />
-        </CollapsibleTrigger>
-
-        {/* A click anywhere inside the trigger toggles the collapsible, so the
-            actions cannot be nested in it — they overlay the row as a sibling. */}
-        <div
-          className={cn(
-            REVEAL,
-            // The menu is portalled out of the row, so hover ends the moment it
-            // opens — without this its own trigger would vanish under it.
-            "absolute top-1 right-1 flex items-center gap-0.5 transition-opacity has-[[aria-expanded=true]]:opacity-100"
-          )}
-        >
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  aria-label={`Manage ${project.name}`}
-                  className="text-muted-foreground"
-                  size="icon-xs"
-                  variant="ghost"
-                />
-              }
-            >
-              <DotsIcon aria-hidden="true" className="size-4" />
-            </DropdownMenuTrigger>
-
-            <DropdownMenuContent
-              align="start"
-              className="w-48 rounded-lg"
-              side="right"
-              sideOffset={4}
-            >
-              <DropdownMenuItem
-                className="gap-2 px-2 py-1.5"
-                render={<Link search={{ repo: project.repository }} to="/" />}
+          >
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    aria-label={`Manage ${project.name}`}
+                    className="text-muted-foreground"
+                    size="icon-xs"
+                    variant="ghost"
+                  />
+                }
               >
-                New task
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="gap-2 px-2 py-1.5"
-                onClick={copyRepository}
+                <DotsIcon aria-hidden="true" className="size-4" />
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent
+                align="start"
+                className="w-48 rounded-lg"
+                side="right"
+                sideOffset={4}
               >
-                Copy repository URL
-              </DropdownMenuItem>
-              {/* No record means no todo ever numbered this repository, so
-                  there is no prefix to change. */}
-              {record && (
                 <DropdownMenuItem
                   className="gap-2 px-2 py-1.5"
-                  onClick={changePrefix}
+                  render={<Link search={{ repo: project.repository }} to="/" />}
                 >
-                  Change prefix…
+                  New task
                 </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <DropdownMenuItem
+                  className="gap-2 px-2 py-1.5"
+                  onClick={copyRepository}
+                >
+                  Copy repository URL
+                </DropdownMenuItem>
+                {/* No record means no todo ever numbered this repository, so
+                  there is no prefix to change. */}
+                {record && (
+                  <DropdownMenuItem
+                    className="gap-2 px-2 py-1.5"
+                    onClick={changePrefix}
+                  >
+                    Change prefix…
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-          <Button
-            aria-label={`New task in ${project.name}`}
-            className="text-muted-foreground"
-            nativeButton={false}
-            render={<Link search={{ repo: project.repository }} to="/" />}
-            size="icon-xs"
-            variant="ghost"
-          >
-            <ComposeIcon aria-hidden="true" className="size-4" />
-          </Button>
+            <Button
+              aria-label={`New task in ${project.name}`}
+              className="text-muted-foreground"
+              nativeButton={false}
+              render={<Link search={{ repo: project.repository }} to="/" />}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <ComposeIcon aria-hidden="true" className="size-4" />
+            </Button>
+          </div>
         </div>
 
         <CollapsibleContent>

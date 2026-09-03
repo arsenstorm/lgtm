@@ -1,6 +1,6 @@
 import { Link, useMatchRoute } from "@tanstack/react-router";
-import type { ComponentProps, FormEvent } from "react";
-import { useCallback, useEffect, useId, useState } from "react";
+import type { ComponentProps, FormEvent, ReactNode } from "react";
+import { Children, useCallback, useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 
 import { AccountMenu } from "@/components/account-menu";
@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/sidebar";
 import { createProject, getProjects } from "@/lib/lgtm/server";
 import type { Chat, Project as ProjectRecord, Task } from "@/lib/lgtm/types";
+import { cn } from "@/lib/utils";
 
 const NAV = [
   { exact: true, icon: TasksIcon, label: "Tasks", to: "/tasks" },
@@ -80,8 +81,11 @@ const CHATS_GROUP = ":chats";
 
 // The caret is row furniture: out of the way until the heading is reached,
 // always on where there is no hover to reach it with.
-const GROUP_CARET =
-  "ml-1 text-muted-foreground opacity-0 transition-[opacity,transform] duration-200 pointer-coarse:opacity-100 group-focus-within/group:opacity-100 group-hover/group:opacity-100 group-data-[panel-open]/label:rotate-90";
+// The heading is its own hover group, not the whole section: reaching a row
+// inside the section must not light the heading's furniture up.
+const HEADING_REVEAL =
+  "opacity-0 pointer-coarse:opacity-100 group-focus-within/heading:opacity-100 group-hover/heading:opacity-100";
+const GROUP_CARET = `${HEADING_REVEAL} ml-1 text-muted-foreground transition-[opacity,transform] duration-200 group-data-[panel-open]/label:rotate-90`;
 
 type OpenMap = Record<string, boolean>;
 
@@ -312,17 +316,22 @@ export function AppSidebar({
         <Collapsible
           onOpenChange={setProjectsGroupOpen}
           open={open[PROJECTS_GROUP] ?? true}
-          render={<SidebarGroup className="group/group" />}
+          render={<SidebarGroup />}
         >
-          <GroupHeading>Projects</GroupHeading>
-          <SidebarGroupAction
-            aria-label="Add project"
-            className="opacity-0 pointer-coarse:opacity-100 transition-opacity group-focus-within/group:opacity-100 group-hover/group:opacity-100"
-            onClick={showAddProject}
-            type="button"
-          >
-            <PlusIcon aria-hidden="true" />
-          </SidebarGroupAction>
+          <GroupHeading>
+            Projects
+            <SidebarGroupAction
+              aria-label="Add project"
+              className={cn(
+                HEADING_REVEAL,
+                "top-1.5 right-1 transition-opacity"
+              )}
+              onClick={showAddProject}
+              type="button"
+            >
+              <PlusIcon aria-hidden="true" />
+            </SidebarGroupAction>
+          </GroupHeading>
           <CollapsibleContent render={<SidebarGroupContent />}>
             {addingProject ? (
               <form className="mb-2 px-2" onSubmit={addProject}>
@@ -381,7 +390,7 @@ export function AppSidebar({
         <Collapsible
           onOpenChange={setChatsGroupOpen}
           open={open[CHATS_GROUP] ?? true}
-          render={<SidebarGroup className="group/group" />}
+          render={<SidebarGroup />}
         >
           <GroupHeading>Your chats</GroupHeading>
           <CollapsibleContent render={<SidebarGroupContent />}>
@@ -407,15 +416,21 @@ export function AppSidebar({
   );
 }
 
-function GroupHeading({ children }: { children: string }) {
+/** The first child is the name; anything after it sits over the heading's
+ *  right corner and shows on the same hover. */
+function GroupHeading({ children }: { children: ReactNode }) {
+  const [name, ...actions] = Children.toArray(children);
   return (
-    <SidebarGroupLabel
-      className="group/label w-full cursor-pointer hover:text-sidebar-foreground"
-      render={<CollapsibleTrigger />}
-    >
-      <span>{children}</span>
-      <ChevronIcon aria-hidden="true" className={GROUP_CARET} />
-    </SidebarGroupLabel>
+    <div className="group/heading relative">
+      <SidebarGroupLabel
+        className="group/label w-full cursor-pointer hover:text-sidebar-foreground"
+        render={<CollapsibleTrigger />}
+      >
+        <span>{name}</span>
+        <ChevronIcon aria-hidden="true" className={GROUP_CARET} />
+      </SidebarGroupLabel>
+      {actions}
+    </div>
   );
 }
 
