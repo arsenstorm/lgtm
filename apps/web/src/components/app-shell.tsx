@@ -115,7 +115,7 @@ function AppFrame({
           task={taskDetail?.task}
           tasks={tasks}
         />
-        <div className="scrollbar-gutter-stable min-w-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="scrollbar-gutter-stable min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain">
           {children}
         </div>
       </main>
