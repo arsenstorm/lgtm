@@ -3,15 +3,13 @@
 export const DEBUG_COOKIE = "lgtm-debug";
 
 // Values the client dereferences rather than displays: a status picks a glyph
-// out of a map, an id becomes a url, a repository groups the sidebar. Stretch
-// those and the page crashes instead of showing a layout bug.
+// out of a map, an id becomes a url, a repository groups the sidebar across
+// two responses. Replace those and the page throws instead of showing a
+// layout bug. Everything else, system text included, is replaced.
 const KEPT = new Set([
-  "arch",
   "executor",
   "executors",
   "id",
-  "model",
-  "os",
   "priority",
   "reasoning_effort",
   "refs",
@@ -23,7 +21,6 @@ const KEPT = new Set([
   "status",
   "task",
   "todo",
-  "tool",
   "verification",
 ]);
 const KEPT_SUFFIX = "_id";
@@ -33,9 +30,9 @@ const WORDS =
     " "
   );
 
-/** A random tail: a sentence of random length, then one very long word, so a
- *  row has to both truncate and break. */
-function tail(): string {
+/** A random replacement: a sentence of random length, then one very long
+ *  word, so a row has to both truncate and break. */
+function filler(): string {
   const words = 6 + Math.floor(Math.random() * 40);
   const sentence = Array.from(
     { length: words },
@@ -45,11 +42,11 @@ function tail(): string {
     .toString(36)
     .slice(2)
     .repeat(4 + Math.floor(Math.random() * 6));
-  return ` ${sentence} ${word}`;
+  return `${sentence} ${word}`;
 }
 
-/** Every string that is not a key, id or enum gets a random tail, all the
- *  way down. */
+/** Every string that is not a key, id or enum is replaced with random text,
+ *  all the way down. */
 export function stretched<T>(value: T): T {
   return walk(value, null) as T;
 }
@@ -60,7 +57,7 @@ function kept(key: string | null): boolean {
 
 function walk(value: unknown, key: string | null): unknown {
   if (typeof value === "string") {
-    return kept(key) ? value : `${value}${tail()}`;
+    return kept(key) ? value : filler();
   }
   if (Array.isArray(value)) {
     return value.map((item) => walk(item, key));
