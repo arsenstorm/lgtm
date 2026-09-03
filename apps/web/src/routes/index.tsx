@@ -7,7 +7,11 @@ import {
   Plus,
 } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useNavigate,
+  useRouter,
+} from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -34,6 +38,8 @@ import {
   enhancePrompt,
   getProjects,
   getRunners,
+  getTasks,
+  getTodos,
 } from "@/lib/lgtm/server";
 import type { ReasoningEffort } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
@@ -45,11 +51,13 @@ export const Route = createFileRoute("/")({
     repo: typeof search.repo === "string" ? search.repo : undefined,
   }),
   loader: async () => {
-    const [projects, runners] = await Promise.all([
+    const [projects, runners, tasks, todos] = await Promise.all([
       getProjects(),
       getRunners(),
+      getTasks(),
+      getTodos(),
     ]);
-    return { projects, runners };
+    return { projects, runners, tasks, todos };
   },
   component: NewTaskPage,
   errorComponent: NewTaskError,
@@ -129,9 +137,10 @@ function heading(mode: "chat" | "task", project: string | undefined): string {
 }
 
 function NewTaskPage() {
-  const { projects, runners } = Route.useLoaderData();
+  const { projects, runners, tasks, todos } = Route.useLoaderData();
   const { repo } = Route.useSearch();
   const navigate = useNavigate();
+  const router = useRouter();
 
   // Repositories come from the projects the orchestrator already numbers;
   // the "general" (repository-less) bucket cannot host a task.
@@ -243,10 +252,12 @@ function NewTaskPage() {
     const asked = draft.trim();
     setDraft("");
     const answered = await chat.ask(asked);
-    if (!answered) {
+    if (answered) {
+      await router.invalidate();
+    } else {
       setDraft(asked);
     }
-  }, [chat, draft]);
+  }, [chat, draft, router]);
 
   const createTaskFromChat = useCallback(async () => {
     const brief = await chat.createTask();
@@ -363,6 +374,7 @@ function NewTaskPage() {
         <WorkspaceChat
           action={createTaskButton}
           pending={pending === "ask"}
+          references={{ runners, tasks, todos }}
           turns={turns}
         />
       ) : (

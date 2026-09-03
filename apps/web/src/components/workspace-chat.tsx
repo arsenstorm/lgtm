@@ -5,6 +5,8 @@ import { toast } from "sonner";
 
 import { TextResponse } from "@/components/aicss/TextResponse";
 import { ThinkingState } from "@/components/aicss/ThinkingState";
+import type { Referenced } from "@/components/answer-references";
+import { AnswerReferences } from "@/components/answer-references";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Marker, MarkerContent } from "@/components/ui/marker";
 import {
@@ -136,9 +138,11 @@ export function WorkspaceChat({
   turns,
   pending,
   action,
+  references,
 }: {
   action: ReactNode;
   pending: boolean;
+  references: Referenced;
   turns: ChatTurn[];
 }) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -177,6 +181,7 @@ export function WorkspaceChat({
                       </TextResponse>
                     </BubbleContent>
                   </Bubble>
+                  <AnswerReferences all={references} text={turn.text} />
                   {turn === lastAnswer && !pending ? (
                     <MessageFooter>{action}</MessageFooter>
                   ) : null}
