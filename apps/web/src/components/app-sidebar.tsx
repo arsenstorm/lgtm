@@ -1,15 +1,10 @@
 import {
-  Brain,
   CaretRight,
-  ChatsCircle,
-  CheckSquareOffset,
   DotsThree,
   DotsThreeVertical,
   Moon,
   NotePencil,
-  Notepad,
   PlusCircle,
-  Pulse,
   SignOut,
   Sun,
   WarningCircle,
@@ -19,7 +14,16 @@ import type { ComponentProps } from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { AiDeveloperIcon, FolderIcon, TasksIcon } from "@/components/icons";
+import {
+  ActivityIcon,
+  AiDeveloperIcon,
+  BrainSparkleIcon,
+  FolderIcon,
+  ListCheckboxIcon,
+  MsgsIcon,
+  NotesIcon,
+  TasksIcon,
+} from "@/components/icons";
 import { STATUS } from "@/components/task-list";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -64,15 +68,15 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { exact: true, icon: TasksIcon, label: "Tasks", to: "/tasks" },
   { exact: false, icon: AiDeveloperIcon, label: "Runners", to: "/runners" },
-  { exact: false, icon: CheckSquareOffset, label: "Todos", to: "/todos" },
-  { exact: false, icon: Brain, label: "Memories", to: "/memories" },
-  { exact: false, icon: Notepad, label: "Scratchpads", to: "/scratchpads" },
+  { exact: false, icon: ListCheckboxIcon, label: "Todos", to: "/todos" },
+  { exact: false, icon: BrainSparkleIcon, label: "Memories", to: "/memories" },
+  { exact: false, icon: NotesIcon, label: "Scratchpads", to: "/scratchpads" },
 ] as const;
 
 // The second tier: worth reaching, not worth a permanent row.
 const MORE = [
-  { icon: ChatsCircle, label: "Sessions", to: "/sessions" },
-  { icon: Pulse, label: "Activity", to: "/activity" },
+  { icon: MsgsIcon, label: "Sessions", to: "/sessions" },
+  { icon: ActivityIcon, label: "Activity", to: "/activity" },
 ] as const;
 
 const PREVIEW = 5;

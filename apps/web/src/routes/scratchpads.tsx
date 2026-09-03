@@ -1,10 +1,11 @@
-import { CircleNotch, Notepad, Plus, Tag, X } from "@phosphor-icons/react";
+import { CircleNotch, Plus, Tag, X } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { projectName } from "@/components/app-sidebar";
+import { NotesIcon } from "@/components/icons";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { TimeAgo } from "@/components/time-ago";
 import { Button } from "@/components/ui/button";
@@ -217,7 +218,7 @@ function ScratchpadRow({ pad }: { pad: Scratchpad }) {
       params={{ id: pad.id }}
       to="/scratchpads/$id"
     >
-      <Notepad className="size-4 shrink-0 text-muted-foreground" />
+      <NotesIcon className="size-4 shrink-0 text-muted-foreground" />
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="min-w-0 truncate">{padTitle(pad.content)}</span>
         {pad.tags.slice(0, TAGS_SHOWN).map((tag) => (
