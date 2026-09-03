@@ -4,10 +4,12 @@ import { toast } from "sonner";
 
 import {
   ChevronIcon,
-  CircleWarningIcon,
+  CircleXIcon,
   ComposeIcon,
   DotsIcon,
   FolderIcon,
+  type IconComponent,
+  TriangleWarningIcon,
 } from "@/components/icons";
 import { STATUS } from "@/components/task-list";
 import { Button } from "@/components/ui/button";
@@ -47,11 +49,14 @@ const PREVIEW = 5;
 
 // Only the statuses that need a person get a trailing mark; everything else is
 // noise in a list you scan.
-const ATTENTION: Partial<Record<TaskStatus, string>> = {
-  awaiting_review: "text-amber-500",
-  failed: "text-red-500",
-  runner_lost: "text-red-500",
-  timed_out: "text-red-500",
+const BROKEN = { className: "text-red-500", icon: CircleXIcon };
+const ATTENTION: Partial<
+  Record<TaskStatus, { className: string; icon: IconComponent }>
+> = {
+  awaiting_review: { className: "text-amber-500", icon: TriangleWarningIcon },
+  failed: BROKEN,
+  runner_lost: BROKEN,
+  timed_out: BROKEN,
 };
 
 // Row furniture stays out of the way until the row is reached. A coarse
@@ -234,8 +239,8 @@ export function ProjectItem({
                         className="ml-auto flex shrink-0"
                         role="img"
                       >
-                        <CircleWarningIcon
-                          className={cn("size-3.5", attention)}
+                        <attention.icon
+                          className={cn("size-3.5", attention.className)}
                         />
                       </span>
                     )}
