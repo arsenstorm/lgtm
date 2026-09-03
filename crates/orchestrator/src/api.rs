@@ -577,16 +577,23 @@ async fn scratchpad(
     Ok(Json(task))
 }
 
+fn last_activity(rec: &crate::state::TaskRecord) -> u64 {
+    rec.events
+        .last()
+        .map_or(rec.task.created_at, |event| event.at)
+}
+
 async fn list_tasks(State(app): State<Arc<App>>) -> Json<Vec<Task>> {
     let state = app.state.lock().unwrap();
-    let mut tasks: Vec<Task> = state
+    // Most recently touched first: a list you scan for what just changed.
+    let mut recent: Vec<(u64, Task)> = state
         .tasks
         .values()
         .filter(|rec| state.in_workspace(rec.task.workspace.as_deref()))
-        .map(|rec| rec.task.clone())
+        .map(|rec| (last_activity(rec), rec.task.clone()))
         .collect();
-    tasks.sort_by_key(|task| task.created_at);
-    Json(tasks)
+    recent.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
+    Json(recent.into_iter().map(|(_, task)| task).collect())
 }
 
 async fn get_task(

@@ -215,6 +215,27 @@ async fn list_tasks_hides_tasks_from_another_workspace() {
     assert!(!ids.contains(&foreign.as_str()));
 }
 
+/// The list leads with whatever changed last, not whatever was made first.
+#[tokio::test]
+async fn list_tasks_puts_the_last_touched_task_first() {
+    let app = app();
+    let older = completed(&app, true, false);
+    let newer = completed(&app, true, false);
+    {
+        let mut state = app.state.lock().unwrap();
+        let first = state.tasks.get_mut(&older).unwrap();
+        first.task.created_at = 1;
+        first.events.last_mut().unwrap().at = 30;
+        let second = state.tasks.get_mut(&newer).unwrap();
+        second.task.created_at = 2;
+        second.events.last_mut().unwrap().at = 20;
+    }
+
+    let Json(tasks) = list_tasks(State(app.clone())).await;
+    let ids: Vec<&str> = tasks.iter().map(|task| task.id.as_str()).collect();
+    assert_eq!(ids, [older.as_str(), newer.as_str()]);
+}
+
 /// The activity feed's types keep their fields to their own module, so the
 /// tests read the JSON the endpoint actually returns.
 fn activity_lines(value: &serde_json::Value) -> &Vec<serde_json::Value> {

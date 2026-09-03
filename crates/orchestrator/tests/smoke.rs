@@ -354,7 +354,6 @@ async fn end_to_end() {
         .await
         .unwrap();
     assert_eq!(tasks.len(), 2);
-    assert!(tasks[0].created_at <= tasks[1].created_at);
 
     // reconnect under the same name: the old socket's cleanup must not evict the new one
     let mut w1 = ws(&format!("ws://{addr}{RUNNER_WS_PATH}"), false).await;
