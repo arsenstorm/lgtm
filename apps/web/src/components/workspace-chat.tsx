@@ -151,7 +151,7 @@ export function WorkspaceChat({
   }, [turns.length, pending]);
 
   return (
-    <div className="flex flex-1 flex-col justify-end">
+    <div className="flex flex-1 flex-col">
       <ol aria-label="Conversation" className="flex flex-col gap-6">
         {turns.map((turn) => (
           <li key={turn.id}>

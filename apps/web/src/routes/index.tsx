@@ -399,7 +399,7 @@ function NewTaskPage() {
         </div>
       )}
 
-      <div className="sticky bottom-6 mt-8 flex flex-col">
+      <div className="sticky bottom-6 mt-auto flex flex-col pt-8">
         {/* The rear pill sits behind the composer and only shows its top edge:
             one step of luminance between page and card, no border. */}
         <div className="mx-3.5 -mb-4 flex flex-wrap items-center gap-3 rounded-t-[18px] bg-foreground/3 px-4 pt-2 pb-6 text-left dark:bg-foreground/4">
