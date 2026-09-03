@@ -147,7 +147,7 @@ export function ProjectItem({
               REVEAL,
               // The menu is portalled out of the row, so hover ends the moment it
               // opens — without this its own trigger would vanish under it.
-              "absolute top-0 right-0 flex items-center gap-0.5 transition-opacity has-[[aria-expanded=true]]:opacity-100"
+              "absolute inset-y-0 right-1 flex items-center gap-0.5 transition-opacity has-[[aria-expanded=true]]:opacity-100"
             )}
           >
             <DropdownMenu>
