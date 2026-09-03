@@ -91,6 +91,36 @@ pub(super) async fn create_chat(
     Ok((StatusCode::CREATED, Json(chat)))
 }
 
+/// Body of `PATCH /api/chats/:id`: whichever fields are being changed.
+#[derive(Deserialize)]
+pub(super) struct UpdateChatBody {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    archived: Option<bool>,
+}
+
+pub(super) async fn update_chat(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<UpdateChatBody>, JsonRejection>,
+) -> Result<Json<Chat>, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let title = body.title.map(|title| title.trim().to_string());
+    if title.as_deref() == Some("") {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "title cannot be empty".into(),
+        ));
+    }
+    let mut state = app.state.lock().unwrap();
+    let chat = state
+        .update_chat(&id, title, body.archived)
+        .ok_or_else(not_found)?;
+    app.persist_chat(&chat);
+    Ok(Json(chat))
+}
+
 pub(super) async fn ask_chat(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
@@ -221,6 +251,22 @@ mod tests {
         assert_eq!(chat.title, "What is running right now?");
         assert_eq!(chat.created_by.as_deref(), Some("u1"));
         assert!(state.chats.contains_key(&chat.id));
+    }
+
+    #[test]
+    fn a_chat_can_be_renamed_and_archived_without_losing_its_turns() {
+        let mut state = State::default();
+        let chat = state.create_chat("first".into(), None);
+        let renamed = state
+            .update_chat(&chat.id, Some("Runners".into()), None)
+            .unwrap();
+        assert_eq!(renamed.title, "Runners");
+        assert!(!renamed.archived);
+        let archived = state.update_chat(&chat.id, None, Some(true)).unwrap();
+        assert_eq!(archived.title, "Runners");
+        assert!(archived.archived);
+        assert_eq!(archived.turns.len(), 1);
+        assert!(state.update_chat("nope", None, Some(true)).is_none());
     }
 
     #[test]

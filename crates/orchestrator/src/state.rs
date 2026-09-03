@@ -640,11 +640,29 @@ impl State {
             created_at: now_ms(),
             workspace: self.workspace.clone(),
             created_by,
+            archived: false,
             turns: vec![person_turn(question)],
         };
         tracing::info!(chat = %chat.id, "chat created");
         self.chats.insert(chat.id.clone(), chat.clone());
         chat
+    }
+
+    /// Renames a chat, archives it, or both; `None` when there is no such chat.
+    pub fn update_chat(
+        &mut self,
+        id: &str,
+        title: Option<String>,
+        archived: Option<bool>,
+    ) -> Option<Chat> {
+        let chat = self.chats.get_mut(id)?;
+        if let Some(title) = title {
+            chat.title = title;
+        }
+        if let Some(archived) = archived {
+            chat.archived = archived;
+        }
+        Some(chat.clone())
     }
 
     /// Appends a turn; `None` when there is no such chat.

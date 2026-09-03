@@ -609,6 +609,9 @@ pub struct Chat {
     /// The user who asked first; `None` for the shared token or automation.
     #[serde(default)]
     pub created_by: Option<String>,
+    /// Hidden from the sidebar; the thread itself stays readable at its url.
+    #[serde(default)]
+    pub archived: bool,
     pub turns: Vec<ChatTurn>,
 }
 

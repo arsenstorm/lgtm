@@ -156,7 +156,10 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         )
         .route("/sessions/{id}/messages", post(sessions::send_message))
         .route("/chats", get(chats::list_chats).post(chats::create_chat))
-        .route("/chats/{id}", get(chats::get_chat))
+        .route(
+            "/chats/{id}",
+            get(chats::get_chat).patch(chats::update_chat),
+        )
         .route("/chats/{id}/ask", post(chats::ask_chat))
         .route("/provenance/{sha}", get(provenance))
         .route("/users", get(users::list_users).post(users::create_user))
