@@ -17,7 +17,7 @@
     "lib": "@/lib",
     "hooks": "@/hooks"
   },
-  "iconLibrary": "remixicon",
+  "iconLibrary": "phosphor",
   "rtl": false,
   "menuColor": "default",
   "menuAccent": "subtle",

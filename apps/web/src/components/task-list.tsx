@@ -1,19 +1,19 @@
 import { Link } from '@tanstack/react-router'
 import {
-  RiCheckboxCircleLine,
-  RiCloseCircleLine,
-  RiEyeLine,
-  RiFeedbackLine,
-  RiForbidLine,
-  RiGitBranchLine,
-  RiGitMergeLine,
-  RiIndeterminateCircleLine,
-  RiLoader4Line,
-  RiPlugLine,
-  RiTimeLine,
-  RiTimerLine,
-} from '@remixicon/react'
-import type { RemixiconComponentType } from '@remixicon/react'
+  ChatCircleText,
+  CheckCircle,
+  CircleNotch,
+  Clock,
+  Eye,
+  GitBranch,
+  GitMerge,
+  MinusCircle,
+  Plugs,
+  Prohibit,
+  Timer,
+  XCircle,
+} from '@phosphor-icons/react'
+import type { Icon } from '@phosphor-icons/react'
 
 import type { Task, TaskStatus } from '@/lib/lgtm/types'
 import { cn } from '@/lib/utils'
@@ -27,20 +27,20 @@ type Tone = 'idle' | 'live' | 'attention' | 'done' | 'broken'
 
 export const STATUS: Record<
   TaskStatus,
-  { label: string; icon: RemixiconComponentType; tone: Tone }
+  { label: string; icon: Icon; tone: Tone }
 > = {
-  queued: { label: 'Queued', icon: RiTimeLine, tone: 'idle' },
-  running: { label: 'Running', icon: RiLoader4Line, tone: 'live' },
-  awaiting_review: { label: 'Awaiting review', icon: RiEyeLine, tone: 'attention' },
-  changes_requested: { label: 'Changes requested', icon: RiFeedbackLine, tone: 'attention' },
-  conflicted: { label: 'Conflicted', icon: RiGitBranchLine, tone: 'attention' },
-  approved: { label: 'Approved', icon: RiCheckboxCircleLine, tone: 'done' },
-  merged: { label: 'Merged', icon: RiGitMergeLine, tone: 'done' },
-  rejected: { label: 'Rejected', icon: RiForbidLine, tone: 'idle' },
-  failed: { label: 'Failed', icon: RiCloseCircleLine, tone: 'broken' },
-  timed_out: { label: 'Timed out', icon: RiTimerLine, tone: 'broken' },
-  runner_lost: { label: 'Runner lost', icon: RiPlugLine, tone: 'broken' },
-  cancelled: { label: 'Cancelled', icon: RiIndeterminateCircleLine, tone: 'idle' },
+  queued: { label: 'Queued', icon: Clock, tone: 'idle' },
+  running: { label: 'Running', icon: CircleNotch, tone: 'live' },
+  awaiting_review: { label: 'Awaiting review', icon: Eye, tone: 'attention' },
+  changes_requested: { label: 'Changes requested', icon: ChatCircleText, tone: 'attention' },
+  conflicted: { label: 'Conflicted', icon: GitBranch, tone: 'attention' },
+  approved: { label: 'Approved', icon: CheckCircle, tone: 'done' },
+  merged: { label: 'Merged', icon: GitMerge, tone: 'done' },
+  rejected: { label: 'Rejected', icon: Prohibit, tone: 'idle' },
+  failed: { label: 'Failed', icon: XCircle, tone: 'broken' },
+  timed_out: { label: 'Timed out', icon: Timer, tone: 'broken' },
+  runner_lost: { label: 'Runner lost', icon: Plugs, tone: 'broken' },
+  cancelled: { label: 'Cancelled', icon: MinusCircle, tone: 'idle' },
 }
 
 const TONE_TEXT: Record<Tone, string> = {

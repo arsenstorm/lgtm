@@ -1,16 +1,16 @@
 import { Link, useMatchRoute } from '@tanstack/react-router'
 import {
-  RiAddCircleFill,
-  RiArrowRightSLine,
-  RiErrorWarningFill,
-  RiGitRepositoryLine,
-  RiListCheck2,
-  RiLogoutBoxRLine,
-  RiMoonLine,
-  RiMore2Line,
-  RiServerLine,
-  RiSunLine,
-} from '@remixicon/react'
+  CaretRight,
+  DotsThreeVertical,
+  FolderSimple,
+  HardDrives,
+  ListChecks,
+  Moon,
+  PlusCircle,
+  SignOut,
+  Sun,
+  WarningCircle,
+} from '@phosphor-icons/react'
 import type { ComponentProps } from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -47,8 +47,8 @@ import type { Task, TaskStatus } from '@/lib/lgtm/types'
 import { cn } from '@/lib/utils'
 
 const NAV = [
-  { to: '/', label: 'Tasks', icon: RiListCheck2, exact: true },
-  { to: '/runners', label: 'Runners', icon: RiServerLine, exact: false },
+  { to: '/', label: 'Tasks', icon: ListChecks, exact: true },
+  { to: '/runners', label: 'Runners', icon: HardDrives, exact: false },
 ] as const
 
 const PREVIEW = 5
@@ -179,7 +179,7 @@ export function AppSidebar({
                     toast.info('Task creation from the web is coming — use lgtm run for now')
                   }
                 >
-                  <RiAddCircleFill aria-hidden="true" />
+                  <PlusCircle aria-hidden="true" weight="fill" />
                   <span>New task</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -214,24 +214,6 @@ export function AppSidebar({
             )}
           </SidebarGroupContent>
         </SidebarGroup>
-
-        <SidebarGroup className="mt-auto">
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton onClick={toggleTheme}>
-                  {/* The theme is only known from the class the pre-paint script
-                      wrote, so both states ship in the markup and CSS picks one.
-                      Deriving it in React would mismatch on hydration and flash. */}
-                  <RiMoonLine aria-hidden="true" className="dark:hidden" />
-                  <RiSunLine aria-hidden="true" className="hidden dark:block" />
-                  <span className="dark:hidden">Dark mode</span>
-                  <span className="hidden dark:inline">Light mode</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter>
@@ -251,9 +233,9 @@ function ProjectItem({ project }: { project: Project }) {
     <Collapsible defaultOpen>
       <SidebarMenuItem>
         <CollapsibleTrigger render={<SidebarMenuButton />}>
-          <RiGitRepositoryLine aria-hidden="true" />
+          <FolderSimple aria-hidden="true" />
           <span>{project.name}</span>
-          <RiArrowRightSLine
+          <CaretRight
             aria-hidden="true"
             className="ml-auto transition-transform duration-200 group-data-[panel-open]/menu-button:rotate-90"
           />
@@ -276,7 +258,7 @@ function ProjectItem({ project }: { project: Project }) {
                       // SidebarMenuSubButton force-colours its direct `svg`
                       // children, so the icon keeps its tone only inside a span.
                       <span aria-label={label} className="ml-auto flex shrink-0" role="img">
-                        <RiErrorWarningFill className={cn('size-3.5', attention)} />
+                        <WarningCircle className={cn('size-3.5', attention)} weight="fill" />
                       </span>
                     )}
                   </SidebarMenuSubButton>
@@ -322,7 +304,7 @@ function AccountMenu() {
             }
           >
             <Identity />
-            <RiMore2Line aria-hidden="true" className="ml-auto size-4" />
+            <DotsThreeVertical aria-hidden="true" className="ml-auto size-4" />
           </DropdownMenuTrigger>
 
           <DropdownMenuContent
@@ -340,8 +322,17 @@ function AccountMenu() {
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={toggleTheme}>
+              {/* The theme is only known from the class the pre-paint script
+                  wrote, so both states ship in the markup and CSS picks one.
+                  Deriving it in React would mismatch on hydration and flash. */}
+              <Moon aria-hidden="true" className="dark:hidden" />
+              <Sun aria-hidden="true" className="hidden dark:block" />
+              <span className="dark:hidden">Dark mode</span>
+              <span className="hidden dark:inline">Light mode</span>
+            </DropdownMenuItem>
             <DropdownMenuItem disabled>
-              <RiLogoutBoxRLine aria-hidden="true" />
+              <SignOut aria-hidden="true" />
               Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -354,7 +345,7 @@ function AccountMenu() {
 function Identity() {
   return (
     <>
-      <Avatar size="sm" className="rounded-lg after:rounded-lg">
+      <Avatar className="rounded-lg after:rounded-lg">
         <AvatarFallback className="rounded-lg">{USER.initials}</AvatarFallback>
       </Avatar>
       <span className="grid min-w-0 flex-1 text-left text-sm leading-tight">

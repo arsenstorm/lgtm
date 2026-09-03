@@ -1,15 +1,15 @@
 import type { ReactNode } from 'react'
 import {
-  RiAlertLine,
-  RiCheckboxCircleLine,
-  RiCloseCircleLine,
-  RiErrorWarningLine,
-  RiFileCodeLine,
-  RiFileListLine,
-  RiGitBranchLine,
-  RiShieldCrossLine,
-  RiStackLine,
-} from '@remixicon/react'
+  CheckCircle,
+  FileCode,
+  FileText,
+  GitBranch,
+  ShieldSlash,
+  Stack,
+  Warning,
+  WarningCircle,
+  XCircle,
+} from '@phosphor-icons/react'
 import type {
   Finding,
   Overlap,
@@ -64,7 +64,7 @@ export function TaskDetailView({ detail }: { detail: TaskDetail }) {
           <ul className="divide-y overflow-hidden rounded-lg border">
             {result.changed_files.map((file) => (
               <li key={file} className="flex items-start gap-2.5 px-3 py-2">
-                <RiFileCodeLine className="mt-px size-3.5 shrink-0 text-muted-foreground" />
+                <FileCode className="mt-px size-3.5 shrink-0 text-muted-foreground" />
                 <FilePath path={file} className="min-w-0 text-xs" />
               </li>
             ))}
@@ -124,7 +124,7 @@ function TaskHeader({ task }: { task: Task }) {
         </Fact>
         <Fact term="Base branch">
           <span className="inline-flex items-center gap-1.5">
-            <RiGitBranchLine className="size-3.5 shrink-0 text-muted-foreground" />
+            <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="font-mono">{spec.base_branch}</span>
           </span>
         </Fact>
@@ -139,7 +139,7 @@ function TaskHeader({ task }: { task: Task }) {
         <Fact term="Sandbox">
           {spec.sandbox === 'off' ? (
             <span className="inline-flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
-              <RiShieldCrossLine className="size-3.5 shrink-0" />
+              <ShieldSlash className="size-3.5 shrink-0" />
               off
             </span>
           ) : (
@@ -158,7 +158,7 @@ function ErrorPanel({ error }: { error: string }) {
   return (
     <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
       <h2 className="flex items-center gap-2 text-sm font-medium text-destructive">
-        <RiCloseCircleLine className="size-4 shrink-0" />
+        <XCircle className="size-4 shrink-0" />
         This task failed
       </h2>
       <pre className="mt-3 text-xs leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
@@ -172,7 +172,7 @@ function OverlapPanel({ overlaps }: { overlaps: Overlap[] }) {
   return (
     <section className="rounded-lg border border-amber-500/35 bg-amber-500/5 p-4">
       <h2 className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
-        <RiStackLine className="size-4 shrink-0" />
+        <Stack className="size-4 shrink-0" />
         {overlaps.length === 1
           ? 'One other unmerged task touches these files'
           : `${overlaps.length} other unmerged tasks touch these files`}
@@ -204,9 +204,9 @@ function FindingRow({ finding }: { finding: Finding }) {
   return (
     <li className={cn('flex gap-3 p-3', blocking && 'bg-destructive/5')}>
       {blocking ? (
-        <RiErrorWarningLine className="mt-0.5 size-4 shrink-0 text-destructive" />
+        <WarningCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
       ) : (
-        <RiAlertLine className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <Warning className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
       )}
       <div className="flex min-w-0 flex-col gap-1">
         <p className="max-w-[54ch] text-sm text-pretty">{finding.message}</p>
@@ -223,7 +223,7 @@ function CheckRow({ check }: { check: ValidationResult }) {
   if (check.ok) {
     return (
       <li className="flex items-center gap-2.5 px-3 py-2">
-        <RiCheckboxCircleLine className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+        <CheckCircle className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
         <span className="text-sm font-medium">{check.name}</span>
         <code className="min-w-0 truncate text-xs text-muted-foreground" title={check.command}>
           {check.command}
@@ -235,7 +235,7 @@ function CheckRow({ check }: { check: ValidationResult }) {
   return (
     <li className="bg-destructive/5 p-3">
       <div className="flex items-center gap-2.5">
-        <RiCloseCircleLine className="size-4 shrink-0 text-destructive" />
+        <XCircle className="size-4 shrink-0 text-destructive" />
         <span className="text-sm font-medium">{check.name}</span>
         <code className="min-w-0 truncate text-xs text-muted-foreground" title={check.command}>
           {check.command}
@@ -255,7 +255,7 @@ function EmptyDiff({ status }: { status: TaskStatus }) {
 
   return (
     <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-8 text-center">
-      <RiFileListLine className="size-5 text-muted-foreground" />
+      <FileText className="size-5 text-muted-foreground" />
       <p className="text-sm font-medium">{pending ? 'No diff yet' : 'This task produced no diff'}</p>
       <p className="max-w-[40ch] text-sm text-muted-foreground text-pretty">
         {pending

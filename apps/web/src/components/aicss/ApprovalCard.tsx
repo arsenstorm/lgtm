@@ -2,17 +2,17 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  RiArrowDownSLine,
-  RiArrowUpSLine,
-  RiCornerDownLeftLine,
-  RiDownloadLine,
-  RiListCheck2,
-  RiTodoLine,
-  RiExpandDiagonalLine,
-  RiQuestionAnswerLine,
-  RiTerminalLine,
-  RiCloseLine,
-} from "@remixicon/react";
+  CaretDown,
+  CaretUp,
+  ArrowElbowDownLeft,
+  DownloadSimple,
+  ListChecks,
+  CheckSquare,
+  ArrowsOutSimple,
+  ChatsCircle,
+  Terminal,
+  X,
+} from "@phosphor-icons/react";
 import styles from "./ApprovalCard.module.css";
 
 export type ApprovalVariant = "questions" | "command" | "plan";
@@ -423,10 +423,10 @@ export function ApprovalCard({
 
   const Icon =
     variant === "questions"
-      ? RiQuestionAnswerLine
+      ? ChatsCircle
       : variant === "command"
-        ? RiTerminalLine
-        : RiTodoLine;
+        ? Terminal
+        : CheckSquare;
 
   return (
     <div
@@ -463,7 +463,7 @@ export function ApprovalCard({
               aria-label="Download plan"
               onClick={(e) => e.preventDefault()}
             >
-              <RiDownloadLine className={styles.headActionIcon} strokeWidth={2} aria-hidden />
+              <DownloadSimple className={styles.headActionIcon} strokeWidth={2} aria-hidden />
             </button>
             <button
               type="button"
@@ -474,7 +474,7 @@ export function ApprovalCard({
                 setPlanExpanded(true);
               }}
             >
-              <RiExpandDiagonalLine className={styles.headActionIcon} strokeWidth={2} aria-hidden />
+              <ArrowsOutSimple className={styles.headActionIcon} strokeWidth={2} aria-hidden />
             </button>
           </div>
         )}
@@ -628,7 +628,7 @@ export function ApprovalCard({
           <div className={styles.todoWell}>
             <div className={styles.todoHead}>
               <span className={styles.todoHeadIcon}>
-                <RiListCheck2
+                <ListChecks
                   className={styles.todoListIcon}
                   strokeWidth={2}
                   aria-hidden
@@ -728,7 +728,7 @@ export function ApprovalCard({
                 goToStep(safeStep - 1);
               }}
             >
-              <RiArrowUpSLine
+              <CaretUp
                 className={styles.stepArrowIcon}
                 strokeWidth={2}
                 aria-hidden
@@ -747,7 +747,7 @@ export function ApprovalCard({
                 goToStep(safeStep + 1);
               }}
             >
-              <RiArrowDownSLine
+              <CaretDown
                 className={styles.stepArrowIcon}
                 strokeWidth={2}
                 aria-hidden
@@ -806,7 +806,7 @@ export function ApprovalCard({
                 />
               </svg>
               <span className={styles.autoApproveCancelGlyph} aria-hidden>
-                <RiCloseLine size={8} strokeWidth={2.5} />
+                <X size={8} strokeWidth={2.5} />
               </span>
             </button>
             </span>
@@ -842,7 +842,7 @@ export function ApprovalCard({
             }}
           >
             {resolvedApprove}
-            <RiCornerDownLeftLine
+            <ArrowElbowDownLeft
               className={styles.btnSubmitIcon}
               size={12}
               strokeWidth={2}

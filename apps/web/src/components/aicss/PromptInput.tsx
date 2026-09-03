@@ -9,16 +9,16 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
-  RiArrowUpLine,
-  RiBookOpenLine,
-  RiCheckLine,
-  RiArrowRightSLine,
-  RiImageLine as ImageIcon,
-  RiLoader4Line,
-  RiAttachment2,
-  RiAddLine,
-  RiCloseLine,
-} from "@remixicon/react";
+  ArrowUp,
+  BookOpen,
+  Check,
+  CaretRight,
+  Image as ImageIcon,
+  CircleNotch,
+  Paperclip,
+  Plus,
+  X,
+} from "@phosphor-icons/react";
 import styles from "./PromptInput.module.css";
 
 const ENHANCED =
@@ -658,7 +658,7 @@ export function PromptInput({
                 data-exit={exitingAtt.includes(att.id) || undefined}
               >
                 <span className={styles.chipIcon}>
-                  {att.kind === "image" ? <ImageIcon size={13} /> : <RiAttachment2 size={13} />}
+                  {att.kind === "image" ? <ImageIcon size={13} /> : <Paperclip size={13} />}
                 </span>
                 <span className={styles.chipName}>{att.name}</span>
                 <button
@@ -667,7 +667,7 @@ export function PromptInput({
                   aria-label={"Remove " + att.name}
                   onClick={() => removeAttachment(att.id)}
                 >
-                  <RiCloseLine size={11} />
+                  <X size={11} />
                 </button>
               </span>
             ))}
@@ -749,7 +749,7 @@ export function PromptInput({
               onClick={() => setMenuOpen((o) => !o)}
             >
               <span className={styles.plusIcon}>
-                <RiAddLine size={14} />
+                <Plus size={14} />
               </span>
             </button>
 
@@ -773,7 +773,7 @@ export function PromptInput({
                   onClick={() => openPicker("file")}
                 >
                   <span className={styles.menuIcon}>
-                    <RiAttachment2 size={14} />
+                    <Paperclip size={14} />
                   </span>
                   <span className={styles.menuName}>Attach files</span>
                 </button>
@@ -792,11 +792,11 @@ export function PromptInput({
                     onClick={() => setSkillsOpen(true)}
                   >
                     <span className={styles.menuIcon}>
-                      <RiBookOpenLine size={14} />
+                      <BookOpen size={14} />
                     </span>
                     <span className={styles.menuName}>Skills</span>
                     <span className={styles.menuChevron}>
-                      <RiArrowRightSLine size={14} />
+                      <CaretRight size={14} />
                     </span>
                   </button>
                   {skillsOpen && (
@@ -840,7 +840,7 @@ export function PromptInput({
                       <span className={styles.menuName}>{m.name}</span>
                       {model === m.id && (
                         <span className={styles.menuCheck}>
-                          <RiCheckLine size={14} />
+                          <Check size={14} />
                         </span>
                       )}
                     </button>
@@ -863,7 +863,7 @@ export function PromptInput({
                 className={[styles.iconBtn, styles.spinnerBtn].join(" ")}
                 aria-label="Enhancing prompt"
               >
-                <RiLoader4Line size={14} className={styles.spinner} />
+                <CircleNotch size={14} className={styles.spinner} />
               </span>
             ) : (
               pillMounted && (
@@ -887,7 +887,7 @@ export function PromptInput({
               disabled={!sendActive}
               onClick={send}
             >
-              <RiArrowUpLine size={14} />
+              <ArrowUp size={14} />
             </button>
           </div>
         </div>
