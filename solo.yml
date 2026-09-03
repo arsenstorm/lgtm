@@ -11,6 +11,14 @@ processes:
     restart_when_changed: []
     env:
       RUST_LOG: info
+  Web:
+    # The web app dev server on http://localhost:3000.
+    command: cd apps/web && bun run dev
+    working_dir: null
+    auto_start: false
+    auto_restart: false
+    restart_when_changed: []
+    env: {}
   Second runner:
     # A second runner on this machine, to watch queueing and slots.
     command: export PATH="$HOME/.cargo/bin:$PATH" && cargo run -p lgtm-cli -- runner ws://127.0.0.1:4750 --name laptop-2 --slots 1
