@@ -167,12 +167,31 @@ async fn prepare_repo(task: &Task, ctx: &Arc<Ctx>) -> Result<PathBuf> {
         .lock()
         .expect("mirrors poisoned")
         .insert(task.id.clone(), mirror.clone());
-    if !mirror.exists() {
-        let mirror_s = mirror.display().to_string();
-        git(&["clone", "--bare", &task.spec.repository, &mirror_s], None).await?;
-    }
+    ensure_mirror(&task.spec.repository, &mirror).await?;
     fetch(&mirror).await?;
     Ok(mirror)
+}
+
+/// A failed clone can leave its destination behind. Existence alone is not
+/// enough to make that cache entry safe to fetch; replace it when Git cannot
+/// identify it as a bare repository.
+async fn ensure_mirror(repository: &str, mirror: &Path) -> Result<()> {
+    let mirror_s = mirror.display().to_string();
+    let valid = mirror.exists()
+        && git(
+            &["-C", &mirror_s, "rev-parse", "--is-bare-repository"],
+            None,
+        )
+        .await
+        .is_ok_and(|answer| answer == "true");
+    if valid {
+        return Ok(());
+    }
+    if mirror.exists() {
+        tokio::fs::remove_dir_all(mirror).await?;
+    }
+    git(&["clone", "--bare", repository, &mirror_s], None).await?;
+    Ok(())
 }
 
 pub async fn push_task(task_id: TaskId, token: Option<String>, ctx: Arc<Ctx>) {
@@ -249,5 +268,47 @@ pub async fn discard_task(task_id: TaskId, ctx: Arc<Ctx>) {
     match result {
         Ok(()) => ctx.emit(&task_id, TaskEvent::Discarded),
         Err(err) => ctx.fail(&task_id, err),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn an_invalid_mirror_is_replaced_even_when_the_remote_is_empty() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("lgtm-mirror-{nonce}"));
+        let remote = root.join("remote.git");
+        let mirror = root.join("cache.git");
+        tokio::fs::create_dir_all(&mirror).await.unwrap();
+        git(&["init", "--bare", &remote.display().to_string()], None)
+            .await
+            .unwrap();
+
+        ensure_mirror(&remote.display().to_string(), &mirror)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            git(
+                &[
+                    "-C",
+                    &mirror.display().to_string(),
+                    "rev-parse",
+                    "--is-bare-repository",
+                ],
+                None,
+            )
+            .await
+            .unwrap(),
+            "true"
+        );
+        tokio::fs::remove_dir_all(root).await.unwrap();
     }
 }
