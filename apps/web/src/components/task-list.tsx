@@ -53,7 +53,7 @@ export const STATUS: Record<
   timed_out: { icon: Timer, label: "Timed out", tone: "broken" },
 };
 
-const TONE_TEXT: Record<Tone, string> = {
+export const TONE_TEXT: Record<Tone, string> = {
   attention: "text-amber-700 dark:text-amber-400",
   broken: "text-red-700 dark:text-red-400",
   done: "text-emerald-700 dark:text-emerald-400",
@@ -79,20 +79,24 @@ export function shortSpan(ms: number): string {
   return "0s";
 }
 
+export function EmptyTasks() {
+  return (
+    <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-xl border border-foreground/15 border-dashed p-8 text-center">
+      <h2 className="font-medium text-base">No tasks yet</h2>
+      <p className="max-w-[52ch] text-pretty text-base text-muted-foreground sm:text-sm">
+        Tasks appear here the moment the orchestrator accepts one. Queue the
+        first from your terminal:
+      </p>
+      <code className="mt-1 text-sm">
+        lgtm task &quot;fix the flaky login test&quot;
+      </code>
+    </div>
+  );
+}
+
 export function TaskList({ tasks }: { tasks: Task[] }) {
   if (tasks.length === 0) {
-    return (
-      <div className="flex min-h-64 flex-col items-center justify-center gap-2 rounded-xl border border-foreground/15 border-dashed p-8 text-center">
-        <h2 className="font-medium text-base">No tasks yet</h2>
-        <p className="max-w-[52ch] text-pretty text-base text-muted-foreground sm:text-sm">
-          Tasks appear here the moment the orchestrator accepts one. Queue the
-          first from your terminal:
-        </p>
-        <code className="mt-1 text-sm">
-          lgtm task &quot;fix the flaky login test&quot;
-        </code>
-      </div>
-    );
+    return <EmptyTasks />;
   }
 
   return (
