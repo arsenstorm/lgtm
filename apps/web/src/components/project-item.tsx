@@ -4,12 +4,12 @@ import { toast } from "sonner";
 
 import {
   ChevronIcon,
-  CircleXIcon,
   ComposeIcon,
   DotsIcon,
   FolderIcon,
+  HandCheckIcon,
   type IconComponent,
-  TriangleWarningIcon,
+  SquareWarningIcon,
 } from "@/components/icons";
 import { STATUS } from "@/components/task-list";
 import { Button } from "@/components/ui/button";
@@ -49,11 +49,11 @@ const PREVIEW = 5;
 
 // Only the statuses that need a person get a trailing mark; everything else is
 // noise in a list you scan.
-const BROKEN = { className: "text-red-500", icon: CircleXIcon };
+const BROKEN = { className: "text-red-500", icon: SquareWarningIcon };
 const ATTENTION: Partial<
   Record<TaskStatus, { className: string; icon: IconComponent }>
 > = {
-  awaiting_review: { className: "text-amber-500", icon: TriangleWarningIcon },
+  awaiting_review: { className: "text-amber-500", icon: HandCheckIcon },
   failed: BROKEN,
   runner_lost: BROKEN,
   timed_out: BROKEN,
