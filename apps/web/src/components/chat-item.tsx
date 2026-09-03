@@ -99,7 +99,7 @@ export function ChatItem({ chat }: { chat: Chat }) {
             Rename…
           </DropdownMenuItem>
           <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={archive}>
-            ArchiveIcon
+            Archive
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
