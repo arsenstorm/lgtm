@@ -174,7 +174,7 @@ export function AppSidebar({
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
-      <SidebarHeader>
+      <SidebarHeader className="pb-1">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton className="p-1.5!" render={<Link to="/" />}>
