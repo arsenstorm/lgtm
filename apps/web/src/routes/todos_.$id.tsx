@@ -1,9 +1,7 @@
-import type { IconWeight } from "@phosphor-icons/react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
   CaretDown,
-  Flag,
   PencilSimple,
 } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
@@ -15,6 +13,7 @@ import { toast } from "sonner";
 import { projectName } from "@/components/app-sidebar";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { OrchestratorError } from "@/components/orchestrator-error";
+import { PriorityIcon } from "@/components/priority-icon";
 import { TimeAgo } from "@/components/time-ago";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -64,24 +63,18 @@ export const Route = createFileRoute("/todos_/$id")({
 const STATUS_OPTIONS: TodoStatus[] = ["open", "in_progress", "done"];
 const PRIORITY_OPTIONS: TodoPriority[] = ["low", "medium", "high"];
 
-const PRIORITY: Record<
-  TodoPriority,
-  { className: string; label: string; weight: IconWeight }
-> = {
+const PRIORITY: Record<TodoPriority, { className: string; label: string }> = {
   high: {
     className: "border-red-600/30 text-red-700 dark:text-red-400",
     label: "High priority",
-    weight: "fill",
   },
   medium: {
     className: "border-amber-600/30 text-amber-700 dark:text-amber-400",
     label: "Medium priority",
-    weight: "fill",
   },
   low: {
     className: "border-border text-muted-foreground",
     label: "Low priority",
-    weight: "regular",
   },
 };
 
@@ -266,7 +259,7 @@ function PriorityChip({
   onPick: (value: TodoPriority) => void;
   value: TodoPriority;
 }) {
-  const { className, label, weight } = PRIORITY[value];
+  const { className, label } = PRIORITY[value];
 
   return (
     <Picker
@@ -277,7 +270,7 @@ function PriorityChip({
       triggerClassName={className}
       value={value}
     >
-      <Flag weight={weight} />
+      <PriorityIcon className="size-3.5" priority={value} />
       {label}
     </Picker>
   );

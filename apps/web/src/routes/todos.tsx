@@ -1,18 +1,11 @@
 import type { Icon } from "@phosphor-icons/react";
-import {
-  CaretRight,
-  CellSignalHigh,
-  CellSignalLow,
-  CellSignalMedium,
-  CheckCircle,
-  Circle,
-  CircleHalf,
-} from "@phosphor-icons/react";
+import { CaretRight, CheckCircle, Circle, CircleHalf } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { projectName } from "@/components/app-sidebar";
 import { OrchestratorError } from "@/components/orchestrator-error";
+import { PriorityIcon } from "@/components/priority-icon";
 import { TimeAgo } from "@/components/time-ago";
 import {
   Collapsible,
@@ -20,7 +13,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { getTodos } from "@/lib/lgtm/server";
-import type { Todo, TodoPriority, TodoStatus } from "@/lib/lgtm/types";
+import type { Todo, TodoStatus } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/todos")({
@@ -46,12 +39,6 @@ export const MARK: Record<
   },
 };
 
-// The bars read as a ramp; colour would just repeat what the shape says.
-const PRIORITY_ICON: Record<TodoPriority, Icon> = {
-  high: CellSignalHigh,
-  medium: CellSignalMedium,
-  low: CellSignalLow,
-};
 
 const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
 
@@ -132,7 +119,6 @@ function StatusGroup({ status, todos }: { status: TodoStatus; todos: Todo[] }) {
 
 function TodoRow({ todo }: { todo: Todo }) {
   const { icon: Mark, label, className } = MARK[todo.status];
-  const Priority = PRIORITY_ICON[todo.priority];
   const done = todo.status === "done";
 
   return (
@@ -144,10 +130,10 @@ function TodoRow({ todo }: { todo: Todo }) {
       params={{ id: todo.id }}
       to="/todos/$id"
     >
-      <Priority
-        aria-label={`${todo.priority} priority`}
-        className="size-4 shrink-0 text-muted-foreground"
-        role="img"
+      <PriorityIcon
+        className="size-4 text-muted-foreground"
+        label={`${todo.priority} priority`}
+        priority={todo.priority}
       />
       <span className="shrink-0 font-mono text-muted-foreground text-xs">
         {todo.display_id}
