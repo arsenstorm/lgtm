@@ -2,7 +2,7 @@ import { Link, useMatchRoute, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
-import { CircleWarningIcon, DotsIcon, MsgsIcon } from "@/components/icons";
+import { DotsIcon, MsgsIcon, SquareWarningIcon } from "@/components/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -71,7 +71,7 @@ export function ChatItem({ chat }: { chat: Chat }) {
             className="ml-auto flex shrink-0 text-red-500 transition-opacity group-focus-within/menu-item:opacity-0 group-hover/menu-item:opacity-0 group-has-[[aria-expanded=true]]/menu-item:opacity-0"
             role="img"
           >
-            <CircleWarningIcon className="size-3.5" />
+            <SquareWarningIcon className="size-3.5" />
           </span>
         ) : null}
       </SidebarMenuButton>

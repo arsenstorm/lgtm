@@ -1,7 +1,6 @@
 import {
   ChatCircleText,
   Clock,
-  Eye,
   GitMerge,
   MinusCircle,
   Plugs,
@@ -13,6 +12,7 @@ import {
   CircleCheckIcon,
   CircleXIcon,
   CodeBranchIcon,
+  HandCheckIcon,
   type IconComponent,
   LoaderIcon,
 } from "@/components/icons";
@@ -32,7 +32,11 @@ export const STATUS: Record<
   { label: string; icon: IconComponent; tone: Tone }
 > = {
   approved: { icon: CircleCheckIcon, label: "Approved", tone: "done" },
-  awaiting_review: { icon: Eye, label: "Awaiting review", tone: "attention" },
+  awaiting_review: {
+    icon: HandCheckIcon,
+    label: "Awaiting review",
+    tone: "attention",
+  },
   cancelled: { icon: MinusCircle, label: "Cancelled", tone: "idle" },
   changes_requested: {
     icon: ChatCircleText,
