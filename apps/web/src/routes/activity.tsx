@@ -3,7 +3,7 @@ import type { ErrorComponentProps } from '@tanstack/react-router'
 
 import { projectName } from '@/components/app-sidebar'
 import { OrchestratorError } from '@/components/orchestrator-error'
-import { relativeAge } from '@/components/task-list'
+import { TimeAgo } from '@/components/time-ago'
 import { getActivity } from '@/lib/lgtm/server'
 import type { ActivityEntry } from '@/lib/lgtm/types'
 
@@ -44,13 +44,7 @@ function ActivityPage() {
 function ActivityRow({ entry }: { entry: ActivityEntry }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-2 py-2.5 text-sm sm:flex-nowrap">
-      <time
-        dateTime={new Date(entry.at).toISOString()}
-        suppressHydrationWarning
-        className="w-16 shrink-0 tabular-nums text-muted-foreground"
-      >
-        {relativeAge(entry.at)}
-      </time>
+      <TimeAgo at={entry.at} className="w-16 shrink-0 tabular-nums text-muted-foreground" />
 
       <span className="w-40 shrink-0 truncate font-medium">{entry.event}</span>
 

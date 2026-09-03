@@ -5,7 +5,7 @@ import type { Icon } from '@phosphor-icons/react'
 
 import { projectName } from '@/components/app-sidebar'
 import { OrchestratorError } from '@/components/orchestrator-error'
-import { relativeAge } from '@/components/task-list'
+import { TimeAgo } from '@/components/time-ago'
 import { Badge } from '@/components/ui/badge'
 import { getTodos } from '@/lib/lgtm/server'
 import type { Todo, TodoStatus } from '@/lib/lgtm/types'
@@ -134,13 +134,10 @@ function TodoRow({ todo }: { todo: Todo }) {
         </span>
       )}
 
-      <time
-        dateTime={new Date(todo.created_at).toISOString()}
-        suppressHydrationWarning
+      <TimeAgo
+        at={todo.created_at}
         className="w-16 shrink-0 text-end tabular-nums text-muted-foreground"
-      >
-        {relativeAge(todo.created_at)}
-      </time>
+      />
     </Link>
   )
 }

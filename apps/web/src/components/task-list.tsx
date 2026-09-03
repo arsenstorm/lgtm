@@ -15,6 +15,7 @@ import {
 } from '@phosphor-icons/react'
 import type { Icon } from '@phosphor-icons/react'
 
+import { TimeAgo } from '@/components/time-ago'
 import type { Task, TaskStatus } from '@/lib/lgtm/types'
 import { cn } from '@/lib/utils'
 
@@ -67,6 +68,7 @@ export function shortSpan(ms: number): string {
   return '0s'
 }
 
+// Superseded by <TimeAgo>; still imported by pages mid-migration.
 export function relativeAge(atMs: number): string {
   return `${shortSpan(Date.now() - atMs)} ago`
 }
@@ -142,13 +144,10 @@ function TaskRow({ task }: { task: Task }) {
 
         <span className="w-24 shrink-0 truncate text-muted-foreground">{task.runner ?? '—'}</span>
 
-        <time
-          dateTime={new Date(task.created_at).toISOString()}
-          suppressHydrationWarning
+        <TimeAgo
+          at={task.created_at}
           className="grow text-end tabular-nums text-muted-foreground sm:w-16 sm:grow-0"
-        >
-          {relativeAge(task.created_at)}
-        </time>
+        />
       </Link>
     </li>
   )

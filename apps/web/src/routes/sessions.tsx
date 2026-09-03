@@ -3,7 +3,7 @@ import type { ErrorComponentProps } from '@tanstack/react-router'
 
 import { projectName } from '@/components/app-sidebar'
 import { OrchestratorError } from '@/components/orchestrator-error'
-import { relativeAge } from '@/components/task-list'
+import { TimeAgo } from '@/components/time-ago'
 import { getSessions } from '@/lib/lgtm/server'
 import type { Session } from '@/lib/lgtm/types'
 import { cn } from '@/lib/utils'
@@ -69,13 +69,10 @@ function SessionRow({ session }: { session: Session }) {
         {session.base_branch}
       </span>
 
-      <time
-        dateTime={new Date(session.created_at).toISOString()}
-        suppressHydrationWarning
+      <TimeAgo
+        at={session.created_at}
         className="grow text-end tabular-nums text-muted-foreground sm:w-16 sm:grow-0"
-      >
-        {relativeAge(session.created_at)}
-      </time>
+      />
     </div>
   )
 }

@@ -20,6 +20,7 @@ import type {
 } from '@/lib/lgtm/types'
 import { DiffView } from '@/components/diff-view'
 import { TaskActions } from '@/components/task-actions'
+import { TimeAgo } from '@/components/time-ago'
 import { cn } from '@/lib/utils'
 
 export function TaskDetailView({ detail }: { detail: TaskDetail }) {
@@ -97,7 +98,6 @@ export function TaskDetailView({ detail }: { detail: TaskDetail }) {
 
 function TaskHeader({ task }: { task: Task }) {
   const { spec } = task
-  const created = new Date(task.created_at)
 
   return (
     <header className="flex flex-col gap-5">
@@ -107,13 +107,7 @@ function TaskHeader({ task }: { task: Task }) {
         <span aria-hidden className="text-muted-foreground/40">
           ·
         </span>
-        <time
-          className="text-sm text-muted-foreground"
-          dateTime={created.toISOString()}
-          suppressHydrationWarning
-        >
-          {formatDate(created)}
-        </time>
+        <TimeAgo at={task.created_at} className="text-sm text-muted-foreground" />
       </div>
 
       <h1 className="max-w-[54ch] text-lg leading-snug font-medium text-pretty">{spec.prompt}</h1>
@@ -373,9 +367,3 @@ function formatCost(usd: number) {
   return `$${usd.toFixed(2)}`
 }
 
-function formatDate(date: Date) {
-  return new Intl.DateTimeFormat('en-GB', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
-}

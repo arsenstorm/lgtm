@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 
 import { projectName } from '@/components/app-sidebar'
 import { OrchestratorError } from '@/components/orchestrator-error'
-import { relativeAge } from '@/components/task-list'
+import { TimeAgo } from '@/components/time-ago'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -245,13 +245,10 @@ function MemoryRow({ memory }: { memory: Memory }) {
         <span className="shrink-0 text-xs text-muted-foreground">agent</span>
       )}
 
-      <time
-        dateTime={new Date(memory.created_at).toISOString()}
-        suppressHydrationWarning
+      <TimeAgo
+        at={memory.created_at}
         className="w-16 shrink-0 text-end tabular-nums text-muted-foreground"
-      >
-        {relativeAge(memory.created_at)}
-      </time>
+      />
     </div>
   )
 }
