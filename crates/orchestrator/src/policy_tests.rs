@@ -7,6 +7,7 @@ use lgtm_protocol::{
 fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
     Task {
         id: "0123abcd".into(),
+        title: None,
         spec: TaskSpec {
             repository: "https://github.com/arsenstorm/lgtm.git".into(),
             base_branch: "main".into(),

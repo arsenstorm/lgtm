@@ -514,6 +514,7 @@ mod tests {
     fn task(id: &str) -> Task {
         Task {
             id: id.into(),
+            title: None,
             spec: TaskSpec {
                 repository: "https://example.com/repo.git".into(),
                 base_branch: "main".into(),

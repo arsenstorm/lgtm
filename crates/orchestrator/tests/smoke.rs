@@ -15,6 +15,25 @@ async fn ws(
     tokio_tungstenite::connect_async(req).await.unwrap().0
 }
 
+/// The next frame that is not the title lane's background `Infer` call:
+/// creating a task fires one at the connected runner, and these tests assert
+/// on the frames around it.
+async fn next_frame(
+    w: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+) -> TMsg {
+    loop {
+        let msg = w.next().await.unwrap().unwrap();
+        if let Ok(OrchestratorMessage::Infer { .. }) =
+            serde_json::from_str::<OrchestratorMessage>(msg.to_text().unwrap_or_default())
+        {
+            continue;
+        }
+        return msg;
+    }
+}
+
 #[tokio::test]
 async fn end_to_end() {
     // The GitHub routes must answer as if no token were configured, whatever
@@ -111,7 +130,7 @@ async fn end_to_end() {
     ))
     .await
     .unwrap();
-    let ack = w.next().await.unwrap().unwrap();
+    let ack = next_frame(&mut w).await;
     assert!(matches!(
         serde_json::from_str::<OrchestratorMessage>(ack.to_text().unwrap()).unwrap(),
         OrchestratorMessage::HelloAck
@@ -137,7 +156,7 @@ async fn end_to_end() {
         .unwrap();
     assert_eq!(r.status(), 201);
     let task: Task = r.json().await.unwrap();
-    let start = w.next().await.unwrap().unwrap();
+    let start = next_frame(&mut w).await;
     let OrchestratorMessage::Start { task: started, .. } =
         serde_json::from_str(start.to_text().unwrap()).unwrap()
     else {
@@ -220,7 +239,7 @@ async fn end_to_end() {
         .await
         .unwrap();
     assert_eq!(r.status(), 200);
-    let push = w.next().await.unwrap().unwrap();
+    let push = next_frame(&mut w).await;
     assert!(matches!(
         serde_json::from_str::<OrchestratorMessage>(push.to_text().unwrap()).unwrap(),
         OrchestratorMessage::Push { .. }
@@ -375,7 +394,7 @@ async fn end_to_end() {
     ))
     .await
     .unwrap();
-    w2.next().await.unwrap().unwrap();
+    next_frame(&mut w2).await;
     drop(w1);
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let runners: Vec<RunnerStatus> = http
@@ -401,7 +420,7 @@ async fn end_to_end() {
         .unwrap();
     assert_eq!(r.status(), 201);
     let task_a: Task = r.json().await.unwrap();
-    let start = w2.next().await.unwrap().unwrap();
+    let start = next_frame(&mut w2).await;
     let OrchestratorMessage::Start { task: started, .. } =
         serde_json::from_str(start.to_text().unwrap()).unwrap()
     else {
@@ -452,7 +471,7 @@ async fn end_to_end() {
     ))
     .await
     .unwrap();
-    let start = w2.next().await.unwrap().unwrap();
+    let start = next_frame(&mut w2).await;
     let OrchestratorMessage::Start { task: started, .. } =
         serde_json::from_str(start.to_text().unwrap()).unwrap()
     else {
@@ -749,7 +768,7 @@ async fn a_message_becomes_a_task_under_its_session() {
     ))
     .await
     .unwrap();
-    w.next().await.unwrap().unwrap();
+    next_frame(&mut w).await;
 
     let r = http
         .post(format!("{base}/api/sessions"))
@@ -835,7 +854,7 @@ async fn a_memory_reaches_the_runner() {
     ))
     .await
     .unwrap();
-    w.next().await.unwrap().unwrap();
+    next_frame(&mut w).await;
 
     let spec = TaskSpec {
         repository: "r".into(),
@@ -867,7 +886,7 @@ async fn a_memory_reaches_the_runner() {
         .await
         .unwrap();
     assert_eq!(r.status(), 201);
-    let start = w.next().await.unwrap().unwrap();
+    let start = next_frame(&mut w).await;
     let OrchestratorMessage::Start { memories, .. } =
         serde_json::from_str(start.to_text().unwrap()).unwrap()
     else {
@@ -915,7 +934,7 @@ async fn a_goals_plan_is_listed_once_the_agent_completes_it() {
     ))
     .await
     .unwrap();
-    w.next().await.unwrap().unwrap();
+    next_frame(&mut w).await;
 
     let r = http
         .post(format!("{base}/api/goals"))
@@ -933,7 +952,7 @@ async fn a_goals_plan_is_listed_once_the_agent_completes_it() {
     assert_eq!(r.status(), 201);
     let created: GoalSummary = r.json().await.unwrap();
 
-    let start = w.next().await.unwrap().unwrap();
+    let start = next_frame(&mut w).await;
     let OrchestratorMessage::Start { task, .. } =
         serde_json::from_str(start.to_text().unwrap()).unwrap()
     else {
@@ -1031,7 +1050,7 @@ async fn a_terminal_reaches_the_runner_and_its_output_comes_back() {
         "version": PROTOCOL_VERSION,
     });
     w.send(TMsg::Text(hello.to_string().into())).await.unwrap();
-    w.next().await.unwrap().unwrap();
+    next_frame(&mut w).await;
 
     let task: Task = http
         .post(format!("http://{addr}/api/tasks"))
@@ -1049,10 +1068,10 @@ async fn a_terminal_reaches_the_runner_and_its_output_comes_back() {
         .json()
         .await
         .unwrap();
-    w.next().await.unwrap().unwrap();
+    next_frame(&mut w).await;
 
     let mut attached = ws(&format!("ws://{addr}/api/tasks/{}/terminal", task.id), true).await;
-    let open = w.next().await.unwrap().unwrap();
+    let open = next_frame(&mut w).await;
     assert!(matches!(
         serde_json::from_str(open.to_text().unwrap()).unwrap(),
         OrchestratorMessage::TerminalOpen { task_id } if task_id == task.id
@@ -1096,7 +1115,7 @@ async fn a_pre_rename_runner_still_connects_and_lists() {
         "version": PROTOCOL_VERSION,
     });
     w.send(TMsg::Text(hello.to_string().into())).await.unwrap();
-    let ack = w.next().await.unwrap().unwrap();
+    let ack = next_frame(&mut w).await;
     assert!(matches!(
         serde_json::from_str::<OrchestratorMessage>(ack.to_text().unwrap()).unwrap(),
         OrchestratorMessage::HelloAck

@@ -209,6 +209,7 @@ mod tests {
     fn sample_task(pull_request: Option<PullRequest>, ci: Option<CiStatus>) -> Task {
         Task {
             id: "0123abcd".into(),
+            title: None,
             spec: TaskSpec {
                 repository: "https://github.com/arsenstorm/lgtm.git".into(),
                 base_branch: "main".into(),

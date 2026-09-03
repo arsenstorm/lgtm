@@ -107,6 +107,7 @@ impl State {
                 .collect();
             let child = Task {
                 id: self.new_id(),
+                title: None,
                 spec: child_spec(spec, step, depends_on, id),
                 status: TaskStatus::Queued,
                 runner: None,

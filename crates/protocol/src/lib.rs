@@ -1063,6 +1063,10 @@ pub struct Task {
     pub id: TaskId,
     pub spec: TaskSpec,
     pub status: TaskStatus,
+    /// A short model-written name for lists and headers; readers fall back to
+    /// the prompt's first line until it arrives.
+    #[serde(default)]
+    pub title: Option<String>,
     /// Runner the task was assigned to, once assigned.
     #[serde(alias = "worker")]
     pub runner: Option<String>,

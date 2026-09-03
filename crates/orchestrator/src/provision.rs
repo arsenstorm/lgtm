@@ -133,6 +133,7 @@ mod tests {
         let id = state.new_id();
         let task = Task {
             id: id.clone(),
+            title: None,
             spec: TaskSpec {
                 repository: "https://example.com/repo.git".into(),
                 base_branch: "main".into(),

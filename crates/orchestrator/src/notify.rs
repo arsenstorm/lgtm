@@ -71,6 +71,7 @@ mod tests {
     fn awaiting_review() -> Task {
         Task {
             id: "0123abcd".into(),
+            title: None,
             spec: TaskSpec {
                 repository: "https://github.com/o/r.git".into(),
                 base_branch: "main".into(),

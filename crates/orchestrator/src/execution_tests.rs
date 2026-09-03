@@ -6,6 +6,7 @@ use lgtm_protocol::{Executor, TaskKind, TaskResult, TaskSpec, TaskStatus, Valida
 fn running() -> Task {
     Task {
         id: "0123abcd".into(),
+        title: None,
         spec: TaskSpec {
             repository: "https://example.com/repo.git".into(),
             base_branch: "main".into(),

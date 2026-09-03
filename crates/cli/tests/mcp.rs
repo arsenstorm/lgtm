@@ -16,6 +16,7 @@ const REPOSITORY: &str = "https://example.com/r.git";
 fn seed(dir: &std::path::Path) {
     let task = Task {
         id: TASK_ID.to_string(),
+        title: None,
         spec: TaskSpec {
             repository: REPOSITORY.to_string(),
             base_branch: "main".to_string(),

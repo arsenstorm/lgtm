@@ -103,6 +103,7 @@ fn finished_execution(runner: &str, started_at: u64, finished_at: u64) -> Execut
 fn add_history(state: &mut State, executions: Vec<Execution>) {
     let task = Task {
         id: state.new_id(),
+        title: None,
         spec: spec(Executor::Claude, None),
         status: TaskStatus::Merged,
         runner: None,
@@ -992,6 +993,7 @@ fn linear_task(status: TaskStatus, from_linear: bool) -> Task {
     });
     Task {
         id: "0123abcd".into(),
+        title: None,
         spec,
         status,
         runner: None,

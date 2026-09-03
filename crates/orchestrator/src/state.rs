@@ -1057,6 +1057,7 @@ impl State {
         let created_by = spec.created_by.clone();
         let task = Task {
             id: self.new_id(),
+            title: None,
             spec,
             status: TaskStatus::Queued,
             runner: None,
@@ -1079,6 +1080,16 @@ impl State {
         let mut changed = vec![id.clone()];
         changed.extend(self.schedule());
         Ok((self.tasks[&id].task.clone(), changed))
+    }
+
+    /// Stores the model-written title; a task that finished or vanished while
+    /// the model thought is simply left as it was.
+    pub fn set_task_title(&mut self, id: &TaskId, title: String) -> Vec<TaskId> {
+        let Some(rec) = self.tasks.get_mut(id) else {
+            return Vec::new();
+        };
+        rec.task.title = Some(title);
+        vec![id.clone()]
     }
 
     pub(crate) fn lose_unfinished(&mut self, id: &TaskId) -> Vec<TaskId> {

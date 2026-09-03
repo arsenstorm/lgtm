@@ -247,15 +247,19 @@ async fn create_task(
 }
 
 fn queue(
-    app: &App,
+    app: &Arc<App>,
     mut spec: TaskSpec,
     user: AuthedUser,
 ) -> Result<(StatusCode, Json<Task>), ApiError> {
     // Stamped here, never taken from the body: identity comes from the token.
     spec.created_by = user.0;
-    let mut state = app.state.lock().unwrap();
-    let (task, changed) = state.create_task(spec).map_err(conflict)?;
-    app.persist_ids(&mut state, &changed);
+    let task = {
+        let mut state = app.state.lock().unwrap();
+        let (task, changed) = state.create_task(spec).map_err(conflict)?;
+        app.persist_ids(&mut state, &changed);
+        task
+    };
+    workspace::spawn_title(app.clone(), task.id.clone(), task.spec.prompt.clone());
     Ok((StatusCode::CREATED, Json(task)))
 }
 

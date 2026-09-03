@@ -891,6 +891,7 @@ mod tests {
     fn provenance_task(model: Option<&str>) -> lgtm_protocol::Task {
         lgtm_protocol::Task {
             id: "abc12345".into(),
+            title: None,
             spec: lgtm_protocol::TaskSpec {
                 repository: "https://example.com/repo.git".into(),
                 base_branch: "main".into(),

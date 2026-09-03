@@ -173,6 +173,48 @@ const ENHANCE_SYSTEM: &str = "You rewrite a developer's rough note into the prom
 /// as it reads here.
 const NO_EXECUTOR: &str = "no runner or local executor available for enhancement";
 
+const TITLE_SYSTEM: &str = "You name development tasks for a task list. Reply with the title \
+     only: at most eight words, imperative mood, sentence case, no quotes and no trailing \
+     period.";
+
+/// Names the task in the background. Best effort on purpose: a task with no
+/// title falls back to its prompt's first line everywhere one shows.
+pub(super) fn spawn_title(app: Arc<App>, id: lgtm_protocol::TaskId, prompt: String) {
+    tokio::spawn(async move {
+        let executor = {
+            let state = app.state.lock().unwrap();
+            choose_executor(&state, || {
+                crate::orchestrate::pick(crate::orchestrate::Choice::Auto)
+            })
+        };
+        let Some(executor) = executor else { return };
+        let Ok(answer) = crate::infer::infer(&app, executor, TITLE_SYSTEM, &prompt).await else {
+            return;
+        };
+        let Some(title) = clean_title(&answer) else {
+            return;
+        };
+        let mut state = app.state.lock().unwrap();
+        let changed = state.set_task_title(&id, title);
+        app.persist_ids(&mut state, &changed);
+    });
+}
+
+/// The model was told "the title only", but a chatty answer still happens;
+/// the first non-empty line, unquoted and capped, is the usable part.
+fn clean_title(answer: &str) -> Option<String> {
+    let line = answer.lines().find(|line| !line.trim().is_empty())?;
+    let line = line
+        .trim()
+        .trim_matches(|c| matches!(c, '"' | '\'' | '\u{201c}' | '\u{201d}'))
+        .trim_end_matches('.')
+        .trim();
+    if line.is_empty() {
+        return None;
+    }
+    Some(line.chars().take(80).collect())
+}
+
 pub(super) async fn enhance(
     State(app): State<Arc<App>>,
     body: Result<Json<EnhanceRequest>, JsonRejection>,
@@ -239,4 +281,28 @@ pub(super) fn choose_executor(
         .filter(|runner| runner.is_connected())
         .find_map(|runner| runner.info.executors.first().copied())
         .or_else(local)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_title;
+
+    #[test]
+    fn titles_are_the_first_line_unquoted_and_unterminated() {
+        assert_eq!(
+            clean_title("Fix the login retry loop"),
+            Some("Fix the login retry loop".into())
+        );
+        assert_eq!(
+            clean_title("\"Fix the login retry loop.\"\n\nExplanation."),
+            Some("Fix the login retry loop".into())
+        );
+        assert_eq!(
+            clean_title("\n  \nAdd rate limiting"),
+            Some("Add rate limiting".into())
+        );
+        assert_eq!(clean_title("   \n"), None);
+        let long = "word ".repeat(40);
+        assert_eq!(clean_title(&long).unwrap().chars().count(), 80);
+    }
 }

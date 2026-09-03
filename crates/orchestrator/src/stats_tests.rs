@@ -31,6 +31,7 @@ fn spec() -> TaskSpec {
 fn task(id: &str, status: TaskStatus, created_at: u64, executions: Vec<Execution>) -> Task {
     Task {
         id: id.into(),
+        title: None,
         spec: spec(),
         status,
         runner: None,

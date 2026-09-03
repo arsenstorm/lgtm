@@ -13,6 +13,7 @@ use crate::state::{Conn, TaskRecord};
 fn task(id: &str, status: TaskStatus, spec: TaskSpec) -> Task {
     Task {
         id: id.into(),
+        title: None,
         spec,
         status,
         runner: None,
