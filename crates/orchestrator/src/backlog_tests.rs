@@ -28,6 +28,7 @@ fn task(id: &str, status: TaskStatus, spec: TaskSpec) -> Task {
         files: Vec::new(),
         workspace: None,
         created_by: None,
+        archived: false,
     }
 }
 

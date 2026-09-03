@@ -53,6 +53,7 @@ fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
         files: Vec::new(),
         workspace: None,
         created_by: None,
+        archived: false,
     }
 }
 

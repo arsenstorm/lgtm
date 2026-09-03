@@ -43,6 +43,7 @@ fn running() -> Task {
         files: Vec::new(),
         workspace: None,
         created_by: None,
+        archived: false,
     }
 }
 

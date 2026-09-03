@@ -81,7 +81,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/from-issue", post(create_task_from_issue))
         .route("/tasks/from-linear", post(create_task_from_linear))
-        .route("/tasks/{id}", get(get_task))
+        .route("/tasks/{id}", get(get_task).patch(update_task))
         .route("/tasks/{id}/merge", post(merge))
         .route("/tasks/{id}/events", get(events::events))
         .route(
@@ -594,6 +594,36 @@ async fn list_tasks(State(app): State<Arc<App>>) -> Json<Vec<Task>> {
         .collect();
     recent.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
     Json(recent.into_iter().map(|(_, task)| task).collect())
+}
+
+/// Body of `PATCH /api/tasks/:id`: whichever fields are being changed.
+#[derive(Deserialize)]
+struct UpdateTaskBody {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    archived: Option<bool>,
+}
+
+async fn update_task(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    body: Result<Json<UpdateTaskBody>, JsonRejection>,
+) -> Result<Json<Task>, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let title = body.title.map(|title| title.trim().to_string());
+    if title.as_deref() == Some("") {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "title cannot be empty".into(),
+        ));
+    }
+    let mut state = app.state.lock().unwrap();
+    let task = state
+        .update_task(&id, title, body.archived)
+        .ok_or(CmdError::NotFound)?;
+    app.persist_ids(&mut state, &[id]);
+    Ok(Json(task))
 }
 
 async fn get_task(

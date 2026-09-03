@@ -122,6 +122,7 @@ impl State {
                 files: Vec::new(),
                 workspace: self.workspace.clone(),
                 created_by: spec.created_by.clone(),
+                archived: false,
             };
             let child_id = child.id.clone();
             ids.insert(step.key.as_str(), child_id.clone());

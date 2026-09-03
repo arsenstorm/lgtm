@@ -119,6 +119,7 @@ fn add_history(state: &mut State, executions: Vec<Execution>) {
         files: Vec::new(),
         workspace: None,
         created_by: None,
+        archived: false,
     };
     state
         .tasks
@@ -1009,6 +1010,7 @@ fn linear_task(status: TaskStatus, from_linear: bool) -> Task {
         files: Vec::new(),
         workspace: None,
         created_by: None,
+        archived: false,
     }
 }
 

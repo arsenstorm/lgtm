@@ -215,6 +215,30 @@ async fn list_tasks_hides_tasks_from_another_workspace() {
     assert!(!ids.contains(&foreign.as_str()));
 }
 
+#[tokio::test]
+async fn a_task_can_be_renamed_and_archived() {
+    let app = app();
+    let id = completed(&app, true, false);
+    let body = serde_json::from_value(serde_json::json!({ "title": "  Tidy  " })).unwrap();
+    let Json(task) = update_task(State(app.clone()), Path(id.clone()), Ok(Json(body)))
+        .await
+        .unwrap();
+    assert_eq!(task.title.as_deref(), Some("Tidy"));
+    assert!(!task.archived);
+
+    let body = serde_json::from_value(serde_json::json!({ "archived": true })).unwrap();
+    let Json(task) = update_task(State(app.clone()), Path(id.clone()), Ok(Json(body)))
+        .await
+        .unwrap();
+    assert!(task.archived);
+    assert_eq!(task.title.as_deref(), Some("Tidy"));
+
+    let body = serde_json::from_value(serde_json::json!({ "title": " " })).unwrap();
+    assert!(update_task(State(app.clone()), Path(id), Ok(Json(body)))
+        .await
+        .is_err());
+}
+
 /// The list leads with whatever changed last, not whatever was made first.
 #[tokio::test]
 async fn list_tasks_puts_the_last_touched_task_first() {

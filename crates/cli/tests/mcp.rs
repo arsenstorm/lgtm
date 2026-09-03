@@ -53,6 +53,7 @@ fn seed(dir: &std::path::Path) {
         files: Vec::new(),
         workspace: None,
         created_by: None,
+        archived: false,
     };
     let tasks = dir.join("tasks");
     std::fs::create_dir_all(&tasks).unwrap();

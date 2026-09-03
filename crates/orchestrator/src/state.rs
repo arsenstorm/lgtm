@@ -1134,6 +1134,7 @@ impl State {
             files: Vec::new(),
             workspace: self.workspace.clone(),
             created_by,
+            archived: false,
         };
         let id = task.id.clone();
         tracing::info!(task = %id, "task created");
@@ -1152,6 +1153,23 @@ impl State {
         };
         rec.task.title = Some(title);
         vec![id.clone()]
+    }
+
+    /// Renames a task, archives it, or both; `None` when there is no such task.
+    pub fn update_task(
+        &mut self,
+        id: &str,
+        title: Option<String>,
+        archived: Option<bool>,
+    ) -> Option<Task> {
+        let rec = self.tasks.get_mut(id)?;
+        if let Some(title) = title {
+            rec.task.title = Some(title);
+        }
+        if let Some(archived) = archived {
+            rec.task.archived = archived;
+        }
+        Some(rec.task.clone())
     }
 
     pub(crate) fn lose_unfinished(&mut self, id: &TaskId) -> Vec<TaskId> {

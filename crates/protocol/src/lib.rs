@@ -1173,6 +1173,9 @@ pub struct Task {
     /// The user who created this; `None` for the shared token or automation.
     #[serde(default)]
     pub created_by: Option<String>,
+    /// Hidden from the lists; the task and its history stay at their url.
+    #[serde(default)]
+    pub archived: bool,
 }
 
 /// Files another unfinished task in the same repository has changed too.

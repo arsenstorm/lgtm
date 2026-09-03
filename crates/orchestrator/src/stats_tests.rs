@@ -47,6 +47,7 @@ fn task(id: &str, status: TaskStatus, created_at: u64, executions: Vec<Execution
         files: Vec::new(),
         workspace: None,
         created_by: None,
+        archived: false,
     }
 }
 
