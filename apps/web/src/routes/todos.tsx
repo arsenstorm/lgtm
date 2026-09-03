@@ -1,5 +1,4 @@
-import type { Icon } from "@phosphor-icons/react";
-import { CaretRight, CheckCircle, Circle, CircleHalf } from "@phosphor-icons/react";
+import { CaretRight } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
@@ -7,6 +6,7 @@ import { projectName } from "@/components/app-sidebar";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { PriorityIcon } from "@/components/priority-icon";
 import { TimeAgo } from "@/components/time-ago";
+import { MARK } from "@/components/todo-chips";
 import {
   Collapsible,
   CollapsibleContent,
@@ -21,24 +21,6 @@ export const Route = createFileRoute("/todos")({
   component: TodosPage,
   errorComponent: TodosError,
 });
-
-export const MARK: Record<
-  TodoStatus,
-  { icon: Icon; label: string; className: string }
-> = {
-  open: { icon: Circle, label: "Open", className: "text-muted-foreground" },
-  in_progress: {
-    icon: CircleHalf,
-    label: "In progress",
-    className: "text-amber-600 dark:text-amber-400",
-  },
-  done: {
-    icon: CheckCircle,
-    label: "Done",
-    className: "text-emerald-700 dark:text-emerald-400",
-  },
-};
-
 
 const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
 
