@@ -98,6 +98,25 @@ const EXACT: &[&str] = &[
     "NO_COLOR",
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
+    // Windows system configuration: paths and machine facts, no secrets.
+    // Without SYSTEMROOT, bun (and so the claude CLI) refuses to make any
+    // network request at all.
+    "SYSTEMROOT",
+    "WINDIR",
+    "SYSTEMDRIVE",
+    "COMSPEC",
+    "PATHEXT",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "TEMP",
+    "TMP",
+    "USERNAME",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
 ];
 
 /// Variables kept by prefix: locale, desktop paths, the agent harnesses' own
@@ -126,6 +145,12 @@ pub fn env_allowlist() -> &'static [&'static str] {
 }
 
 pub fn keep_env(name: &str) -> bool {
+    // Windows environment names are case-insensitive and case-preserving
+    // ("Path", "SystemRoot"), so there they are matched uppercased.
+    #[cfg(windows)]
+    let upper = name.to_ascii_uppercase();
+    #[cfg(windows)]
+    let name = upper.as_str();
     EXACT.contains(&name) || PREFIXES.iter().any(|prefix| name.starts_with(prefix))
 }
 
