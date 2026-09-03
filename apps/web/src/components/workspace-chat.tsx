@@ -16,60 +16,18 @@ import {
   MessageContent,
   MessageFooter,
 } from "@/components/ui/message";
-import {
-  type AskAnswer,
-  type AskStep,
-  askWorkspace,
-  enhancePrompt,
-} from "@/lib/lgtm/server";
-
-export interface ChatTurn {
-  id: string;
-  /** Only an assistant turn carries these. */
-  refs?: string[];
-  role: "user" | "assistant";
-  steps?: AskStep[];
-  text: string;
-  workedMs?: number;
-}
+import { createChat } from "@/lib/lgtm/server";
+import type { Chat, ChatStep, ChatTurn } from "@/lib/lgtm/types";
 
 export type ComposerMode = "chat" | "task";
 
-/** The conversation as the models read it: the agent answering a follow-up
- * and the one writing a task brief both get the same text. */
-function transcript(turns: ChatTurn[]): string {
+/** The conversation as the models read it when writing a task brief. */
+export function transcript(turns: ChatTurn[]): string {
   return turns
-    .map((item) => `${item.role === "user" ? "Person" : "Agent"}: ${item.text}`)
+    .map(
+      (item) => `${item.role === "person" ? "Person" : "Agent"}: ${item.text}`
+    )
     .join("\n\n");
-}
-
-// ponytail: the whole transcript rides along on every question; trim to the
-// last few turns when answers get long.
-function askedQuestion(
-  turns: ChatTurn[],
-  question: string,
-  repository: string
-): string {
-  const scope = repository ? `Repository: ${repository}\n\n` : "";
-  if (turns.length === 0) {
-    return `${scope}${question}`;
-  }
-  return `${scope}Earlier in this conversation:\n\n${transcript(turns)}\n\nNow the person asks:\n${question}`;
-}
-
-function chatTurn(role: ChatTurn["role"], text: string): ChatTurn {
-  return { id: crypto.randomUUID(), role, text };
-}
-
-function answerTurn(answer: AskAnswer): ChatTurn {
-  return {
-    id: crypto.randomUUID(),
-    refs: answer.refs,
-    role: "assistant",
-    steps: answer.steps,
-    text: answer.answer,
-    workedMs: answer.worked_ms,
-  };
 }
 
 /** Chat is the default: reading the workspace costs nothing. Task mode is the
@@ -77,85 +35,48 @@ function answerTurn(answer: AskAnswer): ChatTurn {
  * `pending` is shared with the composer's own actions so one thing runs at a
  * time. */
 export function useWorkspaceChat({
-  repository,
+  initialMode,
   pending,
   setPending,
 }: {
+  initialMode: ComposerMode;
   pending: string | null;
-  repository: string;
-  setPending: (next: "ask" | "brief" | null) => void;
+  setPending: (next: "ask" | null) => void;
 }) {
-  const [mode, setMode] = useState<ComposerMode>("chat");
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [mode, setMode] = useState<ComposerMode>(initialMode);
   const busy = pending !== null;
 
-  /** Resolves to whether the question was answered; the caller puts an
-   * unanswered one back in the box. */
+  /** Opens a chat with the question; null when nothing was sent, so the
+   * caller can put the words back in the box. */
   const ask = useCallback(
-    async (asked: string): Promise<boolean> => {
+    async (asked: string): Promise<Chat | null> => {
       if (asked === "" || busy) {
-        return true;
+        return null;
       }
-      const before = turns;
-      setTurns([...before, chatTurn("user", asked)]);
       setPending("ask");
       try {
-        const answer = await askWorkspace({
-          data: { question: askedQuestion(before, asked, repository) },
-        });
-        setTurns((current) => [...current, answerTurn(answer)]);
-        return true;
+        return await createChat({ data: { question: asked } });
       } catch (error) {
         // The orchestrator's reason (--orchestrate off, a question already
         // running) is the whole message.
         toast.error(error instanceof Error ? error.message : String(error));
-        setTurns(before);
-        return false;
+        return null;
       } finally {
         setPending(null);
       }
     },
-    [busy, repository, setPending, turns]
+    [busy, setPending]
   );
 
-  /** The step from talking to doing. Resolves to the task draft: a brief
-   * written from the transcript, or null when there is no conversation and
-   * whatever is in the box already is the draft. */
-  const createTask = useCallback(async (): Promise<string | null> => {
-    if (busy) {
-      return null;
-    }
-    setMode("task");
-    if (turns.length === 0) {
-      return null;
-    }
-    setPending("brief");
-    try {
-      const result = await enhancePrompt({
-        data: {
-          prompt: `Conversation with the workspace agent:\n\n${transcript(turns)}`,
-          repository: repository || undefined,
-        },
-      });
-      return result.prompt;
-    } catch (error) {
-      // Nothing could write the brief: the last thing the person said stands
-      // in for it, and the reason says what was missing.
-      toast.error(error instanceof Error ? error.message : String(error));
-      return turns.filter((item) => item.role === "user").at(-1)?.text ?? "";
-    } finally {
-      setPending(null);
-    }
-  }, [busy, repository, setPending, turns]);
-
+  const createTask = useCallback(() => setMode("task"), []);
   const backToChat = useCallback(() => setMode("chat"), []);
 
-  return { ask, backToChat, createTask, mode, turns };
+  return { ask, backToChat, createTask, mode };
 }
 
 /** What the agent did on the way to its answer, folded away the way a task's
  * tool activity is. */
-function Worked({ steps, workedMs }: { steps: AskStep[]; workedMs: number }) {
+function Worked({ steps, workedMs }: { steps: ChatStep[]; workedMs: number }) {
   return (
     <details className="group min-w-0">
       <summary className="cursor-pointer list-none rounded-md [&::-webkit-details-marker]:hidden">
@@ -199,7 +120,7 @@ export function WorkspaceChat({
   turns: ChatTurn[];
 }) {
   const endRef = useRef<HTMLDivElement>(null);
-  const lastAnswer = turns.filter((turn) => turn.role === "assistant").at(-1);
+  const lastAnswer = turns.filter((turn) => turn.role === "agent").at(-1);
 
   useEffect(() => {
     if (turns.length > 0 || pending) {
@@ -211,8 +132,8 @@ export function WorkspaceChat({
     <div className="flex flex-1 flex-col">
       <ol aria-label="Conversation" className="flex flex-col gap-6">
         {turns.map((turn) => (
-          <li key={turn.id}>
-            {turn.role === "user" ? (
+          <li key={`${turn.role}:${turn.at}`}>
+            {turn.role === "person" ? (
               <Message align="end">
                 <MessageContent>
                   <Bubble align="end" variant="muted">
@@ -227,20 +148,27 @@ export function WorkspaceChat({
             ) : (
               <Message>
                 <MessageContent>
-                  {turn.workedMs === undefined ? null : (
-                    <Worked steps={turn.steps ?? []} workedMs={turn.workedMs} />
+                  {turn.failed ||
+                  (turn.worked_ms === 0 && turn.steps.length === 0) ? null : (
+                    <Worked steps={turn.steps} workedMs={turn.worked_ms} />
                   )}
                   <Bubble variant="ghost">
                     <BubbleContent>
-                      <TextResponse>
-                        <Markdown>{turn.text}</Markdown>
-                      </TextResponse>
+                      {turn.failed ? (
+                        <p className="text-destructive">{turn.text}</p>
+                      ) : (
+                        <TextResponse>
+                          <Markdown>{turn.text}</Markdown>
+                        </TextResponse>
+                      )}
                     </BubbleContent>
                   </Bubble>
-                  <AnswerReferences
-                    all={references}
-                    text={[...(turn.refs ?? []), turn.text].join(" ")}
-                  />
+                  {turn.failed ? null : (
+                    <AnswerReferences
+                      all={references}
+                      text={[...turn.refs, turn.text].join(" ")}
+                    />
+                  )}
                   {turn === lastAnswer && !pending ? (
                     <MessageFooter>{action}</MessageFooter>
                   ) : null}

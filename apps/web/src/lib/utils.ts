@@ -19,3 +19,8 @@ export function taskTitle(task: {
 }): string {
   return task.title ?? firstLine(task.spec.prompt);
 }
+
+/** A bare composer control: the only chrome is the text going from muted to
+ * foreground, so focus-visible has to carry the ring alone. */
+export const BARE_CONTROL =
+  "flex items-center gap-1.5 rounded-sm text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50";

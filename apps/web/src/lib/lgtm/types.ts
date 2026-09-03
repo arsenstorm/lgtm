@@ -274,3 +274,33 @@ export interface ActivityEntry {
   repository: string;
   task: string;
 }
+
+export type ChatRole = "person" | "agent";
+
+export interface ChatStep {
+  detail: string;
+  tool: string;
+}
+
+/** One side of one exchange. An agent turn carries what the screen draws
+ * around its prose; a failed turn's text is the reason. */
+export interface ChatTurn {
+  at: number;
+  failed: boolean;
+  refs: string[];
+  role: ChatRole;
+  steps: ChatStep[];
+  text: string;
+  worked_ms: number;
+}
+
+/** A conversation with the read-only workspace agent. Nothing in it changes
+ * state. */
+export interface Chat {
+  created_at: number;
+  created_by: string | null;
+  id: string;
+  title: string;
+  turns: ChatTurn[];
+  workspace: string | null;
+}

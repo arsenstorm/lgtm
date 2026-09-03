@@ -32,41 +32,36 @@ import {
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useWorkspaceChat, WorkspaceChat } from "@/components/workspace-chat";
+import { useWorkspaceChat } from "@/components/workspace-chat";
 import {
   createTask,
   enhancePrompt,
   getProjects,
   getRunners,
-  getTasks,
-  getTodos,
 } from "@/lib/lgtm/server";
 import type { ReasoningEffort } from "@/lib/lgtm/types";
-import { cn } from "@/lib/utils";
+import { BARE_CONTROL, cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
   // ?repo= is the whole selection state: a refresh, a shared link and the back
   // button all restore the composer without a second copy of it in React.
-  validateSearch: (search: Record<string, unknown>) => ({
+  // ?draft= is how a chat hands a brief to task mode.
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { draft?: string; repo?: string } => ({
     repo: typeof search.repo === "string" ? search.repo : undefined,
+    draft: typeof search.draft === "string" ? search.draft : undefined,
   }),
   loader: async () => {
-    const [projects, runners, tasks, todos] = await Promise.all([
+    const [projects, runners] = await Promise.all([
       getProjects(),
       getRunners(),
-      getTasks(),
-      getTodos(),
     ]);
-    return { projects, runners, tasks, todos };
+    return { projects, runners };
   },
   component: NewTaskPage,
   errorComponent: NewTaskError,
 });
-
-// Every control in the composer is bare: the only chrome is the text going
-// from muted to foreground, so focus-visible has to carry the ring alone.
-const CONTROL =
-  "flex items-center gap-1.5 rounded-sm text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50";
 
 const MODEL_PREFERENCES_KEY = "lgtm-model-preferences";
 
@@ -137,8 +132,8 @@ function heading(mode: "chat" | "task", project: string | undefined): string {
 }
 
 function NewTaskPage() {
-  const { projects, runners, tasks, todos } = Route.useLoaderData();
-  const { repo } = Route.useSearch();
+  const { projects, runners } = Route.useLoaderData();
+  const { repo, draft: handed } = Route.useSearch();
   const navigate = useNavigate();
   const router = useRouter();
 
@@ -167,12 +162,16 @@ function NewTaskPage() {
   const [modelConfigurations, setModelConfigurations] = useState<
     Record<string, ReasoningEffort>
   >({});
-  const [draft, setDraft] = useState("");
-  const [pending, setPending] = useState<
-    "ask" | "brief" | "enhance" | "submit" | null
-  >(null);
-  const chat = useWorkspaceChat({ pending, repository, setPending });
-  const { mode, turns } = chat;
+  const [draft, setDraft] = useState(handed ?? "");
+  const [pending, setPending] = useState<"ask" | "enhance" | "submit" | null>(
+    null
+  );
+  const chat = useWorkspaceChat({
+    initialMode: handed ? "task" : "chat",
+    pending,
+    setPending,
+  });
+  const { mode } = chat;
 
   const busy = pending !== null;
   const runnerOptions = useMemo(
@@ -251,20 +250,14 @@ function NewTaskPage() {
   const ask = useCallback(async () => {
     const asked = draft.trim();
     setDraft("");
-    const answered = await chat.ask(asked);
-    if (answered) {
+    const opened = await chat.ask(asked);
+    if (opened) {
+      await navigate({ params: { id: opened.id }, to: "/chats/$id" });
       await router.invalidate();
     } else {
       setDraft(asked);
     }
-  }, [chat, draft, router]);
-
-  const createTaskFromChat = useCallback(async () => {
-    const brief = await chat.createTask();
-    if (brief !== null) {
-      setDraft(brief);
-    }
-  }, [chat]);
+  }, [chat, draft, navigate, router]);
 
   const enhance = useCallback(async () => {
     const prompt = draft.trim();
@@ -351,16 +344,12 @@ function NewTaskPage() {
 
   const createTaskButton = (
     <button
-      className={cn(CONTROL, "disabled:opacity-40")}
+      className={cn(BARE_CONTROL, "disabled:opacity-40")}
       disabled={busy}
-      onClick={createTaskFromChat}
+      onClick={chat.createTask}
       type="button"
     >
-      {pending === "brief" ? (
-        <CircleNotch className="size-4 animate-spin" />
-      ) : (
-        <TasksIcon className="size-4" />
-      )}
+      <TasksIcon className="size-4" />
       Create task
     </button>
   );
@@ -370,46 +359,37 @@ function NewTaskPage() {
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-4 py-6 sm:px-6">
-      {turns.length > 0 ? (
-        <WorkspaceChat
-          action={createTaskButton}
-          pending={pending === "ask"}
-          references={{ runners, tasks, todos }}
-          turns={turns}
-        />
-      ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-          <LgtmLogo className="size-8 text-muted-foreground" />
-          <h1 className="font-semibold text-2xl tracking-tight sm:text-3xl">
-            {heading(mode, project?.name)}
-            {project ? (
-              <>
-                {" "}
-                <CompactSwitcher
-                  ariaLabel="Select project"
-                  emptyMessage="No matching projects"
-                  label={project.name}
-                  name="heading-project-search"
-                  onValueChange={pick}
-                  options={projectOptions}
-                  placeholder="Search projects…"
-                  trigger={
-                    // The decoration keeps its muted colour; the name dims toward
-                    // it and the underline drops away on hover. Chromium animates
-                    // text-underline-offset, elsewhere the colour fade carries it.
-                    <button
-                      className="rounded-sm text-foreground underline decoration-muted-foreground/50 decoration-dashed underline-offset-4 outline-none transition-[color,text-underline-offset] duration-300 hover:text-muted-foreground hover:underline-offset-[7px] focus-visible:ring-2 focus-visible:ring-ring/50"
-                      type="button"
-                    />
-                  }
-                  value={repository}
-                />
-                ?
-              </>
-            ) : null}
-          </h1>
-        </div>
-      )}
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+        <LgtmLogo className="size-8 text-muted-foreground" />
+        <h1 className="font-semibold text-2xl tracking-tight sm:text-3xl">
+          {heading(mode, project?.name)}
+          {project ? (
+            <>
+              {" "}
+              <CompactSwitcher
+                ariaLabel="Select project"
+                emptyMessage="No matching projects"
+                label={project.name}
+                name="heading-project-search"
+                onValueChange={pick}
+                options={projectOptions}
+                placeholder="Search projects…"
+                trigger={
+                  // The decoration keeps its muted colour; the name dims toward
+                  // it and the underline drops away on hover. Chromium animates
+                  // text-underline-offset, elsewhere the colour fade carries it.
+                  <button
+                    className="rounded-sm text-foreground underline decoration-muted-foreground/50 decoration-dashed underline-offset-4 outline-none transition-[color,text-underline-offset] duration-300 hover:text-muted-foreground hover:underline-offset-[7px] focus-visible:ring-2 focus-visible:ring-ring/50"
+                    type="button"
+                  />
+                }
+                value={repository}
+              />
+              ?
+            </>
+          ) : null}
+        </h1>
+      </div>
 
       <div className="sticky bottom-6 mt-auto flex flex-col pt-8">
         {/* The rear pill sits behind the composer and only shows its top edge:
@@ -468,7 +448,7 @@ function NewTaskPage() {
             ) : (
               <>
                 <button
-                  className={CONTROL}
+                  className={BARE_CONTROL}
                   disabled={busy}
                   onClick={chat.backToChat}
                   type="button"
@@ -477,7 +457,7 @@ function NewTaskPage() {
                   Chat
                 </button>
                 <button
-                  className={cn(CONTROL, "disabled:opacity-40")}
+                  className={cn(BARE_CONTROL, "disabled:opacity-40")}
                   disabled={busy || draft.trim() === "" || repository === ""}
                   onClick={enhance}
                   type="button"
@@ -790,7 +770,7 @@ function Control({
   }>;
 } & React.ComponentProps<"button">) {
   return (
-    <button className={cn(CONTROL, className)} type="button" {...props}>
+    <button className={cn(BARE_CONTROL, className)} type="button" {...props}>
       <ControlIcon aria-hidden="true" className="size-4 shrink-0" />
       {children}
     </button>

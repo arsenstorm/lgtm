@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { createServerFn } from "@tanstack/react-start";
 import type {
   ActivityEntry,
+  Chat,
   Executor,
   Memory,
   NewTaskSpec,
@@ -155,28 +156,32 @@ export const enhancePrompt = createServerFn({ method: "POST" })
       api<{ prompt: string }>("/enhance", { body: data, method: "POST" })
   );
 
-export interface AskStep {
-  detail: string;
-  tool: string;
-}
+export const getChats = createServerFn({ method: "GET" }).handler(
+  async (): Promise<Chat[]> => api<Chat[]>("/chats")
+);
 
-/** The prose for a person, the ids the screen turns into cards, the tool
- * calls made on the way, and how long it took. */
-export interface AskAnswer {
-  answer: string;
-  refs: string[];
-  steps: AskStep[];
-  worked_ms: number;
-}
+export const getChat = createServerFn({ method: "GET" })
+  .validator((id: string) => id)
+  .handler(async ({ data }): Promise<Chat> => api<Chat>(`/chats/${data}`));
 
-// One bounded pass of the read-only workspace agent. The orchestrator answers
-// 409 when --orchestrate is off or a question is already running; `api` keeps
-// that reason on the thrown message.
-export const askWorkspace = createServerFn({ method: "POST" })
+// The question is stored at once and answered in the background. The
+// orchestrator answers 409 when --orchestrate is off or a question is already
+// running; `api` keeps that reason on the thrown message.
+export const createChat = createServerFn({ method: "POST" })
   .validator((input: { question: string }) => input)
   .handler(
-    async ({ data }): Promise<AskAnswer> =>
-      api<AskAnswer>("/ask", { body: data, method: "POST" })
+    async ({ data }): Promise<Chat> =>
+      api<Chat>("/chats", { body: data, method: "POST" })
+  );
+
+export const askChat = createServerFn({ method: "POST" })
+  .validator((input: { id: string; question: string }) => input)
+  .handler(
+    async ({ data }): Promise<Chat> =>
+      api<Chat>(`/chats/${data.id}/ask`, {
+        body: { question: data.question },
+        method: "POST",
+      })
   );
 
 export const approveTask = createServerFn({ method: "POST" })

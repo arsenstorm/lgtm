@@ -16,6 +16,7 @@ import { Route as RunnersRouteImport } from './routes/runners'
 import { Route as ScratchpadsRouteImport } from './routes/scratchpads'
 import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as TodosRouteImport } from './routes/todos'
+import { Route as ChatsIdRouteImport } from './routes/chats.$id'
 import { Route as ScratchpadsIdRouteImport } from './routes/scratchpads_.$id'
 import { Route as TasksIndexRouteImport } from './routes/tasks.index'
 import { Route as TasksIdRouteImport } from './routes/tasks.$id'
@@ -56,6 +57,11 @@ const TodosRoute = TodosRouteImport.update({
   path: '/todos',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChatsIdRoute = ChatsIdRouteImport.update({
+  id: '/chats/$id',
+  path: '/chats/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ScratchpadsIdRoute = ScratchpadsIdRouteImport.update({
   id: '/scratchpads_/$id',
   path: '/scratchpads/$id',
@@ -85,6 +91,7 @@ export interface FileRoutesByFullPath {
   '/scratchpads': typeof ScratchpadsRoute
   '/sessions': typeof SessionsRoute
   '/todos': typeof TodosRoute
+  '/chats/$id': typeof ChatsIdRoute
   '/scratchpads/$id': typeof ScratchpadsIdRoute
   '/tasks/$id': typeof TasksIdRoute
   '/todos/$id': typeof TodosIdRoute
@@ -98,6 +105,7 @@ export interface FileRoutesByTo {
   '/scratchpads': typeof ScratchpadsRoute
   '/sessions': typeof SessionsRoute
   '/todos': typeof TodosRoute
+  '/chats/$id': typeof ChatsIdRoute
   '/scratchpads/$id': typeof ScratchpadsIdRoute
   '/tasks/$id': typeof TasksIdRoute
   '/todos/$id': typeof TodosIdRoute
@@ -112,6 +120,7 @@ export interface FileRoutesById {
   '/scratchpads': typeof ScratchpadsRoute
   '/sessions': typeof SessionsRoute
   '/todos': typeof TodosRoute
+  '/chats/$id': typeof ChatsIdRoute
   '/scratchpads_/$id': typeof ScratchpadsIdRoute
   '/tasks/$id': typeof TasksIdRoute
   '/todos_/$id': typeof TodosIdRoute
@@ -127,6 +136,7 @@ export interface FileRouteTypes {
     | '/scratchpads'
     | '/sessions'
     | '/todos'
+    | '/chats/$id'
     | '/scratchpads/$id'
     | '/tasks/$id'
     | '/todos/$id'
@@ -140,6 +150,7 @@ export interface FileRouteTypes {
     | '/scratchpads'
     | '/sessions'
     | '/todos'
+    | '/chats/$id'
     | '/scratchpads/$id'
     | '/tasks/$id'
     | '/todos/$id'
@@ -153,6 +164,7 @@ export interface FileRouteTypes {
     | '/scratchpads'
     | '/sessions'
     | '/todos'
+    | '/chats/$id'
     | '/scratchpads_/$id'
     | '/tasks/$id'
     | '/todos_/$id'
@@ -167,6 +179,7 @@ export interface RootRouteChildren {
   ScratchpadsRoute: typeof ScratchpadsRoute
   SessionsRoute: typeof SessionsRoute
   TodosRoute: typeof TodosRoute
+  ChatsIdRoute: typeof ChatsIdRoute
   ScratchpadsIdRoute: typeof ScratchpadsIdRoute
   TasksIdRoute: typeof TasksIdRoute
   TodosIdRoute: typeof TodosIdRoute
@@ -224,6 +237,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TodosRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/chats/$id': {
+      id: '/chats/$id'
+      path: '/chats/$id'
+      fullPath: '/chats/$id'
+      preLoaderRoute: typeof ChatsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/scratchpads_/$id': {
       id: '/scratchpads_/$id'
       path: '/scratchpads/$id'
@@ -263,6 +283,7 @@ const rootRouteChildren: RootRouteChildren = {
   ScratchpadsRoute: ScratchpadsRoute,
   SessionsRoute: SessionsRoute,
   TodosRoute: TodosRoute,
+  ChatsIdRoute: ChatsIdRoute,
   ScratchpadsIdRoute: ScratchpadsIdRoute,
   TasksIdRoute: TasksIdRoute,
   TodosIdRoute: TodosIdRoute,
