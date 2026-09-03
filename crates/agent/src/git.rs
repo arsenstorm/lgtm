@@ -302,12 +302,43 @@ pub async fn add_worktree(
     let start = base_ref(mirror, base_branch).await;
     match &start {
         Some(start) => args.extend(["-b", branch, &worktree_s, start]),
-        None => args.extend(["--orphan", "-b", branch, &worktree_s]),
+        None => {
+            // Only a repository with no commits at all earns the orphan path.
+            // A populated repository missing `origin/<base>` is a misnamed
+            // base branch, and an orphan worktree would hand the agent an
+            // empty tree to work in.
+            if has_refs(mirror).await? {
+                bail!(
+                    "base branch '{base_branch}' does not exist in {}; \
+                     check the task's base branch",
+                    mirror.display()
+                );
+            }
+            args.extend(["--orphan", "-b", branch, &worktree_s]);
+        }
     }
     git(&args, None).await?;
     exclude(worktree, SCRATCHPAD).await?;
     exclude(worktree, &format!("{}/", crate::artefacts::DIR)).await?;
     Ok(())
+}
+
+/// Whether the repository has any ref at all: `false` means no commit was
+/// ever made, the one case an orphan worktree is the right answer.
+async fn has_refs(repo: &Path) -> Result<bool> {
+    let repo_s = repo.display().to_string();
+    let out = git(
+        &[
+            "-C",
+            &repo_s,
+            "for-each-ref",
+            "--count=1",
+            "--format=%(refname)",
+        ],
+        None,
+    )
+    .await?;
+    Ok(!out.trim().is_empty())
 }
 
 /// `origin/<base>` when the mirror has it; `None` for an empty repository.
@@ -400,10 +431,21 @@ pub async fn commit(
         args.extend_from_slice(&["commit", "-q", "-m", &message]);
         git(&args, cwd).await?;
     }
-    let range = diff_range(base_ref(worktree, base_branch).await, branch);
-    let range: Vec<&str> = range.iter().map(String::as_str).collect();
-    let diff = git(&[&["diff"], &range[..]].concat(), cwd).await?;
-    let names = git(&[&["diff", "--name-only"], &range[..]].concat(), cwd).await?;
+    // An orphan worktree where nothing was committed never created the
+    // branch; `git diff` on the unborn ref fails, and the honest answer is
+    // an empty change, not a failed run.
+    let born = git(&["rev-parse", "--verify", "--quiet", branch], cwd)
+        .await
+        .is_ok();
+    let (diff, names) = if born {
+        let range = diff_range(base_ref(worktree, base_branch).await, branch);
+        let range: Vec<&str> = range.iter().map(String::as_str).collect();
+        let diff = git(&[&["diff"], &range[..]].concat(), cwd).await?;
+        let names = git(&[&["diff", "--name-only"], &range[..]].concat(), cwd).await?;
+        (diff, names)
+    } else {
+        (String::new(), String::new())
+    };
     Ok(TaskResult {
         branch: branch.to_string(),
         diff,
@@ -451,8 +493,8 @@ mod tests {
 
     /// `git init --bare` twice: an empty origin and a mirror cloned from it,
     /// the shape a first task in a new repository sees.
-    async fn empty_mirror() -> (PathBuf, PathBuf) {
-        let root = std::env::temp_dir().join(format!("lgtm-empty-{}", std::process::id()));
+    async fn empty_mirror(tag: &str) -> (PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!("lgtm-empty-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let origin = root.join("origin.git");
@@ -480,7 +522,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_task_in_an_empty_repository_gets_an_orphan_worktree_and_a_full_diff() {
-        let (root, mirror) = empty_mirror().await;
+        let (root, mirror) = empty_mirror("full").await;
         let worktree = root.join("wt");
         assert_eq!(base_ref(&mirror, "main").await, None);
         add_worktree(&mirror, &worktree, "lgtm/t", "main")
@@ -498,6 +540,64 @@ mod tests {
         .unwrap();
         assert_eq!(result.changed_files, vec!["README.md".to_string()]);
         assert!(result.diff.contains("+hi"), "{}", result.diff);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn a_missing_base_branch_fails_instead_of_an_orphan_worktree() {
+        let root = std::env::temp_dir().join(format!("lgtm-nobase-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let origin = root.join("origin");
+        let origin_s = origin.display().to_string();
+        git(&["init", "-q", "-b", "trunk", &origin_s], None)
+            .await
+            .unwrap();
+        std::fs::write(origin.join("a.txt"), "a\n").unwrap();
+        git(&["add", "a.txt"], Some(&origin)).await.unwrap();
+        let mut args = IDENTITY.to_vec();
+        args.extend_from_slice(&["commit", "-q", "-m", "first"]);
+        git(&args, Some(&origin)).await.unwrap();
+        let mirror = root.join("mirror.git");
+        git(
+            &[
+                "clone",
+                "--bare",
+                "-q",
+                &origin_s,
+                &mirror.display().to_string(),
+            ],
+            None,
+        )
+        .await
+        .unwrap();
+        fetch(&mirror).await.unwrap();
+
+        let err = add_worktree(&mirror, &root.join("wt"), "lgtm/t", "main")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("base branch 'main'"), "{err}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn a_run_that_commits_nothing_in_an_empty_repository_is_an_empty_diff() {
+        let (root, mirror) = empty_mirror("nocommit").await;
+        let worktree = root.join("wt");
+        add_worktree(&mirror, &worktree, "lgtm/t", "main")
+            .await
+            .unwrap();
+        let result = commit(
+            "look around",
+            "main",
+            "lgtm/t",
+            &worktree,
+            &Authorship::default(),
+        )
+        .await
+        .unwrap();
+        assert!(result.diff.is_empty());
+        assert!(result.changed_files.is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 
