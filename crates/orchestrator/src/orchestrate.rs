@@ -6,9 +6,10 @@
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use lgtm_protocol::{Executor, Goal, Task, TaskEvent, TaskStatus};
+use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::state::{App, State};
@@ -53,6 +54,24 @@ pub(crate) fn on_path(binary: &str) -> bool {
         return false;
     };
     std::env::split_paths(&path).any(|dir| dir.join(binary).is_file())
+}
+
+/// What one pass of the model produced: the words for a person, the ids the
+/// screen turns into cards, and the tools it called on the way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Answered {
+    pub text: String,
+    pub refs: Vec<String>,
+    pub steps: Vec<Step>,
+    pub worked_ms: u64,
+}
+
+/// One tool call the model made, named as the MCP server names it.
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct Step {
+    pub tool: String,
+    /// The string arguments joined, so "task_inspect ead67d7d" reads as a line.
+    pub detail: String,
 }
 
 /// The goal and the task whose end started this loop, read under the lock and
@@ -118,7 +137,14 @@ pub async fn run(app: Arc<App>, task_id: String) {
     let answer = ask(executor, &prompt(&ctx), &env(&app, &ctx)).await;
     app.orchestrating.lock().unwrap().remove(&goal);
     match answer {
-        Ok(text) => record(&app, &task_id, "summary", text, true, String::new()),
+        Ok(answered) => record(
+            &app,
+            &task_id,
+            "summary",
+            answered.text,
+            true,
+            String::new(),
+        ),
         Err(note) => {
             tracing::warn!(task = %task_id, %note, "orchestrator failed");
             record(&app, &task_id, "error", String::new(), false, note)
@@ -129,7 +155,7 @@ pub async fn run(app: Arc<App>, task_id: String) {
 /// One question, one bounded pass over the read-only workspace tools, one
 /// answer. No goal, no task: `lgtm mcp` sees `LGTM_ASK` and serves only
 /// reads, so a question can never create or approve work.
-pub async fn answer_question(app: Arc<App>, question: String) -> Result<String, String> {
+pub async fn answer_question(app: Arc<App>, question: String) -> Result<Answered, String> {
     let Some(executor) = app.orchestrate else {
         return Err("--orchestrate is not configured".into());
     };
@@ -146,10 +172,11 @@ fn ask_prompt(question: &str) -> String {
         "You are the shared engineering agent for this workspace. A person asks:\n\n\
          {question}\n\n\
          Answer from the lgtm tools (goals_list, tasks_list, sessions_list, todos_list, \
-         activity, task_inspect, runner_list). Reply in at most three short sentences of plain \
-         prose: no headings, no lists, no markdown. Name people by name, tasks and todos by \
-         their exact id, and runners by their exact name; the person's screen shows a card for \
-         each one you name, so leave the detail to the cards."
+         activity, task_inspect, runner_list). Reply with one short sentence, under 25 words, \
+         that sums up the answer for a person: no headings, no lists, no markdown, no ids, and \
+         no describing items one by one. Then end with one line that starts with `refs:` \
+         followed by every task id, todo id and runner name the answer is about, separated by \
+         spaces; the person's screen turns each one into a card, and the cards carry the detail."
     )
 }
 
@@ -184,7 +211,8 @@ async fn ask(
     executor: Executor,
     prompt: &str,
     env: &[(&'static str, String)],
-) -> Result<String, String> {
+) -> Result<Answered, String> {
+    let started = Instant::now();
     let binary = executor.binary();
     let exe = std::env::current_exe().map_err(|err| format!("no path to lgtm mcp: {err}"))?;
     let mut cmd = tokio::process::Command::new(binary);
@@ -198,7 +226,15 @@ async fn ask(
         .map_err(|_| format!("{binary} did not answer in {}s", ASK_TIMEOUT.as_secs()))?
         .map_err(|err| format!("{binary} did not run: {err}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    answer(executor, &stdout).ok_or_else(|| format!("{binary} answered nothing"))
+    let (text, steps) =
+        read(executor, &stdout).ok_or_else(|| format!("{binary} answered nothing"))?;
+    let (text, refs) = split_refs(&text);
+    Ok(Answered {
+        text,
+        refs,
+        steps,
+        worked_ms: started.elapsed().as_millis() as u64,
+    })
 }
 
 /// One model call with no tools, run on this host: the inference lane's
@@ -220,11 +256,13 @@ pub(crate) async fn one_shot(
         .map_err(|_| format!("{binary} did not answer in {}s", ONE_SHOT_TIMEOUT.as_secs()))?
         .map_err(|err| format!("{binary} did not run: {err}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    answer(executor, &stdout).ok_or_else(|| format!("{binary} answered nothing"))
+    read(executor, &stdout)
+        .map(|(text, _)| text)
+        .ok_or_else(|| format!("{binary} answered nothing"))
 }
 
 /// `codex exec` has no system-prompt flag, so the instructions lead the
-/// prompt there. Both shapes are what [`answer`] already reads.
+/// prompt there. Both shapes are what [`read`] already reads.
 fn one_shot_args(executor: Executor, system: &str, prompt: &str) -> Vec<String> {
     match executor {
         Executor::Claude => vec![
@@ -233,7 +271,8 @@ fn one_shot_args(executor: Executor, system: &str, prompt: &str) -> Vec<String> 
             "--append-system-prompt".into(),
             system.into(),
             "--output-format".into(),
-            "json".into(),
+            "stream-json".into(),
+            "--verbose".into(),
         ],
         Executor::Codex => vec![
             "exec".into(),
@@ -253,7 +292,8 @@ pub fn args(executor: Executor, prompt: &str, exe: &Path) -> Vec<String> {
                 "-p",
                 prompt,
                 "--output-format",
-                "json",
+                "stream-json",
+                "--verbose",
                 "--max-turns",
                 MAX_TURNS,
                 "--allowedTools",
@@ -286,18 +326,101 @@ fn mcp_config(exe: &Path) -> String {
         .to_string()
 }
 
-fn answer(executor: Executor, stdout: &str) -> Option<String> {
-    if executor == Executor::Claude {
-        let value: Value = serde_json::from_str(stdout.trim()).ok()?;
-        return Some(value.get("result")?.as_str()?.to_string());
-    }
-    let text = stdout
+/// The answer and the tool calls, read line by line out of either executor's
+/// stream: Claude's `assistant` and `result` lines, Codex's completed items.
+fn read(executor: Executor, stdout: &str) -> Option<(String, Vec<Step>)> {
+    let mut steps = Vec::new();
+    let mut said = Vec::new();
+    let lines = stdout
         .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter_map(|value| agent_message(&value).map(str::to_string))
-        .collect::<Vec<String>>()
-        .join("\n");
-    (!text.is_empty()).then_some(text)
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok());
+    for value in lines {
+        match executor {
+            Executor::Claude => {
+                if value.get("type").and_then(Value::as_str) == Some("result") {
+                    if let Some(result) = value.get("result").and_then(Value::as_str) {
+                        said = vec![result.to_string()];
+                    }
+                }
+                let blocks = value.pointer("/message/content").and_then(Value::as_array);
+                for block in blocks.into_iter().flatten() {
+                    if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+                        continue;
+                    }
+                    // Only the workspace tools are the agent's work; the rest
+                    // (ToolSearch, say) is the harness loading them.
+                    let name = block.get("name").and_then(Value::as_str);
+                    if let Some(name) = name.filter(|name| name.starts_with("mcp__")) {
+                        steps.push(step(name, block.get("input")));
+                    }
+                }
+            }
+            Executor::Codex => {
+                if let Some(text) = agent_message(&value) {
+                    said.push(text.to_string());
+                }
+                if let Some(item) = completed_item(&value, "mcp_tool_call") {
+                    if let Some(tool) = item.get("tool").and_then(Value::as_str) {
+                        steps.push(step(tool, item.get("arguments")));
+                    }
+                }
+            }
+        }
+    }
+    let text = said.join("\n");
+    (!text.is_empty()).then_some((text, steps))
+}
+
+/// `mcp__lgtm__task_inspect` and `task_inspect` are the same tool.
+fn step(name: &str, input: Option<&Value>) -> Step {
+    let detail = input
+        .and_then(Value::as_object)
+        .map(|object| {
+            object
+                .values()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    Step {
+        tool: name.rsplit("__").next().unwrap_or(name).to_string(),
+        detail,
+    }
+}
+
+/// The `item` of an `item.completed` line, when it is of the given kind.
+fn completed_item<'a>(value: &'a Value, kind: &str) -> Option<&'a Value> {
+    if value.get("type")?.as_str()? != "item.completed" {
+        return None;
+    }
+    let item = value.get("item")?;
+    (item.get("type")?.as_str()? == kind).then_some(item)
+}
+
+/// The prose for a person, and the ids the model listed on its closing
+/// `refs:` line so the screen can draw a card for each without the prose
+/// having to carry them.
+fn split_refs(text: &str) -> (String, Vec<String>) {
+    let trimmed = text.trim();
+    let (prose, last) = match trimmed.rsplit_once('\n') {
+        Some((prose, last)) => (prose, last),
+        None => ("", trimmed),
+    };
+    let last = last.trim();
+    let Some(listed) = last
+        .strip_prefix("refs:")
+        .or_else(|| last.strip_prefix("Refs:"))
+    else {
+        return (trimmed.to_string(), Vec::new());
+    };
+    let refs = listed
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .map(|r| r.trim_matches('`'))
+        .filter(|r| !r.is_empty())
+        .map(str::to_string)
+        .collect();
+    (prose.trim().to_string(), refs)
 }
 
 /// codex has moved its messages about between versions: the event is either

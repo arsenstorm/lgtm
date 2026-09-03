@@ -110,6 +110,9 @@ pub(super) struct AskRequest {
 #[derive(Serialize)]
 pub(super) struct AskResponse {
     answer: String,
+    refs: Vec<String>,
+    steps: Vec<crate::orchestrate::Step>,
+    worked_ms: u64,
 }
 
 pub(super) async fn ask(
@@ -135,7 +138,7 @@ pub(super) async fn ask(
     };
     let asked = question.to_string();
     let started = Instant::now();
-    let answer = crate::orchestrate::answer_question(app.clone(), asked.clone())
+    let answered = crate::orchestrate::answer_question(app.clone(), asked.clone())
         .await
         .map_err(|note| ApiError(StatusCode::BAD_GATEWAY, note))?;
     tracing::info!(
@@ -144,7 +147,12 @@ pub(super) async fn ask(
         ms = started.elapsed().as_millis(),
         "ask answered"
     );
-    Ok(Json(AskResponse { answer }))
+    Ok(Json(AskResponse {
+        answer: answered.text,
+        refs: answered.refs,
+        steps: answered.steps,
+        worked_ms: answered.worked_ms,
+    }))
 }
 
 /// Body of `POST /api/enhance`.

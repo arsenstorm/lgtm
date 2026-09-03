@@ -149,17 +149,57 @@ fn auto_prefers_claude_and_falls_back_to_codex() {
 }
 
 #[test]
-fn reads_the_answer_out_of_each_executor() {
-    let claude = r#"{"type":"result","result":"created task ab12"}"#;
-    assert_eq!(
-        answer(Executor::Claude, claude).unwrap(),
-        "created task ab12"
+fn reads_the_answer_and_the_tool_calls_out_of_each_executor() {
+    let claude = concat!(
+        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"ToolSearch","input":{"query":"select:mcp__lgtm__tasks_list"}}]}}"#,
+        "\n",
+        r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__lgtm__task_inspect","input":{"task_id":"ab12cd34"}}]}}"#,
+        "\n",
+        r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Looking."}]}}"#,
+        "\n",
+        r#"{"type":"result","result":"created task ab12"}"#,
+        "\n",
     );
-    assert!(answer(Executor::Claude, "not json").is_none());
+    let (text, steps) = read(Executor::Claude, claude).unwrap();
+    assert_eq!(text, "created task ab12");
+    assert_eq!(
+        steps,
+        vec![Step {
+            tool: "task_inspect".into(),
+            detail: "ab12cd34".into()
+        }]
+    );
+    assert!(read(Executor::Claude, "not json").is_none());
 
-    let codex = "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"first\"}}\n{\"type\":\"agent_message\",\"message\":\"second\"}\n";
-    assert_eq!(answer(Executor::Codex, codex).unwrap(), "first\nsecond");
-    assert!(answer(Executor::Codex, "{\"type\":\"token_count\"}").is_none());
+    let codex = concat!(
+        r#"{"type":"item.completed","item":{"type":"mcp_tool_call","server":"lgtm","tool":"tasks_list","arguments":{}}}"#,
+        "\n",
+        r#"{"type":"item.completed","item":{"type":"agent_message","text":"first"}}"#,
+        "\n",
+        r#"{"type":"agent_message","message":"second"}"#,
+        "\n",
+    );
+    let (text, steps) = read(Executor::Codex, codex).unwrap();
+    assert_eq!(text, "first\nsecond");
+    assert_eq!(
+        steps,
+        vec![Step {
+            tool: "tasks_list".into(),
+            detail: String::new()
+        }]
+    );
+    assert!(read(Executor::Codex, "{\"type\":\"token_count\"}").is_none());
+}
+
+#[test]
+fn the_refs_line_leaves_the_prose() {
+    let (prose, refs) =
+        split_refs("One task waits on a person.\n\nrefs: ead67d7d MacBook, `7287d13e`\n");
+    assert_eq!(prose, "One task waits on a person.");
+    assert_eq!(refs, vec!["ead67d7d", "MacBook", "7287d13e"]);
+    let (prose, refs) = split_refs("Nothing is running.");
+    assert_eq!(prose, "Nothing is running.");
+    assert!(refs.is_empty());
 }
 
 #[test]
@@ -182,6 +222,9 @@ fn an_ask_prompt_carries_the_question_and_no_write_tools() {
     assert!(text.contains("who is on auth?"), "{text}");
     assert!(!text.contains("task_create"), "{text}");
     assert!(!text.contains("task_approve"), "{text}");
-    assert!(text.contains("at most three short sentences"), "{text}");
-    assert!(text.contains("their exact id"), "{text}");
+    assert!(
+        text.contains("one short sentence, under 25 words"),
+        "{text}"
+    );
+    assert!(text.contains("refs:"), "{text}");
 }
