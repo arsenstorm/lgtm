@@ -128,7 +128,7 @@ function ZoneRow({
   const { date, time } = wallClock(at, timeZone);
   return (
     <>
-      <span className="rounded bg-muted px-1 py-px font-mono text-[10px] text-muted-foreground">
+      <span className="justify-self-start rounded bg-muted px-1 py-px font-mono text-[10px] text-muted-foreground">
         {zone}
       </span>
       <span>{date}</span>
