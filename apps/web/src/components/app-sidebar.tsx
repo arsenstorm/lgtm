@@ -1,7 +1,8 @@
-import { PlusCircle } from "@phosphor-icons/react";
+import { Plus, PlusCircle } from "@phosphor-icons/react";
 import { Link, useMatchRoute } from "@tanstack/react-router";
-import type { ComponentProps } from "react";
-import { useEffect, useState } from "react";
+import type { ComponentProps, FormEvent } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { toast } from "sonner";
 
 import { AccountMenu } from "@/components/account-menu";
 import {
@@ -16,17 +17,20 @@ import {
 } from "@/components/icons";
 import type { Project } from "@/components/project-item";
 import { ProjectItem } from "@/components/project-item";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
@@ -35,7 +39,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { getProjects } from "@/lib/lgtm/server";
+import { createProject, getProjects } from "@/lib/lgtm/server";
 import type { Project as ProjectRecord, Task } from "@/lib/lgtm/types";
 
 const NAV = [
@@ -54,6 +58,7 @@ const MORE = [
 
 const TRAILING_SLASHES = /\/+$/;
 const DOT_GIT = /\.git$/;
+const REPOSITORY_SEPARATOR = /[/:]/;
 
 const PROJECTS_OPEN_KEY = "lgtm-projects-open";
 
@@ -74,12 +79,20 @@ function readOpenMap(): OpenMap | null {
 /** `git@github.com:acme/web.git` and `/srv/repos/web/` both read as "web". */
 export function projectName(repository: string): string {
   const trimmed = repository.replace(TRAILING_SLASHES, "");
-  const segment = trimmed.split("/").at(-1)?.replace(DOT_GIT, "");
+  const segment = trimmed
+    .split(REPOSITORY_SEPARATOR)
+    .at(-1)
+    ?.replace(DOT_GIT, "");
   return segment ? segment : repository;
 }
 
-function groupByProject(tasks: Task[]): Project[] {
+function groupByProject(tasks: Task[], records: ProjectRecord[]): Project[] {
   const byRepository = new Map<string, Task[]>();
+  for (const record of records) {
+    if (record.repository) {
+      byRepository.set(record.repository, []);
+    }
+  }
   for (const task of tasks) {
     const bucket = byRepository.get(task.spec.repository);
     if (bucket) {
@@ -95,7 +108,11 @@ function groupByProject(tasks: Task[]): Project[] {
       repository,
       tasks: [...list].sort((a, b) => b.created_at - a.created_at),
     }))
-    .sort((a, b) => b.tasks[0].created_at - a.tasks[0].created_at);
+    .sort((a, b) => {
+      const recent =
+        (b.tasks[0]?.created_at ?? 0) - (a.tasks[0]?.created_at ?? 0);
+      return recent === 0 ? a.name.localeCompare(b.name) : recent;
+    });
 }
 
 export function LgtmLogo({ className }: { className?: string }) {
@@ -125,9 +142,12 @@ export function AppSidebar({
   ...props
 }: { tasks: Task[] } & ComponentProps<typeof Sidebar>) {
   const matchRoute = useMatchRoute();
-  const projects = groupByProject(tasks);
   const [records, setRecords] = useState<ProjectRecord[]>([]);
   const [open, setOpen] = useState<OpenMap>({});
+  const [addingProject, setAddingProject] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const projectInputId = useId();
+  const projects = groupByProject(tasks, records);
 
   // Project records carry the prefix and id the manage menu needs, but they are
   // loaded by the root route, which this component does not own. Fetching them
@@ -150,16 +170,58 @@ export function AppSidebar({
     }
   }, []);
 
-  function setProjectOpen(repository: string, isOpen: boolean) {
-    const next = { ...open, [repository]: isOpen };
-    setOpen(next);
-    try {
-      window.localStorage.setItem(PROJECTS_OPEN_KEY, JSON.stringify(next));
-    } catch {
-      // Same as the theme toggle: storage can be unavailable (private mode,
-      // blocked cookies) and the panel still opens, just not next time.
-    }
-  }
+  const setProjectOpen = useCallback(
+    (repository: string, isOpen: boolean) =>
+      setOpen((current) => {
+        const next = { ...current, [repository]: isOpen };
+        try {
+          window.localStorage.setItem(PROJECTS_OPEN_KEY, JSON.stringify(next));
+        } catch {
+          // Same as the theme toggle: storage can be unavailable (private mode,
+          // blocked cookies) and the panel still opens, just not next time.
+        }
+        return next;
+      }),
+    []
+  );
+
+  const showAddProject = useCallback(() => setAddingProject(true), []);
+  const hideAddProject = useCallback(() => setAddingProject(false), []);
+  const updateRecord = useCallback((updated: ProjectRecord) => {
+    setRecords((current) =>
+      current.map((record) => (record.id === updated.id ? updated : record))
+    );
+  }, []);
+
+  const addProject = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (creatingProject) {
+        return;
+      }
+      const data = new FormData(event.currentTarget);
+      const repository = String(data.get("repository") ?? "").trim();
+      if (!repository) {
+        return;
+      }
+      setCreatingProject(true);
+      try {
+        const project = await createProject({ data: repository });
+        setRecords((current) => [
+          project,
+          ...current.filter((record) => record.id !== project.id),
+        ]);
+        setOpen((current) => ({ ...current, [repository]: true }));
+        setAddingProject(false);
+        toast.success(`${project.name} added`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      } finally {
+        setCreatingProject(false);
+      }
+    },
+    [creatingProject]
+  );
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -179,7 +241,7 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="scrollbar-gutter-stable">
         <SidebarGroup className="pt-0">
           <SidebarGroupContent className="flex flex-col gap-1">
             <SidebarMenu>
@@ -210,26 +272,59 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
+        <SidebarGroup className="group/projects">
           <SidebarGroupLabel>Projects</SidebarGroupLabel>
+          <SidebarGroupAction
+            aria-label="Add project"
+            className="opacity-0 pointer-coarse:opacity-100 transition-opacity group-focus-within/projects:opacity-100 group-hover/projects:opacity-100"
+            onClick={showAddProject}
+            type="button"
+          >
+            <Plus aria-hidden="true" />
+          </SidebarGroupAction>
           <SidebarGroupContent>
+            {addingProject ? (
+              <form className="mb-2 px-2" onSubmit={addProject}>
+                <label className="sr-only" htmlFor={projectInputId}>
+                  Git repository URL
+                </label>
+                <Input
+                  autoComplete="url"
+                  autoFocus
+                  disabled={creatingProject}
+                  id={projectInputId}
+                  name="repository"
+                  placeholder="Repository URL"
+                  required
+                  type="text"
+                />
+                <div className="mt-1.5 flex justify-end gap-1.5">
+                  <Button
+                    disabled={creatingProject}
+                    onClick={hideAddProject}
+                    size="xs"
+                    type="button"
+                    variant="ghost"
+                  >
+                    Cancel
+                  </Button>
+                  <Button disabled={creatingProject} size="xs" type="submit">
+                    {creatingProject ? "Adding…" : "Add project"}
+                  </Button>
+                </div>
+              </form>
+            ) : null}
             {projects.length === 0 ? (
               <p className="px-2 py-1 text-sidebar-foreground/70 text-sm">
-                No tasks yet
+                No projects yet
               </p>
             ) : (
               <SidebarMenu className="gap-1">
                 {projects.map((project) => (
                   <ProjectItem
                     key={project.repository}
-                    onOpenChange={(isOpen) =>
-                      setProjectOpen(project.repository, isOpen)
-                    }
-                    onRecordChange={(updated) =>
-                      setRecords((current) =>
-                        current.map((r) => (r.id === updated.id ? updated : r))
-                      )
-                    }
+                    onOpenChange={setProjectOpen}
+                    onRecordChange={updateRecord}
                     open={open[project.repository] ?? true}
                     project={project}
                     record={records.find(
@@ -284,4 +379,3 @@ function MoreItem() {
     </SidebarMenuItem>
   );
 }
-

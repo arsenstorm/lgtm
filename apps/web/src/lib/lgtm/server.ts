@@ -89,6 +89,16 @@ export const getProjects = createServerFn({ method: "GET" }).handler(
   async (): Promise<Project[]> => api<Project[]>("/projects")
 );
 
+export const createProject = createServerFn({ method: "POST" })
+  .validator((repository: string) => repository)
+  .handler(
+    async ({ data }): Promise<Project> =>
+      api<Project>("/projects", {
+        body: { repository: data },
+        method: "POST",
+      })
+  );
+
 // A prefix is unique across projects: the orchestrator answers 409 naming the
 // project that already owns it, and `api` keeps that name on the message.
 export const updateProjectPrefix = createServerFn({ method: "POST" })

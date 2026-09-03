@@ -1,6 +1,6 @@
 import { CaretRight, NotePencil, WarningCircle } from "@phosphor-icons/react";
 import { Link, useMatchRoute, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { DotsIcon, FolderIcon } from "@/components/icons";
@@ -61,7 +61,7 @@ export function ProjectItem({
   project,
   record,
 }: {
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (repository: string, open: boolean) => void;
   onRecordChange: (record: ProjectRecord) => void;
   open: boolean;
   project: Project;
@@ -72,6 +72,10 @@ export function ProjectItem({
   const [expanded, setExpanded] = useState(false);
   const shown = expanded ? project.tasks : project.tasks.slice(0, PREVIEW);
   const hidden = project.tasks.length - PREVIEW;
+  const handleOpenChange = useCallback(
+    (isOpen: boolean) => onOpenChange(project.repository, isOpen),
+    [onOpenChange, project.repository]
+  );
 
   function copyRepository() {
     navigator.clipboard
@@ -107,7 +111,7 @@ export function ProjectItem({
   }
 
   return (
-    <Collapsible onOpenChange={onOpenChange} open={open}>
+    <Collapsible onOpenChange={handleOpenChange} open={open}>
       <SidebarMenuItem>
         {/* The right padding keeps the name's truncation clear of the actions
             that sit over this row. */}
@@ -192,6 +196,13 @@ export function ProjectItem({
 
         <CollapsibleContent>
           <SidebarMenuSub className="mr-0 pr-0">
+            {project.tasks.length === 0 ? (
+              <SidebarMenuSubItem>
+                <span className="block px-2 py-1 text-muted-foreground text-xs italic">
+                  No tasks yet
+                </span>
+              </SidebarMenuSubItem>
+            ) : null}
             {shown.map((task) => {
               const { label } = STATUS[task.status];
               const attention = ATTENTION[task.status];
