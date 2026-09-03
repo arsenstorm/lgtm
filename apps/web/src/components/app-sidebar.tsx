@@ -207,7 +207,7 @@ export function AppSidebar({
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
-            <SidebarMenu>
+            <SidebarMenu className="gap-1">
               {NAV.map(({ to, label, icon: Icon, exact }) => (
                 <SidebarMenuItem key={to}>
                   <SidebarMenuButton
@@ -232,7 +232,7 @@ export function AppSidebar({
                 No tasks yet
               </p>
             ) : (
-              <SidebarMenu>
+              <SidebarMenu className="gap-1">
                 {projects.map((project) => (
                   <ProjectItem key={project.repository} project={project} />
                 ))}
