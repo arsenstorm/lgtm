@@ -1,110 +1,54 @@
-import {
-  CheckCircle,
-  FileCode,
-  FileText,
-  GitBranch,
-  ShieldSlash,
-  Stack,
-  Warning,
-  WarningCircle,
-  XCircle,
-} from "@phosphor-icons/react";
-import type { ReactNode } from "react";
-import { DiffView } from "@/components/diff-view";
+import { SidebarSimple, Stack, XCircle } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+
+import { FilePath } from "@/components/file-path";
 import { TaskActions } from "@/components/task-actions";
+import { TaskSummaryPanel } from "@/components/task-summary-panel";
+import { TaskTranscript } from "@/components/task-transcript";
 import { TimeAgo } from "@/components/time-ago";
-import type {
-  Finding,
-  Overlap,
-  Task,
-  TaskDetail,
-  TaskStatus,
-  ValidationResult,
-} from "@/lib/lgtm/types";
+import { Button } from "@/components/ui/button";
+import type { Overlap, TaskDetail, TaskStatus } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
+
+const PANEL_KEY = "lgtm-task-panel-open";
+
+/** Reads the stored choice after paint: reading during render would disagree
+ * with the panel-open markup the server sent and mismatch on hydration. */
+function usePanelOpen() {
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(PANEL_KEY);
+      if (stored !== null) {
+        setOpen(stored === "true");
+      }
+    } catch {
+      // Unavailable storage just means the panel starts open every visit.
+    }
+  }, []);
+
+  function toggle() {
+    setOpen((current) => {
+      try {
+        window.localStorage.setItem(PANEL_KEY, String(!current));
+      } catch {
+        // Same trade as above: the toggle still works, it is not remembered.
+      }
+      return !current;
+    });
+  }
+
+  return { open, toggle };
+}
 
 export function TaskDetailView({ detail }: { detail: TaskDetail }) {
   const { task, overlaps } = detail;
-  const result = task.result;
-  const findings = result?.review ? sortFindings(result.review.findings) : [];
-  const checks = result ? sortChecks(result.validation) : [];
+  const { open, toggle } = usePanelOpen();
 
   return (
-    <article className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-4 py-8 sm:px-6 lg:px-8">
-      <TaskHeader task={task} />
-
-      {task.error ? <ErrorPanel error={task.error} /> : null}
-      {overlaps.length > 0 ? <OverlapPanel overlaps={overlaps} /> : null}
-
-      {/* Below the two panels that qualify a decision, above the evidence that
-          supports one: nothing here can be acted on before its warning is read. */}
-      <TaskActions task={task} />
-
-      {findings.length > 0 ? (
-        <Section count={findings.length} title="Review">
-          <ul className="divide-y rounded-lg border">
-            {findings.map((finding, index) => (
-              <FindingRow
-                finding={finding}
-                key={`${finding.file}:${finding.line}:${index}`}
-              />
-            ))}
-          </ul>
-        </Section>
-      ) : null}
-
-      {checks.length > 0 ? (
-        <Section count={checks.length} title="Checks">
-          <ul className="divide-y overflow-hidden rounded-lg border">
-            {checks.map((check) => (
-              <CheckRow check={check} key={check.name} />
-            ))}
-          </ul>
-        </Section>
-      ) : null}
-
-      {result && result.changed_files.length > 0 ? (
-        <Section count={result.changed_files.length} title="Changed files">
-          <ul className="divide-y overflow-hidden rounded-lg border">
-            {result.changed_files.map((file) => (
-              <li className="flex items-start gap-2.5 px-3 py-2" key={file}>
-                <FileCode className="mt-px size-3.5 shrink-0 text-muted-foreground" />
-                <FilePath className="min-w-0 text-xs" path={file} />
-              </li>
-            ))}
-          </ul>
-        </Section>
-      ) : null}
-
-      <Section title="Diff">
-        {result?.diff ? (
-          <DiffView cacheKey={task.id} diff={result.diff} />
-        ) : (
-          <EmptyDiff status={task.status} />
-        )}
-      </Section>
-
-      {task.scratchpad.trim() ? (
-        <Section title="Agent scratchpad">
-          <div className="rounded-lg border bg-muted/30 p-4">
-            {/* The agent writes markdown; rendering it as-is keeps the exact
-                bytes it committed readable without a parser in the way. */}
-            <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-xs leading-relaxed [overflow-wrap:anywhere]">
-              {task.scratchpad.trim()}
-            </pre>
-          </div>
-        </Section>
-      ) : null}
-    </article>
-  );
-}
-
-function TaskHeader({ task }: { task: Task }) {
-  const { spec } = task;
-
-  return (
-    <header className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <StatusPill status={task.status} />
         <span className="font-mono text-muted-foreground text-sm">
           {task.id}
@@ -116,49 +60,44 @@ function TaskHeader({ task }: { task: Task }) {
           at={task.created_at}
           className="text-muted-foreground text-sm"
         />
-      </div>
+        <Button
+          aria-expanded={open}
+          aria-label={open ? "Hide summary panel" : "Show summary panel"}
+          className="ml-auto text-muted-foreground"
+          onClick={toggle}
+          size="icon-sm"
+          variant="ghost"
+        >
+          {/* The glyph draws its panel on the left; flipping it points at the
+              panel this button actually controls. */}
+          <SidebarSimple aria-hidden="true" className="size-4.5 -scale-x-100" />
+        </Button>
+      </header>
 
-      <h1 className="max-w-[54ch] text-pretty font-medium text-lg leading-snug">
-        {spec.prompt}
-      </h1>
+      {task.error ? <ErrorPanel error={task.error} /> : null}
+      {overlaps.length > 0 ? <OverlapPanel overlaps={overlaps} /> : null}
 
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-t pt-5 sm:grid-cols-3 lg:grid-cols-4">
-        <Fact term="Repository">
-          <RepositoryValue url={spec.repository} />
-        </Fact>
-        <Fact term="Base branch">
-          <span className="inline-flex items-center gap-1.5">
-            <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="font-mono">{spec.base_branch}</span>
-          </span>
-        </Fact>
-        {task.result ? (
-          <Fact term="Result branch">
-            <span className="font-mono [overflow-wrap:anywhere]">
-              {task.result.branch}
-            </span>
-          </Fact>
+      <div
+        className={cn(
+          "grid min-w-0 gap-10",
+          open && "lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]"
+        )}
+      >
+        <section
+          aria-label="Task transcript"
+          className="flex min-w-0 flex-col gap-8"
+        >
+          <TaskTranscript events={detail.events} task={task} />
+          <TaskActions task={task} />
+        </section>
+        {open ? (
+          <TaskSummaryPanel
+            className="lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:self-start lg:overflow-y-auto lg:pb-2"
+            detail={detail}
+          />
         ) : null}
-        <Fact term="Runner">{task.runner ?? spec.runner ?? <Unset />}</Fact>
-        <Fact term="Executor">{spec.executor}</Fact>
-        <Fact term="Model">{spec.model ?? <Unset label="default" />}</Fact>
-        <Fact term="Sandbox">
-          {spec.sandbox === "off" ? (
-            <span className="inline-flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
-              <ShieldSlash className="size-3.5 shrink-0" />
-              off
-            </span>
-          ) : (
-            (spec.sandbox ?? <Unset />)
-          )}
-        </Fact>
-        <Fact term="Cost">
-          <span className="tabular-nums">
-            {formatCost(task.result?.cost_usd ?? 0)}
-          </span>
-        </Fact>
-      </dl>
-    </header>
+      </div>
+    </div>
   );
 }
 
@@ -209,148 +148,6 @@ function OverlapPanel({ overlaps }: { overlaps: Overlap[] }) {
   );
 }
 
-function FindingRow({ finding }: { finding: Finding }) {
-  const blocking = finding.severity === "blocking";
-
-  return (
-    <li className={cn("flex gap-3 p-3", blocking && "bg-destructive/5")}>
-      {blocking ? (
-        <WarningCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
-      ) : (
-        <Warning className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-      )}
-      <div className="flex min-w-0 flex-col gap-1">
-        <p className="max-w-[54ch] text-pretty text-sm">{finding.message}</p>
-        <p className="font-mono text-muted-foreground text-xs [overflow-wrap:anywhere]">
-          {finding.file}
-          {finding.line == null ? null : `:${finding.line}`}
-        </p>
-      </div>
-    </li>
-  );
-}
-
-function CheckRow({ check }: { check: ValidationResult }) {
-  if (check.ok) {
-    return (
-      <li className="flex items-center gap-2.5 px-3 py-2">
-        <CheckCircle className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-        <span className="font-medium text-sm">{check.name}</span>
-        <code
-          className="min-w-0 truncate text-muted-foreground text-xs"
-          title={check.command}
-        >
-          {check.command}
-        </code>
-      </li>
-    );
-  }
-
-  return (
-    <li className="bg-destructive/5 p-3">
-      <div className="flex items-center gap-2.5">
-        <XCircle className="size-4 shrink-0 text-destructive" />
-        <span className="font-medium text-sm">{check.name}</span>
-        <code
-          className="min-w-0 truncate text-muted-foreground text-xs"
-          title={check.command}
-        >
-          {check.command}
-        </code>
-      </div>
-      {check.output_tail.trim() ? (
-        <pre className="mt-3 max-h-80 overflow-auto rounded-md border bg-background p-3 text-xs leading-relaxed">
-          {check.output_tail.trimEnd()}
-        </pre>
-      ) : null}
-    </li>
-  );
-}
-
-function EmptyDiff({ status }: { status: TaskStatus }) {
-  const pending = status === "queued" || status === "running";
-
-  return (
-    <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-8 text-center">
-      <FileText className="size-5 text-muted-foreground" />
-      <p className="font-medium text-sm">
-        {pending ? "No diff yet" : "This task produced no diff"}
-      </p>
-      <p className="max-w-[40ch] text-pretty text-muted-foreground text-sm">
-        {pending
-          ? "The agent is still working. The diff appears here once the run finishes."
-          : "The run ended before it wrote any changes."}
-      </p>
-    </div>
-  );
-}
-
-function Section({
-  title,
-  count,
-  children,
-}: {
-  title: string;
-  count?: number;
-  children: ReactNode;
-}) {
-  return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-baseline gap-2">
-        <h2 className="font-medium text-muted-foreground text-xs uppercase tracking-[0.08em]">
-          {title}
-        </h2>
-        {count == null ? null : (
-          <span className="text-muted-foreground/70 text-xs tabular-nums">
-            {count}
-          </span>
-        )}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Fact({ term, children }: { term: string; children: ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <dt className="text-muted-foreground text-xs">{term}</dt>
-      <dd className="font-medium text-sm">{children}</dd>
-    </div>
-  );
-}
-
-function Unset({ label = "—" }: { label?: string }) {
-  return <span className="font-normal text-muted-foreground">{label}</span>;
-}
-
-function RepositoryValue({ url }: { url: string }) {
-  const label = url.replace(/^https?:\/\//, "").replace(/\.git$/, "");
-  if (!url.startsWith("http")) {
-    return <span className="[overflow-wrap:anywhere]">{label}</span>;
-  }
-  return (
-    <a
-      className="underline decoration-muted-foreground/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-current"
-      href={url.replace(/\.git$/, "")}
-      rel="noreferrer"
-      target="_blank"
-    >
-      {label}
-    </a>
-  );
-}
-
-function FilePath({ path, className }: { path: string; className?: string }) {
-  const cut = path.lastIndexOf("/") + 1;
-  return (
-    <span className={cn("font-mono [overflow-wrap:anywhere]", className)}>
-      <span className="text-muted-foreground">{path.slice(0, cut)}</span>
-      {path.slice(cut)}
-    </span>
-  );
-}
-
 const STATUS_TONE: Record<TaskStatus, string> = {
   approved:
     "border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
@@ -385,19 +182,4 @@ function StatusPill({ status }: { status: TaskStatus }) {
       <span className="inline-block first-letter:uppercase">{words}</span>
     </span>
   );
-}
-
-function sortFindings(findings: Finding[]) {
-  return [...findings].sort(
-    (a, b) =>
-      Number(b.severity === "blocking") - Number(a.severity === "blocking")
-  );
-}
-
-function sortChecks(checks: ValidationResult[]) {
-  return [...checks].sort((a, b) => Number(a.ok) - Number(b.ok));
-}
-
-function formatCost(usd: number) {
-  return `$${usd.toFixed(2)}`;
 }
