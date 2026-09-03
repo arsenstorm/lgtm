@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use lgtm_protocol::{
-    Authorship, Executor, OutputStream, Policy, Review, SandboxProfile, Task, TaskEvent, TaskKind,
-    TaskResult, ValidationResult,
+    Authorship, Executor, OutputStream, Policy, ReasoningEffort, Review, SandboxProfile, Task,
+    TaskEvent, TaskKind, TaskResult, ValidationResult,
 };
 use serde_json::json;
 use tokio::process::Command;
@@ -86,6 +86,8 @@ struct RunOpts<'a> {
     executor: Executor,
     /// `None` runs the harness's own default model.
     model: Option<&'a str>,
+    /// `None` runs the model's own default reasoning level.
+    reasoning_effort: Option<ReasoningEffort>,
 }
 
 /// A finished run.
@@ -260,6 +262,10 @@ impl<'a> Run<'a> {
         self.task.spec.model.as_deref()
     }
 
+    fn reasoning_effort(&self) -> Option<ReasoningEffort> {
+        self.task.spec.reasoning_effort
+    }
+
     /// A plan run leaves nothing behind to retry into, so it runs once.
     async fn plan(&mut self, prompt: &str, policy: &PolicyConfig) -> Result<()> {
         let answer = text_buffer();
@@ -271,6 +277,7 @@ impl<'a> Run<'a> {
             session: Some(self.session_path()),
             executor: self.task.spec.executor,
             model: self.model(),
+            reasoning_effort: self.reasoning_effort(),
         };
         let finish = match self.agent_run(opts).await? {
             Ran::Finished(finish) => finish,
@@ -305,6 +312,7 @@ impl<'a> Run<'a> {
                 session: Some(self.session_path()),
                 executor: self.task.spec.executor,
                 model: self.model(),
+                reasoning_effort: self.reasoning_effort(),
             };
             let finish = match self.agent_run(opts).await? {
                 Ran::Finished(finish) => finish,
@@ -352,6 +360,7 @@ impl<'a> Run<'a> {
                 session: Some(self.session_path()),
                 executor: self.task.spec.executor,
                 model: self.model(),
+                reasoning_effort: self.reasoning_effort(),
             };
             match self.agent_run(opts).await? {
                 Ran::Finished(_) => {}
@@ -382,6 +391,7 @@ impl<'a> Run<'a> {
         available: &[Executor],
     ) -> Result<Result<Review, Ran>> {
         let used = reviewer(&self.task.spec, policy, available);
+        let uses_task_model = used == self.task.spec.executor;
         let answer = text_buffer();
         let opts = RunOpts {
             prompt: &review_prompt(&self.task.spec.prompt, diff),
@@ -390,7 +400,8 @@ impl<'a> Run<'a> {
             answer: Some(answer.clone()),
             session: None,
             executor: used,
-            model: self.model(),
+            model: uses_task_model.then(|| self.model()).flatten(),
+            reasoning_effort: uses_task_model.then(|| self.reasoning_effort()).flatten(),
         };
         let finish = match self.agent_run(opts).await? {
             Ran::Finished(finish) => finish,
@@ -716,6 +727,9 @@ fn claude_args(opts: &RunOpts<'_>, exe: Option<&Path>) -> Vec<String> {
     if let Some(model) = opts.model {
         args.extend(["--model".to_string(), model.to_string()]);
     }
+    if let Some(effort) = opts.reasoning_effort {
+        args.extend(["--effort".to_string(), effort.as_str().to_string()]);
+    }
     args.extend([
         "--output-format".to_string(),
         "stream-json".to_string(),
@@ -770,6 +784,12 @@ fn codex_args(opts: &RunOpts<'_>, exe: Option<&Path>) -> Vec<String> {
     }
     if let Some(model) = opts.model {
         args.extend(["-m".to_string(), model.to_string()]);
+    }
+    if let Some(effort) = opts.reasoning_effort {
+        args.extend([
+            "-c".to_string(),
+            format!("model_reasoning_effort=\"{}\"", effort.as_str()),
+        ]);
     }
     args.push(opts.prompt.to_string());
     args
@@ -865,6 +885,7 @@ mod tests {
             session: None,
             executor: Executor::Claude,
             model: None,
+            reasoning_effort: None,
         }
     }
 
@@ -957,5 +978,19 @@ mod tests {
         );
         assert!(!claude_args(&opts(None, true), None).contains(&"--model".to_string()));
         assert!(!codex_args(&opts(None, true), None).contains(&"-m".to_string()));
+    }
+
+    #[test]
+    fn requested_reasoning_becomes_each_harness_configuration() {
+        let mut with_reasoning = opts(None, true);
+        with_reasoning.reasoning_effort = Some(ReasoningEffort::High);
+
+        let claude = claude_args(&with_reasoning, None);
+        assert!(claude.windows(2).any(|pair| pair == ["--effort", "high"]));
+
+        let codex = codex_args(&with_reasoning, None);
+        assert!(codex
+            .windows(2)
+            .any(|pair| pair == ["-c", "model_reasoning_effort=\"high\""]));
     }
 }
