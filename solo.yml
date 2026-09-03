@@ -11,6 +11,7 @@ processes:
     restart_when_changed: []
     env:
       RUST_LOG: info
+      LGTM_ORCHESTRATE: auto
   Web:
     # The web app dev server on http://localhost:3000.
     command: cd apps/web && bun run dev
