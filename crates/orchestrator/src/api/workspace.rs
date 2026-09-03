@@ -188,8 +188,14 @@ pub(super) fn spawn_title(app: Arc<App>, id: lgtm_protocol::TaskId, prompt: Stri
             })
         };
         let Some(executor) = executor else { return };
-        let Ok(answer) = crate::infer::infer(&app, executor, TITLE_SYSTEM, &prompt).await else {
-            return;
+        let answer = match crate::infer::infer(&app, executor, TITLE_SYSTEM, &prompt).await {
+            Ok(answer) => answer,
+            // Best effort stays best effort, but a broken lane should at
+            // least say so somewhere.
+            Err(err) => {
+                tracing::warn!(task = %id, "title inference failed: {err:?}");
+                return;
+            }
         };
         let Some(title) = clean_title(&answer) else {
             return;
