@@ -1,5 +1,10 @@
 import type { Icon } from "@phosphor-icons/react";
-import { FileCode, ShieldWarning, Terminal } from "@phosphor-icons/react";
+import {
+  CaretRight,
+  FileCode,
+  ShieldWarning,
+  Terminal,
+} from "@phosphor-icons/react";
 import Markdown from "react-markdown";
 
 import { TextResponse } from "@/components/aicss/TextResponse";
@@ -40,6 +45,7 @@ type Item =
   | {
       kind: "tool";
       at: number;
+      tool: "command" | "file";
       icon: Icon;
       body: React.ReactNode;
       lines: string[];
@@ -85,6 +91,7 @@ function toItem({ at, event }: StoredEvent): Item | null {
         icon: Terminal,
         kind: "tool",
         lines: [],
+        tool: "command",
       };
     case "file_changed":
       return {
@@ -93,6 +100,7 @@ function toItem({ at, event }: StoredEvent): Item | null {
         icon: FileCode,
         kind: "tool",
         lines: [],
+        tool: "file",
       };
     case "output":
       return { at, kind: "output", lines: [str(event, "line")] };
@@ -225,6 +233,47 @@ function buildItems(task: Task, events: StoredEvent[]): Item[] {
   return items;
 }
 
+type ToolItem = Extract<Item, { kind: "tool" }>;
+type Grouped = Item | { kind: "activity"; at: number; tools: ToolItem[] };
+
+/** Consecutive tool work collapses into one summarised row, so the default
+ * read of the transcript is the agent's narration, not its every keystroke. */
+function groupActivity(items: Item[]): Grouped[] {
+  const grouped: Grouped[] = [];
+  for (const item of items) {
+    const last = grouped.at(-1);
+    if (item.kind !== "tool") {
+      grouped.push(item);
+    } else if (last?.kind === "activity") {
+      last.tools.push(item);
+    } else if (last?.kind === "tool") {
+      grouped[grouped.length - 1] = {
+        at: last.at,
+        kind: "activity",
+        tools: [last, item],
+      };
+    } else {
+      grouped.push(item);
+    }
+  }
+  return grouped;
+}
+
+function activityLabel(tools: ToolItem[]): string {
+  const commands = tools.filter((tool) => tool.tool === "command").length;
+  const files = tools.length - commands;
+  const parts: string[] = [];
+  if (commands > 0) {
+    parts.push(`Ran ${commands} ${commands === 1 ? "command" : "commands"}`);
+  }
+  if (files > 0) {
+    parts.push(
+      `${commands > 0 ? "touched" : "Touched"} ${files} ${files === 1 ? "file" : "files"}`
+    );
+  }
+  return parts.join(" · ");
+}
+
 export function TaskTranscript({
   task,
   events,
@@ -232,7 +281,7 @@ export function TaskTranscript({
   events: StoredEvent[];
   task: Task;
 }) {
-  const items = buildItems(task, events);
+  const items = groupActivity(buildItems(task, events));
   const live = task.status === "queued" || task.status === "running";
 
   return (
@@ -262,8 +311,10 @@ export function TaskTranscript({
   );
 }
 
-function TranscriptItem({ item }: { item: Item }) {
+function TranscriptItem({ item }: { item: Grouped }) {
   switch (item.kind) {
+    case "activity":
+      return <ActivityGroup at={item.at} tools={item.tools} />;
     case "user":
       return <UserMessage at={item.at} by={item.by} text={item.text} />;
     case "agent":
@@ -318,6 +369,39 @@ function UserMessage({
         </MessageFooter>
       </MessageContent>
     </Message>
+  );
+}
+
+function ActivityGroup({ tools, at }: { at: number; tools: ToolItem[] }) {
+  return (
+    <details className="group min-w-0 flex-1">
+      <summary className="cursor-pointer list-none rounded-md [&::-webkit-details-marker]:hidden">
+        <Marker>
+          <MarkerIcon>
+            <CaretRight className="transition-transform group-open:rotate-90" />
+          </MarkerIcon>
+          <MarkerContent className="transition-colors group-hover:text-foreground">
+            {activityLabel(tools)}
+            <TimeAgo
+              at={at}
+              className="ml-2 text-muted-foreground/70 text-xs"
+            />
+          </MarkerContent>
+        </Marker>
+      </summary>
+      <div className="mt-3 ml-2 flex min-w-0 flex-col gap-3 border-l pl-4">
+        {tools.map((tool, index) => (
+          // Position is stable: the grouped run is rebuilt whole on refetch.
+          // biome-ignore lint/suspicious/noArrayIndexKey: append-only feed
+          <ToolRow
+            body={tool.body}
+            icon={tool.icon}
+            key={index}
+            lines={tool.lines}
+          />
+        ))}
+      </div>
+    </details>
   );
 }
 
