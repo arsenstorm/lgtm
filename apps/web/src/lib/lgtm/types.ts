@@ -103,6 +103,7 @@ export interface NewTaskSpec {
 }
 
 export interface Task {
+  archived: boolean;
   created_at: number;
   error: string | null;
   executions: Execution[];

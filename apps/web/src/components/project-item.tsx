@@ -11,6 +11,7 @@ import {
   type IconComponent,
   SquareWarningIcon,
 } from "@/components/icons";
+import { RowMenu, SUB_ROW_REVEAL } from "@/components/row-menu";
 import { STATUS } from "@/components/task-list";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,7 +32,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
-import { updateProjectPrefix } from "@/lib/lgtm/server";
+import { updateProjectPrefix, updateTask } from "@/lib/lgtm/server";
 import type {
   Project as ProjectRecord,
   Task,
@@ -77,7 +78,6 @@ export function ProjectItem({
   project: Project;
   record?: ProjectRecord;
 }) {
-  const matchRoute = useMatchRoute();
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const shown = expanded ? project.tasks : project.tasks.slice(0, PREVIEW);
@@ -213,41 +213,9 @@ export function ProjectItem({
                 </span>
               </SidebarMenuSubItem>
             ) : null}
-            {shown.map((task) => {
-              const { label } = STATUS[task.status];
-              const attention = ATTENTION[task.status];
-
-              return (
-                <SidebarMenuSubItem key={task.id}>
-                  <SidebarMenuSubButton
-                    isActive={
-                      !!matchRoute({
-                        params: { id: task.id },
-                        to: "/tasks/$id",
-                      })
-                    }
-                    render={<Link params={{ id: task.id }} to="/tasks/$id" />}
-                  >
-                    <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent)]">
-                      {taskTitle(task)}
-                    </span>
-                    {attention && (
-                      // SidebarMenuSubButton force-colours its direct `svg`
-                      // children, so the icon keeps its tone only inside a span.
-                      <span
-                        aria-label={label}
-                        className="ml-auto flex shrink-0"
-                        role="img"
-                      >
-                        <attention.icon
-                          className={cn("size-3.5", attention.className)}
-                        />
-                      </span>
-                    )}
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
-              );
-            })}
+            {shown.map((task) => (
+              <TaskSubRow key={task.id} task={task} />
+            ))}
 
             {hidden > 0 && (
               <SidebarMenuSubItem>
@@ -264,5 +232,64 @@ export function ProjectItem({
         </CollapsibleContent>
       </SidebarMenuItem>
     </Collapsible>
+  );
+}
+
+function TaskSubRow({ task }: { task: Task }) {
+  const matchRoute = useMatchRoute();
+  const router = useRouter();
+  const { label } = STATUS[task.status];
+  const attention = ATTENTION[task.status];
+  const title = taskTitle(task);
+
+  const update = useCallback(
+    async (patch: { title?: string; archived?: boolean }) => {
+      try {
+        await updateTask({ data: { id: task.id, ...patch } });
+        await router.invalidate();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [router, task.id]
+  );
+  const rename = useCallback(
+    (next: string) => update({ title: next }),
+    [update]
+  );
+  const archive = useCallback(async () => {
+    await update({ archived: true });
+    toast.success("Task archived");
+  }, [update]);
+
+  return (
+    <SidebarMenuSubItem>
+      <SidebarMenuSubButton
+        isActive={!!matchRoute({ params: { id: task.id }, to: "/tasks/$id" })}
+        render={<Link params={{ id: task.id }} to="/tasks/$id" />}
+      >
+        <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent)]">
+          {title}
+        </span>
+        {attention ? (
+          // SidebarMenuSubButton force-colours its direct `svg` children, so
+          // the icon keeps its tone only inside a span. The menu takes this
+          // corner when the row is reached, so the mark steps aside.
+          <span
+            aria-label={label}
+            className="ml-auto flex shrink-0 transition-opacity group-focus-within/menu-sub-item:opacity-0 group-hover/menu-sub-item:opacity-0 group-has-[[aria-expanded=true]]/menu-sub-item:opacity-0"
+            role="img"
+          >
+            <attention.icon className={cn("size-3.5", attention.className)} />
+          </span>
+        ) : null}
+      </SidebarMenuSubButton>
+      <RowMenu
+        className={SUB_ROW_REVEAL}
+        onArchive={archive}
+        onRename={rename}
+        title={title}
+      />
+    </SidebarMenuSubItem>
   );
 }

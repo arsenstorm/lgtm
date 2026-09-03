@@ -2,18 +2,9 @@ import { Link, useMatchRoute, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
-import { DotsIcon, MsgsIcon, SquareWarningIcon } from "@/components/icons";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  SidebarMenuAction,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar";
+import { MsgsIcon, SquareWarningIcon } from "@/components/icons";
+import { ROW_REVEAL, RowMenu } from "@/components/row-menu";
+import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import { updateChat } from "@/lib/lgtm/server";
 import type { Chat } from "@/lib/lgtm/types";
 
@@ -33,18 +24,7 @@ export function ChatItem({ chat }: { chat: Chat }) {
     },
     [chat.id, router]
   );
-
-  const rename = useCallback(() => {
-    // ponytail: window.prompt is the deliberate cheap path, the same one the
-    // project prefix takes; a real dialog arrives with the settings surface.
-    // biome-ignore lint/suspicious/noAlert: cheap path, see above
-    const entered = window.prompt("Rename chat", chat.title);
-    const title = entered?.trim();
-    if (title && title !== chat.title) {
-      update({ title });
-    }
-  }, [chat.title, update]);
-
+  const rename = useCallback((title: string) => update({ title }), [update]);
   const archive = useCallback(async () => {
     await update({ archived: true });
     toast.success("Chat archived");
@@ -52,7 +32,7 @@ export function ChatItem({ chat }: { chat: Chat }) {
 
   return (
     <SidebarMenuItem>
-      {/* The right padding keeps the title's truncation clear of the action
+      {/* The right padding keeps the title's truncation clear of the menu
           that sits over this row. */}
       <SidebarMenuButton
         className="pr-8"
@@ -75,34 +55,12 @@ export function ChatItem({ chat }: { chat: Chat }) {
           </span>
         ) : null}
       </SidebarMenuButton>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <SidebarMenuAction
-              aria-label={`Manage ${chat.title}`}
-              className="text-muted-foreground"
-              showOnHover
-            />
-          }
-        >
-          <DotsIcon aria-hidden="true" className="size-4" />
-        </DropdownMenuTrigger>
-
-        <DropdownMenuContent
-          align="start"
-          className="w-40 rounded-lg"
-          side="right"
-          sideOffset={4}
-        >
-          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={rename}>
-            Rename…
-          </DropdownMenuItem>
-          <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={archive}>
-            Archive
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <RowMenu
+        className={ROW_REVEAL}
+        onArchive={archive}
+        onRename={rename}
+        title={chat.title}
+      />
     </SidebarMenuItem>
   );
 }

@@ -169,7 +169,10 @@ export function AppSidebar({
   const [addingProject, setAddingProject] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const projectInputId = useId();
-  const projects = groupByProject(tasks, records);
+  const projects = groupByProject(
+    tasks.filter((task) => !task.archived),
+    records
+  );
   const shownChats = chats
     .filter((chat) => !chat.archived)
     .slice(0, RECENT_CHATS);

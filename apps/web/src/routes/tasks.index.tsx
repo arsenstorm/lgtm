@@ -9,7 +9,7 @@ import { getStats, getTasks } from "@/lib/lgtm/server";
 export const Route = createFileRoute("/tasks/")({
   loader: async () => {
     const [tasks, stats] = await Promise.all([getTasks(), getStats()]);
-    return { tasks, stats };
+    return { stats, tasks: tasks.filter((task) => !task.archived) };
   },
   component: TasksPage,
   errorComponent: TasksError,
