@@ -307,6 +307,7 @@ mod tests {
         Todo {
             id: id.into(),
             repository: None,
+            number: 1,
             title: "x".repeat(100),
             description: String::new(),
             status: lgtm_protocol::TodoStatus::Open,
@@ -315,6 +316,7 @@ mod tests {
             priority: lgtm_protocol::Priority::Medium,
             assignee: None,
             blockers,
+            tags: Vec::new(),
             workspace: None,
             created_by: None,
         }

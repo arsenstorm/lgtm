@@ -6,12 +6,37 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use lgtm_protocol::{Executor, Priority, Task, Todo, TodoComment, TodoDetail, TodoPatch};
-use serde::Deserialize;
+use lgtm_protocol::{Executor, Priority, Task, Todo, TodoComment, TodoPatch};
+use serde::{Deserialize, Serialize};
 
-use super::{conflict, ApiError, AuthedUser};
+use super::{conflict, tags, ApiError, AuthedUser};
 use crate::state::App;
 use crate::todo::{PromoteInto, UpdateTodoError};
+
+/// A todo as the API returns it: the stored record plus the display id its
+/// project gives it, `L-3`.
+#[derive(Serialize)]
+pub(super) struct TodoView {
+    #[serde(flatten)]
+    pub(super) todo: Todo,
+    pub(super) display_id: String,
+}
+
+/// Body of `GET /api/todos/:id`: the todo and its thread, oldest first.
+#[derive(Serialize)]
+pub(super) struct TodoDetailView {
+    pub(super) todo: TodoView,
+    pub(super) comments: Vec<TodoComment>,
+}
+
+/// Adds the display id, writing the project if the todo's was missing: the
+/// startup pass gives every todo one, so that only happens to a project whose
+/// file went away.
+fn view(app: &App, state: &mut crate::state::State, todo: Todo) -> TodoView {
+    let display_id = state.display_id(&todo);
+    app.persist_projects(state);
+    TodoView { todo, display_id }
+}
 
 /// Query of `GET /api/todos`.
 #[derive(Deserialize)]
@@ -35,6 +60,8 @@ pub(super) struct TodoRequest {
     assignee: Option<String>,
     #[serde(default)]
     blockers: Vec<String>,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 impl From<UpdateTodoError> for ApiError {
@@ -70,8 +97,8 @@ pub(super) struct PromoteRequest {
 pub(super) async fn list_todos(
     State(app): State<Arc<App>>,
     Query(filter): Query<TodoFilter>,
-) -> Json<Vec<Todo>> {
-    let state = app.state.lock().unwrap();
+) -> Json<Vec<TodoView>> {
+    let mut state = app.state.lock().unwrap();
     let mut todos: Vec<Todo> =
         state
             .todos
@@ -84,14 +111,19 @@ pub(super) async fn list_todos(
             .cloned()
             .collect();
     todos.sort_by_key(|todo| todo.created_at);
-    Json(todos)
+    Json(
+        todos
+            .into_iter()
+            .map(|todo| view(&app, &mut state, todo))
+            .collect(),
+    )
 }
 
 pub(super) async fn create_todo(
     State(app): State<Arc<App>>,
     Extension(user): Extension<AuthedUser>,
     body: Result<Json<TodoRequest>, JsonRejection>,
-) -> Result<(StatusCode, Json<Todo>), ApiError> {
+) -> Result<(StatusCode, Json<TodoView>), ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
     let title = body.title.trim();
     if title.is_empty() {
@@ -100,24 +132,27 @@ pub(super) async fn create_todo(
             "title is required".into(),
         ));
     }
+    let normalized = tags(body.tags)?;
     let mut state = app.state.lock().unwrap();
     let mut todo = state.create_todo(body.repository, title.to_string(), body.description, user.0);
     todo.priority = body.priority;
     todo.assignee = body.assignee;
     todo.blockers = body.blockers;
+    todo.tags = normalized;
     state.todos.insert(todo.id.clone(), todo.clone());
     app.persist_todo(&todo);
-    Ok((StatusCode::CREATED, Json(todo)))
+    Ok((StatusCode::CREATED, Json(view(&app, &mut state, todo))))
 }
 
 pub(super) async fn get_todo(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
-) -> Result<Json<TodoDetail>, ApiError> {
-    let state = app.state.lock().unwrap();
+) -> Result<Json<TodoDetailView>, ApiError> {
+    let mut state = app.state.lock().unwrap();
     let todo = state.todos.get(&id).cloned().ok_or_else(not_found)?;
     let comments = state.todo_comments(&id);
-    Ok(Json(TodoDetail { todo, comments }))
+    let todo = view(&app, &mut state, todo);
+    Ok(Json(TodoDetailView { todo, comments }))
 }
 
 /// Body of `POST /api/todos/:id/comments`.
@@ -149,24 +184,25 @@ pub(super) async fn update_todo(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
     body: Result<Json<TodoPatch>, JsonRejection>,
-) -> Result<Json<Todo>, ApiError> {
-    let Json(patch) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+) -> Result<Json<TodoView>, ApiError> {
+    let Json(mut patch) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    patch.tags = patch.tags.map(tags).transpose()?;
     let mut state = app.state.lock().unwrap();
     let todo = state.update_todo(&id, patch)?;
     app.persist_todo(&todo);
-    Ok(Json(todo))
+    Ok(Json(view(&app, &mut state, todo)))
 }
 
 pub(super) async fn finish_todo(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
-) -> Result<Json<Todo>, ApiError> {
+) -> Result<Json<TodoView>, ApiError> {
     let mut state = app.state.lock().unwrap();
     let todo = state
         .finish_todo(&id)
         .ok_or(ApiError(StatusCode::NOT_FOUND, "todo not found".into()))?;
     app.persist_todo(&todo);
-    Ok(Json(todo))
+    Ok(Json(view(&app, &mut state, todo)))
 }
 
 pub(super) async fn promote_todo(

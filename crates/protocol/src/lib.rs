@@ -716,12 +716,61 @@ pub enum Priority {
     High,
 }
 
+/// A repository's identity for numbering: todos in it display as
+/// `{prefix}-{number}`. The prefix is derived from the repository's name and
+/// stays unique across projects, so a display id points at exactly one todo.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Project {
+    pub id: String,
+    /// Git URL; `None` is the bucket for todos tied to no repository.
+    #[serde(default)]
+    pub repository: Option<String>,
+    /// Last path segment of the repository ("lgtm"), or "general" for `None`.
+    pub name: String,
+    /// 1–8 uppercase ASCII letters, unique across projects.
+    pub prefix: String,
+    /// The number the next todo in this project takes; starts at 1.
+    pub next_number: u64,
+}
+
+/// How many tags one record may carry, and how long each may be. Tags are a
+/// label, not a place to put prose.
+pub const TAGS_MAX: usize = 16;
+pub const TAG_LEN_MAX: usize = 40;
+
+/// Trims each tag, drops the empties, and keeps the first of any repeat.
+/// Case is left alone: a tag is the user's own word, so `API` and `api` are
+/// two of them. `Err` says which limit the list broke.
+pub fn normalize_tags(tags: Vec<String>) -> Result<Vec<String>, String> {
+    let mut out: Vec<String> = Vec::new();
+    for tag in tags {
+        let tag = tag.trim();
+        if tag.is_empty() || out.iter().any(|kept| kept == tag) {
+            continue;
+        }
+        if tag.chars().count() > TAG_LEN_MAX {
+            return Err(format!(
+                "tag is longer than {TAG_LEN_MAX} characters: {tag}"
+            ));
+        }
+        out.push(tag.to_string());
+    }
+    if out.len() > TAGS_MAX {
+        return Err(format!("no more than {TAGS_MAX} tags"));
+    }
+    Ok(out)
+}
+
 /// A note about work to do; not yet a task, and cheaper than one.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Todo {
     pub id: String,
     /// Git URL; `None` is not tied to a repository.
     pub repository: Option<String>,
+    /// Its place in its project's sequence; `0` predates numbering and is
+    /// filled in at startup.
+    #[serde(default)]
+    pub number: u64,
     pub title: String,
     #[serde(default)]
     pub description: String,
@@ -738,6 +787,9 @@ pub struct Todo {
     /// Ids of other todos that must be `Done` first.
     #[serde(default)]
     pub blockers: Vec<String>,
+    /// Free-form labels, in the order they were given.
+    #[serde(default)]
+    pub tags: Vec<String>,
     /// The workspace this belongs to; one per orchestrator until teams exist.
     #[serde(default)]
     pub workspace: Option<String>,
@@ -794,6 +846,9 @@ pub struct Scratchpad {
     pub updated_at: u64,
     #[serde(default)]
     pub archived: bool,
+    /// Free-form labels, in the order they were given.
+    #[serde(default)]
+    pub tags: Vec<String>,
     /// The workspace this belongs to; one per orchestrator until teams exist.
     #[serde(default)]
     pub workspace: Option<String>,
@@ -824,6 +879,8 @@ pub struct TodoPatch {
     pub assignee: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blockers: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
 }
 
 /// Wraps a present value in `Some` so `Option<Option<T>>` can tell "absent"

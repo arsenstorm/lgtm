@@ -1984,20 +1984,22 @@ fn deleting_a_todo_deletes_its_comments() {
 #[test]
 fn a_scratchpad_bumps_updated_at_only_when_the_content_changes() {
     let mut state = State::default();
-    let pad = state.create_scratchpad(None, "notes".into(), Some("arsen".into()));
+    let pad = state.create_scratchpad(None, "notes".into(), Vec::new(), Some("arsen".into()));
     assert_eq!(pad.updated_at, pad.created_at);
     state.scratchpads.get_mut(&pad.id).unwrap().updated_at = 1;
 
     let same = state
-        .update_scratchpad(&pad.id, Some("notes".into()), None)
+        .update_scratchpad(&pad.id, Some("notes".into()), None, None)
         .unwrap();
     assert_eq!(same.updated_at, 1);
-    let archived = state.update_scratchpad(&pad.id, None, Some(true)).unwrap();
+    let archived = state
+        .update_scratchpad(&pad.id, None, Some(true), None)
+        .unwrap();
     assert!(archived.archived);
     assert_eq!(archived.updated_at, 1);
 
     let written = state
-        .update_scratchpad(&pad.id, Some("more notes".into()), None)
+        .update_scratchpad(&pad.id, Some("more notes".into()), None, None)
         .unwrap();
     assert_eq!(written.content, "more notes");
     assert!(written.updated_at > 1);
@@ -2006,10 +2008,10 @@ fn a_scratchpad_bumps_updated_at_only_when_the_content_changes() {
 #[test]
 fn a_scratchpad_is_gone_once_deleted() {
     let mut state = State::default();
-    let pad = state.create_scratchpad(None, String::new(), None);
+    let pad = state.create_scratchpad(None, String::new(), Vec::new(), None);
     assert!(state.remove_scratchpad(&pad.id));
     assert!(!state.remove_scratchpad(&pad.id));
     assert!(state
-        .update_scratchpad(&pad.id, Some("x".into()), None)
+        .update_scratchpad(&pad.id, Some("x".into()), None, None)
         .is_none());
 }

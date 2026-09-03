@@ -9,7 +9,7 @@ use axum::{Extension, Json};
 use lgtm_protocol::Scratchpad;
 use serde::Deserialize;
 
-use super::{ApiError, AuthedUser};
+use super::{tags, ApiError, AuthedUser};
 use crate::state::App;
 
 fn not_found() -> ApiError {
@@ -32,6 +32,8 @@ pub(super) struct ScratchpadRequest {
     /// May be empty: a fresh blank document is a legitimate thing to make.
     #[serde(default)]
     content: String,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 pub(super) async fn list_scratchpads(
@@ -62,8 +64,9 @@ pub(super) async fn create_scratchpad(
     body: Result<Json<ScratchpadRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Scratchpad>), ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let tags = tags(body.tags)?;
     let mut state = app.state.lock().unwrap();
-    let scratchpad = state.create_scratchpad(body.repository, body.content, user.0);
+    let scratchpad = state.create_scratchpad(body.repository, body.content, tags, user.0);
     app.persist_scratchpad(&scratchpad);
     Ok((StatusCode::CREATED, Json(scratchpad)))
 }
@@ -88,6 +91,8 @@ pub(super) struct ScratchpadPatch {
     content: Option<String>,
     #[serde(default)]
     archived: Option<bool>,
+    #[serde(default)]
+    tags: Option<Vec<String>>,
 }
 
 pub(super) async fn update_scratchpad(
@@ -96,9 +101,10 @@ pub(super) async fn update_scratchpad(
     body: Result<Json<ScratchpadPatch>, JsonRejection>,
 ) -> Result<Json<Scratchpad>, ApiError> {
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let tags = body.tags.map(tags).transpose()?;
     let mut state = app.state.lock().unwrap();
     let scratchpad = state
-        .update_scratchpad(&id, body.content, body.archived)
+        .update_scratchpad(&id, body.content, body.archived, tags)
         .ok_or_else(not_found)?;
     app.persist_scratchpad(&scratchpad);
     Ok(Json(scratchpad))

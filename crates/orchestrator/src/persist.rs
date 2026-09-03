@@ -2,8 +2,8 @@
 //! `<data_dir>/batches`, one per memory under `<data_dir>/memories`, one per
 //! goal under `<data_dir>/goals`, one per todo under `<data_dir>/todos`, one
 //! per todo comment under `<data_dir>/todo_comments`, one per scratchpad
-//! under `<data_dir>/scratchpads`, and one per session under
-//! `<data_dir>/sessions`.
+//! under `<data_dir>/scratchpads`, one per project under
+//! `<data_dir>/projects`, and one per session under `<data_dir>/sessions`.
 //!
 //! A task's events are append-only: rewriting `<id>.json` on every event
 //! meant copying the whole history back to disk each time, so events live in
@@ -14,7 +14,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use lgtm_protocol::{
-    Batch, Goal, Memory, Overlap, Scratchpad, Session, StoredEvent, Task, TaskId, Todo, TodoComment,
+    Batch, Goal, Memory, Overlap, Project, Scratchpad, Session, StoredEvent, Task, TaskId, Todo,
+    TodoComment,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -51,6 +52,7 @@ pub enum Persist {
     RemoveTodoComment(String),
     Scratchpad(Scratchpad),
     RemoveScratchpad(String),
+    Project(Project),
     Session(Session),
     RemoveSession(String),
     /// The whole users store; users are few and change rarely, so the file
@@ -95,6 +97,7 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
     let todos = dir.join("todos");
     let todo_comments = dir.join("todo_comments");
     let scratchpads = dir.join("scratchpads");
+    let projects = dir.join("projects");
     let sessions = dir.join("sessions");
     let artefacts = dir.join("artefacts");
     while let Some(item) = rx.recv().await {
@@ -123,6 +126,7 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
             Persist::RemoveTodoComment(id) => remove_by_id(&todo_comments, "todo comment", &id),
             Persist::Scratchpad(scratchpad) => save_scratchpad(&scratchpads, &scratchpad),
             Persist::RemoveScratchpad(id) => remove_by_id(&scratchpads, "scratchpad", &id),
+            Persist::Project(project) => save_project(&projects, &project),
             Persist::Session(session) => save_session(&sessions, &session),
             Persist::RemoveSession(id) => remove_by_id(&sessions, "session", &id),
             Persist::Users(users) => save_users(&dir, &users),
@@ -245,6 +249,10 @@ pub fn save_todo_comment(dir: &Path, comment: &TodoComment) {
 
 pub fn save_scratchpad(dir: &Path, scratchpad: &Scratchpad) {
     save_by_id(dir, "scratchpad", &scratchpad.id, scratchpad);
+}
+
+pub fn save_project(dir: &Path, project: &Project) {
+    save_by_id(dir, "project", &project.id, project);
 }
 
 pub fn save_session(dir: &Path, session: &Session) {
@@ -465,6 +473,10 @@ pub fn load_all_todo_comments(dir: &Path) -> Vec<TodoComment> {
 
 pub fn load_all_scratchpads(dir: &Path) -> Vec<Scratchpad> {
     load_dir(dir, |scratchpad: &Scratchpad| scratchpad.id.as_str())
+}
+
+pub fn load_all_projects(dir: &Path) -> Vec<Project> {
+    load_dir(dir, |project: &Project| project.id.as_str())
 }
 
 pub fn load_all_sessions(dir: &Path) -> Vec<Session> {

@@ -283,3 +283,41 @@ fn update_moves_to_any_status_including_back_out_of_done() {
         .unwrap();
     assert_eq!(again.status, TodoStatus::Open);
 }
+
+#[test]
+fn update_replaces_the_tags_wholesale_and_leaves_them_alone_when_absent() {
+    let mut state = state();
+    let todo = state.create_todo(None, "t".into(), String::new(), None);
+    let tagged = state
+        .update_todo(
+            &todo.id,
+            TodoPatch {
+                tags: Some(vec!["api".into(), "rust".into()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(tagged.tags, vec!["api".to_string(), "rust".to_string()]);
+
+    let untouched = state
+        .update_todo(
+            &todo.id,
+            TodoPatch {
+                title: Some("still tagged".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(untouched.tags, vec!["api".to_string(), "rust".to_string()]);
+
+    let cleared = state
+        .update_todo(
+            &todo.id,
+            TodoPatch {
+                tags: Some(Vec::new()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(cleared.tags.is_empty());
+}

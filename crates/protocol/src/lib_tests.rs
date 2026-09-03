@@ -441,6 +441,7 @@ fn todo_round_trips() {
     round_trip(Todo {
         id: "0123abcd".into(),
         repository: Some("https://github.com/arsenstorm/lgtm.git".into()),
+        number: 3,
         title: "add a /health endpoint".into(),
         description: "should return 200 while runners are connected".into(),
         status: TodoStatus::InProgress,
@@ -449,6 +450,7 @@ fn todo_round_trips() {
         priority: Priority::High,
         assignee: Some("arsen".into()),
         blockers: vec!["22222222".into()],
+        tags: vec!["api".into()],
         workspace: None,
         created_by: None,
     });
@@ -463,6 +465,43 @@ fn todo_without_new_fields_defaults() {
     assert_eq!(todo.priority, Priority::Medium);
     assert_eq!(todo.assignee, None);
     assert!(todo.blockers.is_empty());
+    assert!(todo.tags.is_empty());
+    // A todo written before numbering carries no number; startup fills it in.
+    assert_eq!(todo.number, 0);
+}
+
+#[test]
+fn project_round_trips() {
+    round_trip(Project {
+        id: "0123abcd".into(),
+        repository: Some("https://github.com/arsenstorm/lgtm.git".into()),
+        name: "lgtm".into(),
+        prefix: "L".into(),
+        next_number: 4,
+    });
+}
+
+#[test]
+fn tags_are_trimmed_deduped_and_keep_their_case() {
+    assert_eq!(
+        normalize_tags(vec![
+            " api ".into(),
+            "api".into(),
+            "".into(),
+            "  ".into(),
+            "API".into(),
+        ])
+        .unwrap(),
+        vec!["api".to_string(), "API".to_string()]
+    );
+}
+
+#[test]
+fn too_many_or_too_long_tags_are_refused() {
+    let many: Vec<String> = (0..=TAGS_MAX).map(|n| n.to_string()).collect();
+    assert!(normalize_tags(many).is_err());
+    assert!(normalize_tags(vec!["x".repeat(TAG_LEN_MAX)]).is_ok());
+    assert!(normalize_tags(vec!["x".repeat(TAG_LEN_MAX + 1)]).is_err());
 }
 
 #[test]
@@ -470,6 +509,7 @@ fn todo_is_blocked_only_by_an_unfinished_blocker() {
     let mut blocker = Todo {
         id: "blocker1".into(),
         repository: None,
+        number: 1,
         title: "t".into(),
         description: String::new(),
         status: TodoStatus::Open,
@@ -478,12 +518,14 @@ fn todo_is_blocked_only_by_an_unfinished_blocker() {
         priority: Priority::Medium,
         assignee: None,
         blockers: Vec::new(),
+        tags: Vec::new(),
         workspace: None,
         created_by: None,
     };
     let todo = Todo {
         id: "todo1".into(),
         repository: None,
+        number: 2,
         title: "t".into(),
         description: String::new(),
         status: TodoStatus::Open,
@@ -492,6 +534,7 @@ fn todo_is_blocked_only_by_an_unfinished_blocker() {
         priority: Priority::Medium,
         assignee: None,
         blockers: vec![blocker.id.clone()],
+        tags: Vec::new(),
         workspace: None,
         created_by: None,
     };
@@ -513,6 +556,7 @@ fn todo_patch_round_trips_and_distinguishes_absent_from_clearing() {
         priority: Some(Priority::High),
         assignee: Some(Some("arsen".into())),
         blockers: Some(vec!["11111111".into()]),
+        tags: Some(vec!["api".into()]),
     });
 
     let absent: TodoPatch = serde_json::from_str("{}").unwrap();

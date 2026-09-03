@@ -13,6 +13,7 @@ mod orchestrate;
 mod persist;
 mod plan;
 mod policy;
+mod project;
 mod provenance;
 mod provision;
 mod runner;
@@ -161,6 +162,8 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     std::fs::create_dir_all(&todo_comments_dir)?;
     let scratchpads_dir = data_dir.join("scratchpads");
     std::fs::create_dir_all(&scratchpads_dir)?;
+    let projects_dir = data_dir.join("projects");
+    std::fs::create_dir_all(&projects_dir)?;
     let sessions_dir = data_dir.join("sessions");
     std::fs::create_dir_all(&sessions_dir)?;
     let mut state = State {
@@ -192,6 +195,17 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     }
     for scratchpad in persist::load_all_scratchpads(&scratchpads_dir) {
         state.scratchpads.insert(scratchpad.id.clone(), scratchpad);
+    }
+    for project in persist::load_all_projects(&projects_dir) {
+        state.projects.insert(project.id.clone(), project);
+    }
+    // Todos written before numbering get theirs here, once: the pass leaves
+    // an already-numbered todo alone, so a later restart writes nothing.
+    for id in state.number_legacy_todos() {
+        persist::save_todo(&todos_dir, &state.todos[&id]);
+    }
+    for id in std::mem::take(&mut state.dirty_projects) {
+        persist::save_project(&projects_dir, &state.projects[&id]);
     }
     for session in persist::load_all_sessions(&sessions_dir) {
         state.sessions.insert(session.id.clone(), session);

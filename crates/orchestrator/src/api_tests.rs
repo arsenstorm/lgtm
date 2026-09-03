@@ -616,7 +616,7 @@ async fn new_todo(app: &Arc<App>) -> lgtm_protocol::Todo {
     )
     .await
     .unwrap();
-    todo
+    todo.todo
 }
 
 #[tokio::test]
@@ -639,7 +639,7 @@ async fn a_comment_is_attributed_and_read_back_with_its_todo() {
     let Json(detail) = todos::get_todo(State(app.clone()), Path(todo.id.clone()))
         .await
         .unwrap();
-    assert_eq!(detail.todo.id, todo.id);
+    assert_eq!(detail.todo.todo.id, todo.id);
     assert_eq!(detail.comments, vec![comment]);
 
     todos::delete_todo(State(app.clone()), Path(todo.id.clone()))
@@ -736,4 +736,174 @@ async fn a_scratchpad_is_created_listed_archived_and_deleted() {
             .map(|err| err.0),
         Some(StatusCode::NOT_FOUND)
     );
+}
+
+#[tokio::test]
+async fn a_todo_is_served_with_the_display_id_its_project_gives_it() {
+    let app = app();
+    let body = serde_json::from_value(serde_json::json!({
+        "repository": "https://github.com/arsenstorm/lgtm.git",
+        "title": "ship it",
+    }))
+    .unwrap();
+    let (_, Json(created)) = todos::create_todo(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Ok(Json(body)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(created.display_id, "L-1");
+
+    let Json(detail) = todos::get_todo(State(app.clone()), Path(created.todo.id.clone()))
+        .await
+        .unwrap();
+    assert_eq!(detail.todo.display_id, "L-1");
+
+    let Json(done) = todos::finish_todo(State(app.clone()), Path(created.todo.id.clone()))
+        .await
+        .unwrap();
+    assert_eq!(done.display_id, "L-1");
+
+    let patch = serde_json::from_value(serde_json::json!({ "title": "ship it twice" })).unwrap();
+    let Json(patched) =
+        todos::update_todo(State(app.clone()), Path(created.todo.id), Ok(Json(patch)))
+            .await
+            .unwrap();
+    assert_eq!(patched.display_id, "L-1");
+
+    let query = serde_json::from_value(serde_json::json!({})).unwrap();
+    let Json(listed) = todos::list_todos(State(app.clone()), Query(query)).await;
+    assert_eq!(listed[0].display_id, "L-1");
+
+    // The serialized todo carries the display id beside its own fields.
+    let json = serde_json::to_value(&listed[0]).unwrap();
+    assert_eq!(json["display_id"], "L-1");
+    assert_eq!(json["number"], 1);
+}
+
+#[tokio::test]
+async fn a_prefix_is_uppercased_and_refused_when_another_project_holds_it() {
+    let app = app();
+    for repository in [
+        "https://github.com/arsenstorm/lgtm.git",
+        "https://github.com/arsenstorm/LegalBase.git",
+    ] {
+        let body =
+            serde_json::from_value(serde_json::json!({ "repository": repository, "title": "t" }))
+                .unwrap();
+        let _created = todos::create_todo(
+            State(app.clone()),
+            Extension(AuthedUser(None)),
+            Ok(Json(body)),
+        )
+        .await
+        .unwrap();
+    }
+    let Json(listed) = projects::list_projects(State(app.clone())).await;
+    assert_eq!(
+        listed
+            .iter()
+            .map(|p| (p.name.as_str(), p.prefix.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("LegalBase", "LE"), ("lgtm", "L")]
+    );
+    let legal = listed[0].id.clone();
+
+    let body = serde_json::from_value(serde_json::json!({ "prefix": "lb" })).unwrap();
+    let Json(renamed) =
+        projects::update_project(State(app.clone()), Path(legal.clone()), Ok(Json(body)))
+            .await
+            .unwrap();
+    assert_eq!(renamed.prefix, "LB");
+
+    let taken = serde_json::from_value(serde_json::json!({ "prefix": "l" })).unwrap();
+    assert_eq!(
+        projects::update_project(State(app.clone()), Path(legal.clone()), Ok(Json(taken)))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::CONFLICT)
+    );
+
+    // "L1" is legal: derivation itself mints digit-suffixed prefixes when a
+    // name is exhausted, so a person must be able to type one back.
+    for bad in ["", "toolongaprefix", "1L", "L-1"] {
+        let body = serde_json::from_value(serde_json::json!({ "prefix": bad })).unwrap();
+        assert_eq!(
+            projects::update_project(State(app.clone()), Path(legal.clone()), Ok(Json(body)))
+                .await
+                .err()
+                .map(|err| err.0),
+            Some(StatusCode::BAD_REQUEST),
+            "{bad} should be refused"
+        );
+    }
+
+    let body = serde_json::from_value(serde_json::json!({ "prefix": "X" })).unwrap();
+    assert_eq!(
+        projects::update_project(State(app), Path("deadbeef".into()), Ok(Json(body)))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::NOT_FOUND)
+    );
+}
+
+#[tokio::test]
+async fn tags_are_normalized_on_the_way_in_and_over_the_limit_is_a_400() {
+    let app = app();
+    let body = serde_json::from_value(serde_json::json!({
+        "title": "ship it",
+        "tags": [" api ", "api", "", "API"],
+    }))
+    .unwrap();
+    let (_, Json(created)) = todos::create_todo(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Ok(Json(body)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        created.todo.tags,
+        vec!["api".to_string(), "API".to_string()]
+    );
+
+    let patch = serde_json::from_value(serde_json::json!({ "tags": ["  rust  "] })).unwrap();
+    let Json(patched) = todos::update_todo(
+        State(app.clone()),
+        Path(created.todo.id.clone()),
+        Ok(Json(patch)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(patched.todo.tags, vec!["rust".to_string()]);
+
+    let long = serde_json::json!({ "tags": ["x".repeat(lgtm_protocol::TAG_LEN_MAX + 1)] });
+    let patch = serde_json::from_value(long).unwrap();
+    assert_eq!(
+        todos::update_todo(State(app.clone()), Path(created.todo.id), Ok(Json(patch)))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::BAD_REQUEST)
+    );
+
+    let pad = serde_json::from_value(serde_json::json!({ "tags": [" notes ", "notes"] })).unwrap();
+    let (_, Json(scratchpad)) = scratchpads::create_scratchpad(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Ok(Json(pad)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(scratchpad.tags, vec!["notes".to_string()]);
+
+    let patch = serde_json::from_value(serde_json::json!({ "tags": ["a", "a", " b "] })).unwrap();
+    let Json(updated) =
+        scratchpads::update_scratchpad(State(app), Path(scratchpad.id), Ok(Json(patch)))
+            .await
+            .unwrap();
+    assert_eq!(updated.tags, vec!["a".to_string(), "b".to_string()]);
 }

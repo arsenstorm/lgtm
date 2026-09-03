@@ -133,6 +133,9 @@ impl State {
         if let Some(blockers) = patch.blockers {
             todo.blockers = blockers;
         }
+        if let Some(tags) = patch.tags {
+            todo.tags = tags;
+        }
         Ok(todo.clone())
     }
 }

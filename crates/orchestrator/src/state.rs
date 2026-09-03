@@ -8,8 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
     first_line_title, goal_status, Batch, Goal, GoalSummary, Memory, MemorySource,
-    OrchestratorMessage, Scratchpad, Session, StoredEvent, Task, TaskEvent, TaskId, TaskSpec,
-    TaskStatus, Todo, TodoComment, TodoStatus, Verification,
+    OrchestratorMessage, Project, Scratchpad, Session, StoredEvent, Task, TaskEvent, TaskId,
+    TaskSpec, TaskStatus, Todo, TodoComment, TodoStatus, Verification,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -181,6 +181,20 @@ impl App {
         let _ = self.persist.send(Persist::Scratchpad(scratchpad.clone()));
     }
 
+    pub fn persist_project(&self, project: &Project) {
+        let _ = self.persist.send(Persist::Project(project.clone()));
+    }
+
+    /// Writes every project a request created or took a number from. Numbering
+    /// is a side effect of touching a todo, so no handler writes one by name.
+    pub fn persist_projects(&self, state: &mut State) {
+        for id in std::mem::take(&mut state.dirty_projects) {
+            if let Some(project) = state.projects.get(&id) {
+                let _ = self.persist.send(Persist::Project(project.clone()));
+            }
+        }
+    }
+
     pub fn forget_scratchpad(&self, id: &str) {
         let _ = self.persist.send(Persist::RemoveScratchpad(id.to_string()));
     }
@@ -233,6 +247,11 @@ pub struct State {
     pub todo_comments: HashMap<String, TodoComment>,
     /// Standalone markdown documents, by id.
     pub scratchpads: HashMap<String, Scratchpad>,
+    /// One per repository todos are filed against, by id; it holds the prefix
+    /// and the next number.
+    pub projects: HashMap<String, Project>,
+    /// Projects whose stored copy is behind, drained by [`App::persist_projects`].
+    pub(crate) dirty_projects: Vec<String>,
     /// Accept tasks no connected runner can run, because provisioning is on
     /// and a runner for them is a queue away.
     pub queue_without_runners: bool,
@@ -652,6 +671,7 @@ impl State {
     ) -> Todo {
         let todo = Todo {
             id: self.new_todo_id(),
+            number: self.take_number(repository.as_deref()),
             repository,
             title,
             description,
@@ -661,6 +681,7 @@ impl State {
             priority: lgtm_protocol::Priority::default(),
             assignee: None,
             blockers: Vec::new(),
+            tags: Vec::new(),
             workspace: self.workspace.clone(),
             created_by,
         };
@@ -737,6 +758,7 @@ impl State {
         &mut self,
         repository: Option<String>,
         content: String,
+        tags: Vec<String>,
         created_by: Option<String>,
     ) -> Scratchpad {
         let now = now_ms();
@@ -747,6 +769,7 @@ impl State {
             created_at: now,
             updated_at: now,
             archived: false,
+            tags,
             workspace: self.workspace.clone(),
             created_by,
         };
@@ -764,6 +787,7 @@ impl State {
         id: &str,
         content: Option<String>,
         archived: Option<bool>,
+        tags: Option<Vec<String>>,
     ) -> Option<Scratchpad> {
         let scratchpad = self.scratchpads.get_mut(id)?;
         if let Some(content) = content.filter(|content| *content != scratchpad.content) {
@@ -772,6 +796,9 @@ impl State {
         }
         if let Some(archived) = archived {
             scratchpad.archived = archived;
+        }
+        if let Some(tags) = tags {
+            scratchpad.tags = tags;
         }
         Some(scratchpad.clone())
     }

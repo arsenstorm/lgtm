@@ -6,6 +6,7 @@ mod credentials;
 mod events;
 mod goals;
 mod memories;
+mod projects;
 mod scratchpads;
 mod sessions;
 mod terminal;
@@ -20,7 +21,7 @@ use axum::extract::{Path, Query, Request, State};
 use axum::http::{header::AUTHORIZATION, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, patch, post};
 use axum::{Extension, Json, Router};
 use lgtm_protocol::{
     overlaps, plan_versions, Executor, OrchestratorMessage, PlanVersion, RunnerStatus,
@@ -45,6 +46,11 @@ impl IntoResponse for ApiError {
 
 pub(super) fn conflict(msg: String) -> ApiError {
     ApiError(StatusCode::CONFLICT, msg)
+}
+
+/// Tags as they are stored, or a 400 naming the limit the request broke.
+pub(super) fn tags(tags: Vec<String>) -> Result<Vec<String>, ApiError> {
+    lgtm_protocol::normalize_tags(tags).map_err(|err| ApiError(StatusCode::BAD_REQUEST, err))
 }
 
 impl From<CmdError> for ApiError {
@@ -131,6 +137,8 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
                 .patch(scratchpads::update_scratchpad)
                 .delete(scratchpads::delete_scratchpad),
         )
+        .route("/projects", get(projects::list_projects))
+        .route("/projects/{id}", patch(projects::update_project))
         .route("/goals/{id}/plans", get(goals::get_goal_plans))
         .route(
             "/sessions",
