@@ -88,7 +88,7 @@ function StatusGroup({ status, todos }: { status: TodoStatus; todos: Todo[] }) {
 
   return (
     <Collapsible defaultOpen>
-      <CollapsibleTrigger className="group/header flex w-full items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50">
+      <CollapsibleTrigger className="group/header flex w-full items-center gap-2 rounded-md bg-foreground/5 px-2 py-1.5 text-sm outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring/50">
         <CaretRight
           aria-hidden="true"
           className="size-3 text-muted-foreground transition-transform duration-200 group-data-[panel-open]/header:rotate-90"
