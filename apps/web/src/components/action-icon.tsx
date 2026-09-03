@@ -1,5 +1,4 @@
-import type { Icon } from "@phosphor-icons/react";
-import { CircleNotch } from "@phosphor-icons/react";
+import { type IconComponent, LoaderIcon } from "@/components/icons";
 
 /** Swapping the leading icon for the spinner, rather than adding one, keeps the
  *  button the same width while it works. */
@@ -8,11 +7,11 @@ export function ActionIcon({
   busy,
 }: {
   busy: boolean;
-  icon: Icon;
+  icon: IconComponent;
 }) {
   if (busy) {
     return (
-      <CircleNotch
+      <LoaderIcon
         className="motion-safe:animate-spin"
         data-icon="inline-start"
       />

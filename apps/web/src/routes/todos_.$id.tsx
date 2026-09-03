@@ -1,8 +1,4 @@
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  PencilSimple,
-} from "@phosphor-icons/react";
+import { ArrowDownLeft, ArrowUpRight } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { FormEvent, ReactNode } from "react";
@@ -10,6 +6,7 @@ import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { projectName } from "@/components/app-sidebar";
+import { PencilIcon } from "@/components/icons";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { TagsRow } from "@/components/tags-row";
@@ -264,7 +261,7 @@ function EditableTitle({
           size="icon-sm"
           variant="ghost"
         >
-          <PencilSimple />
+          <PencilIcon />
         </Button>
       </div>
     );

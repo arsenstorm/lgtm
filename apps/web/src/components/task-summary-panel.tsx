@@ -1,17 +1,15 @@
-import {
-  CheckCircle,
-  FileCode,
-  FileText,
-  GitBranch,
-  ShieldSlash,
-  Warning,
-  WarningCircle,
-  XCircle,
-} from "@phosphor-icons/react";
+import { FileCode, FileText, ShieldSlash } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 
 import { DiffView } from "@/components/diff-view";
 import { FilePath } from "@/components/file-path";
+import {
+  CircleCheckIcon,
+  CircleWarningIcon,
+  CircleXIcon,
+  CodeBranchIcon,
+  WarningIcon,
+} from "@/components/icons";
 import type {
   Finding,
   TaskDetail,
@@ -113,7 +111,7 @@ function Environment({ detail }: { detail: TaskDetail }) {
         </Fact>
         <Fact term="Base branch">
           <span className="inline-flex items-center gap-1.5">
-            <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
+            <CodeBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="font-mono">{spec.base_branch}</span>
           </span>
         </Fact>
@@ -176,9 +174,9 @@ function FindingRow({ finding }: { finding: Finding }) {
   return (
     <li className={cn("flex gap-3 p-3", blocking && "bg-destructive/5")}>
       {blocking ? (
-        <WarningCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+        <CircleWarningIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
       ) : (
-        <Warning className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <WarningIcon className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
       )}
       <div className="flex min-w-0 flex-col gap-1">
         <p className="max-w-[54ch] text-pretty text-sm">{finding.message}</p>
@@ -195,7 +193,7 @@ function CheckRow({ check }: { check: ValidationResult }) {
   if (check.ok) {
     return (
       <li className="flex items-center gap-2.5 px-3 py-2">
-        <CheckCircle className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+        <CircleCheckIcon className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
         <span className="font-medium text-sm">{check.name}</span>
         <code
           className="min-w-0 truncate text-muted-foreground text-xs"
@@ -210,7 +208,7 @@ function CheckRow({ check }: { check: ValidationResult }) {
   return (
     <li className="bg-destructive/5 p-3">
       <div className="flex items-center gap-2.5">
-        <XCircle className="size-4 shrink-0 text-destructive" />
+        <CircleXIcon className="size-4 shrink-0 text-destructive" />
         <span className="font-medium text-sm">{check.name}</span>
         <code
           className="min-w-0 truncate text-muted-foreground text-xs"

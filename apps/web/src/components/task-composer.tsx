@@ -1,13 +1,13 @@
-import {
-  ArrowCounterClockwise,
-  ArrowUp,
-  Check,
-  Trash,
-} from "@phosphor-icons/react";
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 
 import { ActionIcon } from "@/components/action-icon";
+import {
+  ArrowBackIcon,
+  ArrowUpIcon,
+  CheckIcon,
+  TrashIcon,
+} from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAction } from "@/hooks/use-action";
@@ -164,7 +164,7 @@ export function TaskComposer({ task }: { task: Task }) {
                 type="button"
                 variant={task.status === "conflicted" ? "outline" : "default"}
               >
-                <ActionIcon busy={pending === "approve"} icon={Check} />
+                <ActionIcon busy={pending === "approve"} icon={CheckIcon} />
                 Approve
               </Button>
               <Button
@@ -176,7 +176,7 @@ export function TaskComposer({ task }: { task: Task }) {
                 type="button"
                 variant="outline"
               >
-                <ActionIcon busy={pending === "reject"} icon={Trash} />
+                <ActionIcon busy={pending === "reject"} icon={TrashIcon} />
                 {armed ? "Confirm reject" : "Reject"}
               </Button>
             </>
@@ -188,7 +188,7 @@ export function TaskComposer({ task }: { task: Task }) {
             size="icon-sm"
             type="submit"
           >
-            <ActionIcon busy={pending === "follow-up"} icon={ArrowUp} />
+            <ActionIcon busy={pending === "follow-up"} icon={ArrowUpIcon} />
           </Button>
         </div>
       </form>
@@ -361,7 +361,7 @@ function RetryPanel({ task }: { task: Task }) {
         type="submit"
         variant="outline"
       >
-        <ActionIcon busy={pending === "retry"} icon={ArrowCounterClockwise} />
+        <ActionIcon busy={pending === "retry"} icon={ArrowBackIcon} />
         {pending === "retry" ? "Retrying…" : "Retry this task"}
       </Button>
     </form>

@@ -1,4 +1,3 @@
-import { CaretRight } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
@@ -8,6 +7,7 @@ import { TextResponse } from "@/components/aicss/TextResponse";
 import { ThinkingState } from "@/components/aicss/ThinkingState";
 import type { Referenced } from "@/components/answer-references";
 import { AnswerReferences } from "@/components/answer-references";
+import { ChevronIcon } from "@/components/icons";
 import { shortSpan } from "@/components/task-list";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
@@ -82,7 +82,7 @@ function Worked({ steps, workedMs }: { steps: ChatStep[]; workedMs: number }) {
       <summary className="cursor-pointer list-none rounded-md [&::-webkit-details-marker]:hidden">
         <Marker>
           <MarkerIcon>
-            <CaretRight className="transition-transform group-open:rotate-90" />
+            <ChevronIcon className="transition-transform group-open:rotate-90" />
           </MarkerIcon>
           <MarkerContent className="transition-colors group-hover:text-foreground">
             Worked for {shortSpan(workedMs)}

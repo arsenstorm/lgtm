@@ -1,15 +1,10 @@
-import type { Icon } from "@phosphor-icons/react";
-import {
-  CaretRight,
-  FileCode,
-  ShieldWarning,
-  Terminal,
-} from "@phosphor-icons/react";
+import { FileCode, ShieldWarning, Terminal } from "@phosphor-icons/react";
 import Markdown from "react-markdown";
 
 import { TextResponse } from "@/components/aicss/TextResponse";
 import { ThinkingState } from "@/components/aicss/ThinkingState";
 import { FilePath } from "@/components/file-path";
+import { ChevronIcon, type IconComponent } from "@/components/icons";
 import { TimeAgo } from "@/components/time-ago";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
@@ -46,7 +41,7 @@ type Item =
       kind: "tool";
       at: number;
       tool: "command" | "file";
-      icon: Icon;
+      icon: IconComponent;
       body: React.ReactNode;
       lines: string[];
     }
@@ -378,7 +373,7 @@ function ActivityGroup({ tools, at }: { at: number; tools: ToolItem[] }) {
       <summary className="cursor-pointer list-none rounded-md [&::-webkit-details-marker]:hidden">
         <Marker>
           <MarkerIcon>
-            <CaretRight className="transition-transform group-open:rotate-90" />
+            <ChevronIcon className="transition-transform group-open:rotate-90" />
           </MarkerIcon>
           <MarkerContent className="transition-colors group-hover:text-foreground">
             {activityLabel(tools)}
@@ -411,7 +406,7 @@ function ToolRow({
   lines,
 }: {
   body: React.ReactNode;
-  icon: Icon;
+  icon: IconComponent;
   lines: string[];
 }) {
   const row = (

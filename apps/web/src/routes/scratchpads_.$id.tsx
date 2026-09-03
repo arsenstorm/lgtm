@@ -1,4 +1,3 @@
-import { Archive, ArrowCounterClockwise, Trash } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -7,6 +6,7 @@ import { toast } from "sonner";
 import { ActionIcon } from "@/components/action-icon";
 import { projectName } from "@/components/app-sidebar";
 import { EditorToc } from "@/components/editor-toc";
+import { ArchiveIcon, ArrowBackIcon, TrashIcon } from "@/components/icons";
 import type { EditorHeading } from "@/components/markdown-editor";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { OrchestratorError } from "@/components/orchestrator-error";
@@ -192,7 +192,7 @@ function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
           <Button disabled={busy} onClick={archive} size="lg" variant="outline">
             <ActionIcon
               busy={pending === "archive"}
-              icon={pad.archived ? ArrowCounterClockwise : Archive}
+              icon={pad.archived ? ArrowBackIcon : ArchiveIcon}
             />
             {pad.archived ? "Unarchive" : "Archive"}
           </Button>
@@ -204,7 +204,7 @@ function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
             size="lg"
             variant="destructive"
           >
-            <ActionIcon busy={pending === "delete"} icon={Trash} />
+            <ActionIcon busy={pending === "delete"} icon={TrashIcon} />
             {armed ? "Confirm delete" : "Delete"}
           </Button>
         </div>

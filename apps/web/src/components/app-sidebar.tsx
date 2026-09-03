@@ -1,4 +1,3 @@
-import { CaretRight, Plus, PlusCircle } from "@phosphor-icons/react";
 import { Link, useMatchRoute } from "@tanstack/react-router";
 import type { ComponentProps, FormEvent } from "react";
 import { useCallback, useEffect, useId, useState } from "react";
@@ -10,10 +9,13 @@ import {
   ActivityIcon,
   AiDeveloperIcon,
   BrainSparkleIcon,
+  ChevronIcon,
+  ComposeIcon,
   DotsIcon,
   ListCheckboxIcon,
   MsgsIcon,
   NotesIcon,
+  PlusIcon,
   TasksIcon,
 } from "@/components/icons";
 import type { Project } from "@/components/project-item";
@@ -282,7 +284,7 @@ export function AppSidebar({
                   className="min-w-8 bg-primary text-primary-foreground duration-200 ease-linear hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground"
                   render={<Link search={{ repo: undefined }} to="/" />}
                 >
-                  <PlusCircle aria-hidden="true" weight="fill" />
+                  <ComposeIcon aria-hidden="true" />
                   <span>New task</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -316,7 +318,7 @@ export function AppSidebar({
             onClick={showAddProject}
             type="button"
           >
-            <Plus aria-hidden="true" />
+            <PlusIcon aria-hidden="true" />
           </SidebarGroupAction>
           <CollapsibleContent render={<SidebarGroupContent />}>
             {addingProject ? (
@@ -409,7 +411,7 @@ function GroupHeading({ children }: { children: string }) {
       render={<CollapsibleTrigger />}
     >
       <span>{children}</span>
-      <CaretRight aria-hidden="true" className={GROUP_CARET} />
+      <ChevronIcon aria-hidden="true" className={GROUP_CARET} />
     </SidebarGroupLabel>
   );
 }

@@ -1,9 +1,14 @@
-import { CaretRight, NotePencil, WarningCircle } from "@phosphor-icons/react";
 import { Link, useMatchRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
-import { DotsIcon, FolderIcon } from "@/components/icons";
+import {
+  ChevronIcon,
+  CircleWarningIcon,
+  ComposeIcon,
+  DotsIcon,
+  FolderIcon,
+} from "@/components/icons";
 import { STATUS } from "@/components/task-list";
 import { Button } from "@/components/ui/button";
 import {
@@ -118,7 +123,7 @@ export function ProjectItem({
         <CollapsibleTrigger render={<SidebarMenuButton className="pr-14" />}>
           <FolderIcon aria-hidden="true" open={open} />
           <span className="min-w-0 truncate">{project.name}</span>
-          <CaretRight
+          <ChevronIcon
             aria-hidden="true"
             className={cn(
               REVEAL,
@@ -190,7 +195,7 @@ export function ProjectItem({
             size="icon-xs"
             variant="ghost"
           >
-            <NotePencil aria-hidden="true" className="size-4" />
+            <ComposeIcon aria-hidden="true" className="size-4" />
           </Button>
         </div>
 
@@ -229,9 +234,8 @@ export function ProjectItem({
                         className="ml-auto flex shrink-0"
                         role="img"
                       >
-                        <WarningCircle
+                        <CircleWarningIcon
                           className={cn("size-3.5", attention)}
-                          weight="fill"
                         />
                       </span>
                     )}

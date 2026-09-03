@@ -1,12 +1,12 @@
-import {
-  CheckCircle,
-  CircleNotch,
-  Info,
-  Warning,
-  XCircle,
-} from "@phosphor-icons/react";
+import { Info } from "@phosphor-icons/react";
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
+import {
+  CircleCheckIcon,
+  CircleXIcon,
+  LoaderIcon,
+  WarningIcon,
+} from "@/components/icons";
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
@@ -15,11 +15,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       className="toaster group"
       icons={{
-        error: <XCircle className="size-4" />,
+        error: <CircleXIcon className="size-4" />,
         info: <Info className="size-4" />,
-        loading: <CircleNotch className="size-4 animate-spin" />,
-        success: <CheckCircle className="size-4" />,
-        warning: <Warning className="size-4" />,
+        loading: <LoaderIcon className="size-4 animate-spin" />,
+        success: <CircleCheckIcon className="size-4" />,
+        warning: <WarningIcon className="size-4" />,
       }}
       style={
         {

@@ -1,11 +1,10 @@
-import { CircleNotch, Plus } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { projectName } from "@/components/app-sidebar";
-import { NotesIcon } from "@/components/icons";
+import { LoaderIcon, NotesIcon, PlusIcon } from "@/components/icons";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { TAG_CHIP } from "@/components/tags-row";
 import { TimeAgo } from "@/components/time-ago";
@@ -83,12 +82,12 @@ function ScratchpadsPage() {
           size="lg"
         >
           {creating ? (
-            <CircleNotch
+            <LoaderIcon
               className="motion-safe:animate-spin"
               data-icon="inline-start"
             />
           ) : (
-            <Plus data-icon="inline-start" />
+            <PlusIcon data-icon="inline-start" />
           )}
           New scratchpad
         </Button>

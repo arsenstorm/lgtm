@@ -1,10 +1,10 @@
-import { Check, PencilSimple, Trash } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { ActionIcon } from "@/components/action-icon";
 import { projectName } from "@/components/app-sidebar";
+import { CheckIcon, PencilIcon, TrashIcon } from "@/components/icons";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { TimeAgo } from "@/components/time-ago";
 import { Badge } from "@/components/ui/badge";
@@ -146,7 +146,7 @@ function MemoryRow({ memory }: { memory: Memory }) {
               onClick={save}
               size="sm"
             >
-              <ActionIcon busy={pending === "save"} icon={Check} />
+              <ActionIcon busy={pending === "save"} icon={CheckIcon} />
               Save
             </Button>
             <Button
@@ -184,7 +184,7 @@ function MemoryRow({ memory }: { memory: Memory }) {
             size="icon-sm"
             variant="ghost"
           >
-            <ActionIcon busy={pending === "approve"} icon={Check} />
+            <ActionIcon busy={pending === "approve"} icon={CheckIcon} />
           </Button>
         )}
         <Button
@@ -195,7 +195,7 @@ function MemoryRow({ memory }: { memory: Memory }) {
           size="icon-sm"
           variant="ghost"
         >
-          <PencilSimple />
+          <PencilIcon />
         </Button>
         <Button
           aria-label={armed ? "Confirm delete memory" : "Delete memory"}
@@ -214,7 +214,7 @@ function MemoryRow({ memory }: { memory: Memory }) {
           size={armed ? "sm" : "icon-sm"}
           variant={armed ? "destructive" : "ghost"}
         >
-          <ActionIcon busy={pending === "delete"} icon={Trash} />
+          <ActionIcon busy={pending === "delete"} icon={TrashIcon} />
           {armed && "Confirm delete"}
         </Button>
       </div>

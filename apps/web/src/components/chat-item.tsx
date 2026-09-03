@@ -1,9 +1,8 @@
-import { WarningCircle } from "@phosphor-icons/react";
 import { Link, useMatchRoute, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
-import { DotsIcon, MsgsIcon } from "@/components/icons";
+import { CircleWarningIcon, DotsIcon, MsgsIcon } from "@/components/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -72,7 +71,7 @@ export function ChatItem({ chat }: { chat: Chat }) {
             className="ml-auto flex shrink-0 text-red-500 transition-opacity group-focus-within/menu-item:opacity-0 group-hover/menu-item:opacity-0 group-has-[[aria-expanded=true]]/menu-item:opacity-0"
             role="img"
           >
-            <WarningCircle className="size-3.5" weight="fill" />
+            <CircleWarningIcon className="size-3.5" />
           </span>
         ) : null}
       </SidebarMenuButton>
@@ -100,7 +99,7 @@ export function ChatItem({ chat }: { chat: Chat }) {
             Rename…
           </DropdownMenuItem>
           <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={archive}>
-            Archive
+            ArchiveIcon
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

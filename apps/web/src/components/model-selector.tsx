@@ -1,9 +1,9 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { PreviewCard } from "@base-ui/react/preview-card";
-import { CaretDown, Lightning, MagnifyingGlass } from "@phosphor-icons/react";
+import { Lightning } from "@phosphor-icons/react";
 import type { ChangeEvent } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
-
+import { ChevronIcon, SearchIcon } from "@/components/icons";
 import {
   Tooltip,
   TooltipContent,
@@ -491,9 +491,10 @@ export function ModelSelector({
           )}
         </Combobox.Value>
         <ReasoningBadge effort={configurations[model.value] ?? "medium"} />
-        <CaretDown
+        <ChevronIcon
           aria-hidden="true"
           className="size-3 shrink-0 text-muted-foreground"
+          direction="down"
         />
       </Combobox.Trigger>
 
@@ -504,7 +505,7 @@ export function ModelSelector({
               {({ payload }) => (
                 <>
                   <Combobox.InputGroup className="flex items-center gap-2 border-b px-2">
-                    <MagnifyingGlass
+                    <SearchIcon
                       aria-hidden="true"
                       className="size-4 shrink-0 text-muted-foreground"
                     />

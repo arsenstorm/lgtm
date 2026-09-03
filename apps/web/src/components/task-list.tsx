@@ -1,20 +1,21 @@
-import type { Icon } from "@phosphor-icons/react";
 import {
   ChatCircleText,
-  CheckCircle,
-  CircleNotch,
   Clock,
   Eye,
-  GitBranch,
   GitMerge,
   MinusCircle,
   Plugs,
   Prohibit,
   Timer,
-  XCircle,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-
+import {
+  CircleCheckIcon,
+  CircleXIcon,
+  CodeBranchIcon,
+  type IconComponent,
+  LoaderIcon,
+} from "@/components/icons";
 import { TimeAgo } from "@/components/time-ago";
 import type { Task, TaskStatus } from "@/lib/lgtm/types";
 import { cn, taskTitle } from "@/lib/utils";
@@ -28,9 +29,9 @@ type Tone = "idle" | "live" | "attention" | "done" | "broken";
 
 export const STATUS: Record<
   TaskStatus,
-  { label: string; icon: Icon; tone: Tone }
+  { label: string; icon: IconComponent; tone: Tone }
 > = {
-  approved: { icon: CheckCircle, label: "Approved", tone: "done" },
+  approved: { icon: CircleCheckIcon, label: "Approved", tone: "done" },
   awaiting_review: { icon: Eye, label: "Awaiting review", tone: "attention" },
   cancelled: { icon: MinusCircle, label: "Cancelled", tone: "idle" },
   changes_requested: {
@@ -38,13 +39,13 @@ export const STATUS: Record<
     label: "Changes requested",
     tone: "attention",
   },
-  conflicted: { icon: GitBranch, label: "Conflicted", tone: "attention" },
-  failed: { icon: XCircle, label: "Failed", tone: "broken" },
+  conflicted: { icon: CodeBranchIcon, label: "Conflicted", tone: "attention" },
+  failed: { icon: CircleXIcon, label: "Failed", tone: "broken" },
   merged: { icon: GitMerge, label: "Merged", tone: "done" },
   queued: { icon: Clock, label: "Queued", tone: "idle" },
   rejected: { icon: Prohibit, label: "Rejected", tone: "idle" },
   runner_lost: { icon: Plugs, label: "Runner lost", tone: "broken" },
-  running: { icon: CircleNotch, label: "Running", tone: "live" },
+  running: { icon: LoaderIcon, label: "Running", tone: "live" },
   timed_out: { icon: Timer, label: "Timed out", tone: "broken" },
 };
 
@@ -100,7 +101,7 @@ export function TaskList({ tasks }: { tasks: Task[] }) {
 }
 
 function TaskRow({ task }: { task: Task }) {
-  const { label, icon: Icon, tone } = STATUS[task.status];
+  const { label, icon: IconComponent, tone } = STATUS[task.status];
   const needsHuman = tone === "attention";
 
   return (
@@ -122,7 +123,7 @@ function TaskRow({ task }: { task: Task }) {
             TONE_TEXT[tone]
           )}
         >
-          <Icon
+          <IconComponent
             aria-hidden="true"
             className={cn(
               "size-4 h-lh shrink-0",

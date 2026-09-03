@@ -1,12 +1,10 @@
-import type { Icon } from "@phosphor-icons/react";
-import {
-  CaretDown,
-  CheckCircle,
-  Circle,
-  CircleHalf,
-} from "@phosphor-icons/react";
+import { Circle, CircleHalf } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-
+import {
+  ChevronIcon,
+  CircleCheckIcon,
+  type IconComponent,
+} from "@/components/icons";
 import { PriorityIcon } from "@/components/priority-icon";
 import {
   DropdownMenu,
@@ -20,11 +18,11 @@ import { cn } from "@/lib/utils";
 
 export const MARK: Record<
   TodoStatus,
-  { icon: Icon; label: string; className: string }
+  { icon: IconComponent; label: string; className: string }
 > = {
   done: {
     className: "text-emerald-700 dark:text-emerald-400",
-    icon: CheckCircle,
+    icon: CircleCheckIcon,
     label: "Done",
   },
   in_progress: {
@@ -137,7 +135,7 @@ function Picker<T extends string>({
         disabled={disabled}
       >
         {children}
-        <CaretDown className="text-muted-foreground" />
+        <ChevronIcon className="text-muted-foreground" direction="down" />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="min-w-40">
         <DropdownMenuRadioGroup

@@ -1,6 +1,5 @@
-import { Plus, Tag, X } from "@phosphor-icons/react";
 import { useState } from "react";
-
+import { PlusIcon, TagIcon, XIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -32,7 +31,7 @@ export function TagsRow({
     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
       {tags.map((tag) => (
         <span className={TAG_CHIP} key={tag}>
-          <Tag aria-hidden="true" className="size-3" />
+          <TagIcon aria-hidden="true" className="size-3" />
           {tag}
           <button
             aria-label={`Remove ${tag}`}
@@ -46,7 +45,7 @@ export function TagsRow({
             }
             type="button"
           >
-            <X className="size-3" />
+            <XIcon className="size-3" />
           </button>
         </span>
       ))}
@@ -58,7 +57,7 @@ export function TagsRow({
           size="xs"
           variant="ghost"
         >
-          <Plus data-icon="inline-start" />
+          <PlusIcon data-icon="inline-start" />
           Add tag
         </Button>
       ) : (

@@ -1,11 +1,4 @@
 import { Combobox } from "@base-ui/react/combobox";
-import {
-  ArrowUp,
-  Check,
-  CircleNotch,
-  MagnifyingGlass,
-  Plus,
-} from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import {
   createFileRoute,
@@ -18,11 +11,16 @@ import { toast } from "sonner";
 import { LgtmLogo } from "@/components/app-sidebar";
 import {
   AiDeveloperIcon,
+  ArrowUpIcon,
+  CheckIcon,
   CodeBranchIcon,
+  ComposeIcon,
   FolderIcon,
+  LoaderIcon,
   MagicWandSparkleIcon,
   MsgsIcon,
-  TasksIcon,
+  PlusIcon,
+  SearchIcon,
 } from "@/components/icons";
 import {
   type LlmModel,
@@ -349,7 +347,7 @@ function NewTaskPage() {
       onClick={chat.createTask}
       type="button"
     >
-      <TasksIcon className="size-4" />
+      <ComposeIcon className="size-4" />
       Create task
     </button>
   );
@@ -463,7 +461,7 @@ function NewTaskPage() {
                   type="button"
                 >
                   {pending === "enhance" ? (
-                    <CircleNotch className="size-4 animate-spin" />
+                    <LoaderIcon className="size-4 animate-spin" />
                   ) : (
                     <MagicWandSparkleIcon className="size-4" />
                   )}
@@ -491,9 +489,9 @@ function NewTaskPage() {
                 size="icon"
               >
                 {pending === "ask" || pending === "submit" ? (
-                  <CircleNotch className="animate-spin" />
+                  <LoaderIcon className="animate-spin" />
                 ) : (
-                  <ArrowUp />
+                  <ArrowUpIcon />
                 )}
               </Button>
             </div>
@@ -574,7 +572,7 @@ function BranchSwitcher({
         >
           <Combobox.Popup className="w-[min(16rem,var(--available-width))] overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md outline-none ring-1 ring-foreground/10 dark:shadow-none">
             <Combobox.InputGroup className="flex items-center gap-2 border-foreground/10 border-b px-3">
-              <MagnifyingGlass
+              <SearchIcon
                 aria-hidden="true"
                 className="size-5 shrink-0 text-muted-foreground sm:size-4"
               />
@@ -597,7 +595,7 @@ function BranchSwitcher({
                 >
                   <span className="min-w-0 flex-1 truncate">{branch}</span>
                   {branch === value ? (
-                    <Check
+                    <CheckIcon
                       aria-hidden="true"
                       className="size-5 shrink-0 sm:size-4"
                     />
@@ -612,7 +610,7 @@ function BranchSwitcher({
                   onClick={selectCustomBranch}
                   type="button"
                 >
-                  <Plus
+                  <PlusIcon
                     aria-hidden="true"
                     className="size-5 shrink-0 text-muted-foreground sm:size-4"
                   />
@@ -707,7 +705,7 @@ function CompactSwitcher({
         >
           <Combobox.Popup className="w-[min(16rem,var(--available-width))] overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md outline-none ring-1 ring-foreground/10 dark:shadow-none">
             <Combobox.InputGroup className="flex items-center gap-2 border-foreground/10 border-b px-3">
-              <MagnifyingGlass
+              <SearchIcon
                 aria-hidden="true"
                 className="size-5 shrink-0 text-muted-foreground sm:size-4"
               />
@@ -737,7 +735,7 @@ function CompactSwitcher({
                     </div>
                   ) : null}
                   {option.value === value ? (
-                    <Check
+                    <CheckIcon
                       aria-hidden="true"
                       className="size-5 shrink-0 sm:size-4"
                     />

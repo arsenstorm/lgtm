@@ -1,4 +1,3 @@
-import { ArrowUp, CircleNotch } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import {
   createFileRoute,
@@ -8,8 +7,7 @@ import {
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-
-import { TasksIcon } from "@/components/icons";
+import { ArrowUpIcon, ComposeIcon, LoaderIcon } from "@/components/icons";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -126,9 +124,9 @@ function ChatPage() {
       type="button"
     >
       {busy === "brief" ? (
-        <CircleNotch className="size-4 animate-spin" />
+        <LoaderIcon className="size-4 animate-spin" />
       ) : (
-        <TasksIcon className="size-4" />
+        <ComposeIcon className="size-4" />
       )}
       Create task
     </button>
@@ -165,9 +163,9 @@ function ChatPage() {
               size="icon"
             >
               {busy === "send" ? (
-                <CircleNotch className="animate-spin" />
+                <LoaderIcon className="animate-spin" />
               ) : (
-                <ArrowUp />
+                <ArrowUpIcon />
               )}
             </Button>
           </div>
