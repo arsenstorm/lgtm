@@ -1,3 +1,6 @@
+import { useRouter } from "@tanstack/react-router";
+import { useCallback, useEffect, useState } from "react";
+
 import {
   DotsIcon,
   MoonStarsIcon,
@@ -7,6 +10,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -20,6 +24,8 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { DEBUG_COOKIE } from "@/lib/lgtm/debug";
+import { setDebugMode } from "@/lib/lgtm/server";
 
 /**
  * Mirrors the pre-paint script in `__root.tsx`: same `theme` key, same pair of
@@ -107,6 +113,7 @@ export function AccountMenu() {
               <span className="dark:hidden">Dark mode</span>
               <span className="hidden dark:inline">Light mode</span>
             </DropdownMenuItem>
+            {import.meta.env.DEV ? <StretchTextItem /> : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem className="gap-2 px-2 py-1.5" disabled>
               <SignOutIcon aria-hidden="true" />
@@ -132,5 +139,33 @@ function Identity() {
         </span>
       </span>
     </>
+  );
+}
+
+/** Dev only. Every string a person or an agent could have written comes back
+ *  from the orchestrator much longer, so the layout's truncation and wrapping
+ *  get exercised on real pages instead of on a fixture. */
+function StretchTextItem() {
+  const router = useRouter();
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    setOn(document.cookie.includes(`${DEBUG_COOKIE}=1`));
+  }, []);
+  const toggle = useCallback(async () => {
+    const next = !on;
+    setOn(next);
+    await setDebugMode({ data: next });
+    await router.invalidate();
+  }, [on, router]);
+
+  return (
+    <DropdownMenuCheckboxItem
+      checked={on}
+      className="gap-2 px-2 py-1.5"
+      closeOnClick={false}
+      onCheckedChange={toggle}
+    >
+      Stretch text
+    </DropdownMenuCheckboxItem>
   );
 }
