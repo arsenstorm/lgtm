@@ -1,3 +1,4 @@
+import { CaretRight } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
@@ -7,19 +8,29 @@ import { TextResponse } from "@/components/aicss/TextResponse";
 import { ThinkingState } from "@/components/aicss/ThinkingState";
 import type { Referenced } from "@/components/answer-references";
 import { AnswerReferences } from "@/components/answer-references";
+import { shortSpan } from "@/components/task-list";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
-import { Marker, MarkerContent } from "@/components/ui/marker";
+import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 import {
   Message,
   MessageContent,
   MessageFooter,
 } from "@/components/ui/message";
-import { askWorkspace, enhancePrompt } from "@/lib/lgtm/server";
+import {
+  type AskAnswer,
+  type AskStep,
+  askWorkspace,
+  enhancePrompt,
+} from "@/lib/lgtm/server";
 
 export interface ChatTurn {
   id: string;
+  /** Only an assistant turn carries these. */
+  refs?: string[];
   role: "user" | "assistant";
+  steps?: AskStep[];
   text: string;
+  workedMs?: number;
 }
 
 export type ComposerMode = "chat" | "task";
@@ -50,6 +61,17 @@ function chatTurn(role: ChatTurn["role"], text: string): ChatTurn {
   return { id: crypto.randomUUID(), role, text };
 }
 
+function answerTurn(answer: AskAnswer): ChatTurn {
+  return {
+    id: crypto.randomUUID(),
+    refs: answer.refs,
+    role: "assistant",
+    steps: answer.steps,
+    text: answer.answer,
+    workedMs: answer.worked_ms,
+  };
+}
+
 /** Chat is the default: reading the workspace costs nothing. Task mode is the
  * explicit step that can queue work, so it is the one a person has to pick.
  * `pending` is shared with the composer's own actions so one thing runs at a
@@ -78,10 +100,10 @@ export function useWorkspaceChat({
       setTurns([...before, chatTurn("user", asked)]);
       setPending("ask");
       try {
-        const { answer } = await askWorkspace({
+        const answer = await askWorkspace({
           data: { question: askedQuestion(before, asked, repository) },
         });
-        setTurns((current) => [...current, chatTurn("assistant", answer)]);
+        setTurns((current) => [...current, answerTurn(answer)]);
         return true;
       } catch (error) {
         // The orchestrator's reason (--orchestrate off, a question already
@@ -131,6 +153,37 @@ export function useWorkspaceChat({
   return { ask, backToChat, createTask, mode, turns };
 }
 
+/** What the agent did on the way to its answer, folded away the way a task's
+ * tool activity is. */
+function Worked({ steps, workedMs }: { steps: AskStep[]; workedMs: number }) {
+  return (
+    <details className="group min-w-0">
+      <summary className="cursor-pointer list-none rounded-md [&::-webkit-details-marker]:hidden">
+        <Marker>
+          <MarkerIcon>
+            <CaretRight className="transition-transform group-open:rotate-90" />
+          </MarkerIcon>
+          <MarkerContent className="transition-colors group-hover:text-foreground">
+            Worked for {shortSpan(workedMs)}
+          </MarkerContent>
+        </Marker>
+      </summary>
+      {steps.length > 0 ? (
+        <ul className="mt-3 ml-2 flex min-w-0 flex-col gap-1.5 border-l pl-4 font-mono text-muted-foreground text-xs">
+          {steps.map((step, index) => (
+            // Position is stable: the trace is fixed once the answer arrives.
+            // biome-ignore lint/suspicious/noArrayIndexKey: append-only trace
+            <li key={index}>
+              {step.tool}
+              {step.detail ? ` ${step.detail}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </details>
+  );
+}
+
 /** The home conversation with the read-only workspace agent. Nothing here
  * changes state: `action` is the one way out, rendered under the latest
  * answer, and only the composer it hands off to queues work. */
@@ -174,6 +227,9 @@ export function WorkspaceChat({
             ) : (
               <Message>
                 <MessageContent>
+                  {turn.workedMs === undefined ? null : (
+                    <Worked steps={turn.steps ?? []} workedMs={turn.workedMs} />
+                  )}
                   <Bubble variant="ghost">
                     <BubbleContent>
                       <TextResponse>
@@ -181,7 +237,10 @@ export function WorkspaceChat({
                       </TextResponse>
                     </BubbleContent>
                   </Bubble>
-                  <AnswerReferences all={references} text={turn.text} />
+                  <AnswerReferences
+                    all={references}
+                    text={[...(turn.refs ?? []), turn.text].join(" ")}
+                  />
                   {turn === lastAnswer && !pending ? (
                     <MessageFooter>{action}</MessageFooter>
                   ) : null}
@@ -200,7 +259,7 @@ export function WorkspaceChat({
           </li>
         ) : null}
       </ol>
-      <div ref={endRef} />
+      <div className="scroll-mb-44" ref={endRef} />
     </div>
   );
 }
