@@ -181,6 +181,7 @@ export function ProjectItem({
           <Button
             aria-label={`New task in ${project.name}`}
             className="text-muted-foreground"
+            nativeButton={false}
             render={<Link search={{ repo: project.repository }} to="/" />}
             size="icon-xs"
             variant="ghost"
