@@ -1,20 +1,16 @@
 import type { Icon } from "@phosphor-icons/react";
 import {
   ArrowUp,
-  Binoculars,
-  Bug,
   CaretDown,
   CircleNotch,
   FolderSimple,
   GitBranch,
   HardDrives,
-  ListChecks,
   Sparkle,
-  Wrench,
 } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { LgtmLogo } from "@/components/app-sidebar";
@@ -48,32 +44,10 @@ export const Route = createFileRoute("/tasks/new")({
   errorComponent: NewTaskError,
 });
 
-const SEEDS: { title: string; icon: Icon; tone: string; seed: string }[] = [
-  {
-    title: "Explore and understand code",
-    icon: Binoculars,
-    tone: "text-sky-600 dark:text-sky-400",
-    seed: "Explore and explain how ",
-  },
-  {
-    title: "Build a new feature, app, or tool",
-    icon: Wrench,
-    tone: "text-violet-600 dark:text-violet-400",
-    seed: "Build ",
-  },
-  {
-    title: "Review code and suggest changes",
-    icon: ListChecks,
-    tone: "text-emerald-600 dark:text-emerald-400",
-    seed: "Review ",
-  },
-  {
-    title: "Fix issues and failures",
-    icon: Bug,
-    tone: "text-orange-600 dark:text-orange-400",
-    seed: "Fix ",
-  },
-];
+// Every control in the composer is bare: the only chrome is the text going
+// from muted to foreground, so focus-visible has to carry the ring alone.
+const CONTROL =
+  "flex items-center gap-1.5 rounded-sm text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50";
 
 const EXECUTORS: { value: Executor; label: string }[] = [
   { value: "claude", label: "Claude" },
@@ -96,15 +70,9 @@ function NewTaskPage() {
   const [executor, setExecutor] = useState<Executor>("claude");
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<"enhance" | "submit" | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const project = repositories.find((p) => p.repository === repository);
   const busy = pending !== null;
-
-  function seedDraft(seed: string) {
-    setDraft((current) => (current.trim() === "" ? seed : current));
-    textareaRef.current?.focus();
-  }
 
   async function enhance() {
     const prompt = draft.trim();
@@ -152,136 +120,134 @@ function NewTaskPage() {
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-4 py-6 sm:px-6">
-      <div className="flex flex-1 flex-col items-center justify-center gap-8">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <LgtmLogo className="size-8 text-muted-foreground" />
-          <h1 className="font-semibold text-2xl tracking-tight sm:text-3xl">
-            What should we build in{" "}
-            <RepositoryPicker
-              label={project ? project.name : "a repository"}
-              onPick={setRepository}
-              repositories={repositories}
-              trigger={
-                <button
-                  className="rounded-sm underline decoration-muted-foreground/50 decoration-dashed underline-offset-4 outline-none hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-                  type="button"
-                />
-              }
-            />
-            ?
-          </h1>
-        </div>
-
-        <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-4">
-          {SEEDS.map(({ title, icon: SeedIcon, tone, seed }) => (
-            <button
-              className="flex flex-col gap-2 rounded-xl border p-3 text-left text-sm outline-none transition-colors hover:bg-foreground/4 focus-visible:ring-2 focus-visible:ring-ring/50"
-              key={title}
-              onClick={() => seedDraft(seed)}
-              type="button"
-            >
-              <SeedIcon aria-hidden="true" className={cn("size-4", tone)} />
-              <span className="text-pretty">{title}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="sticky bottom-6 mt-8 flex flex-col rounded-2xl border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring/30">
-        <div className="flex flex-wrap items-center gap-1 border-b px-2 py-1.5">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+        <LgtmLogo className="size-8 text-muted-foreground" />
+        <h1 className="font-semibold text-2xl tracking-tight sm:text-3xl">
+          What should we build in{" "}
           <RepositoryPicker
-            label={project ? project.name : "repository"}
+            label={project ? project.name : "a repository"}
             onPick={setRepository}
             repositories={repositories}
-            trigger={<Chip icon={FolderSimple} />}
-          />
-          <DropdownMenu>
-            <DropdownMenuTrigger render={<Chip icon={HardDrives} />}>
-              {runner ?? "Any runner"}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => setRunner(null)}>
-                Any runner
-              </DropdownMenuItem>
-              {runners.map((r) => (
-                <DropdownMenuItem
-                  key={r.info.name}
-                  onClick={() => setRunner(r.info.name)}
-                >
-                  {r.info.name}
-                  <span className="ml-auto text-muted-foreground text-xs">
-                    {r.running.length}/{r.info.slots}
-                  </span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {editingBranch ? (
-            <input
-              autoFocus
-              className="h-6 w-28 rounded-md border bg-transparent px-1.5 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              defaultValue={branch}
-              onBlur={() => setEditingBranch(false)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  setBranch(event.currentTarget.value);
-                  setEditingBranch(false);
-                }
-                if (event.key === "Escape") {
-                  setEditingBranch(false);
-                }
-              }}
-            />
-          ) : (
-            <Chip icon={GitBranch} onClick={() => setEditingBranch(true)}>
-              {branch}
-            </Chip>
-          )}
-        </div>
-
-        <Textarea
-          aria-label="Task prompt"
-          className="max-h-64 min-h-20 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              submit();
+            trigger={
+              // The decoration keeps its muted colour; the name dims toward it
+              // and the underline drops away on hover. Chromium animates
+              // text-underline-offset, elsewhere the colour fade carries it.
+              <button
+                className="rounded-sm text-foreground underline decoration-muted-foreground/50 decoration-dashed underline-offset-4 outline-none transition-[color,text-underline-offset] duration-300 hover:text-muted-foreground hover:underline-offset-[7px] focus-visible:ring-2 focus-visible:ring-ring/50"
+                type="button"
+              />
             }
-          }}
-          placeholder="Do anything"
-          ref={textareaRef}
-          value={draft}
+          />
+          ?
+        </h1>
+      </div>
+
+      <div className="sticky bottom-6 mt-8 flex flex-col">
+        {/* The rear pill sits behind the composer and only shows its top edge:
+            one step of luminance between page and card, no border. */}
+        <RepositoryPicker
+          label={project ? project.name : "repository"}
+          onPick={setRepository}
+          repositories={repositories}
+          trigger={
+            <Control
+              className="mx-3.5 -mb-4 rounded-t-[18px] bg-foreground/3 px-4 pt-2 pb-6 text-left dark:bg-foreground/4"
+              icon={FolderSimple}
+            />
+          }
         />
 
-        <div className="flex items-center gap-2 px-2 pb-2">
-          <Button
-            className="text-muted-foreground"
-            disabled={busy || draft.trim() === ""}
-            onClick={enhance}
-            size="sm"
-            variant="ghost"
-          >
-            {pending === "enhance" ? (
-              <CircleNotch className="animate-spin" />
+        {/* In light mode --card equals --background, so this hairline is the
+            only thing separating the composer from the page. */}
+        <div className="relative flex flex-col rounded-[18px] border border-foreground/6 bg-card transition-colors focus-within:border-foreground/15">
+          <Textarea
+            aria-label="Task prompt"
+            className="max-h-64 min-h-20 resize-none border-0 bg-transparent px-3 py-3 shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0 dark:bg-transparent"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+            placeholder="Describe your task..."
+            value={draft}
+          />
+
+          <div className="flex items-center gap-3 px-4 pb-4">
+            <button
+              className={cn(CONTROL, "disabled:opacity-40")}
+              disabled={busy || draft.trim() === ""}
+              onClick={enhance}
+              type="button"
+            >
+              {pending === "enhance" ? (
+                <CircleNotch className="size-4 animate-spin" />
+              ) : (
+                <Sparkle className="size-4" />
+              )}
+              Enhance
+            </button>
+
+            <div aria-hidden="true" className="h-4 w-px bg-border/60" />
+
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Control icon={HardDrives} />}>
+                {runner ?? "Any runner"}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => setRunner(null)}>
+                  Any runner
+                </DropdownMenuItem>
+                {runners.map((r) => (
+                  <DropdownMenuItem
+                    key={r.info.name}
+                    onClick={() => setRunner(r.info.name)}
+                  >
+                    {r.info.name}
+                    <span className="ml-auto text-muted-foreground text-xs">
+                      {r.running.length}/{r.info.slots}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {editingBranch ? (
+              <input
+                autoFocus
+                className="w-28 rounded-sm bg-transparent font-mono text-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                defaultValue={branch}
+                onBlur={() => setEditingBranch(false)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    setBranch(event.currentTarget.value);
+                    setEditingBranch(false);
+                  }
+                  if (event.key === "Escape") {
+                    setEditingBranch(false);
+                  }
+                }}
+              />
             ) : (
-              <Sparkle />
+              <Control icon={GitBranch} onClick={() => setEditingBranch(true)}>
+                {branch}
+              </Control>
             )}
-            Enhance
-          </Button>
-          <div className="ml-auto flex items-center gap-2">
+
+            <div className="flex-1" />
+
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <Button
-                    className="text-muted-foreground"
-                    size="sm"
-                    variant="ghost"
+                  <button
+                    className="flex items-center gap-1 rounded-sm font-medium text-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    type="button"
                   />
                 }
               >
                 {EXECUTORS.find((e) => e.value === executor)?.label}
-                <CaretDown className="size-3" />
+                <CaretDown className="size-3 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {EXECUTORS.map(({ value, label }) => (
@@ -294,9 +260,10 @@ function NewTaskPage() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+
             <Button
               aria-label="Queue task"
-              className="size-8 rounded-full"
+              className="ml-1 size-8 rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-40"
               disabled={busy || draft.trim() === "" || repository === ""}
               onClick={submit}
               size="icon"
@@ -348,24 +315,18 @@ function RepositoryPicker({
   );
 }
 
-function Chip({
-  icon: ChipIcon,
-  onClick,
+function Control({
+  icon: ControlIcon,
+  className,
   children,
   ...props
 }: {
   children?: React.ReactNode;
   icon: Icon;
-  onClick?: () => void;
 } & React.ComponentProps<"button">) {
   return (
-    <button
-      className="flex h-6 items-center gap-1.5 rounded-md px-1.5 text-muted-foreground text-xs outline-none transition-colors hover:bg-foreground/6 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-      onClick={onClick}
-      type="button"
-      {...props}
-    >
-      <ChipIcon aria-hidden="true" className="size-3.5" />
+    <button className={cn(CONTROL, className)} type="button" {...props}>
+      <ControlIcon aria-hidden="true" className="size-4 shrink-0" />
       {children}
     </button>
   );
