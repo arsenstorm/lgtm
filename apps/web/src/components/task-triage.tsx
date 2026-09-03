@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
+import { PageHeading } from "@/components/page-heading";
 import { EmptyTasks, STATUS, TONE_TEXT } from "@/components/task-list";
 import { TimeAgo } from "@/components/time-ago";
 import {
@@ -69,19 +70,13 @@ export function TaskTriage({ stats, tasks }: { stats: Stats; tasks: Task[] }) {
 
   return (
     <div className="flex flex-col gap-10">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <h1 className="font-medium text-xl tracking-tight">Tasks</h1>
-          <span className="text-muted-foreground text-sm tabular-nums">
-            {recent}
-          </span>
-        </div>
+      <PageHeading meta={recent} title="Tasks">
         <p className="text-muted-foreground text-sm tabular-nums">
           {USD.format(stats.cost_usd)} spent
           <span className="text-muted-foreground/60"> · </span>
           {USD.format(stats.spent_today)} today
         </p>
-      </div>
+      </PageHeading>
       <TooltipProvider delay={300}>
         {BUCKETS.map((bucket) => (
           <Section
@@ -193,18 +188,16 @@ function Row({ task }: { task: Task }) {
 /** The column is narrow on purpose; a name that does not fit gets a tooltip,
  *  and only then, so short names stay quiet on hover. */
 function RunnerName({ name }: { name: string | null }) {
-  const ref = useRef<HTMLSpanElement | null>(null);
   const [clipped, setClipped] = useState(false);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (el) {
-      setClipped(el.scrollWidth > el.clientWidth);
-    }
-  }, []);
+  const measure = useCallback(
+    (el: HTMLSpanElement | null) =>
+      setClipped(el !== null && el.scrollWidth > el.clientWidth),
+    []
+  );
   const text = (
     <span
       className="hidden w-24 shrink-0 truncate text-end text-muted-foreground md:block"
-      ref={ref}
+      ref={measure}
     >
       {name ?? "—"}
     </span>

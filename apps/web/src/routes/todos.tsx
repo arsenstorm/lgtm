@@ -2,6 +2,7 @@ import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronIcon } from "@/components/icons";
 import { OrchestratorError } from "@/components/orchestrator-error";
+import { PageHeading } from "@/components/page-heading";
 import { MARK } from "@/components/todo-chips";
 import { TodoRow } from "@/components/todo-row";
 import {
@@ -42,12 +43,7 @@ function TodosPage() {
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters.
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex items-baseline gap-3">
-        <h1 className="font-medium text-xl tracking-tight">Todos</h1>
-        <span className="text-muted-foreground text-sm tabular-nums">
-          {openCount} open
-        </span>
-      </div>
+      <PageHeading meta={`${openCount} open`} title="Todos" />
 
       {groups.length === 0 ? (
         <p className="text-muted-foreground text-sm">No todos yet.</p>

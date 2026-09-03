@@ -2,6 +2,7 @@ import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { OrchestratorError } from "@/components/orchestrator-error";
+import { PageHeading } from "@/components/page-heading";
 import { RunnerList } from "@/components/runner-list";
 import { getRunners } from "@/lib/lgtm/server";
 
@@ -23,12 +24,10 @@ function RunnersPage() {
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters.
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex items-baseline gap-3">
-        <h1 className="font-medium text-xl tracking-tight">Runners</h1>
-        <span className="text-muted-foreground text-sm tabular-nums">
-          {runners.length === 0 ? "0" : `${busy} of ${slots} slots busy`}
-        </span>
-      </div>
+      <PageHeading
+        meta={runners.length === 0 ? "0" : `${busy} of ${slots} slots busy`}
+        title="Runners"
+      />
       <RunnerList runners={runners} />
     </div>
   );

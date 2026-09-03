@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { projectName } from "@/components/app-sidebar";
 import { OrchestratorError } from "@/components/orchestrator-error";
+import { PageHeading } from "@/components/page-heading";
 import { TimeAgo } from "@/components/time-ago";
 import { getSessions } from "@/lib/lgtm/server";
 import type { Session } from "@/lib/lgtm/types";
@@ -26,12 +27,7 @@ function SessionsPage() {
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters.
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex items-baseline gap-3">
-        <h1 className="font-medium text-xl tracking-tight">Sessions</h1>
-        <span className="text-muted-foreground text-sm tabular-nums">
-          {live} active
-        </span>
-      </div>
+      <PageHeading meta={`${live} active`} title="Sessions" />
 
       {ordered.length === 0 ? (
         <p className="text-muted-foreground text-sm">No sessions yet.</p>

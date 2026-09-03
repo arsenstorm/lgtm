@@ -6,6 +6,7 @@ import { ActionIcon } from "@/components/action-icon";
 import { projectName } from "@/components/app-sidebar";
 import { CheckIcon, PencilIcon, TrashIcon } from "@/components/icons";
 import { OrchestratorError } from "@/components/orchestrator-error";
+import { PageHeading } from "@/components/page-heading";
 import { TimeAgo } from "@/components/time-ago";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,12 +69,7 @@ function MemoriesPage() {
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters.
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex items-baseline gap-3">
-        <h1 className="font-medium text-xl tracking-tight">Memories</h1>
-        <span className="text-muted-foreground text-sm tabular-nums">
-          {memories.length}
-        </span>
-      </div>
+      <PageHeading meta={memories.length} title="Memories" />
 
       {groups.length === 0 ? (
         <p className="text-muted-foreground text-sm">No memories yet.</p>
