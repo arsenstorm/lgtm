@@ -57,6 +57,13 @@ async fn one_shot(executor: Executor, system: &str, prompt: &str) -> Result<Stri
         capture_answer(line, &text, executor);
     }
     let answer = final_text(&text);
+    if !output.status.success() {
+        let detail = answer.trim();
+        if detail.is_empty() {
+            bail!("{binary} exited with {}", output.status);
+        }
+        bail!("{binary} exited with {}: {detail}", output.status);
+    }
     if answer.trim().is_empty() {
         bail!("{binary} answered nothing, exit {}", output.status);
     }
