@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 
 import { projectName } from '@/components/app-sidebar'
 import { OrchestratorError } from '@/components/orchestrator-error'
-import { relativeAge } from '@/components/task-list'
+import { TimeAgo } from '@/components/time-ago'
 import { Button } from '@/components/ui/button'
 import { createScratchpad, getScratchpads } from '@/lib/lgtm/server'
 import type { Scratchpad } from '@/lib/lgtm/types'
@@ -125,13 +125,10 @@ function ScratchpadRow({ pad }: { pad: Scratchpad }) {
         </span>
       )}
 
-      <time
-        dateTime={new Date(pad.updated_at).toISOString()}
-        suppressHydrationWarning
-        className="shrink-0 text-end tabular-nums text-muted-foreground"
-      >
-        edited {relativeAge(pad.updated_at)}
-      </time>
+      <TimeAgo
+        at={pad.updated_at}
+        className="shrink-0 text-end text-muted-foreground tabular-nums"
+      />
     </Link>
   )
 }
