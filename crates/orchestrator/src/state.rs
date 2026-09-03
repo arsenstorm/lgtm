@@ -7,9 +7,9 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
-    first_line_title, goal_status, Batch, Goal, GoalSummary, Memory, MemorySource,
-    OrchestratorMessage, Project, Scratchpad, Session, StoredEvent, Task, TaskEvent, TaskId,
-    TaskSpec, TaskStatus, Todo, TodoComment, TodoStatus, Verification,
+    first_line_title, goal_status, Batch, Chat, ChatRole, ChatTurn, Goal, GoalSummary, Memory,
+    MemorySource, OrchestratorMessage, Project, Scratchpad, Session, StoredEvent, Task, TaskEvent,
+    TaskId, TaskSpec, TaskStatus, Todo, TodoComment, TodoStatus, Verification,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 
@@ -152,6 +152,10 @@ impl App {
         let _ = self.persist.send(Persist::Session(session.clone()));
     }
 
+    pub fn persist_chat(&self, chat: &Chat) {
+        let _ = self.persist.send(Persist::Chat(chat.clone()));
+    }
+
     pub fn remove_session_record(&self, id: &str) {
         let _ = self.persist.send(Persist::RemoveSession(id.to_string()));
     }
@@ -243,6 +247,7 @@ pub struct State {
     pub goals: HashMap<String, Goal>,
     /// Chat threads, by id. A task points back with `spec.session`.
     pub sessions: HashMap<String, Session>,
+    pub chats: HashMap<String, Chat>,
     /// Lightweight notes about work to do, by id.
     pub todos: HashMap<String, Todo>,
     /// Comments on todos, by id. A comment points back with `todo`.
@@ -412,6 +417,18 @@ pub fn now_ms() -> u64 {
 /// Eight lowercase hex characters, which `persist::file_stem` accepts.
 pub(crate) fn random_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()[..8].to_string()
+}
+
+pub(crate) fn person_turn(text: String) -> ChatTurn {
+    ChatTurn {
+        role: ChatRole::Person,
+        text,
+        at: now_ms(),
+        refs: Vec::new(),
+        steps: Vec::new(),
+        worked_ms: 0,
+        failed: false,
+    }
 }
 
 impl State {
@@ -607,6 +624,34 @@ impl State {
         tracing::info!(session = %session.id, "session created");
         self.sessions.insert(session.id.clone(), session.clone());
         session
+    }
+
+    pub(crate) fn new_chat_id(&self) -> String {
+        std::iter::repeat_with(random_id)
+            .find(|id| !self.chats.contains_key(id))
+            .unwrap_or_default()
+    }
+
+    /// A chat opens with the person's first question already in it.
+    pub fn create_chat(&mut self, question: String, created_by: Option<String>) -> Chat {
+        let chat = Chat {
+            id: self.new_chat_id(),
+            title: first_line_title(&question),
+            created_at: now_ms(),
+            workspace: self.workspace.clone(),
+            created_by,
+            turns: vec![person_turn(question)],
+        };
+        tracing::info!(chat = %chat.id, "chat created");
+        self.chats.insert(chat.id.clone(), chat.clone());
+        chat
+    }
+
+    /// Appends a turn; `None` when there is no such chat.
+    pub fn push_chat_turn(&mut self, id: &str, turn: ChatTurn) -> Option<Chat> {
+        let chat = self.chats.get_mut(id)?;
+        chat.turns.push(turn);
+        Some(chat.clone())
     }
 
     /// Renames a thread, archives it, or both. `None` when there is no such

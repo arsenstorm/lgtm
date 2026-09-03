@@ -168,6 +168,8 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     std::fs::create_dir_all(&projects_dir)?;
     let sessions_dir = data_dir.join("sessions");
     std::fs::create_dir_all(&sessions_dir)?;
+    let chats_dir = data_dir.join("chats");
+    std::fs::create_dir_all(&chats_dir)?;
     let mut state = State {
         queue_without_runners,
         ..State::default()
@@ -211,6 +213,9 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     }
     for session in persist::load_all_sessions(&sessions_dir) {
         state.sessions.insert(session.id.clone(), session);
+    }
+    for chat in persist::load_all_chats(&chats_dir) {
+        state.chats.insert(chat.id.clone(), chat);
     }
     for rec in persist::load_users(data_dir) {
         state.users.insert(rec.user.id.clone(), rec);

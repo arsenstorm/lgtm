@@ -3,7 +3,8 @@
 //! goal under `<data_dir>/goals`, one per todo under `<data_dir>/todos`, one
 //! per todo comment under `<data_dir>/todo_comments`, one per scratchpad
 //! under `<data_dir>/scratchpads`, one per project under
-//! `<data_dir>/projects`, and one per session under `<data_dir>/sessions`.
+//! `<data_dir>/projects`, one per session under `<data_dir>/sessions`, and
+//! one per chat under `<data_dir>/chats`.
 //!
 //! A task's events are append-only: rewriting `<id>.json` on every event
 //! meant copying the whole history back to disk each time, so events live in
@@ -14,8 +15,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use lgtm_protocol::{
-    Batch, Goal, Memory, Overlap, Project, Scratchpad, Session, StoredEvent, Task, TaskId, Todo,
-    TodoComment,
+    Batch, Chat, Goal, Memory, Overlap, Project, Scratchpad, Session, StoredEvent, Task, TaskId,
+    Todo, TodoComment,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -55,6 +56,7 @@ pub enum Persist {
     Project(Project),
     Session(Session),
     RemoveSession(String),
+    Chat(Chat),
     /// The whole users store; users are few and change rarely, so the file
     /// is rewritten rather than kept per-id.
     Users(Vec<crate::users::UserRecord>),
@@ -99,6 +101,7 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
     let scratchpads = dir.join("scratchpads");
     let projects = dir.join("projects");
     let sessions = dir.join("sessions");
+    let chats = dir.join("chats");
     let artefacts = dir.join("artefacts");
     while let Some(item) = rx.recv().await {
         match item {
@@ -129,6 +132,7 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
             Persist::Project(project) => save_project(&projects, &project),
             Persist::Session(session) => save_session(&sessions, &session),
             Persist::RemoveSession(id) => remove_by_id(&sessions, "session", &id),
+            Persist::Chat(chat) => save_chat(&chats, &chat),
             Persist::Users(users) => save_users(&dir, &users),
             Persist::Credentials(store) => save_credentials(&dir, &store),
         }
@@ -257,6 +261,10 @@ pub fn save_project(dir: &Path, project: &Project) {
 
 pub fn save_session(dir: &Path, session: &Session) {
     save_by_id(dir, "session", &session.id, session);
+}
+
+pub fn save_chat(dir: &Path, chat: &Chat) {
+    save_by_id(dir, "chat", &chat.id, chat);
 }
 
 /// A JSON file holding secrets, owner-readable only. The temporary file is
@@ -481,6 +489,10 @@ pub fn load_all_projects(dir: &Path) -> Vec<Project> {
 
 pub fn load_all_sessions(dir: &Path) -> Vec<Session> {
     load_dir(dir, |session: &Session| session.id.as_str())
+}
+
+pub fn load_all_chats(dir: &Path) -> Vec<Chat> {
+    load_dir(dir, |chat: &Chat| chat.id.as_str())
 }
 
 #[cfg(test)]
