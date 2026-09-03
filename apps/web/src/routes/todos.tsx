@@ -1,147 +1,139 @@
-import { Link, createFileRoute } from '@tanstack/react-router'
-import type { ErrorComponentProps } from '@tanstack/react-router'
-import { CheckCircle, Circle, CircleHalf } from '@phosphor-icons/react'
-import type { Icon } from '@phosphor-icons/react'
+import { CaretRight, CellSignalHigh, CellSignalLow, CellSignalMedium, CheckCircle, Circle, CircleHalf } from "@phosphor-icons/react";
+import type { Icon } from "@phosphor-icons/react";
+import { Link, createFileRoute } from "@tanstack/react-router";
+import type { ErrorComponentProps } from "@tanstack/react-router";
 
-import { projectName } from '@/components/app-sidebar'
-import { OrchestratorError } from '@/components/orchestrator-error'
-import { TimeAgo } from '@/components/time-ago'
-import { Badge } from '@/components/ui/badge'
-import { getTodos } from '@/lib/lgtm/server'
-import type { Todo, TodoStatus } from '@/lib/lgtm/types'
-import { cn } from '@/lib/utils'
+import { projectName } from "@/components/app-sidebar";
+import { OrchestratorError } from "@/components/orchestrator-error";
+import { TimeAgo } from "@/components/time-ago";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { getTodos } from "@/lib/lgtm/server";
+import type { Todo, TodoPriority, TodoStatus } from "@/lib/lgtm/types";
+import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute('/todos')({
+export const Route = createFileRoute("/todos")({
   loader: async () => ({ todos: await getTodos() }),
   component: TodosPage,
   errorComponent: TodosError,
-})
+});
 
 export const MARK: Record<TodoStatus, { icon: Icon; label: string; className: string }> = {
-  open: { icon: Circle, label: 'Open', className: 'text-muted-foreground' },
-  in_progress: { icon: CircleHalf, label: 'In progress', className: 'text-foreground' },
-  done: { icon: CheckCircle, label: 'Done', className: 'text-emerald-700 dark:text-emerald-400' },
-}
+  open: { icon: Circle, label: "Open", className: "text-muted-foreground" },
+  in_progress: {
+    icon: CircleHalf,
+    label: "In progress",
+    className: "text-amber-600 dark:text-amber-400",
+  },
+  done: { icon: CheckCircle, label: "Done", className: "text-emerald-700 dark:text-emerald-400" },
+};
 
-const PRIORITY_RANK = { high: 0, medium: 1, low: 2 }
+// The bars read as a ramp; colour would just repeat what the shape says.
+const PRIORITY_ICON: Record<TodoPriority, Icon> = {
+  high: CellSignalHigh,
+  medium: CellSignalMedium,
+  low: CellSignalLow,
+};
 
-interface Group {
-  key: string
-  label: string
-  todos: Todo[]
-}
+const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
 
-function group(todos: Todo[]): Group[] {
-  const byRepository = new Map<string | null, Todo[]>()
-  for (const todo of todos) {
-    const bucket = byRepository.get(todo.repository)
-    if (bucket) {
-      bucket.push(todo)
-    } else {
-      byRepository.set(todo.repository, [todo])
-    }
-  }
-
-  return [...byRepository]
-    .map(([repository, list]) => ({
-      key: repository ?? '',
-      label: repository === null ? 'Every repository' : projectName(repository),
-      todos: [...list].sort(
-        (a, b) =>
-          Number(a.status === 'done') - Number(b.status === 'done') ||
-          PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
-          b.created_at - a.created_at,
-      ),
-    }))
-    // Repository-wide todos apply everywhere, so they lead.
-    .sort((a, b) => Number(!!a.key) - Number(!!b.key) || a.label.localeCompare(b.label))
-}
+// Work in flight leads, the backlog follows, finished work sinks.
+const STATUS_ORDER: TodoStatus[] = ["in_progress", "open", "done"];
 
 function TodosPage() {
-  const { todos } = Route.useLoaderData()
-  const groups = group(todos)
-  const openCount = todos.filter((todo) => todo.status !== 'done').length
+  const { todos } = Route.useLoaderData();
+  const openCount = todos.filter((todo) => todo.status !== "done").length;
+  const groups = STATUS_ORDER.map((status) => ({
+    status,
+    todos: todos
+      .filter((todo) => todo.status === status)
+      .sort(
+        (a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || b.created_at - a.created_at,
+      ),
+  })).filter((group) => group.todos.length > 0);
 
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters.
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <div className="flex items-baseline gap-3">
-        <h1 className="text-xl font-medium tracking-tight">Todos</h1>
-        <span className="text-sm tabular-nums text-muted-foreground">{openCount} open</span>
+        <h1 className="font-medium text-xl tracking-tight">Todos</h1>
+        <span className="text-muted-foreground text-sm tabular-nums">{openCount} open</span>
       </div>
 
       {groups.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No todos yet.</p>
+        <p className="text-muted-foreground text-sm">No todos yet.</p>
       ) : (
-        groups.map((entry) => (
-          <section key={entry.key} className="flex flex-col gap-2">
-            <h2 className="text-sm font-medium text-muted-foreground">{entry.label}</h2>
-            <ul role="list" className="-mx-2 divide-y divide-foreground/5">
-              {entry.todos.map((todo) => (
-                <li key={todo.id}>
-                  <TodoRow todo={todo} />
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))
+        <div className="flex flex-col gap-1">
+          {groups.map(({ status, todos: list }) => (
+            <StatusGroup key={status} status={status} todos={list} />
+          ))}
+        </div>
       )}
     </div>
-  )
+  );
+}
+
+function StatusGroup({ status, todos }: { status: TodoStatus; todos: Todo[] }) {
+  const { icon: Mark, label, className } = MARK[status];
+
+  return (
+    <Collapsible defaultOpen>
+      <CollapsibleTrigger className="group/header flex w-full items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50">
+        <CaretRight
+          aria-hidden="true"
+          className="size-3 text-muted-foreground transition-transform duration-200 group-data-[panel-open]/header:rotate-90"
+        />
+        <Mark aria-hidden="true" className={cn("size-4", className)} weight={status === "done" ? "fill" : "regular"} />
+        <span className="font-medium">{label}</span>
+        <span className="text-muted-foreground tabular-nums">{todos.length}</span>
+      </CollapsibleTrigger>
+
+      <CollapsibleContent>
+        <ul className="flex flex-col py-1">
+          {todos.map((todo) => (
+            <li key={todo.id}>
+              <TodoRow todo={todo} />
+            </li>
+          ))}
+        </ul>
+      </CollapsibleContent>
+    </Collapsible>
+  );
 }
 
 function TodoRow({ todo }: { todo: Todo }) {
-  const { icon: Mark, label, className } = MARK[todo.status]
-  const done = todo.status === 'done'
+  const { icon: Mark, label, className } = MARK[todo.status];
+  const Priority = PRIORITY_ICON[todo.priority];
+  const done = todo.status === "done";
 
   return (
     <Link
-      to="/todos/$id"
-      params={{ id: todo.id }}
       className={cn(
-        'flex items-start gap-3 rounded-md px-2 py-2.5 text-sm hover:bg-foreground/4',
-        done && 'text-muted-foreground',
+        "flex items-center gap-2.5 rounded-md py-1.5 pr-2 pl-7 text-sm hover:bg-foreground/4",
+        done && "text-muted-foreground",
       )}
+      params={{ id: todo.id }}
+      to="/todos/$id"
     >
-      <Mark
-        aria-label={label}
+      <Priority
+        aria-label={`${todo.priority} priority`}
+        className="size-4 shrink-0 text-muted-foreground"
         role="img"
-        className={cn('size-4 h-lh shrink-0', className)}
-        weight={done ? 'fill' : 'regular'}
       />
-
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate">{todo.title}</span>
-          {todo.priority === 'high' && (
-            <Badge
-              variant="outline"
-              className="border-amber-600/30 text-amber-700 dark:text-amber-400"
-            >
-              high
-            </Badge>
-          )}
-        </div>
-        {todo.description && (
-          <p className="min-w-0 truncate text-xs text-muted-foreground">{todo.description}</p>
-        )}
-      </div>
-
+      <span className="shrink-0 font-mono text-muted-foreground text-xs">{todo.id}</span>
+      <Mark aria-label={label} className={cn("size-4 shrink-0", className)} role="img" weight={done ? "fill" : "regular"} />
+      <span className="min-w-0 truncate">{todo.title}</span>
       {todo.blockers.length > 0 && (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          blocked by {todo.blockers.length}
-        </span>
+        <span className="shrink-0 text-muted-foreground text-xs">blocked by {todo.blockers.length}</span>
       )}
-
-      <TimeAgo
-        at={todo.created_at}
-        className="w-16 shrink-0 text-end tabular-nums text-muted-foreground"
-      />
+      <span className="ml-auto hidden shrink-0 text-muted-foreground text-xs sm:block">
+        {todo.repository ? projectName(todo.repository) : "every repository"}
+      </span>
+      <TimeAgo at={todo.created_at} className="w-16 shrink-0 text-end text-muted-foreground text-xs tabular-nums" />
     </Link>
-  )
+  );
 }
 
 function TodosError(props: ErrorComponentProps) {
-  return <OrchestratorError what="todos" {...props} />
+  return <OrchestratorError what="todos" {...props} />;
 }
