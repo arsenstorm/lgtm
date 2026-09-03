@@ -5,6 +5,13 @@ import { TextResponse } from "@/components/aicss/TextResponse";
 import { ThinkingState } from "@/components/aicss/ThinkingState";
 import { FilePath } from "@/components/file-path";
 import { TimeAgo } from "@/components/time-ago";
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
+import {
+  Message,
+  MessageContent,
+  MessageFooter,
+} from "@/components/ui/message";
 import type { StoredEvent, Task } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 
@@ -32,10 +39,21 @@ type Item =
   | { kind: "tool"; at: number; icon: Icon; body: React.ReactNode }
   | { kind: "output"; at: number; lines: string[] }
   | { kind: "permission"; at: number; what: string; reason: string }
-  | { kind: "marker"; at: number; text: string; tone: Tone };
+  | { kind: "marker"; at: number; text: string; tone: Tone; boundary: boolean };
 
 const marker = (at: number, text: string, tone: Tone = "muted"): Item => ({
   at,
+  boundary: false,
+  kind: "marker",
+  text,
+  tone,
+});
+
+/** A run boundary renders as a labeled separator; everything else stays an
+ * inline status line. */
+const boundary = (at: number, text: string, tone: Tone = "muted"): Item => ({
+  at,
+  boundary: true,
   kind: "marker",
   text,
   tone,
@@ -85,30 +103,30 @@ function lifecycleMarker(at: number, event: EventBody): Item | null {
   const model = str(event, "model");
   switch (event.type) {
     case "started":
-      return marker(at, model ? `Run started · ${model}` : "Run started");
+      return boundary(at, model ? `Run started · ${model}` : "Run started");
     case "validating":
       return marker(
         at,
         `Running checks: ${strings(event, "names").join(", ")}`
       );
     case "completed":
-      return marker(at, "Run completed", "good");
+      return boundary(at, "Run completed", "good");
     case "failed":
-      return marker(at, "Run failed", "bad");
+      return boundary(at, "Run failed", "bad");
     case "timed_out":
-      return marker(at, `Timed out after ${asNumber(event, "secs")}s`, "bad");
+      return boundary(at, `Timed out after ${asNumber(event, "secs")}s`, "bad");
     case "runner_lost":
-      return marker(at, "Runner lost while the task was running", "bad");
+      return boundary(at, "Runner lost while the task was running", "bad");
     case "cancelled":
-      return marker(at, "Cancelled", "bad");
+      return boundary(at, "Cancelled", "bad");
     case "retry":
-      return marker(
+      return boundary(
         at,
         `Retrying (attempt ${asNumber(event, "attempt")}): ${str(event, "reason")}`,
         "warn"
       );
     case "requeued":
-      return marker(
+      return boundary(
         at,
         `Requeued on ${str(event, "runner") || "any runner"} · ${str(event, "executor")}`
       );
@@ -215,12 +233,16 @@ export function TaskTranscript({
         </li>
       ))}
       {live ? (
-        <li className="py-1 text-sm">
-          <ThinkingState
-            label={
-              task.status === "queued" ? "Waiting for a runner" : "Working"
-            }
-          />
+        <li>
+          <Marker>
+            <MarkerContent>
+              <ThinkingState
+                label={
+                  task.status === "queued" ? "Waiting for a runner" : "Working"
+                }
+              />
+            </MarkerContent>
+          </Marker>
         </li>
       ) : null}
     </ol>
@@ -233,11 +255,19 @@ function TranscriptItem({ item }: { item: Item }) {
       return <UserMessage at={item.at} by={item.by} text={item.text} />;
     case "agent":
       return (
-        <TextResponse>
-          <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
-            {item.text}
-          </p>
-        </TextResponse>
+        <Message>
+          <MessageContent>
+            <Bubble variant="ghost">
+              <BubbleContent>
+                <TextResponse>
+                  <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+                    {item.text}
+                  </p>
+                </TextResponse>
+              </BubbleContent>
+            </Bubble>
+          </MessageContent>
+        </Message>
       );
     case "tool":
       return <ToolRow body={item.body} icon={item.icon} />;
@@ -246,7 +276,7 @@ function TranscriptItem({ item }: { item: Item }) {
     case "permission":
       return <PermissionRow reason={item.reason} what={item.what} />;
     case "marker":
-      return <Marker at={item.at} text={item.text} tone={item.tone} />;
+      return <StatusMarker item={item} />;
     default:
       return null;
   }
@@ -262,28 +292,36 @@ function UserMessage({
   text: string;
 }) {
   return (
-    <div className="flex w-full min-w-0 flex-col items-end gap-1">
-      <div className="max-w-[85%] rounded-2xl bg-muted px-3.5 py-2.5">
-        <p className="whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">
-          {text}
-        </p>
-      </div>
-      <div className="flex items-baseline gap-2 px-1 text-muted-foreground text-xs">
-        {by ? <span className="font-medium">{by}</span> : null}
-        <TimeAgo at={at} />
-      </div>
-    </div>
+    <Message align="end">
+      <MessageContent>
+        <Bubble align="end" variant="muted">
+          <BubbleContent>
+            <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {text}
+            </p>
+          </BubbleContent>
+        </Bubble>
+        <MessageFooter className="gap-2">
+          {by ? <span>{by}</span> : null}
+          <TimeAgo at={at} />
+        </MessageFooter>
+      </MessageContent>
+    </Message>
   );
 }
 
 function ToolRow({ icon: Glyph, body }: { body: React.ReactNode; icon: Icon }) {
   return (
-    <div className="flex min-w-0 items-start gap-2.5 text-muted-foreground">
-      <Glyph aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-      <code className="min-w-0 whitespace-pre-wrap text-xs leading-5 [overflow-wrap:anywhere]">
-        {body}
-      </code>
-    </div>
+    <Marker className="items-start">
+      <MarkerIcon className="mt-0.5">
+        <Glyph />
+      </MarkerIcon>
+      <MarkerContent>
+        <code className="whitespace-pre-wrap font-mono text-xs leading-5 [overflow-wrap:anywhere]">
+          {body}
+        </code>
+      </MarkerContent>
+    </Marker>
   );
 }
 
@@ -325,21 +363,20 @@ function PermissionRow({ what, reason }: { reason: string; what: string }) {
 const TONE_TEXT: Record<Tone, string> = {
   bad: "text-destructive",
   good: "text-emerald-700 dark:text-emerald-400",
-  muted: "text-muted-foreground",
+  muted: "",
   warn: "text-amber-700 dark:text-amber-400",
 };
 
-function Marker({ text, tone, at }: { at: number; text: string; tone: Tone }) {
+function StatusMarker({ item }: { item: Extract<Item, { kind: "marker" }> }) {
   return (
-    <div className="flex min-w-0 items-center gap-2 text-sm">
-      <span
-        aria-hidden="true"
-        className="size-1.5 shrink-0 rounded-full bg-current opacity-60"
-      />
-      <span className={cn("min-w-0 [overflow-wrap:anywhere]", TONE_TEXT[tone])}>
-        {text}
-      </span>
-      <TimeAgo at={at} className="shrink-0 text-muted-foreground text-xs" />
-    </div>
+    <Marker variant={item.boundary ? "separator" : "default"}>
+      <MarkerContent className={cn(TONE_TEXT[item.tone])}>
+        {item.text}
+        <TimeAgo
+          at={item.at}
+          className="ml-2 text-muted-foreground/70 text-xs"
+        />
+      </MarkerContent>
+    </Marker>
   );
 }
