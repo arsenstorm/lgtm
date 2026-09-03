@@ -322,7 +322,9 @@ function AccountMenu() {
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={toggleTheme}>
+            {/* base-nova's menu rows are tighter than the dashboard register this
+                menu copies, so the rhythm is restated here. */}
+            <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={toggleTheme}>
               {/* The theme is only known from the class the pre-paint script
                   wrote, so both states ship in the markup and CSS picks one.
                   Deriving it in React would mismatch on hydration and flash. */}
@@ -331,7 +333,8 @@ function AccountMenu() {
               <span className="dark:hidden">Dark mode</span>
               <span className="hidden dark:inline">Light mode</span>
             </DropdownMenuItem>
-            <DropdownMenuItem disabled>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="gap-2 px-2 py-1.5" disabled>
               <SignOut aria-hidden="true" />
               Sign out
             </DropdownMenuItem>
