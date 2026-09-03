@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type {
   ActivityEntry,
   Memory,
+  NewTaskSpec,
   Project,
   RunnerStatus,
   Scratchpad,
@@ -100,6 +101,33 @@ export const getTask = createServerFn({ method: "GET" })
   .validator((id: string) => id)
   .handler(
     async ({ data }): Promise<TaskDetail> => api<TaskDetail>(`/tasks/${data}`)
+  );
+
+export const createTask = createServerFn({ method: "POST" })
+  .validator((spec: NewTaskSpec) => spec)
+  .handler(
+    async ({ data }): Promise<Task> =>
+      api<Task>("/tasks", {
+        body: {
+          ...data,
+          // `kind` is what the CLI sends for ad-hoc work, and `runner` is the
+          // one optional field on TaskSpec without a serde default — it has to
+          // travel even when nothing is pinned.
+          kind: "run",
+          runner: data.runner ?? null,
+        },
+        method: "POST",
+      })
+  );
+
+// The orchestrator endpoint is still being built: expect 404 until it lands,
+// and 503 with a human-readable reason when no runner or executor can serve
+// it. `api` keeps that reason on the thrown message so the UI can show it.
+export const enhancePrompt = createServerFn({ method: "POST" })
+  .validator((input: { prompt: string; repository?: string }) => input)
+  .handler(
+    async ({ data }): Promise<{ prompt: string }> =>
+      api<{ prompt: string }>("/enhance", { body: data, method: "POST" })
   );
 
 export const approveTask = createServerFn({ method: "POST" })

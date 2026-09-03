@@ -7,7 +7,6 @@ import {
   CaretUp,
   ChatsCircle,
   CheckSquare,
-  DownloadSimple,
   ListChecks,
   Terminal,
   X,
@@ -195,6 +194,8 @@ function TodoDashedIcon() {
 
 export interface ApprovalCardProps {
   approveLabel?: string;
+  /** Seconds before the plan approves itself; `null` never auto-approves. */
+  autoApproveSeconds?: number | null;
   className?: string;
   command?: string;
   cwd?: string;
@@ -222,10 +223,12 @@ export function ApprovalCard({
   title,
   approveLabel,
   rejectLabel,
+  autoApproveSeconds = AUTO_APPROVE_SECS,
   onApprove,
   onReject,
   className,
 }: ApprovalCardProps) {
+  const autoTotal = autoApproveSeconds ?? 0;
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [otherSelected, setOtherSelected] = useState<Record<string, boolean>>(
     {}
@@ -233,8 +236,10 @@ export function ApprovalCard({
   const [customDraft, setCustomDraft] = useState<Record<string, string>>({});
   const [step, setStep] = useState(0);
   const [planExpanded, setPlanExpanded] = useState(false);
-  const [autoSecs, setAutoSecs] = useState(AUTO_APPROVE_SECS);
-  const [autoUI, setAutoUI] = useState<"active" | "leaving" | "gone">("active");
+  const [autoSecs, setAutoSecs] = useState(autoTotal);
+  const [autoUI, setAutoUI] = useState<"active" | "leaving" | "gone">(
+    autoTotal > 0 ? "active" : "gone"
+  );
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoFadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoFired = useRef(false);
@@ -513,18 +518,6 @@ export function ApprovalCard({
         </div>
         {variant === "plan" && (
           <div className={styles.headActions}>
-            <button
-              aria-label="Download plan"
-              className={styles.headAction}
-              onClick={(e) => e.preventDefault()}
-              type="button"
-            >
-              <DownloadSimple
-                aria-hidden
-                className={styles.headActionIcon}
-                strokeWidth={2}
-              />
-            </button>
             <button
               aria-label="Expand plan"
               className={styles.headAction}
@@ -889,8 +882,7 @@ export function ApprovalCard({
                     strokeLinecap="round"
                     strokeWidth="1.8"
                     style={{
-                      strokeDashoffset:
-                        1 - (AUTO_APPROVE_SECS - autoSecs) / AUTO_APPROVE_SECS,
+                      strokeDashoffset: 1 - (autoTotal - autoSecs) / autoTotal,
                     }}
                     transform="rotate(-90 12 12)"
                   />

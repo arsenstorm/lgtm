@@ -87,6 +87,18 @@ export interface TaskSpec {
   sandbox: SandboxProfile | null;
 }
 
+/** What the web composer sends to `POST /tasks`; serde defaults fill the rest
+ * of `TaskSpec` on the orchestrator. */
+export interface NewTaskSpec {
+  base_branch: string;
+  executor: Executor;
+  model?: string | null;
+  prompt: string;
+  repository: string;
+  runner?: string | null;
+  sandbox?: SandboxProfile | null;
+}
+
 export interface Task {
   created_at: number;
   error: string | null;

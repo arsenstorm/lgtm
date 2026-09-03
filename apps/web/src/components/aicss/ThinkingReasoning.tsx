@@ -24,10 +24,21 @@ const GAP = 4;
 const MAX_H = 180; // viewport grows with content up to this, then scrolls
 const FADE = 16; // top/bottom fade once the viewport is capped
 
-export function ThinkingReasoning() {
+export function ThinkingReasoning({
+  sentences,
+  seconds,
+}: {
+  sentences?: string[];
+  seconds?: number;
+} = {}) {
+  const lines = sentences ?? SENTENCES;
+  const elapsed = seconds ?? ELAPSED_S;
+  // Real reasoning is handed over already finished, so there is nothing to
+  // reveal: the block opens straight into its collapsed summary.
+  const scripted = sentences === undefined;
   // "thinking" | "done"
-  const [phase, setPhase] = useState("thinking");
-  const [revealed, setRevealed] = useState(0);
+  const [phase, setPhase] = useState(scripted ? "thinking" : "done");
+  const [revealed, setRevealed] = useState(scripted ? 0 : lines.length);
   // While thinking the reasoning is always open; once done it folds into
   // the summary and the user can toggle it back open.
   const [open, setOpen] = useState(false);
@@ -36,6 +47,9 @@ export function ThinkingReasoning() {
   const viewportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!scripted) {
+      return;
+    }
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
       setRevealed(SENTENCES.length);
       setPhase("done");
@@ -50,11 +64,11 @@ export function ThinkingReasoning() {
     });
     at(THINK_MS + COLLAPSE_BEAT, () => setPhase("done"));
     return () => timers.forEach(clearTimeout);
-  }, []);
+  }, [scripted]);
 
   const done = phase === "done";
   const expanded = done ? open : true;
-  const count = done ? SENTENCES.length : revealed;
+  const count = done ? lines.length : revealed;
   const contentH = count > 0 ? count * SENT_H + (count - 1) * GAP : 0;
   const capped = contentH > MAX_H;
   const viewH = capped ? MAX_H : contentH;
@@ -100,7 +114,7 @@ export function ThinkingReasoning() {
       >
         {done ? (
           <span className={styles.trLabel}>
-            <span className={styles.trVerb}>Thought</span> for {ELAPSED_S}s
+            <span className={styles.trVerb}>Thought</span> for {elapsed}s
           </span>
         ) : (
           <span className={styles.trLabel + " " + styles.trShimmer}>
@@ -149,7 +163,7 @@ export function ThinkingReasoning() {
               className={styles.trStream}
               style={{ transform: `translateY(${translate}px)` }}
             >
-              {SENTENCES.slice(0, count).map((line, i) => (
+              {lines.slice(0, count).map((line, i) => (
                 <p className={styles.trSentence} key={i}>
                   {line}
                 </p>

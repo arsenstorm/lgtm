@@ -19,7 +19,6 @@ import {
 import { Link, useMatchRoute } from "@tanstack/react-router";
 import type { ComponentProps } from "react";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { STATUS } from "@/components/task-list";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -95,6 +94,9 @@ function toggleTheme() {
 
   root.classList.remove("light", "dark");
   root.classList.add(next);
+  // aicss components key on [data-theme]; without it their own
+  // prefers-color-scheme blocks win on an OS-dark machine.
+  root.dataset.theme = next;
   root.style.colorScheme = next;
 
   try {
@@ -143,7 +145,7 @@ function groupByProject(tasks: Task[]): Project[] {
     .sort((a, b) => b.tasks[0].created_at - a.tasks[0].created_at);
 }
 
-function LgtmLogo({ className }: { className?: string }) {
+export function LgtmLogo({ className }: { className?: string }) {
   return (
     <svg
       aria-hidden="true"
@@ -192,15 +194,9 @@ export function AppSidebar({
           <SidebarGroupContent className="flex flex-col gap-1">
             <SidebarMenu>
               <SidebarMenuItem>
-                {/* Placeholder: the web app has no creation flow yet, tasks are
-                    queued from the CLI. */}
                 <SidebarMenuButton
                   className="min-w-8 bg-primary text-primary-foreground duration-200 ease-linear hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground"
-                  onClick={() =>
-                    toast.info(
-                      "Task creation from the web is coming — use lgtm run for now"
-                    )
-                  }
+                  render={<Link to="/tasks/new" />}
                 >
                   <PlusCircle aria-hidden="true" weight="fill" />
                   <span>New task</span>

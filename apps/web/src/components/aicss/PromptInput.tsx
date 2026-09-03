@@ -51,7 +51,14 @@ async function mockEnhance(
   // return (await res.json()).prompt as string;
 }
 
-const MODELS = [
+export interface PromptInputModel {
+  context: string;
+  desc: string;
+  id: string;
+  name: string;
+}
+
+const MODELS: PromptInputModel[] = [
   {
     context: "200k context window",
     desc: "Anthropic's most capable model - best for complex, multi-step reasoning.",
@@ -83,7 +90,8 @@ const SKILLS = [
 // follows the text colour; Claude uses Anthropic's orange; Gemini keeps its
 // original radial gradient.
 function ModelIcon({ id }: { id: string }) {
-  if (id.startsWith("gpt")) {
+  // "codex" is OpenAI's harness, so it wears the same mark as the gpt models.
+  if (id.startsWith("gpt") || id.startsWith("codex")) {
     return (
       <svg
         aria-hidden="true"
@@ -151,9 +159,28 @@ type Phase = "idle" | "enhancing" | "enhanced";
 type Attachment = { id: number; name: string; kind: "image" | "file" };
 
 export function PromptInput({
+  clearOnSend = true,
+  extras = true,
+  model: modelProp,
+  modelLabel = "Model",
+  models = MODELS,
   onEnhance = mockEnhance,
+  onModelChange,
+  onSend,
+  placeholder = "Ask AI Agent",
 }: {
+  /** False keeps the draft after send, so a host whose downstream step can be
+   * rejected puts the user back into the prompt they wrote. */
+  clearOnSend?: boolean;
+  /** The attachment and skill affordances — demo-only until they have a home. */
+  extras?: boolean;
+  model?: string;
+  modelLabel?: string;
+  models?: PromptInputModel[];
   onEnhance?: (prompt: string, signal?: AbortSignal) => Promise<string>;
+  onModelChange?: (id: string) => void;
+  onSend?: (prompt: string) => void;
+  placeholder?: string;
 } = {}) {
   // `value` mirrors the editor's plain text (skill pills contribute their
   // label), so it drives the empty/placeholder + enhance/send logic.
@@ -162,7 +189,8 @@ export function PromptInput({
   const [menuOpen, setMenuOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [hoveredModel, setHoveredModel] = useState<string | null>(null);
-  const [model, setModel] = useState(MODELS[0].id);
+  const [modelState, setModelState] = useState(models[0].id);
+  const model = modelProp ?? modelState;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   // ids of chips currently playing their exit animation before removal
   const [exitingAtt, setExitingAtt] = useState<number[]>([]);
@@ -392,6 +420,9 @@ export function PromptInput({
   const detectSlash = () => {
     const editor = editorRef.current;
     const sel = window.getSelection();
+    if (!extras) {
+      return closeSlash();
+    }
     if (!(editor && sel && sel.rangeCount && sel.isCollapsed)) {
       return closeSlash();
     }
@@ -716,6 +747,10 @@ export function PromptInput({
     if (!sendActive) {
       return;
     }
+    onSend?.(value);
+    if (!clearOnSend) {
+      return;
+    }
     const editor = editorRef.current;
     if (editor) {
       editor.innerHTML = "";
@@ -817,12 +852,12 @@ export function PromptInput({
             </div>
           ) : (
             <div
-              aria-label="Ask AI Agent"
+              aria-label={placeholder}
               aria-multiline="true"
               className={styles.field}
               contentEditable
               data-empty={!hasText || undefined}
-              data-placeholder="Ask AI Agent"
+              data-placeholder={placeholder}
               onBlur={saveSelection}
               onClick={onEditorClick}
               onInput={onEditorInput}
@@ -898,69 +933,73 @@ export function PromptInput({
 
             {menuOpen && (
               <div className={styles.menu} role="menu">
-                <button
-                  className={styles.menuItem}
-                  onClick={() => openPicker("image")}
-                  role="menuitem"
-                  type="button"
-                >
-                  <span className={styles.menuIcon}>
-                    <ImageIcon size={14} />
-                  </span>
-                  <span className={styles.menuName}>Add photos</span>
-                </button>
-                <button
-                  className={styles.menuItem}
-                  onClick={() => openPicker("file")}
-                  role="menuitem"
-                  type="button"
-                >
-                  <span className={styles.menuIcon}>
-                    <Paperclip size={14} />
-                  </span>
-                  <span className={styles.menuName}>Attach files</span>
-                </button>
-                <div className={styles.menuDivider} />
-                <div
-                  className={styles.menuSub}
-                  onMouseEnter={() => setSkillsOpen(true)}
-                  onMouseLeave={() => setSkillsOpen(false)}
-                >
-                  <button
-                    aria-expanded={skillsOpen}
-                    aria-haspopup="menu"
-                    className={styles.menuItem}
-                    onClick={() => setSkillsOpen(true)}
-                    role="menuitem"
-                    type="button"
-                  >
-                    <span className={styles.menuIcon}>
-                      <BookOpen size={14} />
-                    </span>
-                    <span className={styles.menuName}>Skills</span>
-                    <span className={styles.menuChevron}>
-                      <CaretRight size={14} />
-                    </span>
-                  </button>
-                  {skillsOpen && (
-                    <div className={styles.menuFlyout} role="menu">
-                      {SKILLS.map((sk) => (
-                        <button
-                          className={styles.menuItem}
-                          key={sk.id}
-                          onClick={() => addSkillFromMenu(sk.id)}
-                          role="menuitem"
-                          type="button"
-                        >
-                          <span className={styles.menuName}>{sk.name}</span>
-                        </button>
-                      ))}
+                {extras && (
+                  <>
+                    <button
+                      className={styles.menuItem}
+                      onClick={() => openPicker("image")}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <span className={styles.menuIcon}>
+                        <ImageIcon size={14} />
+                      </span>
+                      <span className={styles.menuName}>Add photos</span>
+                    </button>
+                    <button
+                      className={styles.menuItem}
+                      onClick={() => openPicker("file")}
+                      role="menuitem"
+                      type="button"
+                    >
+                      <span className={styles.menuIcon}>
+                        <Paperclip size={14} />
+                      </span>
+                      <span className={styles.menuName}>Attach files</span>
+                    </button>
+                    <div className={styles.menuDivider} />
+                    <div
+                      className={styles.menuSub}
+                      onMouseEnter={() => setSkillsOpen(true)}
+                      onMouseLeave={() => setSkillsOpen(false)}
+                    >
+                      <button
+                        aria-expanded={skillsOpen}
+                        aria-haspopup="menu"
+                        className={styles.menuItem}
+                        onClick={() => setSkillsOpen(true)}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <span className={styles.menuIcon}>
+                          <BookOpen size={14} />
+                        </span>
+                        <span className={styles.menuName}>Skills</span>
+                        <span className={styles.menuChevron}>
+                          <CaretRight size={14} />
+                        </span>
+                      </button>
+                      {skillsOpen && (
+                        <div className={styles.menuFlyout} role="menu">
+                          {SKILLS.map((sk) => (
+                            <button
+                              className={styles.menuItem}
+                              key={sk.id}
+                              onClick={() => addSkillFromMenu(sk.id)}
+                              role="menuitem"
+                              type="button"
+                            >
+                              <span className={styles.menuName}>{sk.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-                <div className={styles.menuDivider} />
-                <div className={styles.menuLabel}>Model</div>
-                {MODELS.map((m) => (
+                    <div className={styles.menuDivider} />
+                  </>
+                )}
+                <div className={styles.menuLabel}>{modelLabel}</div>
+                {models.map((m) => (
                   <div
                     className={styles.menuSub}
                     key={m.id}
@@ -971,7 +1010,8 @@ export function PromptInput({
                       aria-checked={model === m.id}
                       className={styles.menuItem}
                       onClick={() => {
-                        setModel(m.id);
+                        setModelState(m.id);
+                        onModelChange?.(m.id);
                         setMenuOpen(false);
                       }}
                       role="menuitemradio"

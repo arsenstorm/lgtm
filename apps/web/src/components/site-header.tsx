@@ -15,6 +15,11 @@ const TITLES = [
 /** The header names where you are; the pages themselves lead with content. */
 function useTitle(): string {
   const matchRoute = useMatchRoute();
+  // Ahead of `/tasks/$id`: a static segment must win however the two are
+  // ordered by the matcher.
+  if (matchRoute({ to: "/tasks/new" })) {
+    return "New task";
+  }
   const task = matchRoute({ to: "/tasks/$id" });
   if (task) {
     return `Task ${task.id}`;

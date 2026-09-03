@@ -2,6 +2,6 @@
 
 import styles from "./ThinkingState.module.css";
 
-export function ThinkingState() {
-  return <span className={styles.shimmer}>Thinking</span>;
+export function ThinkingState({ label = "Thinking" }: { label?: string } = {}) {
+  return <span className={styles.shimmer}>{label}</span>;
 }

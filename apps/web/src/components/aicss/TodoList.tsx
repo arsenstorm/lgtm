@@ -130,13 +130,26 @@ const FilledCheckIcon = () => (
   </svg>
 );
 
-export function TodoList() {
+export interface TodoItem {
+  label: string;
+  state: "active" | "done" | "pending";
+}
+
+export function TodoList({ items }: { items?: TodoItem[] } = {}) {
   const [collapsed, setCollapsed] = useState(false);
   // -1 = not started (plan shown), 0..n-1 = working on that task, n = all done
   const [current, setCurrent] = useState(-1);
-  const n = LABELS.length;
+  // Without real items the list plays its demo script; with them every state
+  // comes from the caller and the timer stays off.
+  const scripted = items === undefined;
+  const list: TodoItem[] =
+    items ?? LABELS.map((label) => ({ label, state: "pending" as const }));
+  const n = list.length;
 
   useEffect(() => {
+    if (!scripted) {
+      return;
+    }
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
       setCurrent(n);
       return;
@@ -148,12 +161,17 @@ export function TodoList() {
       );
     }
     return () => timers.forEach(clearTimeout);
-  }, [n]);
+  }, [n, scripted]);
 
-  const started = current >= 0;
-  const allDone = current >= n;
+  const doneCount = scripted
+    ? Math.min(Math.max(current, 0), n)
+    : list.filter((item) => item.state === "done").length;
+  const started = scripted
+    ? current >= 0
+    : list.some((item) => item.state !== "pending");
+  const allDone = doneCount >= n;
   const running = started && !allDone;
-  const pct = Math.round((Math.min(Math.max(current, 0), n) / n) * 100);
+  const pct = Math.round((doneCount / n) * 100);
 
   return (
     <div className={styles.todo}>
@@ -225,7 +243,7 @@ export function TodoList() {
         </span>
         <span className={styles.todoTitle}>To-dos</span>
         <span className={styles.todoCount}>
-          <RollingCount value={Math.min(Math.max(current, 0), n) + "/" + n} />
+          <RollingCount value={doneCount + "/" + n} />
         </span>
       </button>
 
@@ -236,9 +254,13 @@ export function TodoList() {
       >
         <div className={styles.todoInner}>
           <ul className={styles.todoList}>
-            {LABELS.map((label, i) => {
-              const done = started && i < current;
-              const active = started && i === current && !allDone;
+            {list.map((item, i) => {
+              const done = scripted
+                ? started && i < current
+                : item.state === "done";
+              const active = scripted
+                ? started && i === current && !allDone
+                : item.state === "active";
               return (
                 <li
                   className={
@@ -257,8 +279,8 @@ export function TodoList() {
                     <ArrowIcon on={active} />
                     <CheckIcon on={done} />
                   </span>
-                  <span className={styles.todoLabel} data-label={label}>
-                    {label}
+                  <span className={styles.todoLabel} data-label={item.label}>
+                    {item.label}
                   </span>
                 </li>
               );
