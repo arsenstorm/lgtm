@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { createServerFn } from "@tanstack/react-start";
 import type {
   ActivityEntry,
+  Executor,
   Memory,
   NewTaskSpec,
   Project,
@@ -25,6 +26,8 @@ const lgtmEnv = env as unknown as {
   LGTM_TOKEN?: string;
 };
 
+const TRAILING_SLASHES = /\/+$/;
+
 async function api<T>(
   path: string,
   init?: { method?: "POST" | "PATCH" | "DELETE"; body?: unknown }
@@ -36,7 +39,7 @@ async function api<T>(
     );
   }
 
-  const base = LGTM_ORCHESTRATOR.replace(/\/+$/, "");
+  const base = LGTM_ORCHESTRATOR.replace(TRAILING_SLASHES, "");
   const headers: Record<string, string> = {
     Authorization: `Bearer ${LGTM_TOKEN}`,
   };
@@ -166,12 +169,21 @@ export const rejectTask = createServerFn({ method: "POST" })
       api<Task>(`/tasks/${data}/reject`, { method: "POST" })
   );
 
-// An empty retry body means "same runner, same executor" to the orchestrator.
+export interface RetryTaskInput {
+  executor?: Executor;
+  id: string;
+  runner?: string;
+}
+
+// Omitted overrides mean "same runner, same executor" to the orchestrator.
 export const retryTask = createServerFn({ method: "POST" })
-  .validator((id: string) => id)
+  .validator((input: RetryTaskInput) => input)
   .handler(
     async ({ data }): Promise<Task> =>
-      api<Task>(`/tasks/${data}/retry`, { body: {}, method: "POST" })
+      api<Task>(`/tasks/${data.id}/retry`, {
+        body: { executor: data.executor, runner: data.runner },
+        method: "POST",
+      })
   );
 
 export const sendFollowUp = createServerFn({ method: "POST" })
