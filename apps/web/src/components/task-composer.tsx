@@ -43,13 +43,7 @@ function placeholderFor(task: Task): string {
   if (RESPONDABLE.includes(task.status)) {
     return "Ask for a change…";
   }
-  if (task.status === "queued" || task.status === "running") {
-    return "The agent is working…";
-  }
-  if (RETRYABLE.includes(task.status)) {
-    return "Retry to run this task again";
-  }
-  return "This task is closed";
+  return "The agent is working…";
 }
 
 /** The pinned chat input: follow-ups in the box, the review decisions as
@@ -62,6 +56,29 @@ export function TaskComposer({ task }: { task: Task }) {
   const reviewable = REVIEWABLE.includes(task.status);
   const respondable = RESPONDABLE.includes(task.status);
   const retryable = RETRYABLE.includes(task.status);
+  const working = task.status === "queued" || task.status === "running";
+
+  if (retryable) {
+    return (
+      <div className="sticky bottom-0 flex justify-center bg-linear-to-t from-60% from-background to-transparent pt-6 pb-4">
+        <Button
+          disabled={busy}
+          onClick={() =>
+            run("retry", () => retryTask({ data: task.id }), "Task requeued")
+          }
+          size="sm"
+          variant="outline"
+        >
+          <ActionIcon busy={pending === "retry"} icon={ArrowCounterClockwise} />
+          Retry this task
+        </Button>
+      </div>
+    );
+  }
+
+  if (!(respondable || working)) {
+    return null;
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -142,26 +159,6 @@ export function TaskComposer({ task }: { task: Task }) {
               </Button>
             </>
           ) : null}
-          {retryable ? (
-            <Button
-              disabled={busy}
-              onClick={() =>
-                run(
-                  "retry",
-                  () => retryTask({ data: task.id }),
-                  "Task requeued"
-                )
-              }
-              size="sm"
-              type="button"
-            >
-              <ActionIcon
-                busy={pending === "retry"}
-                icon={ArrowCounterClockwise}
-              />
-              Retry
-            </Button>
-          ) : null}
           <Button
             aria-label="Send follow-up"
             className="ml-auto rounded-full"
@@ -173,24 +170,6 @@ export function TaskComposer({ task }: { task: Task }) {
           </Button>
         </div>
       </form>
-      {reviewable || retryable ? (
-        <p
-          aria-live="polite"
-          className="mt-2 px-2 text-muted-foreground text-xs"
-        >
-          {hint(task.status, armed)}
-        </p>
-      ) : null}
     </div>
   );
-}
-
-function hint(status: TaskStatus, armed: boolean): string {
-  if (armed) {
-    return "Deletes the worktree and branch. This cannot be undone.";
-  }
-  if (RETRYABLE.includes(status)) {
-    return "Retry queues the task again on the same runner and executor, as a new paid run.";
-  }
-  return "Approve pushes the branch. Reject discards the work. A follow-up resumes the agent as a new paid run.";
 }

@@ -21,7 +21,7 @@
   max-width: 100%;
   font-size: 14px;
   line-height: 19px;
-  color: var(--tr-fg, #1a1a1a);
+  color: inherit;
   overflow-wrap: anywhere;
 }
 .prose p {
@@ -30,11 +30,69 @@
 .prose p:last-child {
   margin-bottom: 0;
 }
+.prose strong {
+  font-weight: 600;
+}
+.prose ul,
+.prose ol {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+.prose ul {
+  list-style: disc;
+}
+.prose ol {
+  list-style: decimal;
+}
+.prose li {
+  margin-bottom: 4px;
+}
+.prose li:last-child {
+  margin-bottom: 0;
+}
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  margin: 14px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.prose h1:first-child,
+.prose h2:first-child,
+.prose h3:first-child,
+.prose h4:first-child {
+  margin-top: 0;
+}
+.prose a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.prose blockquote {
+  margin: 0 0 10px;
+  padding-left: 12px;
+  border-left: 2px solid var(--tr-code-bg, var(--muted));
+}
+.prose pre {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: var(--tr-code-bg, var(--muted));
+  border-radius: 8px;
+}
+.prose pre code {
+  padding: 0;
+  background: none;
+}
 .prose code {
   padding: 3px 5px 1px;
   font-family: ui-monospace, monospace;
   font-size: 12.5px;
   color: inherit;
-  background: var(--tr-code-bg, #f4f5f7);
+  background: var(--tr-code-bg, var(--muted));
   border-radius: 5px;
 }

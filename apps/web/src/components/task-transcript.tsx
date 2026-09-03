@@ -1,5 +1,6 @@
 import type { Icon } from "@phosphor-icons/react";
 import { FileCode, ShieldWarning, Terminal } from "@phosphor-icons/react";
+import Markdown from "react-markdown";
 
 import { TextResponse } from "@/components/aicss/TextResponse";
 import { ThinkingState } from "@/components/aicss/ThinkingState";
@@ -36,7 +37,13 @@ type Tone = "muted" | "good" | "warn" | "bad";
 type Item =
   | { kind: "user"; at: number; by: string | null; text: string }
   | { kind: "agent"; at: number; text: string }
-  | { kind: "tool"; at: number; icon: Icon; body: React.ReactNode }
+  | {
+      kind: "tool";
+      at: number;
+      icon: Icon;
+      body: React.ReactNode;
+      lines: string[];
+    }
   | { kind: "output"; at: number; lines: string[] }
   | { kind: "permission"; at: number; what: string; reason: string }
   | { kind: "marker"; at: number; text: string; tone: Tone; boundary: boolean };
@@ -77,6 +84,7 @@ function toItem({ at, event }: StoredEvent): Item | null {
         body: <span className="min-w-0">{str(event, "command")}</span>,
         icon: Terminal,
         kind: "tool",
+        lines: [],
       };
     case "file_changed":
       return {
@@ -84,6 +92,7 @@ function toItem({ at, event }: StoredEvent): Item | null {
         body: <FilePath path={str(event, "path")} />,
         icon: FileCode,
         kind: "tool",
+        lines: [],
       };
     case "output":
       return { at, kind: "output", lines: [str(event, "line")] };
@@ -203,7 +212,11 @@ function buildItems(task: Task, events: StoredEvent[]): Item[] {
       continue;
     }
     const last = items.at(-1);
-    if (item.kind === "output" && last?.kind === "output") {
+    // A command's output belongs to the command; the rest of the raw stream
+    // (agent wire chatter) folds into its own block.
+    if (item.kind === "output" && last?.kind === "tool") {
+      last.lines.push(...item.lines);
+    } else if (item.kind === "output" && last?.kind === "output") {
       last.lines.push(...item.lines);
     } else {
       items.push(item);
@@ -260,9 +273,7 @@ function TranscriptItem({ item }: { item: Item }) {
             <Bubble variant="ghost">
               <BubbleContent>
                 <TextResponse>
-                  <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
-                    {item.text}
-                  </p>
+                  <Markdown>{item.text}</Markdown>
                 </TextResponse>
               </BubbleContent>
             </Bubble>
@@ -270,7 +281,7 @@ function TranscriptItem({ item }: { item: Item }) {
         </Message>
       );
     case "tool":
-      return <ToolRow body={item.body} icon={item.icon} />;
+      return <ToolRow body={item.body} icon={item.icon} lines={item.lines} />;
     case "output":
       return <OutputBlock lines={item.lines} />;
     case "permission":
@@ -310,8 +321,16 @@ function UserMessage({
   );
 }
 
-function ToolRow({ icon: Glyph, body }: { body: React.ReactNode; icon: Icon }) {
-  return (
+function ToolRow({
+  icon: Glyph,
+  body,
+  lines,
+}: {
+  body: React.ReactNode;
+  icon: Icon;
+  lines: string[];
+}) {
+  const row = (
     <Marker className="items-start">
       <MarkerIcon className="mt-0.5">
         <Glyph />
@@ -320,8 +339,28 @@ function ToolRow({ icon: Glyph, body }: { body: React.ReactNode; icon: Icon }) {
         <code className="whitespace-pre-wrap font-mono text-xs leading-5 [overflow-wrap:anywhere]">
           {body}
         </code>
+        {lines.length > 0 ? (
+          <span className="ml-2 whitespace-nowrap text-muted-foreground/60 text-xs">
+            {lines.length} {lines.length === 1 ? "line" : "lines"}
+          </span>
+        ) : null}
       </MarkerContent>
     </Marker>
+  );
+
+  if (lines.length === 0) {
+    return row;
+  }
+
+  return (
+    <details className="group min-w-0 flex-1">
+      <summary className="cursor-pointer list-none rounded-md transition-colors hover:bg-muted/50 [&::-webkit-details-marker]:hidden">
+        {row}
+      </summary>
+      <pre className="mt-2 ml-6 max-h-72 overflow-auto rounded-lg border bg-muted/30 p-3 text-muted-foreground text-xs leading-relaxed">
+        {lines.join("\n")}
+      </pre>
+    </details>
   );
 }
 
@@ -330,9 +369,9 @@ function OutputBlock({ lines }: { lines: string[] }) {
     <details className="group min-w-0 flex-1">
       <summary className="w-fit cursor-pointer list-none text-muted-foreground text-xs hover:text-foreground [&::-webkit-details-marker]:hidden">
         <span className="group-open:hidden">
-          Show output · {lines.length} {lines.length === 1 ? "line" : "lines"}
+          Raw output · {lines.length} {lines.length === 1 ? "line" : "lines"}
         </span>
-        <span className="hidden group-open:inline">Hide output</span>
+        <span className="hidden group-open:inline">Hide raw output</span>
       </summary>
       <pre className="mt-2 max-h-72 overflow-auto rounded-lg border bg-muted/30 p-3 text-xs leading-relaxed">
         {lines.join("\n")}
