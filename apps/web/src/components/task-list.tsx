@@ -128,7 +128,7 @@ function TaskRow({ task }: { task: Task }) {
       >
         <span
           className={cn(
-            "flex w-40 shrink-0 items-center gap-1.5 whitespace-nowrap font-medium",
+            "flex w-36 shrink-0 items-center gap-1.5 whitespace-nowrap font-medium",
             TONE_TEXT[tone]
           )}
         >
@@ -147,11 +147,11 @@ function TaskRow({ task }: { task: Task }) {
           {task.id.slice(0, 8)}
         </span>
 
-        <p className="order-last min-w-0 basis-full truncate text-base text-foreground sm:order-none sm:flex-1 sm:basis-auto sm:text-sm">
+        <p className="order-last min-w-0 basis-full overflow-hidden whitespace-nowrap text-base text-foreground [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] sm:order-none sm:flex-1 sm:basis-auto sm:text-sm">
           {firstLine(task.spec.prompt)}
         </p>
 
-        <span className="w-24 shrink-0 truncate text-muted-foreground">
+        <span className="w-24 shrink-0 truncate text-end text-muted-foreground">
           {task.runner ?? "—"}
         </span>
 
