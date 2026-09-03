@@ -135,7 +135,9 @@ export function ProjectItem({
               aria-hidden="true"
               className={cn(
                 REVEAL,
-                "text-muted-foreground transition-[opacity,transform,color] duration-200 hover:text-foreground group-data-[panel-open]/menu-button:rotate-90"
+                // Trailing glyphs are a step smaller than leading ones; the
+                // button's child-svg rule would force 16px without the `!`.
+                "size-3.5! text-muted-foreground transition-[opacity,transform,color] duration-200 hover:text-foreground group-data-[panel-open]/menu-button:rotate-90"
               )}
             />
           </CollapsibleTrigger>
@@ -147,7 +149,9 @@ export function ProjectItem({
               REVEAL,
               // The menu is portalled out of the row, so hover ends the moment it
               // opens — without this its own trigger would vanish under it.
-              "absolute inset-y-0 right-1 flex items-center gap-0.5 transition-opacity has-[[aria-expanded=true]]:opacity-100"
+              // right-1.5 puts the last 24px button's centre 18px from the edge, where
+              // every other trailing glyph sits.
+              "absolute inset-y-0 right-1.5 flex items-center gap-0.5 transition-opacity has-[[aria-expanded=true]]:opacity-100"
             )}
           >
             <DropdownMenu>
@@ -161,7 +165,7 @@ export function ProjectItem({
                   />
                 }
               >
-                <DotsIcon aria-hidden="true" className="size-4" />
+                <DotsIcon aria-hidden="true" className="size-3.5" />
               </DropdownMenuTrigger>
 
               <DropdownMenuContent
@@ -203,7 +207,7 @@ export function ProjectItem({
               size="icon-xs"
               variant="ghost"
             >
-              <ComposeIcon aria-hidden="true" className="size-4" />
+              <ComposeIcon aria-hidden="true" className="size-3.5" />
             </Button>
           </div>
         </div>

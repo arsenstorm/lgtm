@@ -25,8 +25,10 @@ export const SUB_ROW_SLOT = `${SLOT} group-focus-within/menu-sub-item:w-5 group-
 // project would light up the dots on every task under it.
 export const ROW_REVEAL =
   "group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100";
+// The sub button sits a pixel left of its item (`-translate-x-px`), so the
+// menu over it shifts the same pixel to land on the mark's centre.
 export const SUB_ROW_REVEAL =
-  "top-1 group-focus-within/menu-sub-item:opacity-100 group-hover/menu-sub-item:opacity-100";
+  "-translate-x-px top-1 group-focus-within/menu-sub-item:opacity-100 group-hover/menu-sub-item:opacity-100";
 
 /** Rename and archive for one sidebar row, sitting over its right corner. */
 export function RowMenu({
@@ -64,7 +66,9 @@ export function RowMenu({
           />
         }
       >
-        <DotsIcon aria-hidden="true" className="size-3.5" />
+        {/* The action sizes every child svg to 16px with a parent selector that
+            outranks the glyph's own class; the marks it overlays are 14px. */}
+        <DotsIcon aria-hidden="true" className="size-3.5!" />
       </DropdownMenuTrigger>
 
       <DropdownMenuContent

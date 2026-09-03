@@ -85,7 +85,7 @@ const CHATS_GROUP = ":chats";
 // inside the section must not light the heading's furniture up.
 const HEADING_REVEAL =
   "opacity-0 pointer-coarse:opacity-100 group-focus-within/heading:opacity-100 group-hover/heading:opacity-100";
-const GROUP_CARET = `${HEADING_REVEAL} ml-1 text-muted-foreground transition-[opacity,transform] duration-200 group-data-[panel-open]/label:rotate-90`;
+const GROUP_CARET = `${HEADING_REVEAL} size-3.5! ml-1 text-muted-foreground transition-[opacity,transform] duration-200 group-data-[panel-open]/label:rotate-90`;
 
 type OpenMap = Record<string, boolean>;
 
@@ -324,12 +324,12 @@ export function AppSidebar({
               aria-label="Add project"
               className={cn(
                 HEADING_REVEAL,
-                "top-1.5 right-1 transition-opacity"
+                "top-1.5 right-2 transition-opacity"
               )}
               onClick={showAddProject}
               type="button"
             >
-              <PlusIcon aria-hidden="true" />
+              <PlusIcon aria-hidden="true" className="size-3.5!" />
             </SidebarGroupAction>
           </GroupHeading>
           <CollapsibleContent render={<SidebarGroupContent />}>
