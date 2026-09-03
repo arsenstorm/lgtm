@@ -787,6 +787,30 @@ async fn a_todo_is_served_with_the_display_id_its_project_gives_it() {
 }
 
 #[tokio::test]
+async fn a_project_can_exist_before_it_has_tasks_or_todos() {
+    let app = app();
+    let repository = "git@github.com:arsenstorm/new-repo.git";
+    let body = serde_json::from_value(serde_json::json!({ "repository": repository })).unwrap();
+    let (status, Json(created)) = projects::create_project(State(app.clone()), Ok(Json(body)))
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(created.name, "new-repo");
+
+    let duplicate =
+        serde_json::from_value(serde_json::json!({ "repository": repository })).unwrap();
+    let (status, Json(existing)) =
+        projects::create_project(State(app.clone()), Ok(Json(duplicate)))
+            .await
+            .unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(existing.id, created.id);
+
+    let Json(listed) = projects::list_projects(State(app)).await;
+    assert_eq!(listed, vec![created]);
+}
+
+#[tokio::test]
 async fn a_prefix_is_uppercased_and_refused_when_another_project_holds_it() {
     let app = app();
     for repository in [

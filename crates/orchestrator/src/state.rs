@@ -188,8 +188,7 @@ impl App {
         let _ = self.persist.send(Persist::Project(project.clone()));
     }
 
-    /// Writes every project a request created or took a number from. Numbering
-    /// is a side effect of touching a todo, so no handler writes one by name.
+    /// Writes every project a request created or took a number from.
     pub fn persist_projects(&self, state: &mut State) {
         for id in std::mem::take(&mut state.dirty_projects) {
             if let Some(project) = state.projects.get(&id) {

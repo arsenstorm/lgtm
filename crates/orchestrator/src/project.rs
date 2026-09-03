@@ -68,8 +68,8 @@ impl State {
             .unwrap_or_default()
     }
 
-    /// Id of `repository`'s project, created on demand: a project exists
-    /// because a todo needed a number, so nothing else has to make one.
+    /// Id of `repository`'s project, creating it when a todo or API request
+    /// introduces that repository.
     pub fn project_for(&mut self, repository: Option<&str>) -> String {
         let existing = self
             .projects

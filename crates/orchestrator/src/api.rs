@@ -137,7 +137,10 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
                 .patch(scratchpads::update_scratchpad)
                 .delete(scratchpads::delete_scratchpad),
         )
-        .route("/projects", get(projects::list_projects))
+        .route(
+            "/projects",
+            get(projects::list_projects).post(projects::create_project),
+        )
         .route("/projects/{id}", patch(projects::update_project))
         .route("/goals/{id}/plans", get(goals::get_goal_plans))
         .route(

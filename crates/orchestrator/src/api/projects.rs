@@ -13,6 +13,12 @@ use super::{conflict, ApiError};
 use crate::project::PREFIX_MAX;
 use crate::state::App;
 
+/// Body of `POST /api/projects`.
+#[derive(Deserialize)]
+pub(super) struct CreateProjectRequest {
+    repository: String,
+}
+
 /// Body of `PATCH /api/projects/:id`.
 #[derive(Deserialize)]
 pub(super) struct PrefixRequest {
@@ -24,6 +30,34 @@ pub(super) async fn list_projects(State(app): State<Arc<App>>) -> Json<Vec<Proje
     let mut projects: Vec<Project> = state.projects.values().cloned().collect();
     projects.sort_by(|a, b| a.name.cmp(&b.name));
     Json(projects)
+}
+
+pub(super) async fn create_project(
+    State(app): State<Arc<App>>,
+    body: Result<Json<CreateProjectRequest>, JsonRejection>,
+) -> Result<(StatusCode, Json<Project>), ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    let repository = body.repository.trim();
+    if repository.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "repository is required".into(),
+        ));
+    }
+    let mut state = app.state.lock().unwrap();
+    let existed = state
+        .projects
+        .values()
+        .any(|project| project.repository.as_deref() == Some(repository));
+    let id = state.project_for(Some(repository));
+    let project = state.projects[&id].clone();
+    app.persist_projects(&mut state);
+    let status = if existed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
+    Ok((status, Json(project)))
 }
 
 pub(super) async fn update_project(
