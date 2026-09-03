@@ -74,11 +74,6 @@ export function shortSpan(ms: number): string {
   return "0s";
 }
 
-// Superseded by <TimeAgo>; still imported by pages mid-migration.
-export function relativeAge(atMs: number): string {
-  return `${shortSpan(Date.now() - atMs)} ago`;
-}
-
 function firstLine(prompt: string): string {
   const line = prompt.split("\n", 1)[0]?.trim();
   return line ? line : "(no prompt)";
