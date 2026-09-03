@@ -4,6 +4,7 @@ mod artefacts;
 mod automation;
 mod connection;
 mod git;
+mod infer;
 mod plan;
 mod policy;
 mod proc;

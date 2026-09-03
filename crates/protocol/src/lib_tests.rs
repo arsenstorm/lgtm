@@ -325,6 +325,38 @@ fn terminal_frames_round_trip() {
 }
 
 #[test]
+fn inference_frames_round_trip() {
+    round_trip(OrchestratorMessage::Infer {
+        id: "0123abcd".into(),
+        executor: Executor::Claude,
+        system: "rewrite the prompt".into(),
+        prompt: "fix the login bug".into(),
+    });
+    round_trip(RunnerMessage::Inferred {
+        id: "0123abcd".into(),
+        text: "Fix the login bug in src/auth.rs".into(),
+        error: None,
+    });
+    round_trip(RunnerMessage::Inferred {
+        id: "0123abcd".into(),
+        text: String::new(),
+        error: Some("claude did not answer in 90s".into()),
+    });
+    // A runner that leaves both out still parses: the fields are defaulted so
+    // one side can be older than the other.
+    let inferred: RunnerMessage =
+        serde_json::from_str(r#"{"type":"inferred","id":"0123abcd"}"#).unwrap();
+    assert_eq!(
+        inferred,
+        RunnerMessage::Inferred {
+            id: "0123abcd".into(),
+            text: String::new(),
+            error: None,
+        }
+    );
+}
+
+#[test]
 fn phase_one_frames_still_parse() {
     let info: RunnerInfo =
         serde_json::from_str(r#"{"name":"w","os":"linux","arch":"x86_64","executors":["claude"]}"#)

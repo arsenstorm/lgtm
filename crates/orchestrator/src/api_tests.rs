@@ -17,6 +17,7 @@ fn app() -> Arc<App> {
         base_url: "http://127.0.0.1:1".into(),
         orchestrating: std::sync::Mutex::new(Default::default()),
         asking: tokio::sync::Semaphore::new(crate::ASK_SLOTS),
+        inferring: std::sync::Mutex::new(Default::default()),
     })
 }
 
@@ -293,6 +294,7 @@ fn app_with_orchestrate() -> Arc<App> {
         base_url: "http://127.0.0.1:1".into(),
         orchestrating: std::sync::Mutex::new(Default::default()),
         asking: tokio::sync::Semaphore::new(crate::ASK_SLOTS),
+        inferring: std::sync::Mutex::new(Default::default()),
     })
 }
 
@@ -906,4 +908,30 @@ async fn tags_are_normalized_on_the_way_in_and_over_the_limit_is_a_400() {
             .await
             .unwrap();
     assert_eq!(updated.tags, vec!["a".to_string(), "b".to_string()]);
+}
+
+#[tokio::test]
+async fn enhance_refuses_an_empty_prompt() {
+    let app = app();
+    let body = serde_json::from_value(serde_json::json!({ "prompt": "   " })).unwrap();
+    let err = workspace::enhance_with(&app, body, || Some(Executor::Claude))
+        .await
+        .map(|_| ())
+        .expect_err("a refusal");
+    assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    assert!(err.1.contains("prompt is required"), "{}", err.1);
+}
+
+/// No runner advertises an executor and this host has no binary either, so
+/// the UI is told why rather than left waiting.
+#[tokio::test]
+async fn enhance_says_when_nothing_can_run_it() {
+    let app = app();
+    let body = serde_json::from_value(serde_json::json!({ "prompt": "fix login" })).unwrap();
+    let err = workspace::enhance_with(&app, body, || None)
+        .await
+        .map(|_| ())
+        .expect_err("a refusal");
+    assert_eq!(err.0, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(err.1.contains("no runner or local executor"), "{}", err.1);
 }

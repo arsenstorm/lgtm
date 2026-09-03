@@ -11,7 +11,7 @@ use lgtm_protocol::{
     OrchestratorMessage, Project, Scratchpad, Session, StoredEvent, Task, TaskEvent, TaskId,
     TaskSpec, TaskStatus, Todo, TodoComment, TodoStatus, Verification,
 };
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::commands::RetryInto;
 use crate::persist::Persist;
@@ -47,6 +47,9 @@ pub struct App {
     /// Each ask holds an agent subprocess for up to five minutes, so a
     /// couple at a time is plenty and anything more is refused, not queued.
     pub asking: tokio::sync::Semaphore,
+    /// Utility inference calls waiting on a runner's answer, by id. Not part
+    /// of `State`: nothing about them is persisted or scheduled.
+    pub inferring: Mutex<HashMap<String, oneshot::Sender<Result<String, String>>>>,
 }
 
 impl App {

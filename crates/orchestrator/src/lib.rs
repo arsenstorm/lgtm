@@ -6,6 +6,7 @@ mod commands;
 mod credentials;
 mod execution;
 mod github;
+mod infer;
 mod linear;
 pub mod local;
 mod notify;
@@ -129,6 +130,7 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
         base_url: format!("{scheme}://127.0.0.1:{}", opts.bind.port()),
         orchestrating: Mutex::new(Default::default()),
         asking: tokio::sync::Semaphore::new(ASK_SLOTS),
+        inferring: Mutex::new(Default::default()),
     });
     github::resume_ci_polls(&app);
     if let Some(provision) = opts.provision {

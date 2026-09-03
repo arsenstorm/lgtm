@@ -1,6 +1,7 @@
-//! `/api/activity` and `/api/ask`: the whole workspace at a glance, and one
-//! question to the shared agent. One orchestrator is one workspace, so both
-//! read across every task rather than down one goal.
+//! `/api/activity`, `/api/ask` and `/api/enhance`: the whole workspace at a
+//! glance, one question to the shared agent, and one rewrite of a task prompt.
+//! One orchestrator is one workspace, so they read across every task rather
+//! than down one goal.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -9,7 +10,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use lgtm_protocol::TaskEvent;
+use lgtm_protocol::{Executor, TaskEvent};
 use serde::{Deserialize, Serialize};
 
 use super::{conflict, ApiError, AuthedUser};
@@ -144,4 +145,98 @@ pub(super) async fn ask(
         "ask answered"
     );
     Ok(Json(AskResponse { answer }))
+}
+
+/// Body of `POST /api/enhance`.
+#[derive(Deserialize)]
+pub(super) struct EnhanceRequest {
+    prompt: String,
+    /// Named so the rewrite can say which repository the work is in; the call
+    /// reads no code, so an unknown one costs nothing.
+    #[serde(default)]
+    repository: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(super) struct EnhanceResponse {
+    prompt: String,
+}
+
+const ENHANCE_SYSTEM: &str = "You rewrite a developer's rough note into the prompt for a coding \
+     agent that will work alone in one repository with no other context. Say what the goal is, \
+     the context the agent needs, the constraints it must respect, and what the finished result \
+     looks like. Keep the developer's intent and their language, and invent no requirement they \
+     did not ask for. Return ONLY the rewritten prompt: no preamble, no explanation, no code \
+     fence.";
+
+/// What a person is shown when nothing can run the rewrite; it goes to the UI
+/// as it reads here.
+const NO_EXECUTOR: &str = "no runner or local executor available for enhancement";
+
+pub(super) async fn enhance(
+    State(app): State<Arc<App>>,
+    body: Result<Json<EnhanceRequest>, JsonRejection>,
+) -> Result<Json<EnhanceResponse>, ApiError> {
+    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
+    enhance_with(&app, body, || {
+        crate::orchestrate::pick(crate::orchestrate::Choice::Auto)
+    })
+    .await
+}
+
+/// `local` is the host's own executor, a parameter so the PATH probe can be
+/// injected the way `orchestrate::resolve` takes one.
+pub(super) async fn enhance_with(
+    app: &Arc<App>,
+    body: EnhanceRequest,
+    local: impl Fn() -> Option<Executor>,
+) -> Result<Json<EnhanceResponse>, ApiError> {
+    let prompt = body.prompt.trim();
+    if prompt.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "prompt is required".into(),
+        ));
+    }
+    // Read what the choice needs and drop the lock: the model call is seconds
+    // long and every other request would queue behind it.
+    let executor = {
+        let state = app.state.lock().unwrap();
+        choose_executor(&state, local)
+    }
+    .ok_or_else(|| ApiError(StatusCode::SERVICE_UNAVAILABLE, NO_EXECUTOR.into()))?;
+    let asked = match body
+        .repository
+        .as_deref()
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+    {
+        Some(repository) => format!("Repository: {repository}\n\nTask:\n{prompt}"),
+        None => prompt.to_string(),
+    };
+    let rewritten = crate::infer::infer(app, executor, ENHANCE_SYSTEM, &asked)
+        .await
+        .map_err(|err| match err {
+            crate::infer::InferError::Unavailable => {
+                ApiError(StatusCode::SERVICE_UNAVAILABLE, NO_EXECUTOR.into())
+            }
+            crate::infer::InferError::Failed(note) => ApiError(StatusCode::BAD_GATEWAY, note),
+        })?;
+    Ok(Json(EnhanceResponse {
+        prompt: rewritten.trim().to_string(),
+    }))
+}
+
+/// The executor to rewrite on: what a connected runner advertises, else one
+/// this host has itself.
+pub(super) fn choose_executor(
+    state: &crate::state::State,
+    local: impl Fn() -> Option<Executor>,
+) -> Option<Executor> {
+    state
+        .runners
+        .values()
+        .filter(|runner| runner.is_connected())
+        .find_map(|runner| runner.info.executors.first().copied())
+        .or_else(local)
 }

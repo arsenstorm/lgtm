@@ -141,6 +141,7 @@ mod tests {
             base_url: "http://127.0.0.1:1".into(),
             orchestrating: std::sync::Mutex::new(Default::default()),
             asking: tokio::sync::Semaphore::new(crate::ASK_SLOTS),
+            inferring: std::sync::Mutex::new(Default::default()),
         })
     }
 

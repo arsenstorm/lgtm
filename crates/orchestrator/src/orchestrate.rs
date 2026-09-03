@@ -18,6 +18,9 @@ use crate::state::{App, State};
 const ASK_TIMEOUT: Duration = Duration::from_secs(300);
 /// Enough turns to inspect, act two or three times, and write the summary.
 const MAX_TURNS: &str = "12";
+/// A utility call is one turn of one model; the runner caps its own at the
+/// same 90s, and the caller waits 120s for either.
+const ONE_SHOT_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// What `--orchestrate` was given.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,7 +48,7 @@ fn resolve(choice: Choice, found: impl Fn(&str) -> bool) -> Option<Executor> {
     picked
 }
 
-fn on_path(binary: &str) -> bool {
+pub(crate) fn on_path(binary: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else {
         return false;
     };
@@ -194,6 +197,50 @@ async fn ask(
         .map_err(|err| format!("{binary} did not run: {err}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     answer(executor, &stdout).ok_or_else(|| format!("{binary} answered nothing"))
+}
+
+/// One model call with no tools, run on this host: the inference lane's
+/// fallback for an orchestrator with no runner connected. Same shape as
+/// [`ask`], minus the MCP server — a utility call has nothing to inspect.
+pub(crate) async fn one_shot(
+    executor: Executor,
+    system: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    let binary = executor.binary();
+    let mut cmd = tokio::process::Command::new(binary);
+    cmd.args(one_shot_args(executor, system, prompt))
+        .current_dir(std::env::temp_dir())
+        .stdin(Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(ONE_SHOT_TIMEOUT, cmd.output())
+        .await
+        .map_err(|_| format!("{binary} did not answer in {}s", ONE_SHOT_TIMEOUT.as_secs()))?
+        .map_err(|err| format!("{binary} did not run: {err}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    answer(executor, &stdout).ok_or_else(|| format!("{binary} answered nothing"))
+}
+
+/// `codex exec` has no system-prompt flag, so the instructions lead the
+/// prompt there. Both shapes are what [`answer`] already reads.
+fn one_shot_args(executor: Executor, system: &str, prompt: &str) -> Vec<String> {
+    match executor {
+        Executor::Claude => vec![
+            "-p".into(),
+            prompt.into(),
+            "--append-system-prompt".into(),
+            system.into(),
+            "--output-format".into(),
+            "json".into(),
+        ],
+        Executor::Codex => vec![
+            "exec".into(),
+            "--json".into(),
+            "--sandbox".into(),
+            "read-only".into(),
+            format!("{system}\n\n{prompt}"),
+        ],
+    }
 }
 
 pub fn args(executor: Executor, prompt: &str, exe: &Path) -> Vec<String> {

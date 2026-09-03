@@ -188,6 +188,17 @@ pub enum RunnerMessage {
     TerminalClosed {
         task_id: TaskId,
     },
+    /// The answer to one [`OrchestratorMessage::Infer`]. Not a `TaskEvent`:
+    /// a utility call is not task history, so it is never stored.
+    Inferred {
+        id: String,
+        /// Model text on success, empty on failure.
+        #[serde(default)]
+        text: String,
+        /// Why it failed; `None` on success.
+        #[serde(default)]
+        error: Option<String>,
+    },
     /// The runner is exiting on purpose and runs nothing.
     Goodbye,
 }
@@ -264,6 +275,19 @@ pub enum OrchestratorMessage {
     /// shell is meant to survive a client going away.
     TerminalClose {
         task_id: TaskId,
+    },
+    /// One-shot model call for the orchestrator's own features (prompt
+    /// enhancement, planning). Not a task: no worktree, no slot, and never
+    /// stored as task history — the reasoning that keeps Terminal frames out
+    /// of events. A runner that predates it answers nothing and the
+    /// orchestrator's timeout covers that.
+    Infer {
+        id: String,
+        executor: Executor,
+        /// Instructions that frame the call; the runner passes it as the
+        /// system prompt, or prepends it when the executor has no such flag.
+        system: String,
+        prompt: String,
     },
 }
 

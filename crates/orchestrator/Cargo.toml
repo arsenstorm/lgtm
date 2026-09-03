@@ -24,3 +24,5 @@ uuid.workspace = true
 
 [dev-dependencies]
 tokio-tungstenite.workspace = true
+# `start_paused` in the inference timeout test; test builds only.
+tokio = { workspace = true, features = ["test-util"] }

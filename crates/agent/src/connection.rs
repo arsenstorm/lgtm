@@ -16,7 +16,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
 
-use crate::{runner, terminal};
+use crate::{infer, runner, terminal};
 
 const RETRY: Duration = Duration::from_secs(3);
 /// Time the writer gets to put `Goodbye` on the wire before the process exits.
@@ -381,6 +381,14 @@ async fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
         }
         OrchestratorMessage::TerminalClose { task_id } => {
             terminal::close(&task_id, ctx).await;
+        }
+        OrchestratorMessage::Infer {
+            id,
+            executor,
+            system,
+            prompt,
+        } => {
+            tokio::spawn(infer::run(id, executor, system, prompt, ctx.clone()));
         }
     }
     ctx.check_exit();

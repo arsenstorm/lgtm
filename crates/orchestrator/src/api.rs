@@ -165,6 +165,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .route("/users/{id}/revoke", post(users::revoke_user))
         .route("/activity", get(workspace::activity))
         .route("/ask", post(workspace::ask))
+        .route("/enhance", post(workspace::enhance))
         .layer(middleware::from_fn_with_state(app, auth))
 }
 

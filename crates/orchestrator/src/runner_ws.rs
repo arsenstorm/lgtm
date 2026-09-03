@@ -109,6 +109,9 @@ fn handle(app: &Arc<App>, info: &RunnerInfo, conn_id: u64, text: &str) -> bool {
             app.persist_ids(&mut state, &changed);
             return true;
         }
+        Ok(RunnerMessage::Inferred { id, text, error }) => {
+            crate::infer::complete(app, &id, text, error)
+        }
         Ok(RunnerMessage::Terminal { task_id, data }) => terminal(app, &task_id, Some(data)),
         Ok(RunnerMessage::TerminalClosed { task_id }) => terminal(app, &task_id, None),
         Ok(RunnerMessage::Hello { .. }) => {}

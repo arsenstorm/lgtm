@@ -128,7 +128,7 @@ fn push_tail(tail: &Tail, line: &str) {
     }
 }
 
-fn capture_answer(line: &str, text: &Text, executor: Executor) {
+pub(crate) fn capture_answer(line: &str, text: &Text, executor: Executor) {
     let Ok(value) = serde_json::from_str::<Value>(line) else {
         return;
     };
