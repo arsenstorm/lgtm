@@ -1,19 +1,19 @@
 import { Link } from '@tanstack/react-router'
 import {
-  CircleCheck,
-  CircleDashed,
-  CircleMinus,
-  CircleSlash,
-  CircleX,
-  Eye,
-  GitMerge,
-  LoaderCircle,
-  MessageSquareDot,
-  Split,
-  TimerOff,
-  Unplug,
-} from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+  RiCheckboxCircleLine,
+  RiCloseCircleLine,
+  RiEyeLine,
+  RiFeedbackLine,
+  RiForbidLine,
+  RiGitBranchLine,
+  RiGitMergeLine,
+  RiIndeterminateCircleLine,
+  RiLoader4Line,
+  RiPlugLine,
+  RiTimeLine,
+  RiTimerLine,
+} from '@remixicon/react'
+import type { RemixiconComponentType } from '@remixicon/react'
 
 import type { Task, TaskStatus } from '@/lib/lgtm/types'
 import { cn } from '@/lib/utils'
@@ -25,19 +25,22 @@ import { cn } from '@/lib/utils'
  */
 type Tone = 'idle' | 'live' | 'attention' | 'done' | 'broken'
 
-const STATUS: Record<TaskStatus, { label: string; icon: LucideIcon; tone: Tone }> = {
-  queued: { label: 'Queued', icon: CircleDashed, tone: 'idle' },
-  running: { label: 'Running', icon: LoaderCircle, tone: 'live' },
-  awaiting_review: { label: 'Awaiting review', icon: Eye, tone: 'attention' },
-  changes_requested: { label: 'Changes requested', icon: MessageSquareDot, tone: 'attention' },
-  conflicted: { label: 'Conflicted', icon: Split, tone: 'attention' },
-  approved: { label: 'Approved', icon: CircleCheck, tone: 'done' },
-  merged: { label: 'Merged', icon: GitMerge, tone: 'done' },
-  rejected: { label: 'Rejected', icon: CircleSlash, tone: 'idle' },
-  failed: { label: 'Failed', icon: CircleX, tone: 'broken' },
-  timed_out: { label: 'Timed out', icon: TimerOff, tone: 'broken' },
-  runner_lost: { label: 'Runner lost', icon: Unplug, tone: 'broken' },
-  cancelled: { label: 'Cancelled', icon: CircleMinus, tone: 'idle' },
+export const STATUS: Record<
+  TaskStatus,
+  { label: string; icon: RemixiconComponentType; tone: Tone }
+> = {
+  queued: { label: 'Queued', icon: RiTimeLine, tone: 'idle' },
+  running: { label: 'Running', icon: RiLoader4Line, tone: 'live' },
+  awaiting_review: { label: 'Awaiting review', icon: RiEyeLine, tone: 'attention' },
+  changes_requested: { label: 'Changes requested', icon: RiFeedbackLine, tone: 'attention' },
+  conflicted: { label: 'Conflicted', icon: RiGitBranchLine, tone: 'attention' },
+  approved: { label: 'Approved', icon: RiCheckboxCircleLine, tone: 'done' },
+  merged: { label: 'Merged', icon: RiGitMergeLine, tone: 'done' },
+  rejected: { label: 'Rejected', icon: RiForbidLine, tone: 'idle' },
+  failed: { label: 'Failed', icon: RiCloseCircleLine, tone: 'broken' },
+  timed_out: { label: 'Timed out', icon: RiTimerLine, tone: 'broken' },
+  runner_lost: { label: 'Runner lost', icon: RiPlugLine, tone: 'broken' },
+  cancelled: { label: 'Cancelled', icon: RiIndeterminateCircleLine, tone: 'idle' },
 }
 
 const TONE_TEXT: Record<Tone, string> = {

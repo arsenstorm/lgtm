@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useRouter } from '@tanstack/react-router'
-import { Check, LoaderCircle, RotateCcw, Send, Trash2 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import {
+  RiCheckLine,
+  RiDeleteBinLine,
+  RiLoader4Line,
+  RiRestartLine,
+  RiSendPlaneLine,
+} from '@remixicon/react'
+import type { RemixiconComponentType } from '@remixicon/react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -80,7 +86,7 @@ export function TaskActions({ task }: { task: Task }) {
             disabled={busy}
             onClick={() => run('retry', () => retryTask({ data: task.id }), 'Task requeued')}
           >
-            <ActionIcon icon={RotateCcw} busy={pending === 'retry'} />
+            <ActionIcon icon={RiRestartLine} busy={pending === 'retry'} />
             Retry
             <TouchTarget />
           </Button>
@@ -120,7 +126,7 @@ export function TaskActions({ task }: { task: Task }) {
             run('approve', () => approveTask({ data: task.id }), 'Task approved — branch pushed')
           }
         >
-          <ActionIcon icon={Check} busy={pending === 'approve'} />
+          <ActionIcon icon={RiCheckLine} busy={pending === 'approve'} />
           Approve
           <TouchTarget />
         </Button>
@@ -142,7 +148,7 @@ export function TaskActions({ task }: { task: Task }) {
               : setArmed(true)
           }
         >
-          <ActionIcon icon={Trash2} busy={pending === 'reject'} />
+          <ActionIcon icon={RiDeleteBinLine} busy={pending === 'reject'} />
           {armed ? 'Confirm reject' : 'Reject'}
           <TouchTarget />
         </Button>
@@ -178,7 +184,7 @@ export function TaskActions({ task }: { task: Task }) {
           className="relative"
           disabled={busy || followUp.trim() === ''}
         >
-          <ActionIcon icon={Send} busy={pending === 'follow-up'} />
+          <ActionIcon icon={RiSendPlaneLine} busy={pending === 'follow-up'} />
           Send follow-up
           <TouchTarget />
         </Button>
@@ -220,9 +226,9 @@ function Hint({ children, live }: { children: ReactNode; live?: boolean }) {
 
 /** Swapping the leading icon for the spinner, rather than adding one, keeps the
  *  button the same width while it works. */
-function ActionIcon({ icon: Icon, busy }: { icon: LucideIcon; busy: boolean }) {
+function ActionIcon({ icon: Icon, busy }: { icon: RemixiconComponentType; busy: boolean }) {
   if (busy) {
-    return <LoaderCircle data-icon="inline-start" className="motion-safe:animate-spin" />
+    return <RiLoader4Line data-icon="inline-start" className="motion-safe:animate-spin" />
   }
   return <Icon data-icon="inline-start" />
 }

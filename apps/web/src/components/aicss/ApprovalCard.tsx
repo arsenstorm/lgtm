@@ -2,17 +2,17 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  ChevronDown,
-  ChevronUp,
-  CornerDownLeft,
-  Download,
-  ListChecks,
-  ListTodo,
-  Maximize2,
-  MessageCircleQuestion,
-  Terminal,
-  X,
-} from "lucide-react";
+  RiArrowDownSLine,
+  RiArrowUpSLine,
+  RiCornerDownLeftLine,
+  RiDownloadLine,
+  RiListCheck2,
+  RiTodoLine,
+  RiExpandDiagonalLine,
+  RiQuestionAnswerLine,
+  RiTerminalLine,
+  RiCloseLine,
+} from "@remixicon/react";
 import styles from "./ApprovalCard.module.css";
 
 export type ApprovalVariant = "questions" | "command" | "plan";
@@ -423,10 +423,10 @@ export function ApprovalCard({
 
   const Icon =
     variant === "questions"
-      ? MessageCircleQuestion
+      ? RiQuestionAnswerLine
       : variant === "command"
-        ? Terminal
-        : ListTodo;
+        ? RiTerminalLine
+        : RiTodoLine;
 
   return (
     <div
@@ -463,7 +463,7 @@ export function ApprovalCard({
               aria-label="Download plan"
               onClick={(e) => e.preventDefault()}
             >
-              <Download className={styles.headActionIcon} strokeWidth={2} aria-hidden />
+              <RiDownloadLine className={styles.headActionIcon} strokeWidth={2} aria-hidden />
             </button>
             <button
               type="button"
@@ -474,7 +474,7 @@ export function ApprovalCard({
                 setPlanExpanded(true);
               }}
             >
-              <Maximize2 className={styles.headActionIcon} strokeWidth={2} aria-hidden />
+              <RiExpandDiagonalLine className={styles.headActionIcon} strokeWidth={2} aria-hidden />
             </button>
           </div>
         )}
@@ -628,7 +628,7 @@ export function ApprovalCard({
           <div className={styles.todoWell}>
             <div className={styles.todoHead}>
               <span className={styles.todoHeadIcon}>
-                <ListChecks
+                <RiListCheck2
                   className={styles.todoListIcon}
                   strokeWidth={2}
                   aria-hidden
@@ -728,7 +728,7 @@ export function ApprovalCard({
                 goToStep(safeStep - 1);
               }}
             >
-              <ChevronUp
+              <RiArrowUpSLine
                 className={styles.stepArrowIcon}
                 strokeWidth={2}
                 aria-hidden
@@ -747,7 +747,7 @@ export function ApprovalCard({
                 goToStep(safeStep + 1);
               }}
             >
-              <ChevronDown
+              <RiArrowDownSLine
                 className={styles.stepArrowIcon}
                 strokeWidth={2}
                 aria-hidden
@@ -806,7 +806,7 @@ export function ApprovalCard({
                 />
               </svg>
               <span className={styles.autoApproveCancelGlyph} aria-hidden>
-                <X size={8} strokeWidth={2.5} />
+                <RiCloseLine size={8} strokeWidth={2.5} />
               </span>
             </button>
             </span>
@@ -842,7 +842,7 @@ export function ApprovalCard({
             }}
           >
             {resolvedApprove}
-            <CornerDownLeft
+            <RiCornerDownLeftLine
               className={styles.btnSubmitIcon}
               size={12}
               strokeWidth={2}
