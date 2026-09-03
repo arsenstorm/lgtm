@@ -17,7 +17,7 @@ import { Link } from "@tanstack/react-router";
 
 import { TimeAgo } from "@/components/time-ago";
 import type { Task, TaskStatus } from "@/lib/lgtm/types";
-import { cn, firstLine } from "@/lib/utils";
+import { cn, taskTitle } from "@/lib/utils";
 
 /**
  * Tone groups the twelve statuses into the four things an operator actually
@@ -138,7 +138,7 @@ function TaskRow({ task }: { task: Task }) {
         </span>
 
         <p className="order-last min-w-0 basis-full overflow-hidden whitespace-nowrap text-base text-foreground [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] sm:order-none sm:flex-1 sm:basis-auto sm:text-sm">
-          {firstLine(task.spec.prompt)}
+          {taskTitle(task)}
         </p>
 
         <span className="w-24 shrink-0 truncate text-end text-muted-foreground">

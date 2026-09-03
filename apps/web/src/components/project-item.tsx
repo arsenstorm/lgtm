@@ -30,7 +30,7 @@ import type {
   Task,
   TaskStatus,
 } from "@/lib/lgtm/types";
-import { cn, firstLine } from "@/lib/utils";
+import { cn, taskTitle } from "@/lib/utils";
 
 export interface Project {
   name: string;
@@ -208,7 +208,7 @@ export function ProjectItem({
                     render={<Link params={{ id: task.id }} to="/tasks/$id" />}
                   >
                     <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent)]">
-                      {firstLine(task.spec.prompt)}
+                      {taskTitle(task)}
                     </span>
                     {attention && (
                       // SidebarMenuSubButton force-colours its direct `svg`

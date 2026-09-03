@@ -110,6 +110,8 @@ export interface Task {
   scratchpad: string;
   spec: TaskSpec;
   status: TaskStatus;
+  /** Model-written name; null until the inference lane answers. */
+  title: string | null;
 }
 
 export interface Overlap {

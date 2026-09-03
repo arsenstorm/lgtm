@@ -26,7 +26,7 @@ export function AppShell({
     >
       <AppSidebar tasks={tasks} variant="inset" />
       <SidebarInset className="min-h-0">
-        <SiteHeader />
+        <SiteHeader tasks={tasks} />
         <div className="scrollbar-gutter-stable min-w-0 flex-1 overflow-y-auto overscroll-contain">
           {children}
         </div>

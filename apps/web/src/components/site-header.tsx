@@ -2,6 +2,8 @@ import { useMatchRoute } from "@tanstack/react-router";
 
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import type { Task } from "@/lib/lgtm/types";
+import { taskTitle } from "@/lib/utils";
 
 const TITLES = [
   ["/tasks", "Tasks"],
@@ -14,15 +16,16 @@ const TITLES = [
 ] as const;
 
 /** The header names where you are; the pages themselves lead with content. */
-function useTitle(): string {
+function useTitle(tasks: Task[]): string {
   const matchRoute = useMatchRoute();
   // The composer is the home route; the task list lives at /tasks.
   if (matchRoute({ to: "/" })) {
     return "New task";
   }
-  const task = matchRoute({ to: "/tasks/$id" });
-  if (task) {
-    return `Task ${task.id}`;
+  const match = matchRoute({ to: "/tasks/$id" });
+  if (match) {
+    const task = tasks.find((candidate) => candidate.id === match.id);
+    return task ? taskTitle(task) : `Task ${match.id}`;
   }
   // The hex id says nothing a reader wants; the todo page leads with its own
   // display id, and a scratchpad with its title.
@@ -40,8 +43,8 @@ function useTitle(): string {
   return "LGTM";
 }
 
-export function SiteHeader() {
-  const title = useTitle();
+export function SiteHeader({ tasks }: { tasks: Task[] }) {
+  const title = useTitle(tasks);
 
   return (
     <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b">
