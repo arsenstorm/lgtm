@@ -1,12 +1,18 @@
 import { Link, useMatchRoute } from '@tanstack/react-router'
 import {
+  Brain,
   CaretRight,
+  ChatsCircle,
+  CheckSquareOffset,
+  DotsThree,
   DotsThreeVertical,
   FolderSimple,
   HardDrives,
   ListChecks,
   Moon,
+  Notepad,
   PlusCircle,
+  Pulse,
   SignOut,
   Sun,
   WarningCircle,
@@ -49,6 +55,15 @@ import { cn } from '@/lib/utils'
 const NAV = [
   { to: '/', label: 'Tasks', icon: ListChecks, exact: true },
   { to: '/runners', label: 'Runners', icon: HardDrives, exact: false },
+  { to: '/todos', label: 'Todos', icon: CheckSquareOffset, exact: false },
+  { to: '/memories', label: 'Memories', icon: Brain, exact: false },
+  { to: '/scratchpads', label: 'Scratchpads', icon: Notepad, exact: false },
+] as const
+
+// The second tier: worth reaching, not worth a permanent row.
+const MORE = [
+  { to: '/sessions', label: 'Sessions', icon: ChatsCircle },
+  { to: '/activity', label: 'Activity', icon: Pulse },
 ] as const
 
 const PREVIEW = 5
@@ -92,7 +107,7 @@ function firstLine(prompt: string): string {
 }
 
 /** `git@github.com:acme/web.git` and `/srv/repos/web/` both read as "web". */
-function projectName(repository: string): string {
+export function projectName(repository: string): string {
   const trimmed = repository.replace(TRAILING_SLASHES, '')
   const segment = trimmed.split('/').at(-1)?.replace(DOT_GIT, '')
   return segment ? segment : repository
@@ -196,6 +211,7 @@ export function AppSidebar({
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              <MoreItem />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -220,6 +236,41 @@ export function AppSidebar({
         <AccountMenu />
       </SidebarFooter>
     </Sidebar>
+  )
+}
+
+function MoreItem() {
+  const { isMobile } = useSidebar()
+
+  return (
+    <SidebarMenuItem>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={<SidebarMenuButton className="text-sidebar-foreground/70" />}
+        >
+          <DotsThree aria-hidden="true" />
+          <span>More</span>
+        </DropdownMenuTrigger>
+
+        <DropdownMenuContent
+          className="w-32 rounded-lg"
+          side={isMobile ? 'bottom' : 'right'}
+          align={isMobile ? 'end' : 'start'}
+          sideOffset={4}
+        >
+          {MORE.map(({ to, label, icon: Icon }) => (
+            <DropdownMenuItem
+              key={to}
+              className="gap-2 px-2 py-1.5"
+              render={<Link to={to} />}
+            >
+              <Icon aria-hidden="true" />
+              <span>{label}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </SidebarMenuItem>
   )
 }
 

@@ -151,3 +151,58 @@ export interface Stats {
   budget_daily_usd: number | null
   spent_today: number
 }
+
+export type MemorySource = 'user' | 'agent'
+export type MemoryVerification = 'agent_proposed' | 'user_approved'
+
+export interface Memory {
+  id: string
+  /** Null applies to every repository. */
+  repository: string | null
+  content: string
+  created_at: number
+  source: MemorySource
+  verification: MemoryVerification
+  proposed_by: string | null
+  workspace: string | null
+  created_by: string | null
+}
+
+export type TodoStatus = 'open' | 'in_progress' | 'done'
+export type TodoPriority = 'low' | 'medium' | 'high'
+
+export interface Todo {
+  id: string
+  repository: string | null
+  title: string
+  description: string
+  status: TodoStatus
+  created_at: number
+  task: string | null
+  priority: TodoPriority
+  assignee: string | null
+  blockers: string[]
+  workspace: string | null
+  created_by: string | null
+}
+
+export interface Session {
+  id: string
+  repository: string
+  base_branch: string
+  /** The first message cut to 60 chars; empty until one is sent. */
+  title: string
+  created_at: number
+  workspace: string | null
+  created_by: string | null
+  archived: boolean
+}
+
+export interface ActivityEntry {
+  at: number
+  task: string
+  owner: string
+  repository: string
+  event: string
+  detail: string
+}

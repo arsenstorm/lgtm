@@ -10,7 +10,12 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ActivityRouteImport } from './routes/activity'
+import { Route as MemoriesRouteImport } from './routes/memories'
 import { Route as RunnersRouteImport } from './routes/runners'
+import { Route as ScratchpadsRouteImport } from './routes/scratchpads'
+import { Route as SessionsRouteImport } from './routes/sessions'
+import { Route as TodosRouteImport } from './routes/todos'
 import { Route as TasksIdRouteImport } from './routes/tasks.$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -18,9 +23,34 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ActivityRoute = ActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MemoriesRoute = MemoriesRouteImport.update({
+  id: '/memories',
+  path: '/memories',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RunnersRoute = RunnersRouteImport.update({
   id: '/runners',
   path: '/runners',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScratchpadsRoute = ScratchpadsRouteImport.update({
+  id: '/scratchpads',
+  path: '/scratchpads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SessionsRoute = SessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TodosRoute = TodosRouteImport.update({
+  id: '/todos',
+  path: '/todos',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TasksIdRoute = TasksIdRouteImport.update({
@@ -31,31 +61,76 @@ const TasksIdRoute = TasksIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
+  '/memories': typeof MemoriesRoute
   '/runners': typeof RunnersRoute
+  '/scratchpads': typeof ScratchpadsRoute
+  '/sessions': typeof SessionsRoute
+  '/todos': typeof TodosRoute
   '/tasks/$id': typeof TasksIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
+  '/memories': typeof MemoriesRoute
   '/runners': typeof RunnersRoute
+  '/scratchpads': typeof ScratchpadsRoute
+  '/sessions': typeof SessionsRoute
+  '/todos': typeof TodosRoute
   '/tasks/$id': typeof TasksIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
+  '/memories': typeof MemoriesRoute
   '/runners': typeof RunnersRoute
+  '/scratchpads': typeof ScratchpadsRoute
+  '/sessions': typeof SessionsRoute
+  '/todos': typeof TodosRoute
   '/tasks/$id': typeof TasksIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/runners' | '/tasks/$id'
+  fullPaths:
+    | '/'
+    | '/activity'
+    | '/memories'
+    | '/runners'
+    | '/scratchpads'
+    | '/sessions'
+    | '/todos'
+    | '/tasks/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/runners' | '/tasks/$id'
-  id: '__root__' | '/' | '/runners' | '/tasks/$id'
+  to:
+    | '/'
+    | '/activity'
+    | '/memories'
+    | '/runners'
+    | '/scratchpads'
+    | '/sessions'
+    | '/todos'
+    | '/tasks/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/activity'
+    | '/memories'
+    | '/runners'
+    | '/scratchpads'
+    | '/sessions'
+    | '/todos'
+    | '/tasks/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ActivityRoute: typeof ActivityRoute
+  MemoriesRoute: typeof MemoriesRoute
   RunnersRoute: typeof RunnersRoute
+  ScratchpadsRoute: typeof ScratchpadsRoute
+  SessionsRoute: typeof SessionsRoute
+  TodosRoute: typeof TodosRoute
   TasksIdRoute: typeof TasksIdRoute
 }
 
@@ -68,11 +143,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/activity': {
+      id: '/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof ActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/memories': {
+      id: '/memories'
+      path: '/memories'
+      fullPath: '/memories'
+      preLoaderRoute: typeof MemoriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/runners': {
       id: '/runners'
       path: '/runners'
       fullPath: '/runners'
       preLoaderRoute: typeof RunnersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scratchpads': {
+      id: '/scratchpads'
+      path: '/scratchpads'
+      fullPath: '/scratchpads'
+      preLoaderRoute: typeof ScratchpadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sessions': {
+      id: '/sessions'
+      path: '/sessions'
+      fullPath: '/sessions'
+      preLoaderRoute: typeof SessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/todos': {
+      id: '/todos'
+      path: '/todos'
+      fullPath: '/todos'
+      preLoaderRoute: typeof TodosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tasks/$id': {
@@ -87,7 +197,12 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ActivityRoute: ActivityRoute,
+  MemoriesRoute: MemoriesRoute,
   RunnersRoute: RunnersRoute,
+  ScratchpadsRoute: ScratchpadsRoute,
+  SessionsRoute: SessionsRoute,
+  TodosRoute: TodosRoute,
   TasksIdRoute: TasksIdRoute,
 }
 export const routeTree = rootRouteImport

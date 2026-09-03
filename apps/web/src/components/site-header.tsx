@@ -3,12 +3,23 @@ import { useMatchRoute } from '@tanstack/react-router'
 import { Separator } from '@/components/ui/separator'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 
+const TITLES = [
+  ['/runners', 'Runners'],
+  ['/todos', 'Todos'],
+  ['/memories', 'Memories'],
+  ['/scratchpads', 'Scratchpads'],
+  ['/sessions', 'Sessions'],
+  ['/activity', 'Activity'],
+] as const
+
 /** The header names where you are; the pages themselves lead with content. */
 function useTitle(): string {
   const matchRoute = useMatchRoute()
   const task = matchRoute({ to: '/tasks/$id' })
   if (task) return `Task ${task.id}`
-  if (matchRoute({ to: '/runners' })) return 'Runners'
+  for (const [to, title] of TITLES) {
+    if (matchRoute({ to })) return title
+  }
   return 'Tasks'
 }
 

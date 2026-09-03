@@ -1,6 +1,15 @@
 import { createServerFn } from '@tanstack/react-start'
 import { env } from 'cloudflare:workers'
-import type { RunnerStatus, Stats, Task, TaskDetail } from './types'
+import type {
+  ActivityEntry,
+  Memory,
+  RunnerStatus,
+  Session,
+  Stats,
+  Task,
+  TaskDetail,
+  Todo,
+} from './types'
 
 // wrangler.jsonc declares no `vars`, so worker-configuration.d.ts's generated
 // Env type doesn't know these two — they exist only via .dev.vars / secrets.
@@ -43,6 +52,22 @@ export const getTasks = createServerFn({ method: 'GET' }).handler(
 
 export const getStats = createServerFn({ method: 'GET' }).handler(
   async (): Promise<Stats> => api<Stats>('/stats'),
+)
+
+export const getMemories = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<Memory[]> => api<Memory[]>('/memories'),
+)
+
+export const getTodos = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<Todo[]> => api<Todo[]>('/todos'),
+)
+
+export const getSessions = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<Session[]> => api<Session[]>('/sessions'),
+)
+
+export const getActivity = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<ActivityEntry[]> => api<ActivityEntry[]>('/activity'),
 )
 
 export const getTask = createServerFn({ method: 'GET' })
