@@ -221,7 +221,14 @@ fn clean_title(answer: &str) -> Option<String> {
         .trim_matches(|c| matches!(c, '"' | '\'' | '\u{201c}' | '\u{201d}'))
         .trim_end_matches('.')
         .trim();
-    if line.is_empty() {
+    let lower = line.to_ascii_lowercase();
+    let is_executor_error = lower.starts_with("you've hit your session limit")
+        || lower.starts_with("you've hit your usage limit")
+        || lower.starts_with("rate limit exceeded")
+        || lower.starts_with("too many requests")
+        || lower.starts_with("exited with exit code")
+        || lower.starts_with("error:");
+    if line.is_empty() || is_executor_error {
         return None;
     }
     Some(line.chars().take(80).collect())
@@ -314,6 +321,11 @@ mod tests {
             Some("Add rate limiting".into())
         );
         assert_eq!(clean_title("   \n"), None);
+        assert_eq!(
+            clean_title("You've hit your session limit · resets 4:30pm (Europe/London)"),
+            None
+        );
+        assert_eq!(clean_title("Error: authentication failed"), None);
         let long = "word ".repeat(40);
         assert_eq!(clean_title(&long).unwrap().chars().count(), 80);
     }
