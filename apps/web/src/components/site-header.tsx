@@ -4,6 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const TITLES = [
+  ["/tasks", "Tasks"],
   ["/runners", "Runners"],
   ["/todos", "Todos"],
   ["/memories", "Memories"],
@@ -15,9 +16,8 @@ const TITLES = [
 /** The header names where you are; the pages themselves lead with content. */
 function useTitle(): string {
   const matchRoute = useMatchRoute();
-  // Ahead of `/tasks/$id`: a static segment must win however the two are
-  // ordered by the matcher.
-  if (matchRoute({ to: "/tasks/new" })) {
+  // The composer is the home route; the task list lives at /tasks.
+  if (matchRoute({ to: "/" })) {
     return "New task";
   }
   const task = matchRoute({ to: "/tasks/$id" });
@@ -37,7 +37,7 @@ function useTitle(): string {
       return title;
     }
   }
-  return "Tasks";
+  return "LGTM";
 }
 
 export function SiteHeader() {

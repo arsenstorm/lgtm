@@ -17,8 +17,8 @@ import { Route as ScratchpadsRouteImport } from './routes/scratchpads'
 import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as TodosRouteImport } from './routes/todos'
 import { Route as ScratchpadsIdRouteImport } from './routes/scratchpads_.$id'
+import { Route as TasksIndexRouteImport } from './routes/tasks.index'
 import { Route as TasksIdRouteImport } from './routes/tasks.$id'
-import { Route as TasksNewRouteImport } from './routes/tasks.new'
 import { Route as TodosIdRouteImport } from './routes/todos_.$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -61,14 +61,14 @@ const ScratchpadsIdRoute = ScratchpadsIdRouteImport.update({
   path: '/scratchpads/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TasksIndexRoute = TasksIndexRouteImport.update({
+  id: '/tasks/',
+  path: '/tasks/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TasksIdRoute = TasksIdRouteImport.update({
   id: '/tasks/$id',
   path: '/tasks/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TasksNewRoute = TasksNewRouteImport.update({
-  id: '/tasks/new',
-  path: '/tasks/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TodosIdRoute = TodosIdRouteImport.update({
@@ -87,8 +87,8 @@ export interface FileRoutesByFullPath {
   '/todos': typeof TodosRoute
   '/scratchpads/$id': typeof ScratchpadsIdRoute
   '/tasks/$id': typeof TasksIdRoute
-  '/tasks/new': typeof TasksNewRoute
   '/todos/$id': typeof TodosIdRoute
+  '/tasks/': typeof TasksIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -100,8 +100,8 @@ export interface FileRoutesByTo {
   '/todos': typeof TodosRoute
   '/scratchpads/$id': typeof ScratchpadsIdRoute
   '/tasks/$id': typeof TasksIdRoute
-  '/tasks/new': typeof TasksNewRoute
   '/todos/$id': typeof TodosIdRoute
+  '/tasks': typeof TasksIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -114,8 +114,8 @@ export interface FileRoutesById {
   '/todos': typeof TodosRoute
   '/scratchpads_/$id': typeof ScratchpadsIdRoute
   '/tasks/$id': typeof TasksIdRoute
-  '/tasks/new': typeof TasksNewRoute
   '/todos_/$id': typeof TodosIdRoute
+  '/tasks/': typeof TasksIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -129,8 +129,8 @@ export interface FileRouteTypes {
     | '/todos'
     | '/scratchpads/$id'
     | '/tasks/$id'
-    | '/tasks/new'
     | '/todos/$id'
+    | '/tasks/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -142,8 +142,8 @@ export interface FileRouteTypes {
     | '/todos'
     | '/scratchpads/$id'
     | '/tasks/$id'
-    | '/tasks/new'
     | '/todos/$id'
+    | '/tasks'
   id:
     | '__root__'
     | '/'
@@ -155,8 +155,8 @@ export interface FileRouteTypes {
     | '/todos'
     | '/scratchpads_/$id'
     | '/tasks/$id'
-    | '/tasks/new'
     | '/todos_/$id'
+    | '/tasks/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -169,8 +169,8 @@ export interface RootRouteChildren {
   TodosRoute: typeof TodosRoute
   ScratchpadsIdRoute: typeof ScratchpadsIdRoute
   TasksIdRoute: typeof TasksIdRoute
-  TasksNewRoute: typeof TasksNewRoute
   TodosIdRoute: typeof TodosIdRoute
+  TasksIndexRoute: typeof TasksIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -231,18 +231,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ScratchpadsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tasks/': {
+      id: '/tasks/'
+      path: '/tasks'
+      fullPath: '/tasks/'
+      preLoaderRoute: typeof TasksIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tasks/$id': {
       id: '/tasks/$id'
       path: '/tasks/$id'
       fullPath: '/tasks/$id'
       preLoaderRoute: typeof TasksIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/tasks/new': {
-      id: '/tasks/new'
-      path: '/tasks/new'
-      fullPath: '/tasks/new'
-      preLoaderRoute: typeof TasksNewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/todos_/$id': {
@@ -265,8 +265,8 @@ const rootRouteChildren: RootRouteChildren = {
   TodosRoute: TodosRoute,
   ScratchpadsIdRoute: ScratchpadsIdRoute,
   TasksIdRoute: TasksIdRoute,
-  TasksNewRoute: TasksNewRoute,
   TodosIdRoute: TodosIdRoute,
+  TasksIndexRoute: TasksIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

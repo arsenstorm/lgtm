@@ -5,10 +5,9 @@ import {
   CheckSquareOffset,
   DotsThree,
   DotsThreeVertical,
-  FolderSimple,
   HardDrives,
-  ListChecks,
   Moon,
+  NotePencil,
   Notepad,
   PlusCircle,
   Pulse,
@@ -16,12 +15,15 @@ import {
   Sun,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { Link, useMatchRoute } from "@tanstack/react-router";
+import { Link, useMatchRoute, useRouter } from "@tanstack/react-router";
 import type { ComponentProps } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
+import { FolderIcon, TasksIcon } from "@/components/icons";
 import { STATUS } from "@/components/task-list";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
@@ -52,11 +54,16 @@ import {
   SidebarMenuSubItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import type { Task, TaskStatus } from "@/lib/lgtm/types";
+import { getProjects, updateProjectPrefix } from "@/lib/lgtm/server";
+import type {
+  Project as ProjectRecord,
+  Task,
+  TaskStatus,
+} from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { exact: true, icon: ListChecks, label: "Tasks", to: "/" },
+  { exact: true, icon: TasksIcon, label: "Tasks", to: "/tasks" },
   { exact: false, icon: HardDrives, label: "Runners", to: "/runners" },
   { exact: false, icon: CheckSquareOffset, label: "Todos", to: "/todos" },
   { exact: false, icon: Brain, label: "Memories", to: "/memories" },
@@ -80,8 +87,29 @@ const ATTENTION: Partial<Record<TaskStatus, string>> = {
   timed_out: "text-red-500",
 };
 
+// Row furniture stays out of the way until the row is reached. A coarse
+// pointer has no hover to reach it with, so there it is always on.
+const REVEAL =
+  "pointer-coarse:opacity-100 opacity-0 group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100";
+
 const TRAILING_SLASHES = /\/+$/;
 const DOT_GIT = /\.git$/;
+
+const PROJECTS_OPEN_KEY = "lgtm-projects-open";
+
+type OpenMap = Record<string, boolean>;
+
+function readOpenMap(): OpenMap | null {
+  try {
+    const stored = window.localStorage.getItem(PROJECTS_OPEN_KEY);
+    const parsed = stored ? JSON.parse(stored) : null;
+    return parsed && typeof parsed === "object" ? (parsed as OpenMap) : null;
+  } catch {
+    // Unreadable or unavailable storage is not worth a failure: every project
+    // just starts open, the way the server rendered it.
+    return null;
+  }
+}
 
 /**
  * Mirrors the pre-paint script in `__root.tsx`: same `theme` key, same pair of
@@ -173,13 +201,50 @@ export function AppSidebar({
 }: { tasks: Task[] } & ComponentProps<typeof Sidebar>) {
   const matchRoute = useMatchRoute();
   const projects = groupByProject(tasks);
+  const [records, setRecords] = useState<ProjectRecord[]>([]);
+  const [open, setOpen] = useState<OpenMap>({});
+
+  // Project records carry the prefix and id the manage menu needs, but they are
+  // loaded by the root route, which this component does not own. Fetching them
+  // here after paint keeps `__root.tsx` untouched, and menu metadata arriving a
+  // beat late costs nothing.
+  useEffect(() => {
+    getProjects()
+      .then(setRecords)
+      .catch(() => {
+        // Without records the menu simply hides "Change prefix…".
+      });
+  }, []);
+
+  // Reading localStorage during render would disagree with the all-open markup
+  // the server sent and mismatch on hydration.
+  useEffect(() => {
+    const stored = readOpenMap();
+    if (stored) {
+      setOpen(stored);
+    }
+  }, []);
+
+  function setProjectOpen(repository: string, isOpen: boolean) {
+    const next = { ...open, [repository]: isOpen };
+    setOpen(next);
+    try {
+      window.localStorage.setItem(PROJECTS_OPEN_KEY, JSON.stringify(next));
+    } catch {
+      // Same as the theme toggle: storage can be unavailable (private mode,
+      // blocked cookies) and the panel still opens, just not next time.
+    }
+  }
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader className="pb-2">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton className="p-1.5!" render={<Link to="/" />}>
+            <SidebarMenuButton
+              className="p-1.5!"
+              render={<Link search={{ repo: undefined }} to="/" />}
+            >
               <LgtmLogo className="size-5! shrink-0 text-foreground" />
               <span className="font-semibold text-base tracking-tight">
                 LGTM
@@ -196,7 +261,7 @@ export function AppSidebar({
               <SidebarMenuItem>
                 <SidebarMenuButton
                   className="min-w-8 bg-primary text-primary-foreground duration-200 ease-linear hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground"
-                  render={<Link to="/tasks/new" />}
+                  render={<Link search={{ repo: undefined }} to="/" />}
                 >
                   <PlusCircle aria-hidden="true" weight="fill" />
                   <span>New task</span>
@@ -230,7 +295,22 @@ export function AppSidebar({
             ) : (
               <SidebarMenu className="gap-1">
                 {projects.map((project) => (
-                  <ProjectItem key={project.repository} project={project} />
+                  <ProjectItem
+                    key={project.repository}
+                    onOpenChange={(isOpen) =>
+                      setProjectOpen(project.repository, isOpen)
+                    }
+                    onRecordChange={(updated) =>
+                      setRecords((current) =>
+                        current.map((r) => (r.id === updated.id ? updated : r))
+                      )
+                    }
+                    open={open[project.repository] ?? true}
+                    project={project}
+                    record={records.find(
+                      (r) => r.repository === project.repository
+                    )}
+                  />
                 ))}
               </SidebarMenu>
             )}
@@ -280,23 +360,140 @@ function MoreItem() {
   );
 }
 
-function ProjectItem({ project }: { project: Project }) {
+function ProjectItem({
+  onOpenChange,
+  onRecordChange,
+  open,
+  project,
+  record,
+}: {
+  onOpenChange: (open: boolean) => void;
+  onRecordChange: (record: ProjectRecord) => void;
+  open: boolean;
+  project: Project;
+  record?: ProjectRecord;
+}) {
   const matchRoute = useMatchRoute();
+  const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const shown = expanded ? project.tasks : project.tasks.slice(0, PREVIEW);
   const hidden = project.tasks.length - PREVIEW;
 
+  function copyRepository() {
+    navigator.clipboard
+      .writeText(project.repository)
+      .then(() => toast.success("Repository URL copied"))
+      .catch(() => toast.error("Could not copy the repository URL"));
+  }
+
+  async function changePrefix() {
+    if (!record) {
+      return;
+    }
+    // ponytail: window.prompt is the deliberate cheap path; a real dialog
+    // arrives with the settings surface, which does not exist yet.
+    // biome-ignore lint/suspicious/noAlert: cheap path, see above
+    const entered = window.prompt(`Prefix for ${project.name}`, record.prefix);
+    const prefix = entered?.trim();
+    if (!prefix || prefix === record.prefix) {
+      return;
+    }
+    try {
+      const updated = await updateProjectPrefix({
+        data: { id: record.id, prefix },
+      });
+      onRecordChange(updated);
+      toast.success(`Prefix is now ${updated.prefix} — todo ids follow it`);
+      await router.invalidate();
+    } catch (error) {
+      // A 409 names the project already holding the prefix; that name is the
+      // only thing that says what to do next, so it travels verbatim.
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   return (
-    <Collapsible defaultOpen>
+    <Collapsible onOpenChange={onOpenChange} open={open}>
       <SidebarMenuItem>
-        <CollapsibleTrigger render={<SidebarMenuButton />}>
-          <FolderSimple aria-hidden="true" />
+        {/* The right padding keeps the name's truncation clear of the actions
+            that sit over this row. */}
+        <CollapsibleTrigger render={<SidebarMenuButton className="pr-20" />}>
+          <FolderIcon aria-hidden="true" open={open} />
           <span>{project.name}</span>
           <CaretRight
             aria-hidden="true"
-            className="ml-auto transition-transform duration-200 group-data-[panel-open]/menu-button:rotate-90"
+            className={cn(
+              REVEAL,
+              "ml-auto transition-[opacity,transform] duration-200 group-data-[panel-open]/menu-button:rotate-90"
+            )}
           />
         </CollapsibleTrigger>
+
+        {/* A click anywhere inside the trigger toggles the collapsible, so the
+            actions cannot be nested in it — they overlay the row as a sibling. */}
+        <div
+          className={cn(
+            REVEAL,
+            // The menu is portalled out of the row, so hover ends the moment it
+            // opens — without this its own trigger would vanish under it.
+            "absolute top-1 right-7 flex items-center gap-0.5 transition-opacity has-[[aria-expanded=true]]:opacity-100"
+          )}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  aria-label={`Manage ${project.name}`}
+                  className="text-muted-foreground"
+                  size="icon-xs"
+                  variant="ghost"
+                />
+              }
+            >
+              <DotsThree aria-hidden="true" className="size-4" />
+            </DropdownMenuTrigger>
+
+            <DropdownMenuContent
+              align="start"
+              className="w-48 rounded-lg"
+              side="right"
+              sideOffset={4}
+            >
+              <DropdownMenuItem
+                className="gap-2 px-2 py-1.5"
+                render={<Link search={{ repo: project.repository }} to="/" />}
+              >
+                New task
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2 px-2 py-1.5"
+                onClick={copyRepository}
+              >
+                Copy repository URL
+              </DropdownMenuItem>
+              {/* No record means no todo ever numbered this repository, so
+                  there is no prefix to change. */}
+              {record && (
+                <DropdownMenuItem
+                  className="gap-2 px-2 py-1.5"
+                  onClick={changePrefix}
+                >
+                  Change prefix…
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button
+            aria-label={`New task in ${project.name}`}
+            className="text-muted-foreground"
+            render={<Link search={{ repo: project.repository }} to="/" />}
+            size="icon-xs"
+            variant="ghost"
+          >
+            <NotePencil aria-hidden="true" className="size-4" />
+          </Button>
+        </div>
 
         <CollapsibleContent>
           <SidebarMenuSub className="mr-0 pr-0">
@@ -341,7 +538,7 @@ function ProjectItem({ project }: { project: Project }) {
               <SidebarMenuSubItem>
                 <SidebarMenuSubButton
                   className="text-sidebar-foreground/70"
-                  onClick={() => setExpanded((open) => !open)}
+                  onClick={() => setExpanded((current) => !current)}
                   render={<button type="button" />}
                 >
                   <span>{expanded ? "Show less" : `Show ${hidden} more`}</span>
