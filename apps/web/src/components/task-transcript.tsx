@@ -1,16 +1,10 @@
 import type { Icon } from "@phosphor-icons/react";
-import {
-  FileCode,
-  ShieldWarning,
-  Terminal,
-  UserCircle,
-} from "@phosphor-icons/react";
+import { FileCode, ShieldWarning, Terminal } from "@phosphor-icons/react";
 
 import { TextResponse } from "@/components/aicss/TextResponse";
 import { ThinkingState } from "@/components/aicss/ThinkingState";
 import { FilePath } from "@/components/file-path";
 import { TimeAgo } from "@/components/time-ago";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { StoredEvent, Task } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 
@@ -268,26 +262,15 @@ function UserMessage({
   text: string;
 }) {
   return (
-    <div className="flex w-full min-w-0 gap-2.5">
-      <Avatar size="sm">
-        <AvatarFallback>
-          {by ? (
-            by.slice(0, 2).toUpperCase()
-          ) : (
-            <UserCircle className="size-4" />
-          )}
-        </AvatarFallback>
-      </Avatar>
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <span className="font-medium text-xs">{by ?? "you"}</span>
-          <TimeAgo at={at} className="text-muted-foreground text-xs" />
-        </div>
-        <div className="w-fit rounded-xl bg-muted px-3 py-2">
-          <p className="whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">
-            {text}
-          </p>
-        </div>
+    <div className="flex w-full min-w-0 flex-col items-end gap-1">
+      <div className="max-w-[85%] rounded-2xl bg-muted px-3.5 py-2.5">
+        <p className="whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">
+          {text}
+        </p>
+      </div>
+      <div className="flex items-baseline gap-2 px-1 text-muted-foreground text-xs">
+        {by ? <span className="font-medium">{by}</span> : null}
+        <TimeAgo at={at} />
       </div>
     </div>
   );

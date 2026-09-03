@@ -2,7 +2,7 @@ import { SidebarSimple, Stack, XCircle } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 
 import { FilePath } from "@/components/file-path";
-import { TaskActions } from "@/components/task-actions";
+import { TaskComposer } from "@/components/task-composer";
 import { TaskSummaryPanel } from "@/components/task-summary-panel";
 import { TaskTranscript } from "@/components/task-transcript";
 import { TimeAgo } from "@/components/time-ago";
@@ -47,7 +47,7 @@ export function TaskDetailView({ detail }: { detail: TaskDetail }) {
   const { open, toggle } = usePanelOpen();
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex min-h-[calc(100dvh-3.5rem)] w-full max-w-7xl flex-col gap-6 px-4 pt-6 sm:px-6 lg:px-8">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <StatusPill status={task.status} />
         <span className="font-mono text-muted-foreground text-sm">
@@ -74,29 +74,30 @@ export function TaskDetailView({ detail }: { detail: TaskDetail }) {
         </Button>
       </header>
 
-      {task.error ? <ErrorPanel error={task.error} /> : null}
-      {overlaps.length > 0 ? <OverlapPanel overlaps={overlaps} /> : null}
+      {task.error || overlaps.length > 0 ? (
+        <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-4">
+          {task.error ? <ErrorPanel error={task.error} /> : null}
+          {overlaps.length > 0 ? <OverlapPanel overlaps={overlaps} /> : null}
+        </div>
+      ) : null}
 
-      <div
-        className={cn(
-          "grid min-w-0 gap-10",
-          open && "lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]"
-        )}
+      <section
+        aria-label="Task transcript"
+        className="mx-auto flex w-full min-w-0 max-w-3xl flex-1 flex-col gap-6"
       >
-        <section
-          aria-label="Task transcript"
-          className="flex min-w-0 flex-col gap-8"
-        >
-          <TaskTranscript events={detail.events} task={task} />
-          <TaskActions task={task} />
-        </section>
-        {open ? (
-          <TaskSummaryPanel
-            className="lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:self-start lg:overflow-y-auto lg:pb-2"
-            detail={detail}
-          />
-        ) : null}
-      </div>
+        <TaskTranscript events={detail.events} task={task} />
+        <TaskComposer task={task} />
+      </section>
+
+      {/* Codex-style pinned summary: a floating card over the page on wide
+          screens, in flow after the conversation on narrow ones. */}
+      {open ? (
+        <TaskSummaryPanel
+          className="rounded-2xl border bg-popover p-4 shadow-lg lg:fixed lg:top-16 lg:right-5 lg:z-20 lg:max-h-[calc(100dvh-5.5rem)] lg:w-96 lg:overflow-y-auto dark:shadow-none"
+          detail={detail}
+          onClose={toggle}
+        />
+      ) : null}
     </div>
   );
 }

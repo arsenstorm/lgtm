@@ -4,6 +4,7 @@ import {
   FileText,
   GitBranch,
   ShieldSlash,
+  SidebarSimple,
   Warning,
   WarningCircle,
   XCircle,
@@ -12,6 +13,7 @@ import type { ReactNode } from "react";
 
 import { DiffView } from "@/components/diff-view";
 import { FilePath } from "@/components/file-path";
+import { Button } from "@/components/ui/button";
 import type {
   Finding,
   TaskDetail,
@@ -25,9 +27,11 @@ import { cn } from "@/lib/utils";
 export function TaskSummaryPanel({
   detail,
   className,
+  onClose,
 }: {
   className?: string;
   detail: TaskDetail;
+  onClose: () => void;
 }) {
   const { task } = detail;
   const result = task.result;
@@ -39,6 +43,17 @@ export function TaskSummaryPanel({
       aria-label="Task summary"
       className={cn("flex min-w-0 flex-col gap-8", className)}
     >
+      {/* The floating card covers the header's toggle, so it carries its own
+          way out. */}
+      <Button
+        aria-label="Hide summary panel"
+        className="-mb-6 self-end text-muted-foreground"
+        onClick={onClose}
+        size="icon-sm"
+        variant="ghost"
+      >
+        <SidebarSimple aria-hidden="true" className="size-4.5 -scale-x-100" />
+      </Button>
       <Environment detail={detail} />
 
       <Section count={result?.changed_files.length} title="Changes">
