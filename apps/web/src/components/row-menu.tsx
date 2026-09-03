@@ -10,10 +10,15 @@ import {
 import { SidebarMenuAction } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
-// Every row keeps a fixed slot in its right corner: the status mark centres in
-// it and the menu sits exactly over it, so the title truncates before either
-// and the dots land where the mark was.
-export const ROW_SLOT = "ml-auto flex w-5 shrink-0 justify-center";
+// The row's right corner is a slot the status mark centres in and the menu
+// sits exactly over, so the title truncates before either and the dots land
+// where the mark was. It only takes its width while something is in it: a
+// mark, or the menu on hover, focus, open, and on small screens where the
+// menu is always shown.
+const SLOT =
+  "ml-auto flex w-0 shrink-0 justify-center overflow-hidden has-[[role=img]]:w-5 max-md:w-5";
+export const ROW_SLOT = `${SLOT} group-focus-within/menu-item:w-5 group-hover/menu-item:w-5 group-has-[[aria-expanded=true]]/menu-item:w-5`;
+export const SUB_ROW_SLOT = `${SLOT} group-focus-within/menu-sub-item:w-5 group-hover/menu-sub-item:w-5 group-has-[[aria-expanded=true]]/menu-sub-item:w-5`;
 
 // The row's own hover group has to be named, because a project's task rows
 // sit inside the project's `menu-item`: with the generic reveal, reaching one
