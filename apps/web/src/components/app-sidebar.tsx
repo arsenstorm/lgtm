@@ -1,15 +1,17 @@
 import { Link, useMatchRoute } from '@tanstack/react-router'
 import {
-  RiAddLine,
+  RiAddCircleFill,
   RiArrowRightSLine,
   RiErrorWarningFill,
-  RiExpandUpDownLine,
   RiGitRepositoryLine,
   RiListCheck2,
+  RiLogoutBoxRLine,
   RiMoonLine,
+  RiMore2Line,
   RiServerLine,
   RiSunLine,
 } from '@remixicon/react'
+import type { ComponentProps } from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -19,7 +21,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -37,6 +41,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import type { Task, TaskStatus } from '@/lib/lgtm/types'
 import { cn } from '@/lib/utils'
@@ -141,29 +146,21 @@ function LgtmLogo({ className }: { className?: string }) {
   )
 }
 
-export function AppSidebar({ tasks }: { tasks: Task[] }) {
+export function AppSidebar({
+  tasks,
+  ...props
+}: { tasks: Task[] } & ComponentProps<typeof Sidebar>) {
   const matchRoute = useMatchRoute()
   const projects = groupByProject(tasks)
 
   return (
-    <Sidebar collapsible="offcanvas">
+    <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
-        <div className="flex h-10 items-center gap-2 px-2">
-          <LgtmLogo className="size-[18px] shrink-0 text-foreground" />
-          <span className="text-sm font-semibold tracking-tight">LGTM</span>
-        </div>
-
         <SidebarMenu>
           <SidebarMenuItem>
-            {/* Placeholder: the web app has no creation flow yet, tasks are
-                queued from the CLI. */}
-            <SidebarMenuButton
-              onClick={() =>
-                toast.info('Task creation from the web is coming — use lgtm run for now')
-              }
-            >
-              <RiAddLine aria-hidden="true" />
-              <span>New task</span>
+            <SidebarMenuButton className="p-1.5!" render={<Link to="/" />}>
+              <LgtmLogo className="size-5! shrink-0 text-foreground" />
+              <span className="text-base font-semibold tracking-tight">LGTM</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -171,7 +168,22 @@ export function AppSidebar({ tasks }: { tasks: Task[] }) {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupContent>
+          <SidebarGroupContent className="flex flex-col gap-2">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                {/* Placeholder: the web app has no creation flow yet, tasks are
+                    queued from the CLI. */}
+                <SidebarMenuButton
+                  className="min-w-8 bg-primary text-primary-foreground duration-200 ease-linear hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground"
+                  onClick={() =>
+                    toast.info('Task creation from the web is coming — use lgtm run for now')
+                  }
+                >
+                  <RiAddCircleFill aria-hidden="true" />
+                  <span>New task</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
             <SidebarMenu>
               {NAV.map(({ to, label, icon: Icon, exact }) => (
                 <SidebarMenuItem key={to}>
@@ -200,6 +212,24 @@ export function AppSidebar({ tasks }: { tasks: Task[] }) {
                 ))}
               </SidebarMenu>
             )}
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup className="mt-auto">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={toggleTheme}>
+                  {/* The theme is only known from the class the pre-paint script
+                      wrote, so both states ship in the markup and CSS picks one.
+                      Deriving it in React would mismatch on hydration and flash. */}
+                  <RiMoonLine aria-hidden="true" className="dark:hidden" />
+                  <RiSunLine aria-hidden="true" className="hidden dark:block" />
+                  <span className="dark:hidden">Dark mode</span>
+                  <span className="hidden dark:inline">Light mode</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
@@ -274,39 +304,63 @@ function ProjectItem({ project }: { project: Project }) {
 
 // Placeholder identity: real auth (and a real signed-in user) lands later, so
 // the name, email and initials are hard-coded and sign out is inert.
+const USER = { name: 'Arsen Shkrumelyak', email: 'arsen@shkrumelyak.com', initials: 'AS' }
+
 function AccountMenu() {
+  const { isMobile } = useSidebar()
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
         <DropdownMenu>
-          <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
-            <Avatar size="sm">
-              <AvatarFallback>AS</AvatarFallback>
-            </Avatar>
-            <span className="grid min-w-0 flex-1 text-left leading-tight">
-              <span className="truncate text-sm font-medium">Arsen Shkrumelyak</span>
-              <span className="truncate text-xs text-sidebar-foreground/70">
-                arsen@shkrumelyak.com
-              </span>
-            </span>
-            <RiExpandUpDownLine aria-hidden="true" className="ml-auto" />
+          <DropdownMenuTrigger
+            render={
+              <SidebarMenuButton
+                size="lg"
+                className="data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
+              />
+            }
+          >
+            <Identity />
+            <RiMore2Line aria-hidden="true" className="ml-auto size-4" />
           </DropdownMenuTrigger>
 
-          <DropdownMenuContent align="start" side="top">
-            <DropdownMenuItem onClick={toggleTheme}>
-              {/* The theme is only known from the class the pre-paint script wrote,
-                  so both states ship in the markup and CSS picks one. Deriving it in
-                  React would mismatch on hydration and flash. */}
-              <RiMoonLine className="size-4 shrink-0 dark:hidden" aria-hidden="true" />
-              <RiSunLine className="hidden size-4 shrink-0 dark:block" aria-hidden="true" />
-              <span className="dark:hidden">Dark mode</span>
-              <span className="hidden dark:inline">Light mode</span>
-            </DropdownMenuItem>
+          <DropdownMenuContent
+            className="min-w-56 rounded-lg"
+            side={isMobile ? 'bottom' : 'right'}
+            align="end"
+            sideOffset={4}
+          >
+            <DropdownMenuGroup>
+              {/* Base UI: a menu label must sit inside a menu group. */}
+              <DropdownMenuLabel className="p-0 font-normal">
+                <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+                  <Identity />
+                </div>
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled>Sign out</DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              <RiLogoutBoxRLine aria-hidden="true" />
+              Sign out
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
     </SidebarMenu>
+  )
+}
+
+function Identity() {
+  return (
+    <>
+      <Avatar size="sm" className="rounded-lg after:rounded-lg">
+        <AvatarFallback className="rounded-lg">{USER.initials}</AvatarFallback>
+      </Avatar>
+      <span className="grid min-w-0 flex-1 text-left text-sm leading-tight">
+        <span className="truncate font-medium">{USER.name}</span>
+        <span className="truncate text-xs text-muted-foreground">{USER.email}</span>
+      </span>
+    </>
   )
 }
