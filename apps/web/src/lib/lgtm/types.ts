@@ -186,6 +186,33 @@ export interface Todo {
   created_by: string | null
 }
 
+export interface TodoComment {
+  id: string
+  todo: string
+  /** The user who wrote it; null for the shared token or automation. */
+  author: string | null
+  body: string
+  created_at: number
+}
+
+export interface TodoDetail {
+  todo: Todo
+  comments: TodoComment[]
+}
+
+export interface Scratchpad {
+  id: string
+  /** Null is not tied to a repository. */
+  repository: string | null
+  content: string
+  created_at: number
+  /** Bumped only when content changes. */
+  updated_at: number
+  archived: boolean
+  workspace: string | null
+  created_by: string | null
+}
+
 export interface Session {
   id: string
   repository: string

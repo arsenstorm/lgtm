@@ -17,7 +17,7 @@ export const Route = createFileRoute('/todos')({
   errorComponent: TodosError,
 })
 
-const MARK: Record<TodoStatus, { icon: Icon; label: string; className: string }> = {
+export const MARK: Record<TodoStatus, { icon: Icon; label: string; className: string }> = {
   open: { icon: Circle, label: 'Open', className: 'text-muted-foreground' },
   in_progress: { icon: CircleHalf, label: 'In progress', className: 'text-foreground' },
   done: { icon: CheckCircle, label: 'Done', className: 'text-emerald-700 dark:text-emerald-400' },
@@ -95,8 +95,15 @@ function TodoRow({ todo }: { todo: Todo }) {
   const { icon: Mark, label, className } = MARK[todo.status]
   const done = todo.status === 'done'
 
-  const body = (
-    <>
+  return (
+    <Link
+      to="/todos/$id"
+      params={{ id: todo.id }}
+      className={cn(
+        'flex items-start gap-3 rounded-md px-2 py-2.5 text-sm hover:bg-foreground/4',
+        done && 'text-muted-foreground',
+      )}
+    >
       <Mark
         aria-label={label}
         role="img"
@@ -134,21 +141,7 @@ function TodoRow({ todo }: { todo: Todo }) {
       >
         {relativeAge(todo.created_at)}
       </time>
-    </>
-  )
-
-  const classes = cn(
-    'flex items-start gap-3 rounded-md px-2 py-2.5 text-sm',
-    done && 'text-muted-foreground',
-  )
-
-  // Only a promoted todo has somewhere to go.
-  return todo.task ? (
-    <Link to="/tasks/$id" params={{ id: todo.task }} className={cn(classes, 'hover:bg-foreground/4')}>
-      {body}
     </Link>
-  ) : (
-    <div className={classes}>{body}</div>
   )
 }
 

@@ -17,6 +17,10 @@ function useTitle(): string {
   const matchRoute = useMatchRoute()
   const task = matchRoute({ to: '/tasks/$id' })
   if (task) return `Task ${task.id}`
+  const todo = matchRoute({ to: '/todos/$id' })
+  if (todo) return `Todo ${todo.id}`
+  const scratchpad = matchRoute({ to: '/scratchpads/$id' })
+  if (scratchpad) return `Scratchpad ${scratchpad.id}`
   for (const [to, title] of TITLES) {
     if (matchRoute({ to })) return title
   }
