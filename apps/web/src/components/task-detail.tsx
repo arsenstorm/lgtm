@@ -1,4 +1,4 @@
-import { SidebarSimple, Stack, XCircle } from "@phosphor-icons/react";
+import { SidebarSimple, Stack } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 
 import { FilePath } from "@/components/file-path";
@@ -74,10 +74,9 @@ export function TaskDetailView({ detail }: { detail: TaskDetail }) {
         </Button>
       </header>
 
-      {task.error || overlaps.length > 0 ? (
+      {overlaps.length > 0 ? (
         <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-4">
-          {task.error ? <ErrorPanel error={task.error} /> : null}
-          {overlaps.length > 0 ? <OverlapPanel overlaps={overlaps} /> : null}
+          <OverlapPanel overlaps={overlaps} />
         </div>
       ) : null}
 
@@ -99,20 +98,6 @@ export function TaskDetailView({ detail }: { detail: TaskDetail }) {
         />
       ) : null}
     </div>
-  );
-}
-
-function ErrorPanel({ error }: { error: string }) {
-  return (
-    <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-      <h2 className="flex items-center gap-2 font-medium text-destructive text-sm">
-        <XCircle className="size-4 shrink-0" />
-        This task failed
-      </h2>
-      <pre className="mt-3 whitespace-pre-wrap text-xs leading-relaxed [overflow-wrap:anywhere]">
-        {error}
-      </pre>
-    </section>
   );
 }
 

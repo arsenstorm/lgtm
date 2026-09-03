@@ -58,20 +58,34 @@ export function TaskComposer({ task }: { task: Task }) {
   const retryable = RETRYABLE.includes(task.status);
   const working = task.status === "queued" || task.status === "running";
 
+  // A failed run ends the conversation with what went wrong and the way to
+  // go again, in the place a reply would be.
   if (retryable) {
     return (
-      <div className="sticky bottom-0 flex justify-center bg-linear-to-t from-60% from-background to-transparent pt-6 pb-4">
-        <Button
-          disabled={busy}
-          onClick={() =>
-            run("retry", () => retryTask({ data: task.id }), "Task requeued")
-          }
-          size="sm"
-          variant="outline"
-        >
-          <ActionIcon busy={pending === "retry"} icon={ArrowCounterClockwise} />
-          Retry this task
-        </Button>
+      <div className="flex flex-col gap-4 pb-4">
+        {task.error ? (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+            <pre className="whitespace-pre-wrap font-mono text-destructive/90 text-xs leading-relaxed [overflow-wrap:anywhere]">
+              {task.error}
+            </pre>
+          </div>
+        ) : null}
+        <div className="flex justify-center">
+          <Button
+            disabled={busy}
+            onClick={() =>
+              run("retry", () => retryTask({ data: task.id }), "Task requeued")
+            }
+            size="sm"
+            variant="outline"
+          >
+            <ActionIcon
+              busy={pending === "retry"}
+              icon={ArrowCounterClockwise}
+            />
+            Retry this task
+          </Button>
+        </div>
       </div>
     );
   }
