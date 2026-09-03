@@ -25,7 +25,7 @@ function SessionsPage() {
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters.
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
       <div className="flex items-baseline gap-3">
         <h1 className="font-medium text-xl tracking-tight">Sessions</h1>
         <span className="text-muted-foreground text-sm tabular-nums">
