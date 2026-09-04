@@ -45,7 +45,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  useSidebar,
 } from "@/components/ui/sidebar";
 import { createProject, getProjects } from "@/lib/lgtm/server";
 import type { Chat, Project as ProjectRecord, Task } from "@/lib/lgtm/types";
@@ -64,6 +63,10 @@ const MORE = [
   { icon: MsgsIcon, label: "Sessions", to: "/sessions" },
   { icon: ActivityIcon, label: "Activity", to: "/activity" },
 ] as const;
+
+// The menu sits over the row it came from, so the row reads as expanding in place.
+const overTheAnchor = ({ anchor }: { anchor: { height: number } }) =>
+  -anchor.height;
 
 const TRAILING_SLASHES = /\/+$/;
 const DOT_GIT = /\.git$/;
@@ -435,8 +438,6 @@ function GroupHeading({ children }: { children: ReactNode }) {
 }
 
 function MoreItem() {
-  const { isMobile } = useSidebar();
-
   return (
     <SidebarMenuItem>
       <DropdownMenu>
@@ -448,10 +449,10 @@ function MoreItem() {
         </DropdownMenuTrigger>
 
         <DropdownMenuContent
-          align={isMobile ? "end" : "start"}
-          className="w-32 rounded-lg"
-          side={isMobile ? "bottom" : "right"}
-          sideOffset={4}
+          align="start"
+          className="rounded-lg"
+          side="bottom"
+          sideOffset={overTheAnchor}
         >
           {MORE.map(({ to, label, icon: Icon }) => (
             <DropdownMenuItem
