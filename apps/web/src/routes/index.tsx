@@ -768,9 +768,13 @@ function Control({
   }>;
 } & React.ComponentProps<"button">) {
   return (
-    <button className={cn(BARE_CONTROL, className)} type="button" {...props}>
+    <button
+      className={cn(BARE_CONTROL, "min-w-0 max-w-full", className)}
+      type="button"
+      {...props}
+    >
       <ControlIcon aria-hidden="true" className="size-4 shrink-0" />
-      {children}
+      <span className="truncate">{children}</span>
     </button>
   );
 }

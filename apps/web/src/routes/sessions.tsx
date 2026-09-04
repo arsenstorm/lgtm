@@ -70,7 +70,7 @@ function SessionRow({ session }: { session: Session }) {
 
       <TimeAgo
         at={session.created_at}
-        className="grow text-end text-muted-foreground tabular-nums sm:w-16 sm:grow-0"
+        className="grow truncate text-end text-muted-foreground tabular-nums sm:w-16 sm:grow-0"
       />
     </div>
   );

@@ -32,7 +32,7 @@ export function TodoRow({
         label={`${todo.priority} priority`}
         priority={todo.priority}
       />
-      <span className="shrink-0 font-mono text-muted-foreground text-xs">
+      <span className="max-w-16 shrink-0 truncate font-mono text-muted-foreground text-xs">
         {todo.display_id}
       </span>
       <Mark
@@ -42,16 +42,16 @@ export function TodoRow({
       />
       <span className="min-w-0 truncate">{todo.title}</span>
       {todo.blockers.length > 0 && (
-        <span className="shrink-0 text-muted-foreground text-xs">
+        <span className="max-w-40 shrink-0 truncate text-muted-foreground text-xs">
           blocked by {todo.blockers.length}
         </span>
       )}
-      <span className="ml-auto hidden shrink-0 text-muted-foreground text-xs sm:block">
+      <span className="ml-auto hidden max-w-40 shrink-0 truncate text-muted-foreground text-xs sm:block">
         {todo.repository ? projectName(todo.repository) : "every repository"}
       </span>
       <TimeAgo
         at={todo.created_at}
-        className="w-16 shrink-0 text-end text-muted-foreground text-xs tabular-nums"
+        className="w-16 shrink-0 truncate text-end text-muted-foreground text-xs tabular-nums"
       />
     </Link>
   );

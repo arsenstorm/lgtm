@@ -76,7 +76,7 @@ function MemoriesPage() {
       ) : (
         groups.map((entry) => (
           <section className="flex flex-col gap-2" key={entry.key}>
-            <h2 className="font-medium text-muted-foreground text-sm">
+            <h2 className="truncate font-medium text-muted-foreground text-sm">
               {entry.label}
             </h2>
             <ul className="-mx-2 divide-y divide-foreground/5" role="list">
@@ -231,7 +231,7 @@ function MemoryRow({ memory }: { memory: Memory }) {
 
       <TimeAgo
         at={memory.created_at}
-        className="w-16 shrink-0 text-end text-muted-foreground tabular-nums"
+        className="w-16 shrink-0 truncate text-end text-muted-foreground tabular-nums"
       />
     </div>
   );

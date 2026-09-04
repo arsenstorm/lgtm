@@ -44,13 +44,13 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-2 py-2.5 text-sm sm:flex-nowrap">
       <TimeAgo
         at={entry.at}
-        className="w-16 shrink-0 text-muted-foreground tabular-nums"
+        className="w-16 shrink-0 truncate text-muted-foreground tabular-nums"
       />
 
       <span className="w-40 shrink-0 truncate font-medium">{entry.event}</span>
 
       <Link
-        className="w-16 shrink-0 font-mono text-muted-foreground tabular-nums underline-offset-4 hover:underline"
+        className="w-16 shrink-0 truncate font-mono text-muted-foreground tabular-nums underline-offset-4 hover:underline"
         params={{ id: entry.task }}
         to="/tasks/$id"
       >
@@ -62,7 +62,9 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
       </span>
 
       {entry.owner && (
-        <span className="shrink-0 text-muted-foreground">{entry.owner}</span>
+        <span className="max-w-32 shrink-0 truncate text-muted-foreground">
+          {entry.owner}
+        </span>
       )}
 
       {entry.detail && (

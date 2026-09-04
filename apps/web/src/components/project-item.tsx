@@ -216,7 +216,7 @@ export function ProjectItem({
           <SidebarMenuSub className="mr-0 pr-0">
             {project.tasks.length === 0 ? (
               <SidebarMenuSubItem>
-                <span className="block px-2 py-1 text-muted-foreground text-xs italic">
+                <span className="block truncate px-2 py-1 text-muted-foreground text-xs italic">
                   No tasks yet
                 </span>
               </SidebarMenuSubItem>

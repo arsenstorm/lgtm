@@ -12,6 +12,7 @@ import { TimeAgo } from "@/components/time-ago";
 import { Button } from "@/components/ui/button";
 import { createScratchpad, getScratchpads } from "@/lib/lgtm/server";
 import type { Scratchpad } from "@/lib/lgtm/types";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/scratchpads")({
   loader: async () => ({ scratchpads: await getScratchpads() }),
@@ -130,8 +131,8 @@ function ScratchpadRow({ pad }: { pad: Scratchpad }) {
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="min-w-0 truncate">{padTitle(pad.content)}</span>
         {pad.tags.slice(0, TAGS_SHOWN).map((tag) => (
-          <span className={TAG_CHIP} key={tag}>
-            {tag}
+          <span className={cn(TAG_CHIP, "max-w-40")} key={tag}>
+            <span className="truncate">{tag}</span>
           </span>
         ))}
         {pad.tags.length > TAGS_SHOWN && (
@@ -149,7 +150,7 @@ function ScratchpadRow({ pad }: { pad: Scratchpad }) {
 
       <TimeAgo
         at={pad.updated_at}
-        className="shrink-0 text-end text-muted-foreground tabular-nums"
+        className="max-w-24 shrink-0 truncate text-end text-muted-foreground tabular-nums"
       />
     </Link>
   );

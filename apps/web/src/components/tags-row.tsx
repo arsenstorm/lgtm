@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export const TAG_CHIP =
-  "inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-muted-foreground text-xs";
+  "inline-flex min-w-0 max-w-full shrink-0 items-center gap-1 overflow-hidden rounded-full border border-border px-2 py-0.5 text-muted-foreground text-xs";
 
 /** Todos and scratchpads edit tags the same way; both detail pages render this
  *  row under their title. */
@@ -32,7 +32,7 @@ export function TagsRow({
       {tags.map((tag) => (
         <span className={TAG_CHIP} key={tag}>
           <TagIcon aria-hidden="true" className="size-3" />
-          {tag}
+          <span className="truncate">{tag}</span>
           <button
             aria-label={`Remove ${tag}`}
             className="-mr-1 rounded-full p-0.5 transition-colors hover:text-foreground disabled:opacity-50"

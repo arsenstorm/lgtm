@@ -429,7 +429,7 @@ function GroupHeading({ children }: { children: ReactNode }) {
         className="group/label w-full cursor-pointer hover:text-sidebar-foreground"
         render={<CollapsibleTrigger />}
       >
-        <span>{name}</span>
+        <span className="truncate">{name}</span>
         <ChevronIcon aria-hidden="true" className={GROUP_CARET} />
       </SidebarGroupLabel>
       {actions}

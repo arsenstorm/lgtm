@@ -132,7 +132,7 @@ export function WorkspaceChat({
     <div className="flex flex-1 flex-col">
       <ol aria-label="Conversation" className="flex flex-col gap-6">
         {turns.map((turn) => (
-          <li key={`${turn.role}:${turn.at}`}>
+          <li className="min-w-0" key={`${turn.role}:${turn.at}`}>
             {turn.role === "person" ? (
               <Message align="end">
                 <MessageContent>

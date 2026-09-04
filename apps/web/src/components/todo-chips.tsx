@@ -52,7 +52,7 @@ const PRIORITY: Record<TodoPriority, { className: string; label: string }> = {
 };
 
 export const CHIP =
-  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs whitespace-nowrap [&_svg]:size-3.5 [&_svg]:shrink-0";
+  "inline-flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs [&_svg]:size-3.5 [&_svg]:shrink-0";
 
 export function StatusChip({
   value,
@@ -75,7 +75,7 @@ export function StatusChip({
       value={value}
     >
       <Mark />
-      {label}
+      <span className="truncate">{label}</span>
     </Picker>
   );
 }
@@ -101,7 +101,7 @@ export function PriorityChip({
       value={value}
     >
       <PriorityIcon className="size-3.5" priority={value} />
-      {label}
+      <span className="truncate">{label}</span>
     </Picker>
   );
 }

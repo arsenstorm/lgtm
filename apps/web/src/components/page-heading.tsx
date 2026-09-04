@@ -19,14 +19,18 @@ export function PageHeading({
 }) {
   return (
     <div className={cn("flex min-h-9 items-center gap-3", className)}>
-      <h1 className="font-medium text-xl tracking-tight">{title}</h1>
+      <h1 className="min-w-0 truncate font-medium text-xl tracking-tight">
+        {title}
+      </h1>
       {meta === undefined ? null : (
-        <span className="text-muted-foreground text-sm tabular-nums">
+        <span className="truncate text-muted-foreground text-sm tabular-nums">
           {meta}
         </span>
       )}
       {children ? (
-        <div className="ms-auto flex items-center gap-2">{children}</div>
+        <div className="ms-auto flex min-w-0 items-center gap-2">
+          {children}
+        </div>
       ) : null}
     </div>
   );

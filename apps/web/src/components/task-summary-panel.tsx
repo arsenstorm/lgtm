@@ -194,7 +194,7 @@ function CheckRow({ check }: { check: ValidationResult }) {
     return (
       <li className="flex items-center gap-2.5 px-3 py-2">
         <CircleCheckIcon className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-        <span className="font-medium text-sm">{check.name}</span>
+        <span className="truncate font-medium text-sm">{check.name}</span>
         <code
           className="min-w-0 truncate text-muted-foreground text-xs"
           title={check.command}
@@ -209,7 +209,7 @@ function CheckRow({ check }: { check: ValidationResult }) {
     <li className="bg-destructive/5 p-3">
       <div className="flex items-center gap-2.5">
         <CircleXIcon className="size-4 shrink-0 text-destructive" />
-        <span className="font-medium text-sm">{check.name}</span>
+        <span className="truncate font-medium text-sm">{check.name}</span>
         <code
           className="min-w-0 truncate text-muted-foreground text-xs"
           title={check.command}
@@ -256,7 +256,7 @@ function Section({
   return (
     <section className="flex min-w-0 flex-col gap-3">
       <div className="flex items-baseline gap-2">
-        <h3 className="font-medium text-muted-foreground text-xs uppercase tracking-[0.08em]">
+        <h3 className="truncate font-medium text-muted-foreground text-xs uppercase tracking-[0.08em]">
           {title}
         </h3>
         {count === undefined ? null : (

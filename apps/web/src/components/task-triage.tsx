@@ -71,7 +71,7 @@ export function TaskTriage({ stats, tasks }: { stats: Stats; tasks: Task[] }) {
   return (
     <div className="flex flex-col gap-10">
       <PageHeading meta={recent} title="Tasks">
-        <p className="text-muted-foreground text-sm tabular-nums">
+        <p className="truncate text-muted-foreground text-sm tabular-nums">
           {USD.format(stats.cost_usd)} spent
           <span className="text-muted-foreground/60"> · </span>
           {USD.format(stats.spent_today)} today
@@ -113,13 +113,15 @@ function Section({
   return (
     <section className="flex flex-col gap-2">
       <div className="flex items-baseline gap-2">
-        <h2 className="font-medium text-sm">{label}</h2>
-        <span className="text-muted-foreground text-sm tabular-nums">
+        <h2 className="truncate font-medium text-sm">{label}</h2>
+        <span className="truncate text-muted-foreground text-sm tabular-nums">
           {recent.length}
         </span>
       </div>
       {shown.length === 0 ? (
-        <p className="py-2 text-muted-foreground/70 text-sm">{quiet}</p>
+        <p className="truncate py-2 text-muted-foreground/70 text-sm">
+          {quiet}
+        </p>
       ) : (
         // Rows keep an 8px inset for their hover surface; pulling the list out
         // by the same amount puts the glyphs on the title's edge.
@@ -131,7 +133,7 @@ function Section({
       )}
       {hidden > 0 || all ? (
         <button
-          className="-ml-2 self-start rounded-md px-2 py-1 text-muted-foreground text-sm transition-colors hover:text-foreground"
+          className="-ml-2 max-w-full self-start truncate rounded-md px-2 py-1 text-muted-foreground text-sm transition-colors hover:text-foreground"
           onClick={toggle}
           type="button"
         >
@@ -178,7 +180,7 @@ function Row({ task }: { task: Task }) {
         <RunnerName name={task.runner} />
         <TimeAgo
           at={task.created_at}
-          className="w-14 shrink-0 text-end text-muted-foreground tabular-nums"
+          className="w-14 shrink-0 truncate text-end text-muted-foreground tabular-nums"
         />
       </Link>
     </li>

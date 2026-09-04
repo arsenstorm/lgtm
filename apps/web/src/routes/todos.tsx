@@ -69,8 +69,8 @@ function StatusGroup({ status, todos }: { status: TodoStatus; todos: Todo[] }) {
           className="size-3 text-muted-foreground transition-transform duration-200 group-data-[panel-open]/header:rotate-90"
         />
         <Mark aria-hidden="true" className={cn("size-4", className)} />
-        <span className="font-medium">{label}</span>
-        <span className="text-muted-foreground tabular-nums">
+        <span className="truncate font-medium">{label}</span>
+        <span className="truncate text-muted-foreground tabular-nums">
           {todos.length}
         </span>
       </CollapsibleTrigger>
