@@ -115,7 +115,7 @@ export function AccountMenu() {
             <DropdownMenuSeparator />
             <DropdownMenuItem className="gap-2 px-2 py-1.5" disabled>
               <SignOutIcon aria-hidden="true" />
-              Sign out
+              <span>Sign out</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -160,11 +160,11 @@ function StretchTextItem() {
   return (
     <DropdownMenuCheckboxItem
       checked={on}
-      className="gap-2 px-2 py-1.5"
+      className="gap-2 py-1.5 pl-2"
       closeOnClick={false}
       onCheckedChange={toggle}
     >
-      Stretch text
+      <span>Stretch text</span>
     </DropdownMenuCheckboxItem>
   );
 }

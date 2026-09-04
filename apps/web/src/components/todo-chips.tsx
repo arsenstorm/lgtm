@@ -148,7 +148,7 @@ function Picker<T extends string>({
         >
           {options.map((option) => (
             <DropdownMenuRadioItem key={option} value={option}>
-              {format(option)}
+              <span>{format(option)}</span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

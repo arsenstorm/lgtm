@@ -178,13 +178,13 @@ export function ProjectItem({
                   className="gap-2 px-2 py-1.5"
                   render={<Link search={{ repo: project.repository }} to="/" />}
                 >
-                  New task
+                  <span>New task</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="gap-2 px-2 py-1.5"
                   onClick={copyRepository}
                 >
-                  Copy repository URL
+                  <span>Copy repository URL</span>
                 </DropdownMenuItem>
                 {/* No record means no todo ever numbered this repository, so
                   there is no prefix to change. */}
@@ -193,7 +193,7 @@ export function ProjectItem({
                     className="gap-2 px-2 py-1.5"
                     onClick={changePrefix}
                   >
-                    Change prefix…
+                    <span>Change prefix…</span>
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>

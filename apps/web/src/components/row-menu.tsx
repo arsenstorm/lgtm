@@ -78,10 +78,10 @@ export function RowMenu({
         sideOffset={4}
       >
         <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={rename}>
-          Rename…
+          <span>Rename…</span>
         </DropdownMenuItem>
         <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={onArchive}>
-          Archive
+          <span>Archive</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
