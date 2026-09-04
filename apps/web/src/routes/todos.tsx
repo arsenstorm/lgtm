@@ -68,11 +68,7 @@ function StatusGroup({ status, todos }: { status: TodoStatus; todos: Todo[] }) {
           aria-hidden="true"
           className="size-3 text-muted-foreground transition-transform duration-200 group-data-[panel-open]/header:rotate-90"
         />
-        <Mark
-          aria-hidden="true"
-          className={cn("size-4", className)}
-          weight={status === "done" ? "fill" : "regular"}
-        />
+        <Mark aria-hidden="true" className={cn("size-4", className)} />
         <span className="font-medium">{label}</span>
         <span className="text-muted-foreground tabular-nums">
           {todos.length}

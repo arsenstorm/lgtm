@@ -74,7 +74,7 @@ export function StatusChip({
       triggerClassName={cn("border-border", className)}
       value={value}
     >
-      <Mark weight={value === "done" ? "fill" : "regular"} />
+      <Mark />
       {label}
     </Picker>
   );

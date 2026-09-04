@@ -39,7 +39,6 @@ export function TodoRow({
         aria-label={label}
         className={cn("size-4 shrink-0", markClassName)}
         role="img"
-        weight={done ? "fill" : "regular"}
       />
       <span className="min-w-0 truncate">{todo.title}</span>
       {todo.blockers.length > 0 && (
