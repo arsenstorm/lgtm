@@ -150,6 +150,8 @@
     -moz-osx-font-smoothing: grayscale;
     font-synthesis: none;
     color: var(--foreground);
+    /* A pasted url or hash must never set a column's width. */
+    overflow-wrap: anywhere;
     background-color: var(--background);
   }
 
