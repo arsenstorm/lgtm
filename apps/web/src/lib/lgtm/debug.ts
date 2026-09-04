@@ -37,7 +37,8 @@ export function stretchDom(root: Node): () => void {
     if (!text.nodeValue?.trim() || own.get(text) === text.nodeValue) {
       return;
     }
-    if (text.parentElement?.closest("script,style")) {
+    // An editor re-renders its own text nodes, so replacing them loops forever.
+    if (text.parentElement?.closest("script,style,[contenteditable]")) {
       return;
     }
     const next = filler();
