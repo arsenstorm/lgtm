@@ -39,7 +39,7 @@ export function RunnerList({ runners }: { runners: RunnerStatus[] }) {
 
   return (
     <div className="@container">
-      <ul className="grid @3xl:grid-cols-2 gap-4" role="list">
+      <ul className="grid @3xl:grid-cols-2 grid-cols-1 gap-4" role="list">
         {runners.map((runner) => (
           <li key={runner.info.name}>
             <RunnerCard runner={runner} />
@@ -60,11 +60,11 @@ function RunnerCard({ runner }: { runner: RunnerStatus }) {
   return (
     <Card className="h-full justify-between gap-4">
       <CardHeader>
-        <CardTitle className="flex items-baseline gap-2">
-          <span className="truncate">{info.name}</span>
+        <CardTitle className="flex min-w-0 items-baseline gap-2">
+          <span className="min-w-0 truncate">{info.name}</span>
           {info.ephemeral ? <Badge variant="outline">ephemeral</Badge> : null}
         </CardTitle>
-        <CardDescription className="font-mono">
+        <CardDescription className="truncate font-mono">
           {info.os} · {info.arch}
         </CardDescription>
         <CardAction>
@@ -97,7 +97,7 @@ function RunnerCard({ runner }: { runner: RunnerStatus }) {
                     key={capability}
                     variant="secondary"
                   >
-                    {capability}
+                    <span className="truncate">{capability}</span>
                   </Badge>
                 ))}
               </span>
@@ -163,7 +163,7 @@ function Stat({
 function SlotMeter({ busy, slots }: { busy: number; slots: number }) {
   return (
     <div className="flex flex-col items-end gap-1.5">
-      <div className="text-muted-foreground text-sm tabular-nums">
+      <div className="max-w-full truncate text-muted-foreground text-sm tabular-nums">
         <span className="font-medium text-foreground">{busy}</span> of {slots}{" "}
         slots
       </div>
