@@ -1,7 +1,5 @@
 import { env } from "cloudflare:workers";
 import { createServerFn } from "@tanstack/react-start";
-import { getCookie, setCookie } from "@tanstack/react-start/server";
-import { DEBUG_COOKIE, stretched } from "./debug";
 import type {
   ActivityEntry,
   Chat,
@@ -68,23 +66,8 @@ async function api<T>(
   // res.json() throws on that — read as text first so callers typed <void>
   // get undefined instead of a crash.
   const text = await res.text();
-  const data = text ? JSON.parse(text) : undefined;
-  // Dev only: "Stretch text" in the account menu. A production build never
-  // reads the cookie.
-  const stretch = import.meta.env.DEV && getCookie(DEBUG_COOKIE) === "1";
-  return (stretch ? stretched(data) : data) as T;
+  return (text ? JSON.parse(text) : undefined) as T;
 }
-
-/** Dev only: turns "Stretch text" on or off for this browser. */
-export const setDebugMode = createServerFn({ method: "POST" })
-  .validator((on: boolean) => on)
-  .handler(({ data }) => {
-    setCookie(DEBUG_COOKIE, data ? "1" : "", {
-      maxAge: data ? 60 * 60 * 24 * 30 : 0,
-      path: "/",
-      sameSite: "lax",
-    });
-  });
 
 export const getRunners = createServerFn({ method: "GET" }).handler(
   async (): Promise<RunnerStatus[]> => api<RunnerStatus[]>("/runners")

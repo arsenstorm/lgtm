@@ -1,4 +1,3 @@
-import { useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -24,8 +23,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { DEBUG_COOKIE } from "@/lib/lgtm/debug";
-import { setDebugMode } from "@/lib/lgtm/server";
+import { STRETCH_KEY } from "@/lib/lgtm/debug";
 
 /**
  * Mirrors the pre-paint script in `__root.tsx`: same `theme` key, same pair of
@@ -142,21 +140,22 @@ function Identity() {
   );
 }
 
-/** Dev only. Every string a person or an agent could have written comes back
- *  from the orchestrator much longer, so the layout's truncation and wrapping
- *  get exercised on real pages instead of on a fixture. */
+/** Dev only. Every string on the page, static labels included, is replaced
+ *  with something much longer, so truncation and wrapping get exercised on
+ *  real pages instead of on a fixture. */
 function StretchTextItem() {
-  const router = useRouter();
   const [on, setOn] = useState(false);
   useEffect(() => {
-    setOn(document.cookie.includes(`${DEBUG_COOKIE}=1`));
+    setOn(localStorage.getItem(STRETCH_KEY) === "1");
   }, []);
-  const toggle = useCallback(async () => {
-    const next = !on;
-    setOn(next);
-    await setDebugMode({ data: next });
-    await router.invalidate();
-  }, [on, router]);
+  const toggle = useCallback(() => {
+    if (on) {
+      localStorage.removeItem(STRETCH_KEY);
+    } else {
+      localStorage.setItem(STRETCH_KEY, "1");
+    }
+    location.reload();
+  }, [on]);
 
   return (
     <DropdownMenuCheckboxItem

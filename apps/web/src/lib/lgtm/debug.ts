@@ -1,39 +1,20 @@
-/** Set to "1" while the account menu's "Stretch text" is on. Dev only: the
- *  server layer never reads it in a production build. */
-export const DEBUG_COOKIE = "lgtm-debug";
-
-// Values the client dereferences rather than displays: a status picks a glyph
-// out of a map, an id becomes a url, a repository groups the sidebar across
-// two responses. Replace those and the page throws instead of showing a
-// layout bug. Everything else, system text included, is replaced.
-const KEPT = new Set([
-  "executor",
-  "executors",
-  "id",
-  "priority",
-  "reasoning_effort",
-  "refs",
-  "repository",
-  "role",
-  "running",
-  "session",
-  "source",
-  "status",
-  "task",
-  "todo",
-  "verification",
-]);
-const KEPT_SUFFIX = "_id";
+/** localStorage key, "1" while the account menu's "Stretch text" is on. Dev
+ *  only: a production build never mounts the observer. */
+export const STRETCH_KEY = "lgtm-stretch";
 
 const WORDS =
   "retry semantics identical regression endpoint swallowed orchestrator worktree runner checkpoint escalate diff review merged conflicted rollback transcript".split(
     " "
   );
+const MIN_WORDS = 20;
+const EXTRA_WORDS = 60;
+const MIN_REPEATS = 4;
+const EXTRA_REPEATS = 6;
 
-/** A random replacement: a sentence of random length, then one very long
- *  word, so a row has to both truncate and break. */
+/** A random replacement: a long sentence, then one very long word, so every
+ *  string has to both truncate and break. */
 function filler(): string {
-  const words = 6 + Math.floor(Math.random() * 40);
+  const words = MIN_WORDS + Math.floor(Math.random() * EXTRA_WORDS);
   const sentence = Array.from(
     { length: words },
     () => WORDS[Math.floor(Math.random() * WORDS.length)]
@@ -41,33 +22,56 @@ function filler(): string {
   const word = Math.random()
     .toString(36)
     .slice(2)
-    .repeat(4 + Math.floor(Math.random() * 6));
+    .repeat(MIN_REPEATS + Math.floor(Math.random() * EXTRA_REPEATS));
   return `${sentence} ${word}`;
 }
 
-/** Every string that is not a key, id or enum is replaced with random text,
- *  all the way down. */
-export function stretched<T>(value: T): T {
-  return walk(value, null) as T;
-}
+/** Replaces every text node under `root` with filler and keeps doing so as
+ *  React renders new text. Working on the DOM rather than the data means
+ *  static labels, headings and buttons stretch too, and no id or status the
+ *  code dereferences is ever touched. Returns the disconnect. */
+export function stretchDom(root: Node): () => void {
+  const own = new WeakMap<Text, string>();
 
-function kept(key: string | null): boolean {
-  return key === null || KEPT.has(key) || key.endsWith(KEPT_SUFFIX);
-}
-
-function walk(value: unknown, key: string | null): unknown {
-  if (typeof value === "string") {
-    return kept(key) ? value : filler();
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => walk(item, key));
-  }
-  if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      out[k] = walk(v, k);
+  const replace = (text: Text) => {
+    if (!text.nodeValue?.trim() || own.get(text) === text.nodeValue) {
+      return;
     }
-    return out;
-  }
-  return value;
+    if (text.parentElement?.closest("script,style")) {
+      return;
+    }
+    const next = filler();
+    own.set(text, next);
+    text.nodeValue = next;
+  };
+
+  const stretch = (node: Node) => {
+    if (node instanceof Text) {
+      replace(node);
+      return;
+    }
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+      replace(text as Text);
+    }
+  };
+
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === "characterData") {
+        replace(record.target as Text);
+      }
+      for (const added of record.addedNodes) {
+        stretch(added);
+      }
+    }
+  });
+
+  stretch(root);
+  observer.observe(root, {
+    characterData: true,
+    childList: true,
+    subtree: true,
+  });
+  return () => observer.disconnect();
 }

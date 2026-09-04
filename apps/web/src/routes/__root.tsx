@@ -1,7 +1,9 @@
 import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { useEffect } from "react";
 
 import { AppShell } from "@/components/app-shell";
 import { Toaster } from "@/components/ui/sonner";
+import { STRETCH_KEY, stretchDom } from "@/lib/lgtm/debug";
 import { getChats, getTasks } from "@/lib/lgtm/server";
 import type { Chat, Task } from "@/lib/lgtm/types";
 import appCss from "../styles.css?url";
@@ -29,6 +31,11 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   const { chats, tasks } = Route.useLoaderData();
+  useEffect(() => {
+    if (import.meta.env.DEV && localStorage.getItem(STRETCH_KEY) === "1") {
+      return stretchDom(document.body);
+    }
+  }, []);
 
   return (
     <html lang="en" suppressHydrationWarning>
