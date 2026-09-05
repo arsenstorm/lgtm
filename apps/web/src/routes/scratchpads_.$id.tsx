@@ -34,6 +34,7 @@ import {
   updateScratchpad,
 } from "@/lib/lgtm/server";
 import type { Project, Scratchpad } from "@/lib/lgtm/types";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/scratchpads_/$id")({
   loader: async ({ params }) => {
@@ -61,14 +62,19 @@ const SAVE_LABEL: Record<SaveState, string> = {
 
 /** Enter commits the title by leaving the field; Escape puts the saved one
  *  back first, so leaving then saves nothing. */
-function commitOrRestore(event: KeyboardEvent<HTMLInputElement>) {
+function commitOrRestore(event: KeyboardEvent<HTMLTextAreaElement>) {
   if (event.key === "Enter") {
+    // A title wraps but never holds a line break.
+    event.preventDefault();
     event.currentTarget.blur();
   } else if (event.key === "Escape") {
     event.currentTarget.value = event.currentTarget.defaultValue;
     event.currentTarget.blur();
   }
 }
+
+/** The document and the rail beside it; the header splits the same way. */
+const COLUMNS = "lg:grid-cols-[minmax(0,1fr)_14rem]";
 
 /** Long enough to notice, short enough not to become furniture. */
 const SAVED_MS = 2000;
@@ -198,8 +204,8 @@ function ScratchpadDocument({
   );
 
   const rename = useCallback(
-    (event: FocusEvent<HTMLInputElement>) => {
-      const title = event.target.value.trim();
+    (event: FocusEvent<HTMLTextAreaElement>) => {
+      const title = event.target.value.replace(/\s+/g, " ").trim();
       if (title === "" || title === pad.title) {
         event.target.value = pad.title;
         return;
@@ -243,28 +249,36 @@ function ScratchpadDocument({
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters.
     <article className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-      {/* Sized like PageHeading so the title sits where every other page's does. */}
-      <header className="flex min-h-9 items-center gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+      {/* Sized like PageHeading so the title sits where every other page's
+          does, and split like the body so the title is as wide as the document. */}
+      <header
+        className={cn(
+          "grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-center gap-8",
+          COLUMNS
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-3">
           {/* The heading is the input: click it, type, and leaving it saves.
               Emptied, it shows the saved title and leaving it changes nothing. */}
-          <h1 className="min-w-0 flex-1 font-medium text-xl tracking-tight">
-            <input
+          <h1 className="min-w-0 max-w-3xl flex-1 font-medium text-xl tracking-tight">
+            {/* A textarea, so a long title wraps like the document under it;
+                the caret is its only focus mark. */}
+            <textarea
               aria-label="Title"
-              className="w-full min-w-0 rounded-sm bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="field-sizing-content w-full resize-none overflow-hidden bg-transparent outline-none"
               defaultValue={pad.title}
               disabled={busy}
               key={pad.title}
               onBlur={rename}
               onKeyDown={commitOrRestore}
               placeholder={pad.title}
-              type="text"
+              rows={1}
             />
           </h1>
           {pad.archived ? <Badge variant="outline">archived</Badge> : null}
         </div>
 
-        <div className="ms-auto flex shrink-0 items-center gap-2">
+        <div className="flex items-center justify-end gap-2">
           <span
             aria-live="polite"
             className="min-w-14 text-end text-muted-foreground text-xs"
@@ -306,7 +320,7 @@ function ScratchpadDocument({
         </div>
       </header>
 
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_14rem]">
+      <div className={cn("grid gap-8", COLUMNS)}>
         {/* First in the DOM so a narrow screen shows the details before the
             document, not under it. */}
         <aside className="flex flex-col gap-6 self-start lg:sticky lg:top-6 lg:col-start-2 lg:row-start-1 lg:w-56">
