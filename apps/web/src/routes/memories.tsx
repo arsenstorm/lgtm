@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ActionIcon } from "@/components/action-icon";
 import { projectName } from "@/components/app-sidebar";
 import { CheckIcon, PencilIcon, TrashIcon } from "@/components/icons";
+import { ListGroup } from "@/components/list-group";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { PageHeading } from "@/components/page-heading";
 import { TimeAgo } from "@/components/time-ago";
@@ -72,26 +73,29 @@ function MemoriesPage() {
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters.
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <PageHeading meta={memories.length} title="Memories" />
 
       {groups.length === 0 ? (
         <p className="text-muted-foreground text-sm">No memories yet.</p>
       ) : (
-        groups.map((entry) => (
-          <section className="flex flex-col gap-2" key={entry.key}>
-            <h2 className="truncate font-medium text-muted-foreground text-sm">
-              {entry.label}
-            </h2>
-            <ul className="-mx-2 divide-y divide-foreground/5" role="list">
-              {entry.items.map((memory) => (
-                <li key={memory.id}>
-                  <MemoryRow memory={memory} />
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))
+        <div className="flex flex-col gap-1">
+          {groups.map((entry) => (
+            <ListGroup
+              count={entry.items.length}
+              key={entry.key}
+              label={entry.label}
+            >
+              <ul className="divide-y divide-foreground/5 py-1">
+                {entry.items.map((memory) => (
+                  <li key={memory.id}>
+                    <MemoryRow memory={memory} />
+                  </li>
+                ))}
+              </ul>
+            </ListGroup>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -126,7 +130,7 @@ function MemoryRow({ memory }: { memory: Memory }) {
 
   if (draft !== null) {
     return (
-      <div className="flex items-start gap-3 px-2 py-2.5 text-sm">
+      <div className="flex items-start gap-3 py-2.5 pr-2 pl-7 text-sm">
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <Textarea
             aria-label="Memory content"
@@ -164,7 +168,7 @@ function MemoryRow({ memory }: { memory: Memory }) {
   }
 
   return (
-    <div className="group/row flex items-start gap-3 px-2 py-2.5 text-sm">
+    <div className="group/row flex items-start gap-3 py-2.5 pr-2 pl-7 text-sm">
       <p className="min-w-0 flex-1 text-pretty">{memory.content}</p>
 
       {/* Always in the flow so revealing them cannot reflow the row. */}

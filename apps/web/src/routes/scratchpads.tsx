@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { LoaderIcon, PlusIcon } from "@/components/icons";
+import { ListGroup } from "@/components/list-group";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { PageHeading } from "@/components/page-heading";
 import { TAG_CHIP } from "@/components/tags-row";
@@ -62,7 +63,7 @@ function ScratchpadsPage() {
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters.
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <PageHeading meta={live.length} title="Scratchpads">
         <Button disabled={creating} onClick={create} size="lg">
           {creating ? (
@@ -82,46 +83,47 @@ function ScratchpadsPage() {
           No scratchpads yet. New scratchpad starts one.
         </p>
       ) : (
-        <>
+        <div className="flex flex-col gap-1">
           {groups.map((entry) => (
-            <section className="flex flex-col gap-2" key={entry.key}>
-              <h2 className="truncate font-medium text-muted-foreground text-sm">
-                {entry.label}
-              </h2>
-              <ul className="-mx-2 flex flex-col gap-0.5" role="list">
-                {entry.items.map((pad) => (
-                  <li key={pad.id}>
-                    <ScratchpadRow pad={pad} />
-                  </li>
-                ))}
-              </ul>
-            </section>
+            <ScratchpadGroup
+              key={entry.key}
+              label={entry.label}
+              pads={entry.items}
+            />
           ))}
-
           {archived.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="truncate font-medium text-muted-foreground text-sm">
-                Archived
-              </h2>
-              <ul className="-mx-2 flex flex-col gap-0.5" role="list">
-                {archived.map((pad) => (
-                  <li key={pad.id}>
-                    <ScratchpadRow pad={pad} />
-                  </li>
-                ))}
-              </ul>
-            </section>
+            <ScratchpadGroup label="Archived" pads={archived} />
           )}
-        </>
+        </div>
       )}
     </div>
+  );
+}
+
+function ScratchpadGroup({
+  label,
+  pads,
+}: {
+  label: string;
+  pads: Scratchpad[];
+}) {
+  return (
+    <ListGroup count={pads.length} label={label}>
+      <ul className="flex flex-col py-1">
+        {pads.map((pad) => (
+          <li key={pad.id}>
+            <ScratchpadRow pad={pad} />
+          </li>
+        ))}
+      </ul>
+    </ListGroup>
   );
 }
 
 function ScratchpadRow({ pad }: { pad: Scratchpad }) {
   return (
     <Link
-      className="flex items-center gap-3 rounded-md px-2 py-2.5 text-sm hover:bg-foreground/4"
+      className="flex items-center gap-3 rounded-md py-2.5 pr-2 pl-7 text-sm hover:bg-foreground/4"
       params={{ id: pad.id }}
       to="/scratchpads/$id"
     >
