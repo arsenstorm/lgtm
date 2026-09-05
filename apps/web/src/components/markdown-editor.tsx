@@ -65,7 +65,7 @@ const CONTENT_CLASSES = [
   // The document starts flush with its container: a heading's own top margin
   // is for the block above it, and there is none. Teleporting to a heading
   // leaves it a little clear of the header's divider.
-  "[&_.ProseMirror>*:first-child]:mt-0 [&_.ProseMirror_:is(h1,h2,h3)]:scroll-mt-1",
+  "[&_.ProseMirror>*:first-child]:mt-0 [&_.ProseMirror_:is(h1,h2,h3)]:scroll-mt-4",
   "[&_.ProseMirror>*+*]:mt-3",
   "[&_.ProseMirror_h1]:mt-6 [&_.ProseMirror_h1]:text-2xl [&_.ProseMirror_h1]:font-semibold [&_.ProseMirror_h1]:tracking-tight",
   "[&_.ProseMirror_h2]:mt-6 [&_.ProseMirror_h2]:text-lg [&_.ProseMirror_h2]:font-semibold [&_.ProseMirror_h2]:tracking-tight",
