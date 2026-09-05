@@ -2,7 +2,6 @@ import {
   type RefObject,
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -19,14 +18,20 @@ const READING_LINE = 96;
 
 const SCROLLS = /(auto|scroll)/;
 
-/** The heading being read: the last one whose top has passed the reading
- *  line. The document scrolls inside whichever ancestor scrolls, so that is
- *  found by walking up rather than assumed to be the window. */
-function useActiveHeading(
+interface Range {
+  first: number;
+  last: number;
+}
+
+/** The headings on screen: from the section being read, the last heading
+ *  whose top has passed the reading line, to the last heading above the
+ *  bottom edge. The document scrolls inside whichever ancestor scrolls, so
+ *  that is found by walking up rather than assumed to be the window. */
+function useVisibleHeadings(
   containerRef: RefObject<HTMLElement | null>,
   headings: EditorHeading[]
-): number {
-  const [active, setActive] = useState(0);
+): Range {
+  const [range, setRange] = useState<Range>({ first: 0, last: 0 });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: new headings mean a new answer, so re-measure when they change
   useEffect(() => {
@@ -42,14 +47,25 @@ function useActiveHeading(
       scroller = scroller.parentElement;
     }
     const update = () => {
-      const line = (scroller?.getBoundingClientRect().top ?? 0) + READING_LINE;
-      let index = 0;
+      const edge = scroller?.getBoundingClientRect();
+      const line = (edge?.top ?? 0) + READING_LINE;
+      const bottom = edge?.bottom ?? window.innerHeight;
+      let first = 0;
+      let last = 0;
       content.querySelectorAll("h1, h2, h3").forEach((node, i) => {
-        if (node.getBoundingClientRect().top <= line) {
-          index = i;
+        const { top } = node.getBoundingClientRect();
+        if (top <= line) {
+          first = i;
+        }
+        if (top < bottom) {
+          last = i;
         }
       });
-      setActive(index);
+      setRange((current) =>
+        current.first === first && current.last === last
+          ? current
+          : { first, last: Math.max(first, last) }
+      );
     };
     update();
     const target: HTMLElement | Window = scroller ?? window;
@@ -57,7 +73,7 @@ function useActiveHeading(
     return () => target.removeEventListener("scroll", update);
   }, [containerRef, headings]);
 
-  return active;
+  return range;
 }
 
 /** Where the line runs for each depth, and how far the text sits past it.
@@ -76,6 +92,8 @@ const TEXT_GAP = 12;
 const LINE_WIDTH = (LINE_X.at(-1) ?? 0) + 3;
 /** How much of a row the bend into a new level takes. */
 const BEND = 12;
+/** The dots that cap the line at either end. */
+const DOT = 2;
 
 interface Segment {
   bottom: number;
@@ -83,20 +101,34 @@ interface Segment {
   x: number;
 }
 
-function linePath(segments: Segment[]): string {
+/** The line through the first `count` rows. It stops short of the dots at
+ *  either end of the whole line, so nothing shows through a translucent dot. */
+function linePath(segments: Segment[], count = segments.length): string {
   let d = "";
   let previous: Segment | null = null;
-  for (const segment of segments) {
+  for (const [i, segment] of segments.slice(0, count).entries()) {
     if (previous === null) {
-      d += `M${segment.x} ${segment.top}`;
+      d += `M${segment.x} ${segment.top + DOT}`;
     } else if (previous.x !== segment.x) {
       const mid = segment.top + BEND / 2;
       d += `C${previous.x} ${mid} ${segment.x} ${mid} ${segment.x} ${segment.top + BEND}`;
     }
-    d += `L${segment.x} ${segment.bottom}`;
+    const end =
+      i === segments.length - 1 ? segment.bottom - DOT : segment.bottom;
+    d += `L${segment.x} ${end}`;
     previous = segment;
   }
   return d;
+}
+
+/** How far along the line each row ends, so the lit stretch can follow the
+ *  line through its bends instead of being cut out of it by a box. */
+function rowEnds(segments: Segment[]): number[] {
+  const probe = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  return segments.map((_, i) => {
+    probe.setAttribute("d", linePath(segments, i + 1));
+    return probe.getTotalLength();
+  });
 }
 
 function TocRow({
@@ -139,10 +171,10 @@ export function EditorToc({
   /** The scrollable/document container holding the editor's rendered headings. */
   containerRef: RefObject<HTMLElement | null>;
 }) {
-  const active = useActiveHeading(containerRef, headings);
+  const visible = useVisibleHeadings(containerRef, headings);
   const list = useRef<HTMLDivElement>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
-  const clipId = useId();
+  const [ends, setEnds] = useState<number[]>([]);
 
   // The rows are measured once laid out, so the line follows whatever height
   // and wrapping they end up with.
@@ -150,13 +182,13 @@ export function EditorToc({
   useLayoutEffect(() => {
     const rows = list.current?.querySelectorAll<HTMLElement>("button") ?? [];
     const depth = depths(headings);
-    setSegments(
-      [...rows].map((row, i) => ({
-        bottom: row.offsetTop + row.offsetHeight,
-        top: row.offsetTop,
-        x: LINE_X[depth[i]],
-      }))
-    );
+    const measured = [...rows].map((row, i) => ({
+      bottom: row.offsetTop + row.offsetHeight,
+      top: row.offsetTop,
+      x: LINE_X[depth[i]],
+    }));
+    setSegments(measured);
+    setEnds(rowEnds(measured));
   }, [headings]);
 
   if (headings.length === 0) {
@@ -164,46 +196,54 @@ export function EditorToc({
   }
 
   const d = linePath(segments);
-  const height = segments.at(-1)?.bottom ?? 0;
-  const current = segments[active];
+  const [start] = segments;
+  const end = segments.at(-1);
+  const total = ends.at(-1) ?? 0;
+  const first = Math.min(visible.first, segments.length - 1);
+  const last = Math.min(visible.last, segments.length - 1);
+  const from = first === 0 ? 0 : (ends[first - 1] ?? 0);
+  const to = ends[last] ?? 0;
   const depth = depths(headings);
 
   return (
     <nav aria-label="Outline" className="flex flex-col gap-2">
       <h2 className="font-medium text-sm tracking-tight">Outline</h2>
       <div className="relative flex flex-col" ref={list}>
-        {segments.length > 0 ? (
+        {start && end && ends.length === segments.length ? (
           <svg
             aria-hidden="true"
-            className="pointer-events-none absolute top-0 left-0 fill-none stroke-1"
-            height={height}
+            className="pointer-events-none absolute top-0 left-0 overflow-visible fill-none stroke-1"
+            height={end.bottom}
             width={LINE_WIDTH}
           >
             <path className="stroke-border" d={d} strokeLinecap="round" />
-            {current ? (
-              <>
-                <clipPath id={clipId}>
-                  <rect
-                    className="transition-[y,height] duration-150 motion-reduce:transition-none"
-                    height={current.bottom - current.top}
-                    width={LINE_WIDTH}
-                    x={0}
-                    y={current.top}
-                  />
-                </clipPath>
-                <path
-                  className="stroke-foreground"
-                  clipPath={`url(#${clipId})`}
-                  d={d}
-                  strokeLinecap="round"
-                />
-              </>
-            ) : null}
+            {/* One dash, as long as the lit rows, placed that far along. */}
+            <path
+              className="stroke-foreground transition-[stroke-dasharray,stroke-dashoffset] duration-150 motion-reduce:transition-none"
+              d={d}
+              strokeDasharray={`${to - from} ${total}`}
+              strokeDashoffset={-from}
+              strokeLinecap="round"
+            />
+            <circle
+              className={first === 0 ? "fill-foreground" : "fill-border"}
+              cx={start.x}
+              cy={start.top}
+              r={DOT}
+            />
+            <circle
+              className={
+                last === segments.length - 1 ? "fill-foreground" : "fill-border"
+              }
+              cx={end.x}
+              cy={end.bottom}
+              r={DOT}
+            />
           </svg>
         ) : null}
         {headings.map((heading, i) => (
           <TocRow
-            active={heading.index === active}
+            active={i >= visible.first && i <= visible.last}
             containerRef={containerRef}
             depth={depth[i]}
             heading={heading}
