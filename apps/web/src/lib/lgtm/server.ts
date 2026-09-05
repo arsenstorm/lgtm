@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { notFound } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import type {
   ActivityEntry,
@@ -53,6 +54,11 @@ async function api<T>(
     headers,
     method: init?.method ?? "GET",
   });
+  // A missing id on a read is the not-found page's job, not the error
+  // banner's. A 404 on a mutation stays an error: the caller named a target.
+  if (res.status === 404 && init?.method === undefined) {
+    throw notFound();
+  }
   if (!res.ok) {
     // A refused mutation carries its reason in the body ("checks failed", "no
     // blocking findings cleared"). That reason is the only thing the reviewer

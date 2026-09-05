@@ -2,6 +2,7 @@ import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import { AppShell } from "@/components/app-shell";
+import { NotFound } from "@/components/not-found";
 import { Toaster } from "@/components/ui/sonner";
 import { STRETCH_KEY, stretchDom } from "@/lib/lgtm/debug";
 import { getChats, getProjects, getTasks } from "@/lib/lgtm/server";
@@ -27,6 +28,7 @@ export const Route = createRootRoute({
     ]);
     return { chats, projects, tasks };
   },
+  notFoundComponent: NotFound,
   shellComponent: RootDocument,
 });
 
