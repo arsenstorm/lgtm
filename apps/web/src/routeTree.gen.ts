@@ -15,6 +15,7 @@ import { Route as MemoriesRouteImport } from './routes/memories'
 import { Route as RunnersRouteImport } from './routes/runners'
 import { Route as ScratchpadsRouteImport } from './routes/scratchpads'
 import { Route as SessionsRouteImport } from './routes/sessions'
+import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as TodosRouteImport } from './routes/todos'
 import { Route as ChatsIdRouteImport } from './routes/chats.$id'
 import { Route as ScratchpadsIdRouteImport } from './routes/scratchpads_.$id'
@@ -50,6 +51,11 @@ const ScratchpadsRoute = ScratchpadsRouteImport.update({
 const SessionsRoute = SessionsRouteImport.update({
   id: '/sessions',
   path: '/sessions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SkillsRoute = SkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TodosRoute = TodosRouteImport.update({
@@ -90,6 +96,7 @@ export interface FileRoutesByFullPath {
   '/runners': typeof RunnersRoute
   '/scratchpads': typeof ScratchpadsRoute
   '/sessions': typeof SessionsRoute
+  '/skills': typeof SkillsRoute
   '/todos': typeof TodosRoute
   '/chats/$id': typeof ChatsIdRoute
   '/scratchpads/$id': typeof ScratchpadsIdRoute
@@ -104,6 +111,7 @@ export interface FileRoutesByTo {
   '/runners': typeof RunnersRoute
   '/scratchpads': typeof ScratchpadsRoute
   '/sessions': typeof SessionsRoute
+  '/skills': typeof SkillsRoute
   '/todos': typeof TodosRoute
   '/chats/$id': typeof ChatsIdRoute
   '/scratchpads/$id': typeof ScratchpadsIdRoute
@@ -119,6 +127,7 @@ export interface FileRoutesById {
   '/runners': typeof RunnersRoute
   '/scratchpads': typeof ScratchpadsRoute
   '/sessions': typeof SessionsRoute
+  '/skills': typeof SkillsRoute
   '/todos': typeof TodosRoute
   '/chats/$id': typeof ChatsIdRoute
   '/scratchpads_/$id': typeof ScratchpadsIdRoute
@@ -135,6 +144,7 @@ export interface FileRouteTypes {
     | '/runners'
     | '/scratchpads'
     | '/sessions'
+    | '/skills'
     | '/todos'
     | '/chats/$id'
     | '/scratchpads/$id'
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/runners'
     | '/scratchpads'
     | '/sessions'
+    | '/skills'
     | '/todos'
     | '/chats/$id'
     | '/scratchpads/$id'
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/runners'
     | '/scratchpads'
     | '/sessions'
+    | '/skills'
     | '/todos'
     | '/chats/$id'
     | '/scratchpads_/$id'
@@ -178,6 +190,7 @@ export interface RootRouteChildren {
   RunnersRoute: typeof RunnersRoute
   ScratchpadsRoute: typeof ScratchpadsRoute
   SessionsRoute: typeof SessionsRoute
+  SkillsRoute: typeof SkillsRoute
   TodosRoute: typeof TodosRoute
   ChatsIdRoute: typeof ChatsIdRoute
   ScratchpadsIdRoute: typeof ScratchpadsIdRoute
@@ -228,6 +241,13 @@ declare module '@tanstack/react-router' {
       path: '/sessions'
       fullPath: '/sessions'
       preLoaderRoute: typeof SessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/skills': {
+      id: '/skills'
+      path: '/skills'
+      fullPath: '/skills'
+      preLoaderRoute: typeof SkillsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/todos': {
@@ -282,6 +302,7 @@ const rootRouteChildren: RootRouteChildren = {
   RunnersRoute: RunnersRoute,
   ScratchpadsRoute: ScratchpadsRoute,
   SessionsRoute: SessionsRoute,
+  SkillsRoute: SkillsRoute,
   TodosRoute: TodosRoute,
   ChatsIdRoute: ChatsIdRoute,
   ScratchpadsIdRoute: ScratchpadsIdRoute,

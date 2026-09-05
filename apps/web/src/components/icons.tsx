@@ -254,6 +254,21 @@ export function NotesIcon(props: IconProps) {
   );
 }
 
+export function SkillsIcon(props: IconProps) {
+  const left =
+    "M9 5.25c-1.4-1.15-3.6-1.75-5.75-1.75-.55 0-1 .45-1 1v8.25c0 .55.45 1 1 1 2.15 0 4.35.6 5.75 1.75Z";
+  const right =
+    "M9 5.25c1.4-1.15 3.6-1.75 5.75-1.75.55 0 1 .45 1 1v8.25c0 .55-.45 1-1 1-2.15 0-4.35.6-5.75 1.75Z";
+  return (
+    <Base {...props}>
+      <path d={left} fill="currentColor" fillOpacity="0.3" />
+      <path d={right} fill="currentColor" fillOpacity="0.3" />
+      <path {...STROKE} d={left} />
+      <path {...STROKE} d={right} />
+    </Base>
+  );
+}
+
 function Dot({ x, y }: { x: number; y: number }) {
   return (
     <path

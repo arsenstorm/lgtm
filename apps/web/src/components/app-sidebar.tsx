@@ -16,6 +16,7 @@ import {
   MsgsIcon,
   NotesIcon,
   PlusIcon,
+  SkillsIcon,
   TasksIcon,
 } from "@/components/icons";
 import type { Project } from "@/components/project-item";
@@ -59,6 +60,7 @@ const NAV = [
 
 // The second tier: worth reaching, not worth a permanent row.
 const MORE = [
+  { icon: SkillsIcon, label: "Skills", to: "/skills" },
   { icon: AiDeveloperIcon, label: "Runners", to: "/runners" },
   { icon: MsgsIcon, label: "Sessions", to: "/sessions" },
   { icon: ActivityIcon, label: "Activity", to: "/activity" },

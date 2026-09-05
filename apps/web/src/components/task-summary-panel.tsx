@@ -102,6 +102,9 @@ export function TaskSummaryPanel({
 function Environment({ detail }: { detail: TaskDetail }) {
   const { task } = detail;
   const { spec } = task;
+  // What the last attempt actually ran with; a task that never ran claims
+  // nothing.
+  const lastRun = task.executions.at(-1);
 
   return (
     <Section title="Environment">
@@ -123,6 +126,20 @@ function Environment({ detail }: { detail: TaskDetail }) {
         <Fact term="Runner">{task.runner ?? spec.runner ?? <Unset />}</Fact>
         <Fact term="Executor">{spec.executor}</Fact>
         <Fact term="Model">{spec.model ?? <Unset label="default" />}</Fact>
+        {lastRun ? (
+          <Fact className="col-span-2" term="Skills">
+            {lastRun.skills.length === 0 ? (
+              <Unset label="none" />
+            ) : (
+              lastRun.skills.map((skill, index) => (
+                <span className="font-mono" key={skill.name}>
+                  {index === 0 ? "" : ", "}
+                  {skill.name}
+                </span>
+              ))
+            )}
+          </Fact>
+        ) : null}
         <Fact term="Sandbox">
           {spec.sandbox === "off" ? (
             <span className="inline-flex items-center gap-1.5 text-amber-700 dark:text-amber-400">

@@ -13,7 +13,7 @@ import {
   MessageContent,
   MessageFooter,
 } from "@/components/ui/message";
-import type { StoredEvent, Task } from "@/lib/lgtm/types";
+import type { SkillRef, StoredEvent, Task } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 
 type EventBody = StoredEvent["event"];
@@ -27,6 +27,28 @@ const strings = (event: EventBody, key: string): string[] => {
     return [];
   }
   return value.filter((item): item is string => typeof item === "string");
+};
+
+/** A runner from before skills existed sends none, and the event is stored as
+ *  loose JSON, so every item is checked before it counts. */
+const skillRefs = (event: EventBody): SkillRef[] => {
+  const value = event.skills;
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const refs: SkillRef[] = [];
+  for (const item of value) {
+    if (
+      item &&
+      typeof item === "object" &&
+      !Array.isArray(item) &&
+      typeof item.name === "string" &&
+      typeof item.revision === "number"
+    ) {
+      refs.push({ name: item.name, revision: item.revision });
+    }
+  }
+  return refs;
 };
 
 const asNumber = (event: EventBody, key: string): number | null =>
@@ -114,8 +136,17 @@ function toItem({ at, event }: StoredEvent): Item | null {
 function lifecycleMarker(at: number, event: EventBody): Item | null {
   const model = str(event, "model");
   switch (event.type) {
-    case "started":
-      return boundary(at, model ? `Run started · ${model}` : "Run started");
+    case "started": {
+      const skills = skillRefs(event).length;
+      const parts = ["Run started"];
+      if (model) {
+        parts.push(model);
+      }
+      if (skills > 0) {
+        parts.push(`${skills} skill${skills === 1 ? "" : "s"}`);
+      }
+      return boundary(at, parts.join(" · "));
+    }
     case "validating":
       return marker(
         at,

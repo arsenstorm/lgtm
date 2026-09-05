@@ -42,7 +42,7 @@ const RESPONDABLE: TaskStatus[] = [
   "changes_requested",
 ];
 
-const RETRY_SELECT_CLASS =
+export const SELECT_CLASS =
   "h-8 w-full min-w-0 rounded-lg border border-input bg-background px-2.5 text-base outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
 
 interface RetryOptions {
@@ -309,7 +309,7 @@ function RetryPanel({ task }: { task: Task }) {
           Machine
         </span>
         <select
-          className={RETRY_SELECT_CLASS}
+          className={SELECT_CLASS}
           disabled={busy || runnerChoices.length === 0}
           id={`retry-runner-${task.id}`}
           onChange={changeRunner}
@@ -331,7 +331,7 @@ function RetryPanel({ task }: { task: Task }) {
           Executor
         </span>
         <select
-          className={RETRY_SELECT_CLASS}
+          className={SELECT_CLASS}
           disabled={busy || executorChoices.length === 0}
           id={`retry-executor-${task.id}`}
           onChange={changeExecutor}

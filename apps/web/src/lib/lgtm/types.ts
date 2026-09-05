@@ -62,6 +62,7 @@ export interface Execution {
   finished_at: number | null;
   model: string | null;
   runner: string;
+  skills: SkillRef[];
   started_at: number;
   status: ExecutionStatus;
   validation: ValidationResult[];
@@ -193,6 +194,34 @@ export interface Memory {
   source: MemorySource;
   verification: MemoryVerification;
   workspace: string | null;
+}
+
+export interface SkillFile {
+  content: string;
+  path: string;
+}
+
+export interface Skill {
+  content: string;
+  created_at: number;
+  created_by: string | null;
+  description: string;
+  files: SkillFile[];
+  id: string;
+  name: string;
+  proposed_by: string | null;
+  /** Null applies to every repository. */
+  repository: string | null;
+  revision: number;
+  source: MemorySource;
+  updated_at: number;
+  verification: MemoryVerification;
+  workspace: string | null;
+}
+
+export interface SkillRef {
+  name: string;
+  revision: number;
 }
 
 export interface Project {

@@ -10,6 +10,7 @@ import type {
   RunnerStatus,
   Scratchpad,
   Session,
+  Skill,
   Stats,
   Task,
   TaskDetail,
@@ -84,6 +85,22 @@ export const getStats = createServerFn({ method: "GET" }).handler(
 export const getMemories = createServerFn({ method: "GET" }).handler(
   async (): Promise<Memory[]> => api<Memory[]>("/memories")
 );
+
+export const getSkills = createServerFn({ method: "GET" }).handler(
+  async (): Promise<Skill[]> => api<Skill[]>("/skills")
+);
+
+// The orchestrator answers 400 naming what the SKILL.md frontmatter is missing;
+// `api` keeps that reason on the thrown message.
+export const createSkill = createServerFn({ method: "POST" })
+  .validator((input: { repository: string | null; content: string }) => input)
+  .handler(
+    async ({ data }): Promise<Skill> =>
+      api<Skill>("/skills", {
+        body: { content: data.content, repository: data.repository },
+        method: "POST",
+      })
+  );
 
 export const getTodos = createServerFn({ method: "GET" }).handler(
   async (): Promise<Todo[]> => api<Todo[]>("/todos")
@@ -288,6 +305,31 @@ export const approveMemory = createServerFn({ method: "POST" })
   .handler(
     async ({ data }): Promise<Memory> =>
       api<Memory>(`/memories/${data}/approve`, { method: "POST" })
+  );
+
+// Omitting `files` keeps the ones the skill already carries.
+export const updateSkill = createServerFn({ method: "POST" })
+  .validator((input: { id: string; content: string }) => input)
+  .handler(
+    async ({ data }): Promise<Skill> =>
+      api<Skill>(`/skills/${data.id}`, {
+        body: { content: data.content },
+        method: "PATCH",
+      })
+  );
+
+export const deleteSkill = createServerFn({ method: "POST" })
+  .validator((id: string) => id)
+  .handler(
+    async ({ data }): Promise<void> =>
+      api<void>(`/skills/${data}`, { method: "DELETE" })
+  );
+
+export const approveSkill = createServerFn({ method: "POST" })
+  .validator((id: string) => id)
+  .handler(
+    async ({ data }): Promise<Skill> =>
+      api<Skill>(`/skills/${data}/approve`, { method: "POST" })
   );
 
 export const updateTodo = createServerFn({ method: "POST" })
