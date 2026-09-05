@@ -18,7 +18,7 @@ import {
   TrashIcon,
 } from "@/components/icons";
 import type { EditorHeading } from "@/components/markdown-editor";
-import { MarkdownEditor } from "@/components/markdown-editor";
+import { EditorSkeleton, MarkdownEditor } from "@/components/markdown-editor";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { TagsRow } from "@/components/tags-row";
 import { TimeAgo } from "@/components/time-ago";
@@ -43,6 +43,11 @@ import type { Project, Scratchpad } from "@/lib/lgtm/types";
 
 export const Route = createFileRoute("/scratchpads_/$id")({
   loader: ({ params }) => getScratchpad({ data: params.id }),
+  // Tiptap cannot render on the server, so the document only ever paints on
+  // the client; sending its skeleton in the HTML keeps the page's shape from
+  // the first byte instead of leaving a hole until hydration.
+  ssr: "data-only",
+  pendingComponent: ScratchpadSkeleton,
   staticData: {
     rightPanel: { content: <DetailsSkeleton />, title: "Details" },
   },
@@ -95,6 +100,17 @@ function DetailsSkeleton() {
         <Skeleton className="h-5 w-24 rounded-full" />
       </dd>
     </dl>
+  );
+}
+
+function ScratchpadSkeleton() {
+  return (
+    <article className="mx-auto flex w-full max-w-5xl flex-col px-4 pt-6 pb-24 sm:px-6 lg:px-8">
+      <header className="flex h-9 items-center">
+        <Skeleton className="h-6 w-64" />
+      </header>
+      <EditorSkeleton className="mt-2 max-w-3xl" />
+    </article>
   );
 }
 

@@ -8,6 +8,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useRef } from "react";
 import { Markdown } from "tiptap-markdown";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export interface EditorHeading {
@@ -159,12 +160,30 @@ export function MarkdownEditor({
   useEffect(() => flush, [flush]);
 
   if (!editor) {
-    return <div className={className} />;
+    return <EditorSkeleton className={className} />;
   }
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       <EditorContent className={CONTENT_CLASSES} editor={editor} />
+    </div>
+  );
+}
+
+/** The shape of a document before Tiptap has built one: a few lines at the
+ *  editor's text size, so the page keeps its height while the client catches
+ *  up. */
+export function EditorSkeleton({ className }: { className?: string }) {
+  return (
+    <div
+      aria-busy="true"
+      aria-label="Loading document"
+      className={cn("flex flex-col gap-3", className)}
+      role="status"
+    >
+      <Skeleton className="h-4 w-11/12" />
+      <Skeleton className="h-4 w-4/5" />
+      <Skeleton className="h-4 w-2/3" />
     </div>
   );
 }
