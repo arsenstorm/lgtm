@@ -14,7 +14,9 @@ import {
   ArchiveIcon,
   ArrowBackIcon,
   ChevronIcon,
+  CopyIcon,
   DotsIcon,
+  LinkIcon,
   TrashIcon,
 } from "@/components/icons";
 import type { EditorHeading } from "@/components/markdown-editor";
@@ -58,6 +60,14 @@ export const Route = createFileRoute("/scratchpads_/$id")({
 type Action = "archive" | "delete" | "repository" | "tags" | "title";
 
 type SaveState = "idle" | "saving" | "saved";
+
+/** The address agents open through MCP; the repository segment is omitted
+ *  when the pad applies to every repository. */
+function scratchpadLink(pad: Scratchpad): string {
+  const scope =
+    pad.repository === null ? "" : `${encodeURIComponent(pad.repository)}/`;
+  return `lgtm://scratchpads/${scope}${pad.id}`;
+}
 
 /** A document that saves itself still has to say that it did; at rest it says
  *  nothing, so the line only speaks when something happened. */
@@ -136,6 +146,7 @@ function ScratchpadDocument({
   const [headings, setHeadings] = useState<EditorHeading[]>([]);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const contentRef = useRef<HTMLDivElement>(null);
+  const latest = useRef(pad.content);
   const queued = useRef<string | null>(null);
   const inFlight = useRef<Promise<unknown> | null>(null);
   const [armed, setArmed] = useState(false);
@@ -195,9 +206,30 @@ function ScratchpadDocument({
     (markdown: string) => {
       // The page does not invalidate the route here: nothing on screen reads the
       // refetched content, and the refetch would only race the next keystroke.
+      latest.current = markdown;
       save(markdown);
     },
     [save]
+  );
+
+  const copy = useCallback((text: string, done: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => toast.success(done),
+      (error: unknown) =>
+        toast.error(error instanceof Error ? error.message : String(error))
+    );
+  }, []);
+  const copyMarkdown = useCallback(
+    () =>
+      copy(
+        `# ${pad.title}\n\n${latest.current.trimEnd()}\n`,
+        "Copied as Markdown"
+      ),
+    [copy, pad.title]
+  );
+  const copyLink = useCallback(
+    () => copy(scratchpadLink(pad), "Copied link"),
+    [copy, pad]
   );
 
   const archive = useCallback(
@@ -395,6 +427,36 @@ function ScratchpadDocument({
           >
             {SAVE_LABEL[saveState]}
           </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  aria-label="Copy scratchpad"
+                  className="text-muted-foreground"
+                  size="icon-sm"
+                  variant="ghost"
+                />
+              }
+            >
+              <CopyIcon aria-hidden="true" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44 rounded-lg">
+              <DropdownMenuItem
+                className="gap-2 px-2 py-1.5"
+                onClick={copyMarkdown}
+              >
+                <CopyIcon />
+                <span>Copy as Markdown</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2 px-2 py-1.5"
+                onClick={copyLink}
+              >
+                <LinkIcon />
+                <span>Copy link</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <DropdownMenu onOpenChange={onMenuOpenChange}>
             <DropdownMenuTrigger
               render={
