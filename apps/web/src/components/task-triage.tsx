@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 
+import { ListGroup } from "@/components/list-group";
 import { PageHeading } from "@/components/page-heading";
 import { EmptyTasks, STATUS, TONE_TEXT } from "@/components/task-list";
 import { TimeAgo } from "@/components/time-ago";
@@ -33,6 +34,10 @@ const BUCKETS: { key: Bucket; label: string; quiet: string }[] = [
 const WINDOWED: ReadonlySet<Bucket> = new Set(["done", "did_not_land"]);
 
 const PREVIEW = 5;
+
+// `ml-5` plus the button's own `px-2` lands its text on the rows' `pl-7`.
+const FOLD_BUTTON =
+  "ml-5 max-w-full self-start truncate rounded-md px-2 py-1 text-muted-foreground text-sm transition-colors hover:text-foreground";
 
 const USD = new Intl.NumberFormat("en-US", {
   currency: "USD",
@@ -69,7 +74,7 @@ export function TaskTriage({ stats, tasks }: { stats: Stats; tasks: Task[] }) {
   const recent = tasks.filter((task) => task.created_at >= stats.since).length;
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-6">
       <PageHeading meta={recent} title="Tasks">
         <p className="truncate text-muted-foreground text-sm tabular-nums">
           {USD.format(stats.cost_usd)} spent
@@ -78,15 +83,18 @@ export function TaskTriage({ stats, tasks }: { stats: Stats; tasks: Task[] }) {
         </p>
       </PageHeading>
       <TooltipProvider delay={300}>
-        {BUCKETS.map((bucket) => (
-          <Section
-            key={bucket.key}
-            label={bucket.label}
-            quiet={bucket.quiet}
-            since={WINDOWED.has(bucket.key) ? stats.since : 0}
-            tasks={groups[bucket.key]}
-          />
-        ))}
+        <div className="flex flex-col gap-1">
+          {BUCKETS.map((bucket) => (
+            <Section
+              key={bucket.key}
+              label={bucket.label}
+              open={bucket.key !== "did_not_land"}
+              quiet={bucket.quiet}
+              since={WINDOWED.has(bucket.key) ? stats.since : 0}
+              tasks={groups[bucket.key]}
+            />
+          ))}
+        </div>
       </TooltipProvider>
     </div>
   );
@@ -94,11 +102,13 @@ export function TaskTriage({ stats, tasks }: { stats: Stats; tasks: Task[] }) {
 
 function Section({
   label,
+  open,
   quiet,
   since,
   tasks,
 }: {
   label: string;
+  open: boolean;
   quiet: string;
   since: number;
   tasks: Task[];
@@ -111,38 +121,28 @@ function Section({
   const foldedRecent = recent.length > shown.length;
 
   return (
-    <section className="flex flex-col gap-2">
-      <div className="flex items-baseline gap-2">
-        <h2 className="truncate font-medium text-sm">{label}</h2>
-        <span className="truncate text-muted-foreground text-sm tabular-nums">
-          {recent.length}
-        </span>
+    <ListGroup count={recent.length} label={label} open={open}>
+      <div className="flex flex-col py-1">
+        {shown.length === 0 ? (
+          <p className="truncate py-2 pl-7 text-muted-foreground/70 text-sm">
+            {quiet}
+          </p>
+        ) : (
+          <ul className="divide-y divide-foreground/5">
+            {shown.map((task) => (
+              <Row key={task.id} task={task} />
+            ))}
+          </ul>
+        )}
+        {hidden > 0 || all ? (
+          <button className={FOLD_BUTTON} onClick={toggle} type="button">
+            {all
+              ? "Show fewer"
+              : `Show ${hidden} ${foldedRecent ? "more" : "older"}`}
+          </button>
+        ) : null}
       </div>
-      {shown.length === 0 ? (
-        <p className="truncate py-2 text-muted-foreground/70 text-sm">
-          {quiet}
-        </p>
-      ) : (
-        // Rows keep an 8px inset for their hover surface; pulling the list out
-        // by the same amount puts the glyphs on the title's edge.
-        <ul className="-mx-2 divide-y divide-foreground/5" role="list">
-          {shown.map((task) => (
-            <Row key={task.id} task={task} />
-          ))}
-        </ul>
-      )}
-      {hidden > 0 || all ? (
-        <button
-          className="-ml-2 max-w-full self-start truncate rounded-md px-2 py-1 text-muted-foreground text-sm transition-colors hover:text-foreground"
-          onClick={toggle}
-          type="button"
-        >
-          {all
-            ? "Show fewer"
-            : `Show ${hidden} ${foldedRecent ? "more" : "older"}`}
-        </button>
-      ) : null}
-    </section>
+    </ListGroup>
   );
 }
 
@@ -152,7 +152,7 @@ function Row({ task }: { task: Task }) {
   return (
     <li>
       <Link
-        className="flex items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-foreground/4"
+        className="flex items-center gap-3 rounded-md py-2 pr-2 pl-7 text-sm hover:bg-foreground/4"
         params={{ id: task.id }}
         to="/tasks/$id"
       >
