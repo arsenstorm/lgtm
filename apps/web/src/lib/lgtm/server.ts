@@ -95,6 +95,10 @@ export const getSkills = createServerFn({ method: "GET" }).handler(
   async (): Promise<Skill[]> => api<Skill[]>("/skills")
 );
 
+export const getSkill = createServerFn({ method: "GET" })
+  .validator((id: string) => id)
+  .handler(async ({ data }): Promise<Skill> => api<Skill>(`/skills/${data}`));
+
 // The orchestrator answers 400 naming what the SKILL.md frontmatter is missing;
 // `api` keeps that reason on the thrown message.
 export const createSkill = createServerFn({ method: "POST" })
@@ -308,13 +312,30 @@ export const approveMemory = createServerFn({ method: "POST" })
       api<Memory>(`/memories/${data}/approve`, { method: "POST" })
   );
 
-// Omitting `files` keeps the ones the skill already carries.
+// The orchestrator owns the SKILL.md frontmatter, so the name, the description
+// and the body travel as three fields and it rewrites the file.
 export const updateSkill = createServerFn({ method: "POST" })
-  .validator((input: { id: string; content: string }) => input)
+  .validator(
+    (input: {
+      id: string;
+      name?: string;
+      description?: string;
+      body?: string;
+      /** Null moves the skill back to every repository. */
+      repository?: string | null;
+    }) => input
+  )
   .handler(
     async ({ data }): Promise<Skill> =>
       api<Skill>(`/skills/${data.id}`, {
-        body: { content: data.content },
+        // JSON.stringify drops undefined members on its own, so an omitted
+        // field never reaches the orchestrator as an explicit null.
+        body: {
+          body: data.body,
+          description: data.description,
+          name: data.name,
+          repository: data.repository,
+        },
         method: "PATCH",
       })
   );

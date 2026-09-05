@@ -18,6 +18,7 @@ import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as TodosRouteImport } from './routes/todos'
 import { Route as ChatsIdRouteImport } from './routes/chats.$id'
 import { Route as ScratchpadsIdRouteImport } from './routes/scratchpads_.$id'
+import { Route as SkillsIdRouteImport } from './routes/skills_.$id'
 import { Route as TasksIndexRouteImport } from './routes/tasks.index'
 import { Route as TasksIdRouteImport } from './routes/tasks.$id'
 import { Route as TodosIdRouteImport } from './routes/todos_.$id'
@@ -67,6 +68,11 @@ const ScratchpadsIdRoute = ScratchpadsIdRouteImport.update({
   path: '/scratchpads/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SkillsIdRoute = SkillsIdRouteImport.update({
+  id: '/skills_/$id',
+  path: '/skills/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TasksIndexRoute = TasksIndexRouteImport.update({
   id: '/tasks/',
   path: '/tasks/',
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/todos': typeof TodosRoute
   '/chats/$id': typeof ChatsIdRoute
   '/scratchpads/$id': typeof ScratchpadsIdRoute
+  '/skills/$id': typeof SkillsIdRoute
   '/tasks/$id': typeof TasksIdRoute
   '/todos/$id': typeof TodosIdRoute
   '/tasks/': typeof TasksIndexRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByTo {
   '/todos': typeof TodosRoute
   '/chats/$id': typeof ChatsIdRoute
   '/scratchpads/$id': typeof ScratchpadsIdRoute
+  '/skills/$id': typeof SkillsIdRoute
   '/tasks/$id': typeof TasksIdRoute
   '/todos/$id': typeof TodosIdRoute
   '/tasks': typeof TasksIndexRoute
@@ -122,6 +130,7 @@ export interface FileRoutesById {
   '/todos': typeof TodosRoute
   '/chats/$id': typeof ChatsIdRoute
   '/scratchpads_/$id': typeof ScratchpadsIdRoute
+  '/skills_/$id': typeof SkillsIdRoute
   '/tasks/$id': typeof TasksIdRoute
   '/todos_/$id': typeof TodosIdRoute
   '/tasks/': typeof TasksIndexRoute
@@ -138,6 +147,7 @@ export interface FileRouteTypes {
     | '/todos'
     | '/chats/$id'
     | '/scratchpads/$id'
+    | '/skills/$id'
     | '/tasks/$id'
     | '/todos/$id'
     | '/tasks/'
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
     | '/todos'
     | '/chats/$id'
     | '/scratchpads/$id'
+    | '/skills/$id'
     | '/tasks/$id'
     | '/todos/$id'
     | '/tasks'
@@ -166,6 +177,7 @@ export interface FileRouteTypes {
     | '/todos'
     | '/chats/$id'
     | '/scratchpads_/$id'
+    | '/skills_/$id'
     | '/tasks/$id'
     | '/todos_/$id'
     | '/tasks/'
@@ -181,6 +193,7 @@ export interface RootRouteChildren {
   TodosRoute: typeof TodosRoute
   ChatsIdRoute: typeof ChatsIdRoute
   ScratchpadsIdRoute: typeof ScratchpadsIdRoute
+  SkillsIdRoute: typeof SkillsIdRoute
   TasksIdRoute: typeof TasksIdRoute
   TodosIdRoute: typeof TodosIdRoute
   TasksIndexRoute: typeof TasksIndexRoute
@@ -251,6 +264,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ScratchpadsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/skills_/$id': {
+      id: '/skills_/$id'
+      path: '/skills/$id'
+      fullPath: '/skills/$id'
+      preLoaderRoute: typeof SkillsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tasks/': {
       id: '/tasks/'
       path: '/tasks'
@@ -285,6 +305,7 @@ const rootRouteChildren: RootRouteChildren = {
   TodosRoute: TodosRoute,
   ChatsIdRoute: ChatsIdRoute,
   ScratchpadsIdRoute: ScratchpadsIdRoute,
+  SkillsIdRoute: SkillsIdRoute,
   TasksIdRoute: TasksIdRoute,
   TodosIdRoute: TodosIdRoute,
   TasksIndexRoute: TasksIndexRoute,
