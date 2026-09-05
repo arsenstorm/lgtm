@@ -311,17 +311,14 @@ function ScratchpadDocument({
             <TagsRow disabled={busy} onChange={setTags} tags={pad.tags} />
           </dd>
         </dl>
-        <div className="xl:hidden">
-          <EditorToc containerRef={contentRef} headings={headings} />
-        </div>
+        <EditorToc containerRef={contentRef} headings={headings} />
       </div>
     ),
   });
 
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
-    // own gutters. The outline sits beside the document only when the screen
-    // is wide enough for both; otherwise it lives in the panel.
+    // own gutters.
     <article className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
       {/* The first line is as tall as PageHeading's row, so the title sits where
           every other page's does and the dots beside it centre on that line. */}
@@ -393,22 +390,16 @@ function ScratchpadDocument({
         </div>
       </header>
 
-      <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_14rem]">
-        {/* The rail scrolls the headings this element contains, so it has to
-            wrap the rendered editor and nothing else. */}
-        <div className="min-w-0 max-w-3xl" ref={contentRef}>
-          <MarkdownEditor
-            autoFocus={pad.content === ""}
-            onHeadings={setHeadings}
-            onMarkdown={onMarkdown}
-            placeholder="Start writing…"
-            value={pad.content}
-          />
-        </div>
-
-        <aside className="hidden self-start xl:sticky xl:top-6 xl:block xl:w-56">
-          <EditorToc containerRef={contentRef} headings={headings} />
-        </aside>
+      {/* The panel's outline scrolls the headings this element contains, so it
+          has to wrap the rendered editor and nothing else. */}
+      <div className="min-w-0 max-w-3xl" ref={contentRef}>
+        <MarkdownEditor
+          autoFocus={pad.content === ""}
+          onHeadings={setHeadings}
+          onMarkdown={onMarkdown}
+          placeholder="Start writing…"
+          value={pad.content}
+        />
       </div>
     </article>
   );
