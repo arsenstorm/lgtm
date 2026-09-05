@@ -250,6 +250,8 @@ export interface Scratchpad {
   /** Null is not tied to a repository. */
   repository: string | null;
   tags: string[];
+  /** Named by whoever made it; the content never names the document. */
+  title: string;
   /** Bumped only when content changes. */
   updated_at: number;
   workspace: string | null;

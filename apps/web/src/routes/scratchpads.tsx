@@ -20,23 +20,11 @@ export const Route = createFileRoute("/scratchpads")({
   errorComponent: ScratchpadsError,
 });
 
-const TITLE_MAX = 80;
-
-function cut(text: string): string {
-  return text.length > TITLE_MAX ? `${text.slice(0, TITLE_MAX)}…` : text;
-}
-
-/** A scratchpad has no title field: like any markdown file, its first `# `
- *  heading names it, and failing that its first written line does. */
-export function padTitle(content: string): string {
-  const lines = content.split("\n");
-  const heading = lines.find((line) => line.startsWith("# "));
-  if (heading) {
-    return cut(heading.slice(2).trim());
-  }
-
-  const first = lines.find((line) => line.trim() !== "");
-  return first ? cut(first.trim()) : "Untitled";
+/** "09-05-09-35 Scratchpad": the moment it was made, in the browser's clock,
+ *  so a page of fresh documents still reads in order. */
+function defaultTitle(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())} Scratchpad`;
 }
 
 const byEdited = (a: Scratchpad, b: Scratchpad) => b.updated_at - a.updated_at;
@@ -56,7 +44,9 @@ function ScratchpadsPage() {
   async function create() {
     setCreating(true);
     try {
-      const pad = await createScratchpad({ data: { content: "" } });
+      const pad = await createScratchpad({
+        data: { content: "", title: defaultTitle() },
+      });
       // The blank document opening is the success signal; a toast on top of it
       // would only say what the screen already shows.
       await navigate({ to: "/scratchpads/$id", params: { id: pad.id } });
@@ -136,7 +126,7 @@ function ScratchpadRow({ pad }: { pad: Scratchpad }) {
       to="/scratchpads/$id"
     >
       <span className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="min-w-0 truncate">{padTitle(pad.content)}</span>
+        <span className="min-w-0 truncate">{pad.title}</span>
         {pad.tags.slice(0, TAGS_SHOWN).map((tag) => (
           <span className={cn(TAG_CHIP, "max-w-40")} key={tag}>
             <span className="truncate">{tag}</span>

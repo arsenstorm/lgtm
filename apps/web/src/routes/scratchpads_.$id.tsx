@@ -1,5 +1,6 @@
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import type { FocusEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -29,7 +30,6 @@ import {
 } from "@/lib/lgtm/server";
 import type { Project, Scratchpad } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
-import { padTitle } from "@/routes/scratchpads";
 
 export const Route = createFileRoute("/scratchpads_/$id")({
   loader: async ({ params }) => {
@@ -43,7 +43,7 @@ export const Route = createFileRoute("/scratchpads_/$id")({
   errorComponent: ScratchpadError,
 });
 
-type Action = "archive" | "delete" | "repository" | "tags";
+type Action = "archive" | "delete" | "repository" | "tags" | "title";
 
 type SaveState = "idle" | "saving" | "saved";
 
@@ -54,6 +54,17 @@ const SAVE_LABEL: Record<SaveState, string> = {
   saving: "Saving…",
   saved: "Saved",
 };
+
+/** Enter commits the title by leaving the field; Escape puts the saved one
+ *  back first, so leaving then saves nothing. */
+function commitOrRestore(event: KeyboardEvent<HTMLInputElement>) {
+  if (event.key === "Enter") {
+    event.currentTarget.blur();
+  } else if (event.key === "Escape") {
+    event.currentTarget.value = event.currentTarget.defaultValue;
+    event.currentTarget.blur();
+  }
+}
 
 /** Long enough to notice, short enough not to become furniture. */
 const SAVED_MS = 2000;
@@ -76,7 +87,6 @@ function ScratchpadDocument({
   projects: Project[];
 }) {
   const navigate = useNavigate();
-  const [title, setTitle] = useState(() => padTitle(pad.content));
   const [headings, setHeadings] = useState<EditorHeading[]>([]);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const contentRef = useRef<HTMLDivElement>(null);
@@ -128,7 +138,6 @@ function ScratchpadDocument({
 
   const onMarkdown = useCallback(
     (markdown: string) => {
-      setTitle(padTitle(markdown));
       // The page does not invalidate the route here: nothing on screen reads the
       // refetched content, and the refetch would only race the next keystroke.
       save(markdown);
@@ -175,6 +184,22 @@ function ScratchpadDocument({
     [run, pad.id, repositoryName]
   );
 
+  const rename = useCallback(
+    (event: FocusEvent<HTMLInputElement>) => {
+      const title = event.target.value.trim();
+      if (title === "" || title === pad.title) {
+        event.target.value = pad.title;
+        return;
+      }
+      run(
+        "title",
+        () => updateScratchpad({ data: { id: pad.id, title } }),
+        "Scratchpad renamed"
+      );
+    },
+    [run, pad.id, pad.title]
+  );
+
   const setTags = useCallback(
     (tags: string[], message: string) => {
       run(
@@ -207,8 +232,18 @@ function ScratchpadDocument({
     <article className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
       <header className="flex flex-wrap items-start gap-x-4 gap-y-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-          <h1 className="min-w-0 truncate font-medium text-xl tracking-tight">
-            {title}
+          {/* The heading is the input: click it, type, and leaving it saves. */}
+          <h1 className="min-w-0 flex-1 font-medium text-xl tracking-tight">
+            <input
+              aria-label="Title"
+              className="w-full min-w-0 rounded-sm bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              defaultValue={pad.title}
+              disabled={busy}
+              key={pad.title}
+              onBlur={rename}
+              onKeyDown={commitOrRestore}
+              type="text"
+            />
           </h1>
           {pad.archived ? <Badge variant="outline">archived</Badge> : null}
         </div>
@@ -285,7 +320,7 @@ function ScratchpadDocument({
             autoFocus={pad.content === ""}
             onHeadings={setHeadings}
             onMarkdown={onMarkdown}
-            placeholder="Start writing — the first heading becomes the title."
+            placeholder="Start writing…"
             value={pad.content}
           />
         </div>

@@ -321,7 +321,9 @@ export const commentOnTodo = createServerFn({ method: "POST" })
   );
 
 export const createScratchpad = createServerFn({ method: "POST" })
-  .validator((input: { repository?: string; content: string }) => input)
+  .validator(
+    (input: { title: string; repository?: string; content: string }) => input
+  )
   .handler(
     async ({ data }): Promise<Scratchpad> =>
       api<Scratchpad>("/scratchpads", { body: data, method: "POST" })
@@ -331,6 +333,7 @@ export const updateScratchpad = createServerFn({ method: "POST" })
   .validator(
     (input: {
       id: string;
+      title?: string;
       content?: string;
       archived?: boolean;
       /** Null moves the document back to every repository. */
@@ -348,6 +351,7 @@ export const updateScratchpad = createServerFn({ method: "POST" })
           content: data.content,
           repository: data.repository,
           tags: data.tags,
+          title: data.title,
         },
         method: "PATCH",
       })
