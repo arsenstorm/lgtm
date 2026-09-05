@@ -311,7 +311,7 @@ function ScratchpadDocument({
             <TagsRow disabled={busy} onChange={setTags} tags={pad.tags} />
           </dd>
         </dl>
-        <div className="xl:hidden">
+        <div className="lg:hidden">
           <EditorToc containerRef={contentRef} headings={headings} />
         </div>
       </div>
@@ -393,7 +393,7 @@ function ScratchpadDocument({
         </div>
       </header>
 
-      <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_14rem]">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_14rem]">
         {/* The rail scrolls the headings this element contains, so it has to
             wrap the rendered editor and nothing else. */}
         <div className="min-w-0 max-w-3xl" ref={contentRef}>
@@ -406,7 +406,7 @@ function ScratchpadDocument({
           />
         </div>
 
-        <aside className="hidden self-start xl:sticky xl:top-6 xl:block xl:w-56">
+        <aside className="hidden self-start lg:sticky lg:top-6 lg:block lg:w-56">
           <EditorToc containerRef={contentRef} headings={headings} />
         </aside>
       </div>
