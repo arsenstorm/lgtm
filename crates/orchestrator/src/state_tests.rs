@@ -59,7 +59,6 @@ fn spec(executor: Executor, runner: Option<&str>) -> TaskSpec {
         model: None,
         reasoning_effort: None,
         allowed_hosts: Vec::new(),
-        session: None,
         created_by: None,
     }
 }
@@ -1738,103 +1737,6 @@ fn unknown_dependency_is_refused() {
         state.check_eligible(&spec).unwrap_err(),
         "unknown dependency deadbeef"
     );
-}
-
-#[test]
-fn unknown_session_is_refused() {
-    let mut state = State::default();
-    let _w = connect(&mut state, "w", 1, 1);
-    let mut task_spec = spec(Executor::Claude, None);
-    task_spec.session = Some("deadbeef".into());
-    assert_eq!(
-        state.check_eligible(&task_spec).unwrap_err(),
-        "unknown session deadbeef"
-    );
-}
-
-#[test]
-fn session_tasks_come_back_in_creation_order() {
-    let mut state = State::default();
-    let _w = connect(&mut state, "w", 1, 1);
-    let session = state.create_session(
-        "https://example.com/repo.git".into(),
-        "main".into(),
-        String::new(),
-        None,
-    );
-
-    let mut first = spec(Executor::Claude, None);
-    first.session = Some(session.id.clone());
-    let first = state.create_task(first).unwrap().0;
-    // Millisecond timestamps tie within one test tick, so force the order
-    // `session_tasks` is meant to prove instead of racing the clock.
-    state.tasks.get_mut(&first.id).unwrap().task.created_at = 1;
-
-    let mut second = spec(Executor::Claude, None);
-    second.session = Some(session.id.clone());
-    let second = state.create_task(second).unwrap().0;
-    state.tasks.get_mut(&second.id).unwrap().task.created_at = 2;
-
-    let tasks = state.session_tasks(&session.id);
-    assert_eq!(
-        tasks.iter().map(|t| &t.id).collect::<Vec<_>>(),
-        vec![&first.id, &second.id]
-    );
-}
-
-#[test]
-fn update_session_renames_and_archives() {
-    let mut state = State::default();
-    let session = state.create_session(
-        "https://example.com/repo.git".into(),
-        "main".into(),
-        "old title".into(),
-        None,
-    );
-
-    let renamed = state
-        .update_session(&session.id, Some("new title".into()), None)
-        .unwrap();
-    assert_eq!(renamed.title, "new title");
-    assert!(!renamed.archived);
-
-    let archived = state.update_session(&session.id, None, Some(true)).unwrap();
-    assert_eq!(archived.title, "new title");
-    assert!(archived.archived);
-}
-
-#[test]
-fn update_session_unknown_id_is_none() {
-    let mut state = State::default();
-    assert!(state
-        .update_session("deadbeef", Some("x".into()), None)
-        .is_none());
-}
-
-#[test]
-fn remove_session_leaves_its_tasks_in_place() {
-    let mut state = State::default();
-    let _w = connect(&mut state, "w", 1, 1);
-    let session = state.create_session(
-        "https://example.com/repo.git".into(),
-        "main".into(),
-        String::new(),
-        None,
-    );
-    let mut task_spec = spec(Executor::Claude, None);
-    task_spec.session = Some(session.id.clone());
-    let task = state.create_task(task_spec).unwrap().0;
-
-    let removed = state.remove_session(&session.id).unwrap();
-    assert_eq!(removed.id, session.id);
-    assert!(!state.sessions.contains_key(&session.id));
-    assert!(state.tasks.contains_key(&task.id));
-}
-
-#[test]
-fn remove_session_unknown_id_is_none() {
-    let mut state = State::default();
-    assert!(state.remove_session("deadbeef").is_none());
 }
 
 #[test]

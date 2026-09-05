@@ -84,7 +84,6 @@ async fn end_to_end() {
         model: None,
         reasoning_effort: None,
         allowed_hosts: Vec::new(),
-        session: None,
         created_by: None,
     };
     let r = http
@@ -743,82 +742,6 @@ async fn end_to_end() {
 }
 
 #[tokio::test]
-async fn a_message_becomes_a_task_under_its_session() {
-    let dir = std::env::temp_dir().join(format!("lgtm-sessions-{}", std::process::id()));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    drop(listener);
-    tokio::spawn(lgtm_orchestrator::serve_plain(
-        addr,
-        "tok".into(),
-        dir.clone(),
-    ));
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    let base = format!("http://{addr}");
-    let http = reqwest::Client::new();
-
-    let mut w = ws(&format!("ws://{addr}{RUNNER_WS_PATH}"), false).await;
-    w.send(TMsg::Text(
-        serde_json::to_string(&RunnerMessage::Hello {
-            token: "tok".into(),
-            info: RunnerInfo {
-                name: "w1".into(),
-                os: "linux".into(),
-                arch: "x86_64".into(),
-                executors: vec![Executor::Claude],
-                slots: 1,
-                ephemeral: false,
-                capabilities: vec![],
-                cpu_cores: 0,
-                memory_mb: 0,
-            },
-            running: Vec::new(),
-            version: PROTOCOL_VERSION,
-        })
-        .unwrap()
-        .into(),
-    ))
-    .await
-    .unwrap();
-    next_frame(&mut w).await;
-
-    let r = http
-        .post(format!("{base}/api/sessions"))
-        .bearer_auth("tok")
-        .json(&serde_json::json!({ "repository": "r", "base_branch": "main" }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(r.status(), 201);
-    let session: Session = r.json().await.unwrap();
-    assert_eq!(session.title, "");
-
-    let r = http
-        .post(format!("{base}/api/sessions/{}/messages", session.id))
-        .bearer_auth("tok")
-        .json(&serde_json::json!({ "text": "add a /health endpoint", "executor": "claude" }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(r.status(), 201);
-    let task: Task = r.json().await.unwrap();
-    assert_eq!(task.spec.session.as_deref(), Some(session.id.as_str()));
-
-    let detail: SessionDetail = http
-        .get(format!("{base}/api/sessions/{}", session.id))
-        .bearer_auth("tok")
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(detail.session.title, "add a /health endpoint");
-    assert_eq!(detail.tasks, vec![task]);
-    std::fs::remove_dir_all(&dir).ok();
-}
-
-#[tokio::test]
 async fn a_memory_reaches_the_runner() {
     let dir = std::env::temp_dir().join(format!("lgtm-memories-{}", std::process::id()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -888,7 +811,6 @@ async fn a_memory_reaches_the_runner() {
         model: None,
         reasoning_effort: None,
         allowed_hosts: Vec::new(),
-        session: None,
         created_by: None,
     };
     let r = http

@@ -32,7 +32,6 @@ fn sample_task() -> Task {
             model: Some("opus".into()),
             reasoning_effort: Some(ReasoningEffort::High),
             allowed_hosts: Vec::new(),
-            session: Some("s1".into()),
             created_by: None,
         },
         status: TaskStatus::Queued,
@@ -621,37 +620,6 @@ fn todo_patch_round_trips_and_distinguishes_absent_from_clearing() {
 
     let cleared: TodoPatch = serde_json::from_str(r#"{"assignee":null}"#).unwrap();
     assert_eq!(cleared.assignee, Some(None));
-}
-
-#[test]
-fn session_round_trips() {
-    round_trip(Session {
-        id: "0123abcd".into(),
-        repository: "https://github.com/arsenstorm/lgtm.git".into(),
-        base_branch: "main".into(),
-        title: "add a /health endpoint".into(),
-        created_at: 1,
-        workspace: None,
-        created_by: None,
-        archived: false,
-    });
-}
-
-#[test]
-fn session_detail_round_trips() {
-    round_trip(SessionDetail {
-        session: Session {
-            id: "0123abcd".into(),
-            repository: "https://github.com/arsenstorm/lgtm.git".into(),
-            base_branch: "main".into(),
-            title: "add a /health endpoint".into(),
-            created_at: 1,
-            workspace: None,
-            created_by: None,
-            archived: false,
-        },
-        tasks: vec![sample_task()],
-    });
 }
 
 #[test]

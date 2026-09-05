@@ -76,7 +76,6 @@ impl SpecInput {
             model: self.model,
             reasoning_effort: self.reasoning_effort,
             allowed_hosts: Vec::new(),
-            session: None,
             created_by: None,
         }
     }

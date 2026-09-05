@@ -50,7 +50,6 @@ async fn end_to_end() {
         model: None,
         reasoning_effort: None,
         allowed_hosts: Vec::new(),
-        session: None,
         created_by: None,
     };
     let err = client.create_task(&spec).await.unwrap_err();

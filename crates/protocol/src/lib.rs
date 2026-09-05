@@ -257,9 +257,6 @@ pub struct TaskSpec {
     /// Hosts a person allowed for this task on top of the repository's allowlist.
     #[serde(default)]
     pub allowed_hosts: Vec<String>,
-    /// The chat thread this task was sent from.
-    #[serde(default)]
-    pub session: Option<String>,
     /// Stamped by the orchestrator from the authenticated user; anything a
     /// client sends here is overwritten. Only `POST /api/tasks` deserializes
     /// a client `TaskSpec` today — a new endpoint that does must overwrite
@@ -786,35 +783,6 @@ pub fn validate_skill_path(path: &str) -> Result<(), String> {
             "file path `{path}` must be relative, forward-slashed, with no empty, dotted or hidden segments"
         ))
     }
-}
-
-/// One chat thread in a repository; each message in it becomes a task.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct Session {
-    pub id: String,
-    pub repository: String,
-    pub base_branch: String,
-    /// The first message, cut to 60 chars; empty until one is sent.
-    pub title: String,
-    /// Unix milliseconds.
-    pub created_at: u64,
-    /// The workspace this belongs to; one per orchestrator until teams exist.
-    #[serde(default)]
-    pub workspace: Option<String>,
-    /// The user who created this; `None` for the shared token or automation.
-    #[serde(default)]
-    pub created_by: Option<String>,
-    /// Hidden from the sidebar without deleting the thread or the tasks it
-    /// produced.
-    #[serde(default)]
-    pub archived: bool,
-}
-
-/// Body of `GET /api/sessions/:id`: the thread is its tasks in creation order.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct SessionDetail {
-    pub session: Session,
-    pub tasks: Vec<Task>,
 }
 
 /// One conversation with the read-only workspace agent. Nothing in it changes

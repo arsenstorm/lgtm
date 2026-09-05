@@ -28,7 +28,6 @@ fn task(status: TaskStatus, policy: Option<Policy>) -> Task {
             model: None,
             reasoning_effort: None,
             allowed_hosts: Vec::new(),
-            session: None,
             created_by: None,
         },
         status,

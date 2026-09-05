@@ -9,7 +9,6 @@ mod goals;
 mod memories;
 mod projects;
 mod scratchpads;
-mod sessions;
 mod skills;
 mod terminal;
 mod todos;
@@ -154,17 +153,6 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         )
         .route("/projects/{id}", patch(projects::update_project))
         .route("/goals/{id}/plans", get(goals::get_goal_plans))
-        .route(
-            "/sessions",
-            get(sessions::list_sessions).post(sessions::create_session),
-        )
-        .route(
-            "/sessions/{id}",
-            get(sessions::get_session)
-                .patch(sessions::update_session)
-                .delete(sessions::delete_session),
-        )
-        .route("/sessions/{id}/messages", post(sessions::send_message))
         .route("/chats", get(chats::list_chats).post(chats::create_chat))
         .route(
             "/chats/{id}",

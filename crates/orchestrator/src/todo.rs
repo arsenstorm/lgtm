@@ -81,7 +81,6 @@ impl State {
             model: None,
             reasoning_effort: None,
             allowed_hosts: Vec::new(),
-            session: None,
             created_by: into.created_by,
         };
         let (task, changed) = self.create_task(spec)?;

@@ -8,8 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
     first_line_title, goal_status, Batch, Chat, ChatRole, ChatTurn, Goal, GoalSummary, Memory,
-    MemorySource, OrchestratorMessage, Project, Scratchpad, Session, Skill, SkillFile, StoredEvent,
-    Task, TaskEvent, TaskId, TaskSpec, TaskStatus, Todo, TodoComment, TodoStatus, Verification,
+    MemorySource, OrchestratorMessage, Project, Scratchpad, Skill, SkillFile, StoredEvent, Task,
+    TaskEvent, TaskId, TaskSpec, TaskStatus, Todo, TodoComment, TodoStatus, Verification,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 
@@ -156,16 +156,8 @@ impl App {
         let _ = self.persist.send(Persist::Goal(goal.clone()));
     }
 
-    pub fn persist_session(&self, session: &Session) {
-        let _ = self.persist.send(Persist::Session(session.clone()));
-    }
-
     pub fn persist_chat(&self, chat: &Chat) {
         let _ = self.persist.send(Persist::Chat(chat.clone()));
-    }
-
-    pub fn remove_session_record(&self, id: &str) {
-        let _ = self.persist.send(Persist::RemoveSession(id.to_string()));
     }
 
     pub fn persist_users(&self, state: &State) {
@@ -255,8 +247,6 @@ pub struct State {
     pub skills: HashMap<String, Skill>,
     /// Goals, by id. A task points back with `spec.goal`.
     pub goals: HashMap<String, Goal>,
-    /// Chat threads, by id. A task points back with `spec.session`.
-    pub sessions: HashMap<String, Session>,
     pub chats: HashMap<String, Chat>,
     /// Lightweight notes about work to do, by id.
     pub todos: HashMap<String, Todo>,
@@ -712,34 +702,6 @@ impl State {
         tasks
     }
 
-    pub(crate) fn new_session_id(&self) -> String {
-        std::iter::repeat_with(random_id)
-            .find(|id| !self.sessions.contains_key(id))
-            .unwrap_or_default()
-    }
-
-    pub fn create_session(
-        &mut self,
-        repository: String,
-        base_branch: String,
-        title: String,
-        created_by: Option<String>,
-    ) -> Session {
-        let session = Session {
-            id: self.new_session_id(),
-            repository,
-            base_branch,
-            title,
-            created_at: now_ms(),
-            workspace: self.workspace.clone(),
-            created_by,
-            archived: false,
-        };
-        tracing::info!(session = %session.id, "session created");
-        self.sessions.insert(session.id.clone(), session.clone());
-        session
-    }
-
     pub(crate) fn new_chat_id(&self) -> String {
         std::iter::repeat_with(random_id)
             .find(|id| !self.chats.contains_key(id))
@@ -784,55 +746,6 @@ impl State {
         let chat = self.chats.get_mut(id)?;
         chat.turns.push(turn);
         Some(chat.clone())
-    }
-
-    /// Renames a thread, archives it, or both. `None` when there is no such
-    /// session. An empty or whitespace title is rejected by the caller, not
-    /// here.
-    pub fn update_session(
-        &mut self,
-        id: &str,
-        title: Option<String>,
-        archived: Option<bool>,
-    ) -> Option<Session> {
-        let session = self.sessions.get_mut(id)?;
-        if let Some(title) = title {
-            session.title = title;
-        }
-        if let Some(archived) = archived {
-            session.archived = archived;
-        }
-        Some(session.clone())
-    }
-
-    /// Forgets a thread. The tasks it produced are left alone: deleting a
-    /// thread must not delete work that has already run.
-    pub fn remove_session(&mut self, id: &str) -> Option<Session> {
-        self.sessions.remove(id)
-    }
-
-    /// The session's tasks, oldest first. `spec.session` is the only record
-    /// of membership, so nothing has to be kept in step with it.
-    pub fn session_tasks(&self, id: &str) -> Vec<&Task> {
-        let mut tasks: Vec<&Task> = self
-            .tasks
-            .values()
-            .map(|rec| &rec.task)
-            .filter(|task| task.spec.session.as_deref() == Some(id))
-            .collect();
-        tasks.sort_by_key(|task| task.created_at);
-        tasks
-    }
-
-    /// Only the first message names a session, so a title is set once.
-    /// Returns the updated session to persist, or `None` if it already had one.
-    pub fn fill_session_title(&mut self, id: &str, text: &str) -> Option<Session> {
-        let session = self.sessions.get_mut(id)?;
-        if !session.title.is_empty() {
-            return None;
-        }
-        session.title = first_line_title(text);
-        Some(session.clone())
     }
 
     fn new_todo_id(&self) -> String {
@@ -1033,13 +946,6 @@ impl State {
             .filter(|id| !self.goals.contains_key(*id))
         {
             return Err(format!("unknown goal {id}"));
-        }
-        if let Some(id) = spec
-            .session
-            .as_ref()
-            .filter(|id| !self.sessions.contains_key(*id))
-        {
-            return Err(format!("unknown session {id}"));
         }
         if let Some(name) = &spec.runner {
             let runner = self

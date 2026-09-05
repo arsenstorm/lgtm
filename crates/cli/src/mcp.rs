@@ -30,7 +30,7 @@ const ROWS: usize = 50;
 const RESOURCE_NOT_FOUND: i64 = -32002;
 /// The reads every mode gets. A run's are held to its repository; the loop
 /// and `lgtm ask` read the whole workspace.
-const READ_TOOLS: [&str; 11] = [
+const READ_TOOLS: [&str; 10] = [
     "open",
     "search",
     "memories_list",
@@ -41,17 +41,10 @@ const READ_TOOLS: [&str; 11] = [
     "scratchpad_open",
     "task_inspect",
     "goal_inspect",
-    "session_open",
 ];
 /// Reads over the whole workspace, which a plain run does not get: what
 /// else is running, who started it, and where two tasks are about to collide.
-const WORKSPACE_TOOLS: [&str; 5] = [
-    "tasks_list",
-    "goals_list",
-    "sessions_list",
-    "activity",
-    "runner_list",
-];
+const WORKSPACE_TOOLS: [&str; 4] = ["tasks_list", "goals_list", "activity", "runner_list"];
 /// The tools only a task's run (and the loop, which runs as one) has: its
 /// writes, and the notes that live with the task.
 const RUN_TOOLS: [&str; 12] = [
@@ -264,17 +257,15 @@ enum Kind {
     Todo,
     Goal,
     Memory,
-    Session,
     Scratchpad,
 }
 
 impl Kind {
-    const ALL: [Kind; 6] = [
+    const ALL: [Kind; 5] = [
         Kind::Task,
         Kind::Todo,
         Kind::Goal,
         Kind::Memory,
-        Kind::Session,
         Kind::Scratchpad,
     ];
 
@@ -286,7 +277,6 @@ impl Kind {
             Kind::Todo => "todos",
             Kind::Goal => "goals",
             Kind::Memory => "memories",
-            Kind::Session => "sessions",
             Kind::Scratchpad => "scratchpads",
         }
     }
@@ -310,7 +300,7 @@ fn parse_link(value: &str) -> Result<(Kind, &str)> {
     let mut parts = rest.trim_end_matches('/').split('/');
     let kind = parts.next().and_then(Kind::from_path).ok_or_else(|| {
         anyhow::anyhow!(
-            "{value} names no kind; links are lgtm://tasks/<id>, todos, goals, memories, sessions or scratchpads"
+            "{value} names no kind; links are lgtm://tasks/<id>, todos, goals, memories or scratchpads"
         )
     })?;
     let id = parts
@@ -381,9 +371,6 @@ async fn read_call(
             };
             goal_inspect(client, id, scope).await
         }
-        "session_open" => {
-            session_open(client, id_of(Kind::Session, string(args, "id")?)?, scope).await
-        }
         _ => anyhow::bail!("no such tool: {name}"),
     }
 }
@@ -395,7 +382,6 @@ async fn open(client: &Client, value: &str, scope: Option<&str>) -> Result<Strin
         Kind::Todo => todo_open(client, id, scope).await,
         Kind::Goal => goal_inspect(client, id, scope).await,
         Kind::Memory => memory_open(client, id, scope).await,
-        Kind::Session => session_open(client, id, scope).await,
         Kind::Scratchpad => scratchpad_open(client, id, scope).await,
     }
 }
@@ -436,15 +422,6 @@ async fn search(client: &Client, query: &str, scope: Option<&str>) -> Result<Str
                 "{}  {}",
                 link(Kind::Memory, &memory.id),
                 memory.content
-            ));
-        }
-    }
-    for session in client.sessions(scope).await? {
-        if hit(&[&session.title]) {
-            rows.push(format!(
-                "{}  {}",
-                link(Kind::Session, &session.id),
-                session.title
             ));
         }
     }
@@ -617,18 +594,6 @@ async fn goal_inspect(client: &Client, id: &str, scope: Option<&str>) -> Result<
         "{}\nstatus: {}\n",
         detail.summary.goal.objective,
         status_word(detail.summary.status)
-    );
-    Ok(head + &joined(detail.tasks.iter().map(task_line)))
-}
-
-async fn session_open(client: &Client, id: &str, scope: Option<&str>) -> Result<String> {
-    let detail = client.session(id).await?;
-    in_scope(scope, Some(&detail.session.repository), "the session")?;
-    let head = format!(
-        "{} {} \"{}\"\n",
-        detail.session.id,
-        repo_short(&detail.session.repository),
-        detail.session.title
     );
     Ok(head + &joined(detail.tasks.iter().map(task_line)))
 }
@@ -837,7 +802,6 @@ async fn workspace_call(name: &str, args: &Value, client: &Client) -> Result<Str
     match name {
         "tasks_list" => tasks_list(client).await,
         "goals_list" => goals_list(client).await,
-        "sessions_list" => sessions_list(client).await,
         "activity" => activity(client, args).await,
         "runner_list" => runner_list(client).await,
         _ => anyhow::bail!("no such tool: {name}"),
@@ -913,29 +877,6 @@ async fn goals_list(client: &Client) -> Result<String> {
                     Some(why) => format!("{line}\n  needs a person: {why}"),
                     None => line,
                 }
-            })
-            .collect(),
-    ))
-}
-
-async fn sessions_list(client: &Client) -> Result<String> {
-    let owners = owners(client).await?;
-    let mut sessions = client.sessions(None).await?;
-    sessions.sort_by_key(|session| std::cmp::Reverse(session.created_at));
-    Ok(capped(
-        sessions
-            .iter()
-            .map(|session| {
-                let title = match session.title.is_empty() {
-                    true => "-",
-                    false => &session.title,
-                };
-                format!(
-                    "{} {} {} \"{title}\"",
-                    session.id,
-                    owner(&owners, session.created_by.as_deref()),
-                    repo_short(&session.repository),
-                )
             })
             .collect(),
     ))
@@ -1087,7 +1028,6 @@ async fn task_create(client: &Client, goal: &str, args: &Value) -> Result<String
         reasoning_effort: None,
         goal: Some(goal.to_string()),
         allowed_hosts: Vec::new(),
-        session: None,
         created_by: None,
     };
     Ok(client.create_task(&spec).await?.id)
@@ -1200,8 +1140,8 @@ fn id_schema(kind: Kind) -> Value {
 
 fn read_tools() -> Vec<Value> {
     vec![
-        tool("open", "Read any workspace object by its lgtm:// link: a task, todo, goal, memory, session or scratchpad. A prompt, todo or message that carries a link means: open it before acting.", json!({ "link": string_schema("An lgtm://<kind>/<id> link.") }), &["link"]),
-        tool("search", "Find tasks, todos, goals, memories, sessions and scratchpads whose text contains a phrase. Rows start with the link that opens them.", json!({ "query": string_schema("A word or phrase; case does not matter.") }), &["query"]),
+        tool("open", "Read any workspace object by its lgtm:// link: a task, todo, goal, memory or scratchpad. A prompt, todo or message that carries a link means: open it before acting.", json!({ "link": string_schema("An lgtm://<kind>/<id> link.") }), &["link"]),
+        tool("search", "Find tasks, todos, goals, memories and scratchpads whose text contains a phrase. Rows start with the link that opens them.", json!({ "query": string_schema("A word or phrase; case does not matter.") }), &["query"]),
         tool("memories_list", "Facts recorded for this repository that every agent run is told: id, then the fact.", json!({}), &[]),
         tool("memory_open", "One memory: the fact and whether a person has approved it.", id_schema(Kind::Memory), &["id"]),
         tool("todos_list", "Open todos: id, owner, repository, title.", json!({}), &[]),
@@ -1210,7 +1150,6 @@ fn read_tools() -> Vec<Value> {
         tool("scratchpad_open", "One shared scratchpad as markdown, its title as the heading.", id_schema(Kind::Scratchpad), &["id"]),
         tool("task_inspect", "Everything recorded for one task: its prompt, attempts, checks, blocking findings, changed files, plan versions, recent activity and notes. On a retry, read your own task first.", json!({ "task_id": string_schema("The task's id, or its lgtm://tasks/<id> link.") }), &["task_id"]),
         tool("goal_inspect", "A goal's objective, its status, and one line per task under it. The orchestration loop may omit the id for its own goal.", id_schema(Kind::Goal), &[]),
-        tool("session_open", "A chat session: its title, repository, and one line per task it produced.", id_schema(Kind::Session), &["id"]),
     ]
 }
 
@@ -1236,7 +1175,6 @@ fn workspace_tools() -> Vec<Value> {
     vec![
         tool("tasks_list", "Every task in the workspace: id, status, owner, repository, prompt — and which unmerged tasks changed the same files.", json!({}), &[]),
         tool("goals_list", "Every goal in the workspace: id, status, owner, task count, objective.", json!({}), &[]),
-        tool("sessions_list", "Every chat session in the workspace: id, owner, repository, title.", json!({}), &[]),
         tool("activity", "The most recent events across every task: who did what, where.", json!({ "limit": { "type": "integer", "description": "How many lines, default 30." } }), &[]),
         tool("runner_list", "The connected runners and what they are running.", json!({}), &[]),
     ]

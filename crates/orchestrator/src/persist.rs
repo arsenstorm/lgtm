@@ -4,8 +4,7 @@
 //! one per todo under `<data_dir>/todos`, one per todo comment under
 //! `<data_dir>/todo_comments`, one per scratchpad under
 //! `<data_dir>/scratchpads`, one per project under
-//! `<data_dir>/projects`, one per session under `<data_dir>/sessions`, and
-//! one per chat under `<data_dir>/chats`.
+//! `<data_dir>/projects`, and one per chat under `<data_dir>/chats`.
 //!
 //! A task's events are append-only: rewriting `<id>.json` on every event
 //! meant copying the whole history back to disk each time, so events live in
@@ -16,8 +15,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use lgtm_protocol::{
-    Batch, Chat, Goal, Memory, Overlap, Project, Scratchpad, Session, Skill, StoredEvent, Task,
-    TaskId, Todo, TodoComment,
+    Batch, Chat, Goal, Memory, Overlap, Project, Scratchpad, Skill, StoredEvent, Task, TaskId,
+    Todo, TodoComment,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -57,8 +56,6 @@ pub enum Persist {
     Scratchpad(Scratchpad),
     RemoveScratchpad(String),
     Project(Project),
-    Session(Session),
-    RemoveSession(String),
     Chat(Chat),
     /// The whole users store; users are few and change rarely, so the file
     /// is rewritten rather than kept per-id.
@@ -104,7 +101,6 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
     let todo_comments = dir.join("todo_comments");
     let scratchpads = dir.join("scratchpads");
     let projects = dir.join("projects");
-    let sessions = dir.join("sessions");
     let chats = dir.join("chats");
     let artefacts = dir.join("artefacts");
     while let Some(item) = rx.recv().await {
@@ -136,8 +132,6 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
             Persist::Scratchpad(scratchpad) => save_scratchpad(&scratchpads, &scratchpad),
             Persist::RemoveScratchpad(id) => remove_by_id(&scratchpads, "scratchpad", &id),
             Persist::Project(project) => save_project(&projects, &project),
-            Persist::Session(session) => save_session(&sessions, &session),
-            Persist::RemoveSession(id) => remove_by_id(&sessions, "session", &id),
             Persist::Chat(chat) => save_chat(&chats, &chat),
             Persist::Users(users) => save_users(&dir, &users),
             Persist::Credentials(store) => save_credentials(&dir, &store),
@@ -267,10 +261,6 @@ pub fn save_scratchpad(dir: &Path, scratchpad: &Scratchpad) {
 
 pub fn save_project(dir: &Path, project: &Project) {
     save_by_id(dir, "project", &project.id, project);
-}
-
-pub fn save_session(dir: &Path, session: &Session) {
-    save_by_id(dir, "session", &session.id, session);
 }
 
 pub fn save_chat(dir: &Path, chat: &Chat) {
@@ -501,10 +491,6 @@ pub fn load_all_projects(dir: &Path) -> Vec<Project> {
     load_dir(dir, |project: &Project| project.id.as_str())
 }
 
-pub fn load_all_sessions(dir: &Path) -> Vec<Session> {
-    load_dir(dir, |session: &Session| session.id.as_str())
-}
-
 pub fn load_all_chats(dir: &Path) -> Vec<Chat> {
     load_dir(dir, |chat: &Chat| chat.id.as_str())
 }
@@ -561,7 +547,6 @@ mod tests {
                 reasoning_effort: None,
                 goal: None,
                 allowed_hosts: Vec::new(),
-                session: None,
                 created_by: None,
             },
             status: TaskStatus::Queued,

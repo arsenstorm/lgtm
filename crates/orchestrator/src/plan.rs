@@ -183,7 +183,6 @@ fn child_spec(spec: &TaskSpec, step: &PlanStep, depends_on: Vec<TaskId>, parent:
         model: spec.model.clone(),
         reasoning_effort: spec.reasoning_effort,
         allowed_hosts: Vec::new(),
-        session: None,
         // The plan's creator asked for every step, so children keep the
         // task.created_by == task.spec.created_by invariant.
         created_by: spec.created_by.clone(),

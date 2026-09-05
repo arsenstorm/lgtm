@@ -48,7 +48,6 @@ fn spec(goal: Option<String>) -> TaskSpec {
         reasoning_effort: None,
         goal,
         allowed_hosts: Vec::new(),
-        session: None,
         created_by: None,
     }
 }

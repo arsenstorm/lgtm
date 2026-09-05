@@ -18,8 +18,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
 pub use types::{
     ActivityLine, BatchDetail, BatchRequest, BatchResponse, EventStream, FromIssue, FromLinear,
-    GoalDetail, IssuePreview, NewCredential, NewGoal, NewSession, Orchestrated, PromoteTodo, Retry,
-    ScratchpadPatch, SessionMessage, SessionPatch, TaskDetail, TerminalStream,
+    GoalDetail, IssuePreview, NewCredential, NewGoal, Orchestrated, PromoteTodo, Retry,
+    ScratchpadPatch, TaskDetail, TerminalStream,
 };
 use types::{
     AllowHost, Attention, ErrorBody, FollowUp, NewComment, NewMemory, NewScratchpad, NewSkill,
@@ -579,59 +579,6 @@ impl Client {
 
     pub async fn goal(&self, id: &str) -> anyhow::Result<GoalDetail> {
         self.get(&format!("/api/goals/{id}")).await
-    }
-
-    pub async fn create_session(
-        &self,
-        body: &NewSession<'_>,
-    ) -> anyhow::Result<lgtm_protocol::Session> {
-        self.post("/api/sessions", Some(body)).await
-    }
-
-    /// Sessions in `repository`, or every one when it is `None`; newest first.
-    pub async fn sessions(
-        &self,
-        repository: Option<&str>,
-    ) -> anyhow::Result<Vec<lgtm_protocol::Session>> {
-        let mut req = self.authed(self.http.get(format!("{}/api/sessions", self.base)));
-        if let Some(repository) = repository {
-            req = req.query(&[("repository", repository)]);
-        }
-        Self::handle(req.send().await?).await
-    }
-
-    pub async fn session(&self, id: &str) -> anyhow::Result<lgtm_protocol::SessionDetail> {
-        self.get(&format!("/api/sessions/{id}")).await
-    }
-
-    pub async fn update_session(
-        &self,
-        id: &str,
-        patch: &SessionPatch<'_>,
-    ) -> anyhow::Result<lgtm_protocol::Session> {
-        self.patch(&format!("/api/sessions/{id}"), patch).await
-    }
-
-    /// The 204 carries no body, so nothing is deserialized here.
-    pub async fn delete_session(&self, id: &str) -> anyhow::Result<()> {
-        let resp = self
-            .authed(self.http.delete(format!("{}/api/sessions/{id}", self.base)))
-            .send()
-            .await?;
-        if resp.status().is_success() {
-            return Ok(());
-        }
-        Err(Self::failure(resp).await)
-    }
-
-    /// Sends one message; the task it becomes comes back.
-    pub async fn send_message(
-        &self,
-        id: &str,
-        body: &SessionMessage<'_>,
-    ) -> anyhow::Result<lgtm_protocol::Task> {
-        self.post(&format!("/api/sessions/{id}/messages"), Some(body))
-            .await
     }
 
     /// Scratchpads that apply to `repository`, or every one when it is `None`.

@@ -27,7 +27,6 @@ fn running() -> Task {
             model: None,
             reasoning_effort: None,
             allowed_hosts: Vec::new(),
-            session: None,
             created_by: None,
         },
         status: TaskStatus::Running,

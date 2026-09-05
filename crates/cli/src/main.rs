@@ -412,7 +412,6 @@ impl Target {
             model: self.model,
             reasoning_effort: None,
             allowed_hosts: Vec::new(),
-            session: self.session,
             created_by: None,
         })
     }

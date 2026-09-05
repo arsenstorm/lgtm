@@ -168,8 +168,6 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     std::fs::create_dir_all(&scratchpads_dir)?;
     let projects_dir = data_dir.join("projects");
     std::fs::create_dir_all(&projects_dir)?;
-    let sessions_dir = data_dir.join("sessions");
-    std::fs::create_dir_all(&sessions_dir)?;
     let chats_dir = data_dir.join("chats");
     std::fs::create_dir_all(&chats_dir)?;
     let mut state = State {
@@ -219,9 +217,6 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     for id in std::mem::take(&mut state.dirty_projects) {
         persist::save_project(&projects_dir, &state.projects[&id]);
     }
-    for session in persist::load_all_sessions(&sessions_dir) {
-        state.sessions.insert(session.id.clone(), session);
-    }
     for chat in persist::load_all_chats(&chats_dir) {
         state.chats.insert(chat.id.clone(), chat);
     }
@@ -236,7 +231,6 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
         skills = state.skills.len(),
         goals = state.goals.len(),
         todos = state.todos.len(),
-        sessions = state.sessions.len(),
         "loaded tasks",
     );
     Ok(state)
