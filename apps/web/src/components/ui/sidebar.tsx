@@ -105,6 +105,10 @@ function SidebarProvider({
       return;
     }
     const handleKeyDown = (event: KeyboardEvent) => {
+      // An editor that already used the chord (cmd+b is bold) keeps it.
+      if (event.defaultPrevented) {
+        return;
+      }
       if (event.key === keyboardShortcut && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         toggleSidebar();
