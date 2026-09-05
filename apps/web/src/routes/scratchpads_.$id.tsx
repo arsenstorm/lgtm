@@ -34,7 +34,6 @@ import {
   updateScratchpad,
 } from "@/lib/lgtm/server";
 import type { Project, Scratchpad } from "@/lib/lgtm/types";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/scratchpads_/$id")({
   loader: async ({ params }) => {
@@ -72,9 +71,6 @@ function commitOrRestore(event: KeyboardEvent<HTMLTextAreaElement>) {
     event.currentTarget.blur();
   }
 }
-
-/** The document and the rail beside it; the header splits the same way. */
-const COLUMNS = "lg:grid-cols-[minmax(0,1fr)_14rem]";
 
 /** Long enough to notice, short enough not to become furniture. */
 const SAVED_MS = 2000;
@@ -247,38 +243,41 @@ function ScratchpadDocument({
 
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
-    // own gutters.
-    <article className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-      {/* Sized like PageHeading so the title sits where every other page's
-          does, and split like the body so the title is as wide as the document. */}
-      <header
-        className={cn(
-          "grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-center gap-8",
-          COLUMNS
-        )}
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          {/* The heading is the input: click it, type, and leaving it saves.
-              Emptied, it shows the saved title and leaving it changes nothing. */}
-          <h1 className="min-w-0 max-w-3xl flex-1 font-medium text-xl tracking-tight">
-            {/* A textarea, so a long title wraps like the document under it;
-                the caret is its only focus mark. */}
-            <textarea
-              aria-label="Title"
-              className="field-sizing-content w-full resize-none overflow-hidden bg-transparent outline-none"
-              defaultValue={pad.title}
-              disabled={busy}
-              key={pad.title}
-              onBlur={rename}
-              onKeyDown={commitOrRestore}
-              placeholder={pad.title}
-              rows={1}
-            />
-          </h1>
-          {pad.archived ? <Badge variant="outline">archived</Badge> : null}
-        </div>
+    // own gutters. One grid holds the title and document on the left and the
+    // actions and details on the right, so the right column starts at the top
+    // however many lines the title takes.
+    <article className="mx-auto grid w-full max-w-5xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_14rem] lg:px-8">
+      {/* The first line is as tall as PageHeading's row, so the title sits where
+          every other page's does and the dots beside it centre on that line. */}
+      <header className="flex min-w-0 items-start gap-3 py-1">
+        {/* The heading is the input: click it, type, and leaving it saves.
+            Emptied, it shows the saved title and leaving it changes nothing. */}
+        <h1 className="min-w-0 max-w-3xl flex-1 font-medium text-xl tracking-tight">
+          {/* A textarea, so a long title wraps like the document under it;
+              the caret is its only focus mark. */}
+          <textarea
+            aria-label="Title"
+            className="field-sizing-content w-full resize-none overflow-hidden bg-transparent outline-none"
+            defaultValue={pad.title}
+            disabled={busy}
+            key={pad.title}
+            onBlur={rename}
+            onKeyDown={commitOrRestore}
+            placeholder={pad.title}
+            rows={1}
+          />
+        </h1>
+        {pad.archived ? (
+          <Badge className="mt-1" variant="outline">
+            archived
+          </Badge>
+        ) : null}
+      </header>
 
-        <div className="flex items-center justify-end gap-2">
+      {/* Between the title and the document in the DOM, so a narrow screen
+          shows the actions and details before the document, not under it. */}
+      <aside className="flex flex-col gap-6 self-start lg:sticky lg:top-6 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:w-56">
+        <div className="flex h-9 items-center justify-end gap-2">
           <span
             aria-live="polite"
             className="min-w-14 text-end text-muted-foreground text-xs"
@@ -318,56 +317,50 @@ function ScratchpadDocument({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </header>
 
-      <div className={cn("grid gap-8", COLUMNS)}>
-        {/* First in the DOM so a narrow screen shows the details before the
-            document, not under it. */}
-        <aside className="flex flex-col gap-6 self-start lg:sticky lg:top-6 lg:col-start-2 lg:row-start-1 lg:w-56">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm lg:flex-col lg:items-start">
-            <Picker
-              disabled={busy}
-              format={repositoryName}
-              onPick={setRepository}
-              options={[EVERY_REPOSITORY, ...repositories]}
-              triggerClassName="border-border"
-              value={pad.repository ?? EVERY_REPOSITORY}
-            >
-              <FolderIcon />
-              <span className="truncate">
-                {repositoryName(pad.repository ?? EVERY_REPOSITORY)}
-              </span>
-            </Picker>
-            <span className="text-muted-foreground">
-              created <TimeAgo at={pad.created_at} />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm lg:flex-col lg:items-start">
+          <Picker
+            disabled={busy}
+            format={repositoryName}
+            onPick={setRepository}
+            options={[EVERY_REPOSITORY, ...repositories]}
+            triggerClassName="border-border"
+            value={pad.repository ?? EVERY_REPOSITORY}
+          >
+            <FolderIcon />
+            <span className="truncate">
+              {repositoryName(pad.repository ?? EVERY_REPOSITORY)}
             </span>
-            {pad.updated_at !== pad.created_at && (
-              <span className="text-muted-foreground">
-                edited <TimeAgo at={pad.updated_at} />
-              </span>
-            )}
-            <TagsRow disabled={busy} onChange={setTags} tags={pad.tags} />
-          </div>
-
-          <div className="hidden lg:block">
-            <EditorToc containerRef={contentRef} headings={headings} />
-          </div>
-        </aside>
-
-        {/* The rail scrolls the headings this element contains, so it has to wrap
-            the rendered editor and nothing else. */}
-        <div
-          className="min-w-0 max-w-3xl lg:col-start-1 lg:row-start-1"
-          ref={contentRef}
-        >
-          <MarkdownEditor
-            autoFocus={pad.content === ""}
-            onHeadings={setHeadings}
-            onMarkdown={onMarkdown}
-            placeholder="Start writing…"
-            value={pad.content}
-          />
+          </Picker>
+          <span className="text-muted-foreground">
+            created <TimeAgo at={pad.created_at} />
+          </span>
+          {pad.updated_at !== pad.created_at && (
+            <span className="text-muted-foreground">
+              edited <TimeAgo at={pad.updated_at} />
+            </span>
+          )}
+          <TagsRow disabled={busy} onChange={setTags} tags={pad.tags} />
         </div>
+
+        <div className="hidden lg:block">
+          <EditorToc containerRef={contentRef} headings={headings} />
+        </div>
+      </aside>
+
+      {/* The rail scrolls the headings this element contains, so it has to wrap
+          the rendered editor and nothing else. */}
+      <div
+        className="min-w-0 max-w-3xl lg:col-start-1 lg:row-start-2"
+        ref={contentRef}
+      >
+        <MarkdownEditor
+          autoFocus={pad.content === ""}
+          onHeadings={setHeadings}
+          onMarkdown={onMarkdown}
+          placeholder="Start writing…"
+          value={pad.content}
+        />
       </div>
     </article>
   );
