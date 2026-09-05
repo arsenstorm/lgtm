@@ -94,6 +94,13 @@ const LINE_WIDTH = (LINE_X.at(-1) ?? 0) + 3;
 const BEND = 12;
 /** The dots that cap the line at either end. */
 const DOT = 2;
+/** How long the lit stretch takes to slide to its new rows. */
+const SLIDE = "duration-150";
+/** A dot lights only once the sliding line has reached it, and goes out the
+ *  moment the line starts to leave. */
+const DOT_LIT =
+  "fill-foreground transition-[fill] duration-0 delay-150 motion-reduce:delay-0";
+const DOT_UNLIT = "fill-border";
 
 interface Segment {
   bottom: number;
@@ -219,22 +226,23 @@ export function EditorToc({
             <path className="stroke-border" d={d} strokeLinecap="round" />
             {/* One dash, as long as the lit rows, placed that far along. */}
             <path
-              className="stroke-foreground transition-[stroke-dasharray,stroke-dashoffset] duration-150 motion-reduce:transition-none"
+              className={cn(
+                "stroke-foreground transition-[stroke-dasharray,stroke-dashoffset] motion-reduce:transition-none",
+                SLIDE
+              )}
               d={d}
               strokeDasharray={`${to - from} ${total}`}
               strokeDashoffset={-from}
               strokeLinecap="round"
             />
             <circle
-              className={first === 0 ? "fill-foreground" : "fill-border"}
+              className={first === 0 ? DOT_LIT : DOT_UNLIT}
               cx={start.x}
               cy={start.top}
               r={DOT}
             />
             <circle
-              className={
-                last === segments.length - 1 ? "fill-foreground" : "fill-border"
-              }
+              className={last === segments.length - 1 ? DOT_LIT : DOT_UNLIT}
               cx={end.x}
               cy={end.bottom}
               r={DOT}
