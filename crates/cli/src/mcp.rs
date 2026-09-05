@@ -1,5 +1,6 @@
 //! `lgtm mcp`: a stdio MCP server that hands one agent run the task's
-//! context — the repository's memories and todos, and the task's scratchpad.
+//! context — the repository's memories, todos and scratchpads, and the task's
+//! own notes.
 //! The runner registers it with claude and codex for every run.
 //!
 //! With `LGTM_GOAL_ID` set it is the orchestration loop's server instead, and
@@ -13,7 +14,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use lgtm_client::{Client, Orchestrated, Retry};
+use lgtm_client::{Client, Orchestrated, Retry, ScratchpadPatch};
 use lgtm_protocol::{Task, TaskKind, TaskSpec, TodoStatus};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -24,17 +25,24 @@ const RECENT_EVENTS: usize = 20;
 /// How much of the workspace `tasks_list` shows before a model drowns in it.
 const TASK_LINES: usize = 50;
 /// The tools a task's own run gets, in the order they are listed.
-const RUN_TOOLS: [&str; 7] = [
+const RUN_TOOLS: [&str; 12] = [
     "memories_list",
     "memory_propose",
     "todos_list",
     "todo_create",
     "scratchpad_read",
     "scratchpad_write",
+    "scratchpads_list",
+    "scratchpad_open",
+    "scratchpad_create",
+    "scratchpad_update",
+    "scratchpad_archive",
     "request_network",
 ];
 /// The goal tools `lgtm ask` keeps: both only read.
 const ASK_GOAL_TOOLS: [&str; 2] = ["task_inspect", "runner_list"];
+/// The scratchpad tools `lgtm ask` keeps: both only read.
+const ASK_SCRATCHPAD_TOOLS: [&str; 2] = ["scratchpads_list", "scratchpad_open"];
 
 /// Which run this server answers for. The harness spawns it with no
 /// arguments of its own, so the runner passes this in the environment.
@@ -189,6 +197,8 @@ async fn ask_call(name: &str, args: &Value, client: &Client) -> Result<String> {
         "task_inspect" => task_inspect(client, string(args, "task_id")?).await,
         "runner_list" => runner_list(client).await,
         "todos_list" => workspace_todos(client).await,
+        "scratchpads_list" => scratchpads_list(client, None).await,
+        "scratchpad_open" => scratchpad_open(client, args).await,
         _ => workspace_call(name, args, client).await,
     }
 }
@@ -253,6 +263,41 @@ async fn run_call(
                 .set_scratchpad(task_id, string(args, "content")?)
                 .await?;
             Ok("notes saved".to_string())
+        }
+        "scratchpads_list" => scratchpads_list(client, repository).await,
+        "scratchpad_open" => scratchpad_open(client, args).await,
+        "scratchpad_create" => {
+            let pad = client
+                .create_scratchpad(repository, string(args, "title")?, text(args, "content"))
+                .await?;
+            Ok(scratchpad_link(&pad.id))
+        }
+        "scratchpad_update" => {
+            let patch = ScratchpadPatch {
+                title: args
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                content: args
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                archived: None,
+            };
+            client
+                .update_scratchpad(scratchpad_id(string(args, "link")?), &patch)
+                .await?;
+            Ok("scratchpad saved".to_string())
+        }
+        "scratchpad_archive" => {
+            let patch = ScratchpadPatch {
+                archived: Some(true),
+                ..ScratchpadPatch::default()
+            };
+            client
+                .update_scratchpad(scratchpad_id(string(args, "link")?), &patch)
+                .await?;
+            Ok("scratchpad archived".to_string())
         }
         "request_network" => request_network(client, task_id, args).await,
         _ => anyhow::bail!("no such tool: {name}"),
@@ -631,6 +676,40 @@ async fn request_network(client: &Client, task_id: &str, args: &Value) -> Result
     ))
 }
 
+/// The web app copies `lgtm://scratchpads/<encoded-repository>/<id>` or
+/// `lgtm://scratchpads/<id>`; ids are unique on their own, so the last segment
+/// is all that is resolved and a bare id works too.
+fn scratchpad_id(link: &str) -> &str {
+    link.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(link)
+}
+
+fn scratchpad_link(id: &str) -> String {
+    format!("lgtm://scratchpads/{id}")
+}
+
+async fn scratchpads_list(client: &Client, repository: Option<&str>) -> Result<String> {
+    Ok(joined(
+        client
+            .scratchpads(repository)
+            .await?
+            .iter()
+            .filter(|pad| !pad.archived)
+            .map(|pad| format!("{}  {}", scratchpad_link(&pad.id), pad.title)),
+    ))
+}
+
+/// The same text the web app's "Copy as Markdown" produces, so a pasted
+/// document and an opened link read alike.
+async fn scratchpad_open(client: &Client, args: &Value) -> Result<String> {
+    let pad = client
+        .scratchpad(scratchpad_id(string(args, "link")?))
+        .await?;
+    Ok(format!("# {}\n\n{}", pad.title, pad.content))
+}
+
 fn string<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
     args.get(key)
         .and_then(Value::as_str)
@@ -665,22 +744,44 @@ fn tools(env: &Env) -> Value {
             tools.extend(goal_tools().into_iter().filter(|tool| {
                 ASK_GOAL_TOOLS.contains(&tool["name"].as_str().unwrap_or_default())
             }));
+            tools.extend(scratchpad_tools().into_iter().filter(|tool| {
+                ASK_SCRATCHPAD_TOOLS.contains(&tool["name"].as_str().unwrap_or_default())
+            }));
             tools
         }
     })
 }
 
+/// Shared markdown documents, distinct from the task's own notes above. A
+/// link is what a person pastes into a prompt, so opening one is the tool a
+/// model reaches for first.
+fn scratchpad_tools() -> Vec<Value> {
+    let string = |about: &str| json!({ "type": "string", "description": about });
+    let link = || string("The scratchpad's link, lgtm://scratchpads/<id>, or its id.");
+    vec![
+        tool("scratchpads_list", "Shared scratchpads for this repository: link, then title.", json!({}), &[]),
+        tool("scratchpad_open", "Read a shared scratchpad by its lgtm://scratchpads/... link. A prompt, todo or message that carries one means: open it and act on it.", json!({ "link": link() }), &["link"]),
+        tool("scratchpad_create", "Start a shared scratchpad for this repository. Returns its link.", json!({ "title": string("One line."), "content": string("The document, in markdown.") }), &["title"]),
+        tool("scratchpad_update", "Replace a shared scratchpad's title, content, or both.", json!({ "link": link(), "title": string("The new title."), "content": string("The full document, in markdown.") }), &["link"]),
+        tool("scratchpad_archive", "Archive a shared scratchpad. A person can restore it.", json!({ "link": link() }), &["link"]),
+    ]
+}
+
 fn run_tools() -> Vec<Value> {
     let string = |about: &str| json!({ "type": "string", "description": about });
-    vec![
+    let mut tools = vec![
         tool("memories_list", "Facts recorded for this repository that every agent run is told.", json!({}), &[]),
         tool("memory_propose", "Propose a fact worth telling every later run. It waits as a pending memory until a person approves it.", json!({ "content": string("The fact, in one sentence.") }), &["content"]),
         tool("todos_list", "Open todos for this repository.", json!({}), &[]),
         tool("todo_create", "Note work that should happen but is not part of this task.", json!({ "title": string("One line."), "description": string("Optional detail.") }), &["title"]),
-        tool("scratchpad_read", "The working notes kept for this task.", json!({}), &[]),
-        tool("scratchpad_write", "Replace the working notes for this task.", json!({ "content": string("The full notes, in markdown.") }), &["content"]),
+        tool("scratchpad_read", "This task's own working notes, private to it.", json!({}), &[]),
+        tool("scratchpad_write", "Replace this task's own working notes.", json!({ "content": string("The full notes, in markdown.") }), &["content"]),
+    ];
+    tools.extend(scratchpad_tools());
+    tools.push(
         tool("request_network", "Ask a person to allow this task to reach a host its sandbox refused. Recorded for the task's next run, not this one.", json!({ "host": string("The host to allow, e.g. registry.internal."), "reason": string("Why the run needs it.") }), &["host", "reason"]),
-    ]
+    );
+    tools
 }
 
 /// Reads over the whole workspace, not one goal: what else is running, who
@@ -811,9 +912,26 @@ mod tests {
                 "todo_create",
                 "scratchpad_read",
                 "scratchpad_write",
+                "scratchpads_list",
+                "scratchpad_open",
+                "scratchpad_create",
+                "scratchpad_update",
+                "scratchpad_archive",
                 "request_network"
             ]
         );
+    }
+
+    #[test]
+    fn every_link_shape_and_a_bare_id_name_the_same_scratchpad() {
+        for link in [
+            "lgtm://scratchpads/https%3A%2F%2Fexample.com%2Fr.git/sp1",
+            "lgtm://scratchpads/sp1",
+            "lgtm://scratchpads/sp1/",
+            "sp1",
+        ] {
+            assert_eq!(scratchpad_id(link), "sp1", "{link}");
+        }
     }
 
     #[tokio::test]
@@ -860,14 +978,16 @@ mod tests {
                 "activity",
                 "todos_list",
                 "task_inspect",
-                "runner_list"
+                "runner_list",
+                "scratchpads_list",
+                "scratchpad_open"
             ]
         );
     }
 
     #[tokio::test]
     async fn a_write_tool_is_refused_in_ask_mode() {
-        for name in ["task_create", "task_approve"] {
+        for name in ["task_create", "task_approve", "scratchpad_create"] {
             let call = json!({
                 "jsonrpc": "2.0", "id": 5, "method": "tools/call",
                 "params": { "name": name, "arguments": { "task_id": "t2" } },
