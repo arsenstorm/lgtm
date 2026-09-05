@@ -1,18 +1,12 @@
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute } from "@tanstack/react-router";
-import { ChevronIcon } from "@/components/icons";
+import { projectName } from "@/components/app-sidebar";
+import { ListGroup } from "@/components/list-group";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { PageHeading } from "@/components/page-heading";
-import { MARK } from "@/components/todo-chips";
 import { TodoRow } from "@/components/todo-row";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { getTodos } from "@/lib/lgtm/server";
 import type { Todo, TodoStatus } from "@/lib/lgtm/types";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/todos")({
   loader: async () => ({ todos: await getTodos() }),
@@ -23,21 +17,35 @@ export const Route = createFileRoute("/todos")({
 const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
 
 // Work in flight leads, the backlog follows, finished work sinks.
-const STATUS_ORDER: TodoStatus[] = ["in_progress", "open", "done"];
+const STATUS_RANK: Record<TodoStatus, number> = {
+  in_progress: 0,
+  open: 1,
+  done: 2,
+};
+
+function byProject(todos: Todo[]) {
+  const groups = new Map<string, Todo[]>();
+  for (const todo of todos) {
+    const name = todo.repository ? projectName(todo.repository) : "general";
+    groups.set(name, [...(groups.get(name) ?? []), todo]);
+  }
+  return [...groups]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, list]) => ({
+      name,
+      todos: list.sort(
+        (a, b) =>
+          STATUS_RANK[a.status] - STATUS_RANK[b.status] ||
+          PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
+          b.created_at - a.created_at
+      ),
+    }));
+}
 
 function TodosPage() {
   const { todos } = Route.useLoaderData();
   const openCount = todos.filter((todo) => todo.status !== "done").length;
-  const groups = STATUS_ORDER.map((status) => ({
-    status,
-    todos: todos
-      .filter((todo) => todo.status === status)
-      .sort(
-        (a, b) =>
-          PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
-          b.created_at - a.created_at
-      ),
-  })).filter((group) => group.todos.length > 0);
+  const groups = byProject(todos);
 
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
@@ -49,42 +57,20 @@ function TodosPage() {
         <p className="text-muted-foreground text-sm">No todos yet.</p>
       ) : (
         <div className="flex flex-col gap-1">
-          {groups.map(({ status, todos: list }) => (
-            <StatusGroup key={status} status={status} todos={list} />
+          {groups.map(({ name, todos: list }) => (
+            <ListGroup count={list.length} key={name} label={name}>
+              <ul className="flex flex-col py-1">
+                {list.map((todo) => (
+                  <li key={todo.id}>
+                    <TodoRow project={false} todo={todo} />
+                  </li>
+                ))}
+              </ul>
+            </ListGroup>
           ))}
         </div>
       )}
     </div>
-  );
-}
-
-function StatusGroup({ status, todos }: { status: TodoStatus; todos: Todo[] }) {
-  const { icon: Mark, label, className } = MARK[status];
-
-  return (
-    <Collapsible defaultOpen>
-      <CollapsibleTrigger className="group/header flex w-full items-center gap-2 rounded-md bg-foreground/5 px-2 py-1.5 text-sm outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring/50">
-        <ChevronIcon
-          aria-hidden="true"
-          className="size-3 text-muted-foreground transition-transform duration-200 group-data-[panel-open]/header:rotate-90"
-        />
-        <Mark aria-hidden="true" className={cn("size-4", className)} />
-        <span className="truncate font-medium">{label}</span>
-        <span className="truncate text-muted-foreground tabular-nums">
-          {todos.length}
-        </span>
-      </CollapsibleTrigger>
-
-      <CollapsibleContent>
-        <ul className="flex flex-col py-1">
-          {todos.map((todo) => (
-            <li key={todo.id}>
-              <TodoRow todo={todo} />
-            </li>
-          ))}
-        </ul>
-      </CollapsibleContent>
-    </Collapsible>
   );
 }
 

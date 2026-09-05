@@ -30,9 +30,12 @@ const PRIORITY_OPTIONS: TodoPriority[] = ["low", "medium", "high"];
 
 export function TodoRow({
   className,
+  project = true,
   todo,
 }: {
   className?: string;
+  /** Off when the list around the row already says which project it is in. */
+  project?: boolean;
   todo: Todo;
 }) {
   const { icon: Mark, label, className: markClassName } = MARK[todo.status];
@@ -72,12 +75,19 @@ export function TodoRow({
             blocked by {todo.blockers.length}
           </span>
         )}
-        <span className="ml-auto hidden max-w-40 shrink-0 truncate text-muted-foreground text-xs sm:block">
-          {todo.repository ? projectName(todo.repository) : "every repository"}
-        </span>
+        {project ? (
+          <span className="ml-auto hidden max-w-40 shrink-0 truncate text-muted-foreground text-xs sm:block">
+            {todo.repository
+              ? projectName(todo.repository)
+              : "every repository"}
+          </span>
+        ) : null}
         <TimeAgo
           at={todo.created_at}
-          className="w-16 shrink-0 truncate text-end text-muted-foreground text-xs tabular-nums"
+          className={cn(
+            "w-16 shrink-0 truncate text-end text-muted-foreground text-xs tabular-nums",
+            !project && "ml-auto"
+          )}
         />
       </ContextMenuTrigger>
     </TodoMenu>
