@@ -343,6 +343,7 @@ mod tests {
             repository: None,
             content: String::new(),
             files: Vec::new(),
+            origin: None,
             revision: 1,
             created_at: 1,
             updated_at: 1,

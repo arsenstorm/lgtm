@@ -1299,6 +1299,7 @@ fn a_skill_is_handed_to_its_repository_once_approved() {
         repository: Some("https://github.com/a/b.git".into()),
         content: "---\nname: review-pr\ndescription: Review a pull request.\n---\nbody".into(),
         files: Vec::new(),
+        origin: None,
         revision: 1,
         created_at: 1,
         updated_at: 1,

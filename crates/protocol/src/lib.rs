@@ -587,6 +587,11 @@ pub struct Skill {
     pub content: String,
     #[serde(default)]
     pub files: Vec<SkillFile>,
+    /// Where this came from when it was imported: a directory on the
+    /// machine that ran `lgtm skill import`, later a repository URL. The
+    /// first question when a skill drifts, and what a re-import matches on.
+    #[serde(default)]
+    pub origin: Option<String>,
     /// Bumped by every edit, so a run can say which text it was given.
     pub revision: u32,
     /// Unix milliseconds.

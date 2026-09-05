@@ -32,6 +32,8 @@ pub(super) struct SkillRequest {
     #[serde(default)]
     files: Vec<SkillFile>,
     #[serde(default)]
+    origin: Option<String>,
+    #[serde(default)]
     source: MemorySource,
     #[serde(default)]
     proposed_by: Option<TaskId>,
@@ -78,6 +80,7 @@ pub(super) async fn create_skill(
             body.repository.clone(),
             body.content,
             body.files,
+            body.origin,
             body.source,
             body.proposed_by.clone(),
             user.0,
@@ -94,6 +97,8 @@ pub(super) struct SkillEdit {
     content: String,
     #[serde(default)]
     files: Option<Vec<SkillFile>>,
+    #[serde(default)]
+    origin: Option<String>,
 }
 
 pub(super) async fn update_skill(
@@ -110,7 +115,7 @@ pub(super) async fn update_skill(
     }
     let mut state = app.state.lock().unwrap();
     let skill = state
-        .edit_skill(&id, body.content, body.files)
+        .edit_skill(&id, body.content, body.files, body.origin)
         .map_err(|reason| ApiError(StatusCode::BAD_REQUEST, reason))?
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "skill not found".into()))?;
     app.persist_skill(&skill);

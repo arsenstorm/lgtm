@@ -209,6 +209,7 @@ export interface Skill {
   files: SkillFile[];
   id: string;
   name: string;
+  origin: string | null;
   proposed_by: string | null;
   /** Null applies to every repository. */
   repository: string | null;

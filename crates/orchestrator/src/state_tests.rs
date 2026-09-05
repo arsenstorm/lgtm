@@ -1083,6 +1083,7 @@ fn a_start_frame_carries_the_skills() {
             Some(repository),
             "---\nname: review\ndescription: Review a PR.\n---\nSteps.".into(),
             Vec::new(),
+            None,
             MemorySource::User,
             None,
             None,
@@ -1105,6 +1106,7 @@ fn a_follow_up_carries_the_skills() {
             Some(spec(Executor::Claude, None).repository),
             "---\nname: review\ndescription: Review a PR.\n---\nSteps.".into(),
             Vec::new(),
+            None,
             MemorySource::User,
             None,
             None,
@@ -1140,6 +1142,7 @@ fn a_proposed_skill_is_not_handed_out_until_approved() {
             Some(repository.clone()),
             "---\nname: review\ndescription: Review a PR.\n---\nSteps.".into(),
             Vec::new(),
+            None,
             MemorySource::Agent,
             Some("t1".into()),
             None,
@@ -1162,6 +1165,7 @@ fn a_repository_skill_shadows_the_workspace_one_of_the_same_name() {
             None,
             "---\nname: review\ndescription: Review any PR.\n---\nSteps.".into(),
             Vec::new(),
+            None,
             MemorySource::User,
             None,
             None,
@@ -1172,6 +1176,7 @@ fn a_repository_skill_shadows_the_workspace_one_of_the_same_name() {
             Some(repository.clone()),
             "---\nname: review\ndescription: Review this repository's PRs.\n---\nSteps.".into(),
             Vec::new(),
+            None,
             MemorySource::User,
             None,
             None,
@@ -1195,6 +1200,7 @@ fn a_skill_that_is_not_a_skill_is_refused() {
             None,
             "just text".into(),
             Vec::new(),
+            None,
             MemorySource::User,
             None,
             None
@@ -1211,6 +1217,7 @@ fn editing_a_skill_bumps_its_revision() {
             None,
             "---\nname: review\ndescription: Review a PR.\n---\nSteps.".into(),
             Vec::new(),
+            None,
             MemorySource::User,
             None,
             None,
@@ -1222,6 +1229,7 @@ fn editing_a_skill_bumps_its_revision() {
             &skill.id,
             "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.".into(),
             None,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -1229,9 +1237,59 @@ fn editing_a_skill_bumps_its_revision() {
     assert_eq!(edited.description, "Review a PR carefully.");
     assert_eq!(edited.files, skill.files);
 
-    let err = state.edit_skill(&skill.id, "---\nname: review\n---\nSteps.".into(), None);
+    let err = state.edit_skill(
+        &skill.id,
+        "---\nname: review\n---\nSteps.".into(),
+        None,
+        None,
+    );
     assert!(err.is_err());
     assert_eq!(state.skills[&skill.id].revision, 2);
+}
+
+#[test]
+fn an_import_records_and_keeps_its_origin() {
+    let mut state = State::default();
+    let skill = state
+        .create_skill(
+            None,
+            "---\nname: review\ndescription: Review a PR.\n---\nSteps.".into(),
+            Vec::new(),
+            Some("/home/a/.claude/skills/review".into()),
+            MemorySource::User,
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        skill.origin.as_deref(),
+        Some("/home/a/.claude/skills/review")
+    );
+
+    let kept = state
+        .edit_skill(
+            &skill.id,
+            "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.".into(),
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        kept.origin.as_deref(),
+        Some("/home/a/.claude/skills/review")
+    );
+
+    let replaced = state
+        .edit_skill(
+            &skill.id,
+            "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.".into(),
+            None,
+            Some("/elsewhere".into()),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(replaced.origin.as_deref(), Some("/elsewhere"));
 }
 
 #[test]

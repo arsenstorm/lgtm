@@ -554,11 +554,13 @@ impl State {
 
     /// Validates the SKILL.md and stores it at revision 1. `Err` is the reason
     /// the text is not a skill, for the API to hand back verbatim.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_skill(
         &mut self,
         repository: Option<String>,
         content: String,
         files: Vec<SkillFile>,
+        origin: Option<String>,
         source: MemorySource,
         proposed_by: Option<TaskId>,
         created_by: Option<String>,
@@ -578,6 +580,7 @@ impl State {
             repository,
             content,
             files,
+            origin,
             revision: 1,
             created_at: now,
             updated_at: now,
@@ -600,13 +603,15 @@ impl State {
     }
 
     /// Replaces the text and re-validates it; `files` of `None` keeps the ones
-    /// stored. `Ok(None)` is no such skill. As with a memory, rewriting an
-    /// agent's proposal approves it.
+    /// stored, and `origin` of `None` keeps the one stored. `Ok(None)` is no
+    /// such skill. As with a memory, rewriting an agent's proposal approves
+    /// it.
     pub fn edit_skill(
         &mut self,
         id: &str,
         content: String,
         files: Option<Vec<SkillFile>>,
+        origin: Option<String>,
     ) -> Result<Option<Skill>, String> {
         let Some(existing) = self.skills.get(id) else {
             return Ok(None);
@@ -618,6 +623,9 @@ impl State {
         skill.description = header.description;
         skill.content = content;
         skill.files = files;
+        if origin.is_some() {
+            skill.origin = origin;
+        }
         skill.revision += 1;
         skill.updated_at = now_ms();
         skill.verification = Verification::UserApproved;

@@ -160,6 +160,7 @@ mod tests {
                     content: content.to_string(),
                 })
                 .collect(),
+            origin: None,
             revision: 1,
             created_at: 0,
             updated_at: 0,

@@ -430,6 +430,7 @@ impl Client {
         repository: Option<&str>,
         content: &str,
         files: &[lgtm_protocol::SkillFile],
+        origin: Option<&str>,
     ) -> anyhow::Result<lgtm_protocol::Skill> {
         self.post(
             "/api/skills",
@@ -437,6 +438,7 @@ impl Client {
                 repository,
                 content,
                 files,
+                origin,
                 source: None,
                 proposed_by: None,
             }),
@@ -458,6 +460,7 @@ impl Client {
                 repository,
                 content,
                 files: &[],
+                origin: None,
                 source: Some(lgtm_protocol::MemorySource::Agent),
                 proposed_by: Some(proposed_by),
             }),
@@ -470,9 +473,17 @@ impl Client {
         id: &str,
         content: &str,
         files: Option<&[lgtm_protocol::SkillFile]>,
+        origin: Option<&str>,
     ) -> anyhow::Result<lgtm_protocol::Skill> {
-        self.patch(&format!("/api/skills/{id}"), &SkillEdit { content, files })
-            .await
+        self.patch(
+            &format!("/api/skills/{id}"),
+            &SkillEdit {
+                content,
+                files,
+                origin,
+            },
+        )
+        .await
     }
 
     pub async fn approve_skill(&self, id: &str) -> anyhow::Result<lgtm_protocol::Skill> {
