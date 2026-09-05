@@ -319,7 +319,9 @@ function ScratchpadDocument({
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters.
-    <article className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+    // Room under the document lets its last section reach the top when the
+    // outline jumps to it.
+    <article className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 pt-6 pb-24 sm:px-6 lg:px-8">
       {/* The first line is as tall as PageHeading's row, so the title sits where
           every other page's does and the dots beside it centre on that line. */}
       <header className="flex items-start gap-3">
