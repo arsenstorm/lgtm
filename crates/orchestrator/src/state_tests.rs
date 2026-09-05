@@ -2464,3 +2464,51 @@ fn a_scratchpad_is_gone_once_deleted() {
         .update_scratchpad(&pad.id, None, None, Some("x".into()), None, None)
         .is_none());
 }
+
+#[test]
+fn a_skill_name_is_unique_within_a_scope() {
+    let mut state = State::default();
+    let review = |repository: Option<String>| {
+        (
+            repository,
+            "---\nname: review\ndescription: Review.\n---\nSteps.".to_string(),
+            Vec::new(),
+            None,
+            MemorySource::User,
+            None,
+            None,
+        )
+    };
+    let (r, c, f, o, src, p, by) = review(None);
+    let workspace_wide = state.create_skill(r, c, f, o, src, p, by).unwrap();
+    let (r, c, f, o, src, p, by) = review(None);
+    let twice = state.create_skill(r, c, f, o, src, p, by).unwrap_err();
+    assert!(twice.contains("already exists"), "{twice}");
+
+    // A repository may shadow the workspace-wide skill of the same name.
+    let (r, c, f, o, src, p, by) = review(Some("https://example.com/r.git".into()));
+    let shadow = state.create_skill(r, c, f, o, src, p, by).unwrap();
+
+    // Moving the shadow next to the original is the same clash.
+    let moved = state.edit_skill(
+        &shadow.id,
+        SkillPatch {
+            repository: Some(None),
+            ..Default::default()
+        },
+    );
+    assert!(moved.unwrap_err().contains("already exists"));
+
+    // A skill never clashes with itself.
+    let renamed = state
+        .edit_skill(
+            &workspace_wide.id,
+            SkillPatch {
+                name: Some("review".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(renamed.revision, 2);
+}

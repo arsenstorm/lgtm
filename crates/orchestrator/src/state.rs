@@ -553,6 +553,28 @@ impl State {
             .unwrap_or_default()
     }
 
+    /// A name is what a run's harness directory is called, so two skills in
+    /// one scope cannot share it; a repository's skill may still shadow the
+    /// workspace-wide one.
+    fn refuse_taken_name(
+        &self,
+        name: &str,
+        repository: Option<&str>,
+        except: Option<&str>,
+    ) -> Result<(), String> {
+        let taken = self.skills.values().any(|skill| {
+            skill.name == name
+                && skill.repository.as_deref() == repository
+                && except != Some(skill.id.as_str())
+                && self.in_workspace(skill.workspace.as_deref())
+        });
+        if taken {
+            let scope = repository.map_or("every repository".to_string(), |r| format!("`{r}`"));
+            return Err(format!("a skill named `{name}` already exists for {scope}"));
+        }
+        Ok(())
+    }
+
     /// Validates the SKILL.md and stores it at revision 1. `Err` is the reason
     /// the text is not a skill, for the API to hand back verbatim.
     #[allow(clippy::too_many_arguments)]
@@ -567,6 +589,7 @@ impl State {
         created_by: Option<String>,
     ) -> Result<Skill, String> {
         let header = lgtm_protocol::validate_skill(&content, &files)?;
+        self.refuse_taken_name(&header.name, repository.as_deref(), None)?;
         // An agent cannot write what every later run is handed, whatever
         // verification the request claims: its source forces the state.
         let verification = match source {
@@ -627,6 +650,11 @@ impl State {
         }
         let files = patch.files.unwrap_or_else(|| existing.files.clone());
         let header = lgtm_protocol::validate_skill(&content, &files)?;
+        let repository = match &patch.repository {
+            Some(repository) => repository.clone(),
+            None => existing.repository.clone(),
+        };
+        self.refuse_taken_name(&header.name, repository.as_deref(), Some(id))?;
         let skill = self.skills.get_mut(id).expect("checked above");
         skill.name = header.name;
         skill.description = header.description;
