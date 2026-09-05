@@ -4,11 +4,11 @@ import type { FocusEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { ActionIcon } from "@/components/action-icon";
 import { EditorToc } from "@/components/editor-toc";
 import {
   ArchiveIcon,
   ArrowBackIcon,
+  DotsIcon,
   FolderIcon,
   TrashIcon,
 } from "@/components/icons";
@@ -20,8 +20,13 @@ import { TimeAgo } from "@/components/time-ago";
 import { Picker } from "@/components/todo-chips";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useAction } from "@/hooks/use-action";
-import { ARMED_CLASS, useArmedConfirm } from "@/hooks/use-armed-confirm";
 import {
   deleteScratchpad,
   getProjects,
@@ -29,7 +34,6 @@ import {
   updateScratchpad,
 } from "@/lib/lgtm/server";
 import type { Project, Scratchpad } from "@/lib/lgtm/types";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/scratchpads_/$id")({
   loader: async ({ params }) => {
@@ -92,8 +96,17 @@ function ScratchpadDocument({
   const contentRef = useRef<HTMLDivElement>(null);
   const queued = useRef<string | null>(null);
   const inFlight = useRef<Promise<unknown> | null>(null);
-  const { armed, arm, disarm, ref: deleteRef } = useArmedConfirm();
-  const { pending, busy, run } = useAction<Action>({ onStart: disarm });
+  const [armed, setArmed] = useState(false);
+  const disarm = useCallback(() => setArmed(false), []);
+  const onMenuOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        disarm();
+      }
+    },
+    [disarm]
+  );
+  const { busy, run } = useAction<Action>({ onStart: disarm });
 
   useEffect(() => {
     if (saveState !== "saved") {
@@ -213,7 +226,7 @@ function ScratchpadDocument({
 
   const onDelete = useCallback(async () => {
     if (!armed) {
-      arm();
+      setArmed(true);
       return;
     }
     const deleted = await run(
@@ -224,7 +237,7 @@ function ScratchpadDocument({
     if (deleted) {
       await navigate({ to: "/scratchpads" });
     }
-  }, [armed, arm, navigate, run, pad.id]);
+  }, [armed, navigate, run, pad.id]);
 
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
@@ -257,24 +270,38 @@ function ScratchpadDocument({
           >
             {SAVE_LABEL[saveState]}
           </span>
-          <Button disabled={busy} onClick={archive} size="lg" variant="outline">
-            <ActionIcon
-              busy={pending === "archive"}
-              icon={pad.archived ? ArrowBackIcon : ArchiveIcon}
-            />
-            {pad.archived ? "Unarchive" : "Archive"}
-          </Button>
-          <Button
-            className={cn(armed && ARMED_CLASS)}
-            disabled={busy}
-            onClick={onDelete}
-            ref={deleteRef}
-            size="lg"
-            variant="destructive"
-          >
-            <ActionIcon busy={pending === "delete"} icon={TrashIcon} />
-            {armed ? "Confirm delete" : "Delete"}
-          </Button>
+          <DropdownMenu onOpenChange={onMenuOpenChange}>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  aria-label="Scratchpad actions"
+                  className="text-muted-foreground"
+                  disabled={busy}
+                  size="icon-sm"
+                  variant="ghost"
+                />
+              }
+            >
+              <DotsIcon aria-hidden="true" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44 rounded-lg">
+              <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={archive}>
+                {pad.archived ? <ArrowBackIcon /> : <ArchiveIcon />}
+                <span>{pad.archived ? "Unarchive" : "Archive"}</span>
+              </DropdownMenuItem>
+              {/* The first press arms and keeps the menu open; the second
+                  deletes. Closing the menu any other way disarms. */}
+              <DropdownMenuItem
+                className="gap-2 px-2 py-1.5"
+                closeOnClick={armed}
+                onClick={onDelete}
+                variant="destructive"
+              >
+                <TrashIcon />
+                <span>{armed ? "Confirm delete" : "Delete"}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
