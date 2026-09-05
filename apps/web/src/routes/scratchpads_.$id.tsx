@@ -232,7 +232,8 @@ function ScratchpadDocument({
     <article className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
       <header className="flex flex-wrap items-start gap-x-4 gap-y-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-          {/* The heading is the input: click it, type, and leaving it saves. */}
+          {/* The heading is the input: click it, type, and leaving it saves.
+              Emptied, it shows the saved title and leaving it changes nothing. */}
           <h1 className="min-w-0 flex-1 font-medium text-xl tracking-tight">
             <input
               aria-label="Title"
@@ -242,6 +243,7 @@ function ScratchpadDocument({
               key={pad.title}
               onBlur={rename}
               onKeyDown={commitOrRestore}
+              placeholder={pad.title}
               type="text"
             />
           </h1>
