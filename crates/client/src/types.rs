@@ -232,6 +232,7 @@ pub(crate) struct NewScratchpad<'a> {
     pub(crate) repository: Option<&'a str>,
     pub(crate) title: &'a str,
     pub(crate) content: &'a str,
+    pub(crate) tags: &'a [String],
 }
 
 /// Body of `PATCH /api/scratchpads/:id`: whichever fields are being changed.
@@ -243,6 +244,14 @@ pub struct ScratchpadPatch {
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+}
+
+/// Body of `POST /api/todos/:id/comments`.
+#[derive(Serialize)]
+pub(crate) struct NewComment<'a> {
+    pub(crate) body: &'a str,
 }
 
 /// Body of `POST /api/todos/:id/promote`.

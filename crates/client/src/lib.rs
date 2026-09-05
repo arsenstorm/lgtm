@@ -22,8 +22,8 @@ pub use types::{
     ScratchpadPatch, SessionMessage, SessionPatch, TaskDetail, TerminalStream,
 };
 use types::{
-    AllowHost, Attention, ErrorBody, FollowUp, NewMemory, NewScratchpad, NewTodo, Notes,
-    PermissionRequest, Socket,
+    AllowHost, Attention, ErrorBody, FollowUp, NewComment, NewMemory, NewScratchpad, NewTodo,
+    Notes, PermissionRequest, Socket,
 };
 
 /// Marks a call as the orchestration loop's, not a person's. Only `approve`
@@ -566,6 +566,7 @@ impl Client {
         repository: Option<&str>,
         title: &str,
         content: &str,
+        tags: &[String],
     ) -> anyhow::Result<lgtm_protocol::Scratchpad> {
         self.post(
             "/api/scratchpads",
@@ -573,6 +574,7 @@ impl Client {
                 repository,
                 title,
                 content,
+                tags,
             }),
         )
         .await
@@ -618,6 +620,22 @@ impl Client {
                 assignee,
                 blockers,
             }),
+        )
+        .await
+    }
+
+    pub async fn todo(&self, id: &str) -> anyhow::Result<lgtm_protocol::TodoDetail> {
+        self.get(&format!("/api/todos/{id}")).await
+    }
+
+    pub async fn comment_todo(
+        &self,
+        id: &str,
+        body: &str,
+    ) -> anyhow::Result<lgtm_protocol::TodoComment> {
+        self.post(
+            &format!("/api/todos/{id}/comments"),
+            Some(&NewComment { body }),
         )
         .await
     }
