@@ -32,6 +32,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAction } from "@/hooks/use-action";
 import {
   deleteScratchpad,
@@ -42,6 +43,9 @@ import type { Project, Scratchpad } from "@/lib/lgtm/types";
 
 export const Route = createFileRoute("/scratchpads_/$id")({
   loader: ({ params }) => getScratchpad({ data: params.id }),
+  staticData: {
+    rightPanel: { content: <DetailsSkeleton />, title: "Details" },
+  },
   component: ScratchpadPage,
   errorComponent: ScratchpadError,
 });
@@ -73,6 +77,26 @@ function commitOrRestore(event: KeyboardEvent<HTMLTextAreaElement>) {
 
 /** Long enough to notice, short enough not to become furniture. */
 const SAVED_MS = 2000;
+
+/** The labels are known before the document is; only the values wait. */
+function DetailsSkeleton() {
+  return (
+    <dl className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-sm">
+      <dt className="text-muted-foreground">Repository</dt>
+      <dd className="flex h-7 items-center">
+        <Skeleton className="h-4 w-16" />
+      </dd>
+      <dt className="text-muted-foreground">Created</dt>
+      <dd className="flex h-7 items-center">
+        <Skeleton className="h-4 w-12" />
+      </dd>
+      <dt className="self-start pt-1 text-muted-foreground">Tags</dt>
+      <dd className="py-1">
+        <Skeleton className="h-5 w-24 rounded-full" />
+      </dd>
+    </dl>
+  );
+}
 
 function ScratchpadPage() {
   const pad = Route.useLoaderData();

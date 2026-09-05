@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 
 const TASK_PANEL_KEY = "lgtm-task-panel-open";
 
-interface RightPanel {
+export interface RightPanel {
   content: ReactNode;
   title: string;
 }
@@ -32,6 +32,15 @@ interface RightPanel {
 const RightPanelContext = createContext<(panel: RightPanel | null) => void>(
   () => undefined
 );
+
+declare module "@tanstack/react-router" {
+  interface StaticDataRouteOption {
+    /** The right-hand panel a route will register once it renders, with what
+     *  to show in its place until then. Declared statically so the server can
+     *  lay the column out before the page exists on the client. */
+    rightPanel?: RightPanel;
+  }
+}
 
 /** A page with a right-hand panel hands the shell its content here. The
  *  shell owns the column, the header toggle, and whether it is open, so every
@@ -123,6 +132,13 @@ function AppFrame({
         | TaskDetail
         | undefined,
   });
+  // A page registers its panel from a layout effect, which never runs on the
+  // server; the route's static declaration lets the column render there too.
+  const placeholder = useMatches({
+    select: (matches) =>
+      matches.find((match) => match.staticData.rightPanel)?.staticData
+        .rightPanel ?? null,
+  });
   const taskPanel = useTaskPanelOpen();
   const [pagePanel, setPagePanel] = useState<RightPanel | null>(null);
   const panel: RightPanel | null = taskDetail
@@ -130,7 +146,7 @@ function AppFrame({
         content: <TaskSummaryPanel detail={taskDetail} />,
         title: "Task details",
       }
-    : pagePanel;
+    : (pagePanel ?? placeholder);
   const leftShown = leftSidebar.isMobile
     ? leftSidebar.openMobile
     : leftSidebar.open;
