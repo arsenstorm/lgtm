@@ -1,5 +1,9 @@
 import type { ErrorComponentProps } from "@tanstack/react-router";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useLoaderData,
+  useNavigate,
+} from "@tanstack/react-router";
 import type { FocusEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -31,20 +35,13 @@ import {
 import { useAction } from "@/hooks/use-action";
 import {
   deleteScratchpad,
-  getProjects,
   getScratchpad,
   updateScratchpad,
 } from "@/lib/lgtm/server";
 import type { Project, Scratchpad } from "@/lib/lgtm/types";
 
 export const Route = createFileRoute("/scratchpads_/$id")({
-  loader: async ({ params }) => {
-    const [pad, projects] = await Promise.all([
-      getScratchpad({ data: params.id }),
-      getProjects(),
-    ]);
-    return { pad, projects };
-  },
+  loader: ({ params }) => getScratchpad({ data: params.id }),
   component: ScratchpadPage,
   errorComponent: ScratchpadError,
 });
@@ -78,7 +75,8 @@ function commitOrRestore(event: KeyboardEvent<HTMLTextAreaElement>) {
 const SAVED_MS = 2000;
 
 function ScratchpadPage() {
-  const { pad, projects } = Route.useLoaderData();
+  const pad = Route.useLoaderData();
+  const { projects } = useLoaderData({ from: "__root__" });
   // Everything below — the derived title, the outline, the queued markdown — is
   // state about one document, so opening another one starts it over.
   return <ScratchpadDocument key={pad.id} pad={pad} projects={projects} />;

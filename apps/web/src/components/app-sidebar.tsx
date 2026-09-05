@@ -1,4 +1,4 @@
-import { Link, useMatchRoute } from "@tanstack/react-router";
+import { Link, useMatchRoute, useRouter } from "@tanstack/react-router";
 import type { ComponentProps, FormEvent, ReactNode } from "react";
 import { Children, useCallback, useEffect, useId, useState } from "react";
 import { toast } from "sonner";
@@ -46,13 +46,12 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { createProject, getProjects } from "@/lib/lgtm/server";
+import { createProject } from "@/lib/lgtm/server";
 import type { Chat, Project as ProjectRecord, Task } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { exact: true, icon: TasksIcon, label: "Tasks", to: "/tasks" },
-  { exact: false, icon: AiDeveloperIcon, label: "Runners", to: "/runners" },
   { exact: false, icon: ListCheckboxIcon, label: "Todos", to: "/todos" },
   { exact: false, icon: BrainSparkleIcon, label: "Memories", to: "/memories" },
   { exact: false, icon: NotesIcon, label: "Scratchpads", to: "/scratchpads" },
@@ -60,6 +59,7 @@ const NAV = [
 
 // The second tier: worth reaching, not worth a permanent row.
 const MORE = [
+  { icon: AiDeveloperIcon, label: "Runners", to: "/runners" },
   { icon: MsgsIcon, label: "Sessions", to: "/sessions" },
   { icon: ActivityIcon, label: "Activity", to: "/activity" },
 ] as const;
@@ -169,11 +169,16 @@ export function LgtmLogo({ className }: { className?: string }) {
 
 export function AppSidebar({
   chats,
+  records,
   tasks,
   ...props
-}: { chats: Chat[]; tasks: Task[] } & ComponentProps<typeof Sidebar>) {
+}: {
+  chats: Chat[];
+  records: ProjectRecord[];
+  tasks: Task[];
+} & ComponentProps<typeof Sidebar>) {
   const matchRoute = useMatchRoute();
-  const [records, setRecords] = useState<ProjectRecord[]>([]);
+  const router = useRouter();
   const [open, setOpen] = useState<OpenMap>({});
   const [addingProject, setAddingProject] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
@@ -185,18 +190,6 @@ export function AppSidebar({
   const shownChats = chats
     .filter((chat) => !chat.archived)
     .slice(0, RECENT_CHATS);
-
-  // Project records carry the prefix and id the manage menu needs, but they are
-  // loaded by the root route, which this component does not own. Fetching them
-  // here after paint keeps `__root.tsx` untouched, and menu metadata arriving a
-  // beat late costs nothing.
-  useEffect(() => {
-    getProjects()
-      .then(setRecords)
-      .catch(() => {
-        // Without records the menu simply hides "Change prefix…".
-      });
-  }, []);
 
   // Reading localStorage during render would disagree with the all-open markup
   // the server sent and mismatch on hydration.
@@ -233,11 +226,6 @@ export function AppSidebar({
 
   const showAddProject = useCallback(() => setAddingProject(true), []);
   const hideAddProject = useCallback(() => setAddingProject(false), []);
-  const updateRecord = useCallback((updated: ProjectRecord) => {
-    setRecords((current) =>
-      current.map((record) => (record.id === updated.id ? updated : record))
-    );
-  }, []);
 
   const addProject = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -253,20 +241,17 @@ export function AppSidebar({
       setCreatingProject(true);
       try {
         const project = await createProject({ data: repository });
-        setRecords((current) => [
-          project,
-          ...current.filter((record) => record.id !== project.id),
-        ]);
         setOpen((current) => ({ ...current, [repository]: true }));
         setAddingProject(false);
         toast.success(`${project.name} added`);
+        await router.invalidate();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : String(error));
       } finally {
         setCreatingProject(false);
       }
     },
-    [creatingProject]
+    [creatingProject, router]
   );
 
   return (
@@ -379,7 +364,6 @@ export function AppSidebar({
                   <ProjectItem
                     key={project.repository}
                     onOpenChange={setProjectOpen}
-                    onRecordChange={updateRecord}
                     open={open[project.repository] ?? true}
                     project={project}
                     record={records.find(

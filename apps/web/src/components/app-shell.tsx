@@ -19,7 +19,7 @@ import {
   SidebarProvider,
   useSidebar,
 } from "@/components/ui/sidebar";
-import type { Chat, Task, TaskDetail } from "@/lib/lgtm/types";
+import type { Chat, Project, Task, TaskDetail } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 
 const TASK_PANEL_KEY = "lgtm-task-panel-open";
@@ -73,10 +73,12 @@ function useTaskPanelOpen() {
 
 export function AppShell({
   chats,
+  projects,
   tasks,
   children,
 }: {
   chats: Chat[];
+  projects: Project[];
   tasks: Task[];
   children: React.ReactNode;
 }) {
@@ -92,7 +94,12 @@ export function AppShell({
         } as CSSProperties
       }
     >
-      <AppSidebar chats={chats} tasks={tasks} variant="inset" />
+      <AppSidebar
+        chats={chats}
+        records={projects}
+        tasks={tasks}
+        variant="inset"
+      />
       <AppFrame chats={chats} tasks={tasks}>
         {children}
       </AppFrame>

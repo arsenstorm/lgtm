@@ -67,13 +67,11 @@ const REVEAL =
 
 export function ProjectItem({
   onOpenChange,
-  onRecordChange,
   open,
   project,
   record,
 }: {
   onOpenChange: (repository: string, open: boolean) => void;
-  onRecordChange: (record: ProjectRecord) => void;
   open: boolean;
   project: Project;
   record?: ProjectRecord;
@@ -110,7 +108,6 @@ export function ProjectItem({
       const updated = await updateProjectPrefix({
         data: { id: record.id, prefix },
       });
-      onRecordChange(updated);
       toast.success(`Prefix is now ${updated.prefix} — todo ids follow it`);
       await router.invalidate();
     } catch (error) {
