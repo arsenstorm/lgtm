@@ -90,8 +90,9 @@ function depths(headings: EditorHeading[]): number[] {
 }
 const TEXT_GAP = 12;
 const LINE_WIDTH = (LINE_X.at(-1) ?? 0) + 3;
-/** How much of a row the bend into a new level takes. */
-const BEND = 12;
+/** How tall the bend into a new level is; it straddles the row boundary,
+ *  so the row on either side keeps a straight run. */
+const BEND = 10;
 /** The dots that cap the line at either end. */
 const DOT = 2;
 /** How long the lit stretch takes to slide to its new rows. */
@@ -118,14 +119,19 @@ function linePath(segments: Segment[], count = segments.length): string {
   let d = "";
   let previous: Segment | null = null;
   for (const [i, segment] of segments.slice(0, count).entries()) {
+    const bends = previous !== null && previous.x !== segment.x;
     if (previous === null) {
       d += `M${segment.x} ${middle(segment) + DOT}`;
-    } else if (previous.x !== segment.x) {
-      const mid = segment.top + BEND / 2;
-      d += `C${previous.x} ${mid} ${segment.x} ${mid} ${segment.x} ${segment.top + BEND}`;
+    } else if (bends) {
+      d += `C${previous.x} ${segment.top} ${segment.x} ${segment.top} ${segment.x} ${segment.top + BEND / 2}`;
     }
-    const end =
-      i === segments.length - 1 ? middle(segment) - DOT : segment.bottom;
+    const next = segments[i + 1];
+    let end = segment.bottom;
+    if (i === segments.length - 1) {
+      end = middle(segment) - DOT;
+    } else if (next !== undefined && next.x !== segment.x) {
+      end = segment.bottom - BEND / 2;
+    }
     d += `L${segment.x} ${end}`;
     previous = segment;
   }
@@ -217,7 +223,7 @@ export function EditorToc({
   const depth = depths(headings);
 
   return (
-    <nav aria-label="Outline" className="flex flex-col gap-2">
+    <nav aria-label="Outline" className="flex flex-col gap-1">
       <h2 className="font-medium text-sm tracking-tight">Outline</h2>
       <div className="relative flex flex-col" ref={list}>
         {start && end && ends.length === segments.length ? (
@@ -239,10 +245,23 @@ export function EditorToc({
               strokeDashoffset={-from}
               strokeLinecap="round"
             />
+            {/* An unlit dot is translucent, so it sits on a patch of the panel. */}
+            <circle
+              className="fill-sidebar"
+              cx={start.x}
+              cy={middle(start)}
+              r={DOT}
+            />
             <circle
               className={first === 0 ? DOT_LIT : DOT_UNLIT}
               cx={start.x}
               cy={middle(start)}
+              r={DOT}
+            />
+            <circle
+              className="fill-sidebar"
+              cx={end.x}
+              cy={middle(end)}
               r={DOT}
             />
             <circle
