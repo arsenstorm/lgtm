@@ -197,6 +197,7 @@ export interface Memory {
 }
 
 export interface SkillFile {
+  binary: boolean;
   content: string;
   path: string;
 }

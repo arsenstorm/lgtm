@@ -60,11 +60,10 @@ pub(crate) fn collect_files(
         if relative == "SKILL.md" {
             continue;
         }
-        let content = std::fs::read_to_string(&path)
-            .with_context(|| format!("read {} (skills carry text files only)", path.display()))?;
-        out.push(SkillFile {
-            path: relative,
-            content,
+        let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+        out.push(match String::from_utf8(bytes) {
+            Ok(text) => SkillFile::text(relative, text),
+            Err(err) => SkillFile::binary(relative, err.as_bytes()),
         });
     }
     Ok(())
@@ -344,6 +343,31 @@ mod tests {
         tree.write("d1/d2/d3/four/SKILL.md", &skill_md("four"));
         tree.write("other/x/a/SKILL.md", &skill_md("a"));
         tree
+    }
+
+    #[test]
+    fn collect_files_carries_a_png_as_binary() {
+        let tree = TempTree::new();
+        let png = [137u8, 80, 78, 71, 0, 255];
+        tree.write("SKILL.md", &skill_md("logo"));
+        tree.write("notes.md", "hi");
+        std::fs::create_dir_all(tree.root.join("assets")).expect("create assets dir");
+        std::fs::write(tree.root.join("assets/a.png"), png).expect("write png");
+
+        let (_, files) = read_skill(&tree.root).expect("skill reads");
+
+        assert_eq!(files.len(), 2);
+        let png_file = files
+            .iter()
+            .find(|f| f.path == "assets/a.png")
+            .expect("png file present");
+        assert!(png_file.binary);
+        assert_eq!(png_file.bytes().unwrap(), png);
+        let notes_file = files
+            .iter()
+            .find(|f| f.path == "notes.md")
+            .expect("notes file present");
+        assert!(!notes_file.binary);
     }
 
     #[test]

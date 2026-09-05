@@ -65,7 +65,11 @@ async fn write_skill(root: &Path, skill: &Skill) -> Result<()> {
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        tokio::fs::write(&path, &file.content).await?;
+        let bytes = match file.bytes() {
+            Ok(bytes) => bytes,
+            Err(reason) => bail!("skill {}: {reason}", skill.name),
+        };
+        tokio::fs::write(&path, bytes).await?;
     }
     Ok(())
 }
@@ -155,10 +159,7 @@ mod tests {
             content: format!("---\nname: {name}\ndescription: d\n---\nbody"),
             files: files
                 .into_iter()
-                .map(|(path, content)| SkillFile {
-                    path: path.to_string(),
-                    content: content.to_string(),
-                })
+                .map(|(path, content)| SkillFile::text(path, content))
                 .collect(),
             origin: None,
             revision: 1,
@@ -229,6 +230,24 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(status.trim(), "");
+
+        let _ = tokio::fs::remove_dir_all(dir).await;
+    }
+
+    #[tokio::test]
+    async fn a_binary_file_lands_byte_for_byte() {
+        let dir = repo("binary").await;
+        let bytes = [137u8, 80, 78, 71, 13, 10, 26, 10, 0, 255];
+        let mut logo = skill("logo", vec![]);
+        logo.files
+            .push(SkillFile::binary("assets/logo.png", &bytes));
+
+        materialise(&dir, &[logo]).await.unwrap();
+
+        let written = tokio::fs::read(dir.join(".claude/skills/logo/assets/logo.png"))
+            .await
+            .unwrap();
+        assert_eq!(written, bytes);
 
         let _ = tokio::fs::remove_dir_all(dir).await;
     }

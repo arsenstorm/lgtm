@@ -563,11 +563,58 @@ impl Memory {
 }
 
 /// A file a skill ships beside its `SKILL.md`: a reference, a template, a
-/// script. `path` is relative to the skill's directory.
+/// script, an image. `path` is relative to the skill's directory. Text is
+/// carried as is; anything else is base64 in `content` with `binary` set,
+/// since the wire and the store are JSON.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct SkillFile {
     pub path: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub binary: bool,
+}
+
+impl SkillFile {
+    pub fn text(path: impl Into<String>, content: impl Into<String>) -> Self {
+        SkillFile {
+            path: path.into(),
+            content: content.into(),
+            binary: false,
+        }
+    }
+
+    /// Encodes `bytes` for the wire.
+    pub fn binary(path: impl Into<String>, bytes: &[u8]) -> Self {
+        SkillFile {
+            path: path.into(),
+            content: crate::wire::encode_base64(bytes),
+            binary: true,
+        }
+    }
+
+    /// The bytes to write to disk. `Err` is base64 that does not decode,
+    /// which only a hand-built request can produce.
+    pub fn bytes(&self) -> Result<Vec<u8>, String> {
+        if self.binary {
+            decode_base64(&self.content)
+                .ok_or_else(|| format!("file `{}` is not base64", self.path))
+        } else {
+            Ok(self.content.clone().into_bytes())
+        }
+    }
+
+    /// Size on disk, which is what the cap is about.
+    pub fn len(&self) -> usize {
+        if self.binary {
+            self.bytes().map(|b| b.len()).unwrap_or(0)
+        } else {
+            self.content.len()
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// A reusable procedure in the Agent Skills format (a `SKILL.md` directory),
@@ -658,8 +705,11 @@ pub fn validate_skill(content: &str, files: &[SkillFile]) -> Result<SkillHeader,
         if !seen.insert(file.path.as_str()) {
             return Err(format!("file path `{}` appears twice", file.path));
         }
+        if file.binary {
+            file.bytes()?;
+        }
     }
-    let bytes = content.len() + files.iter().map(|f| f.content.len()).sum::<usize>();
+    let bytes = content.len() + files.iter().map(SkillFile::len).sum::<usize>();
     if bytes > SKILL_MAX_BYTES {
         return Err(format!(
             "skill is {bytes} bytes; the limit is {SKILL_MAX_BYTES}"

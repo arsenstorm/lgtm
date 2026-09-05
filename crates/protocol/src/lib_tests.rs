@@ -1258,32 +1258,17 @@ fn skill_file_paths_stay_inside_the_skill() {
 fn validate_skill_refuses_duplicate_paths_and_oversize() {
     let content = "---\nname: review-pr\ndescription: Review a pull request.\n---\nbody";
 
-    let duplicate = vec![
-        SkillFile {
-            path: "a.md".into(),
-            content: "x".into(),
-        },
-        SkillFile {
-            path: "a.md".into(),
-            content: "y".into(),
-        },
-    ];
+    let duplicate = vec![SkillFile::text("a.md", "x"), SkillFile::text("a.md", "y")];
     assert!(validate_skill(content, &duplicate)
         .unwrap_err()
         .contains("twice"));
 
-    let oversize = vec![SkillFile {
-        path: "big.md".into(),
-        content: "a".repeat(SKILL_MAX_BYTES),
-    }];
+    let oversize = vec![SkillFile::text("big.md", "a".repeat(SKILL_MAX_BYTES))];
     assert!(validate_skill(content, &oversize)
         .unwrap_err()
         .contains("bytes"));
 
-    let single = vec![SkillFile {
-        path: "notes.md".into(),
-        content: "hi".into(),
-    }];
+    let single = vec![SkillFile::text("notes.md", "hi")];
     assert_eq!(
         validate_skill(content, &single).unwrap(),
         parse_skill_header(content).unwrap()
@@ -1325,4 +1310,43 @@ fn a_skill_is_handed_to_its_repository_once_approved() {
             revision: 1,
         }
     );
+}
+
+#[test]
+fn a_binary_skill_file_round_trips_its_bytes() {
+    let bytes = [0u8, 255, 137, 80, 78, 71];
+    let file = SkillFile::binary("assets/a.png", &bytes);
+    assert!(file.binary);
+    assert_eq!(file.bytes().unwrap(), bytes);
+    assert_eq!(file.len(), 6);
+    round_trip(file);
+}
+
+#[test]
+fn a_text_skill_file_serialises_without_the_flag() {
+    let file = SkillFile::text("notes.md", "hi");
+    let json = serde_json::to_string(&file).unwrap();
+    assert!(!json.contains("binary"), "{json}");
+
+    let bare: SkillFile = serde_json::from_str(r#"{"path":"x","content":"y"}"#).unwrap();
+    assert!(!bare.binary);
+}
+
+#[test]
+fn validate_skill_counts_decoded_bytes_and_refuses_bad_base64() {
+    let content = "---\nname: review-pr\ndescription: Review a pull request.\n---\nbody";
+
+    let big = SkillFile::binary("assets/big.bin", &vec![0u8; SKILL_MAX_BYTES + 16]);
+    assert!(validate_skill(content, &[big])
+        .unwrap_err()
+        .contains("bytes"));
+
+    let bad = SkillFile {
+        path: "a.bin".into(),
+        content: "not base64!".into(),
+        binary: true,
+    };
+    assert!(validate_skill(content, &[bad])
+        .unwrap_err()
+        .contains("a.bin"));
 }
