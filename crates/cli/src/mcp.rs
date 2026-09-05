@@ -1,7 +1,9 @@
 //! `lgtm mcp`: a stdio MCP server that hands one agent run the task's
-//! context — the repository's memories, todos and scratchpads, and the task's
-//! own notes.
-//! The runner registers it with claude and codex for every run.
+//! context — the repository's memories, todos and scratchpads, the tasks
+//! beside it, and the task's own notes. Every object has an
+//! `lgtm://<kind>/<id>` link; a person pastes one into a prompt and the agent
+//! opens it. The runner registers the server with claude and codex for every
+//! run.
 //!
 //! With `LGTM_GOAL_ID` set it is the orchestration loop's server instead, and
 //! carries the tools that inspect and act on a whole goal. Every one of those
@@ -15,34 +17,56 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use lgtm_client::{Client, Orchestrated, Retry, ScratchpadPatch};
-use lgtm_protocol::{Task, TaskKind, TaskSpec, TodoStatus};
+use lgtm_protocol::{Task, TaskKind, TaskSpec, TodoPatch, TodoStatus, Verification};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 const PROTOCOL: &str = "2024-11-05";
 /// How much of a task's chatter `task_inspect` carries.
 const RECENT_EVENTS: usize = 20;
-/// How much of the workspace `tasks_list` shows before a model drowns in it.
-const TASK_LINES: usize = 50;
-/// The tools a task's own run gets, in the order they are listed.
-const RUN_TOOLS: [&str; 12] = [
+/// How much of any list a model reads before it drowns in it.
+const ROWS: usize = 50;
+/// What the MCP spec has a server say when a resource URI names nothing.
+const RESOURCE_NOT_FOUND: i64 = -32002;
+/// The reads every mode gets. A run's are held to its repository; the loop
+/// and `lgtm ask` read the whole workspace.
+const READ_TOOLS: [&str; 11] = [
+    "open",
+    "search",
     "memories_list",
-    "memory_propose",
+    "memory_open",
     "todos_list",
-    "todo_create",
-    "scratchpad_read",
-    "scratchpad_write",
+    "todo_open",
     "scratchpads_list",
     "scratchpad_open",
+    "task_inspect",
+    "goal_inspect",
+    "session_open",
+];
+/// Reads over the whole workspace, which a plain run does not get: what
+/// else is running, who started it, and where two tasks are about to collide.
+const WORKSPACE_TOOLS: [&str; 5] = [
+    "tasks_list",
+    "goals_list",
+    "sessions_list",
+    "activity",
+    "runner_list",
+];
+/// The tools only a task's run (and the loop, which runs as one) has: its
+/// writes, and the notes that live with the task.
+const RUN_TOOLS: [&str; 11] = [
+    "memory_propose",
+    "todo_create",
+    "todo_finish",
+    "todo_comment",
+    "todo_update",
+    "scratchpad_read",
+    "scratchpad_write",
     "scratchpad_create",
     "scratchpad_update",
     "scratchpad_archive",
     "request_network",
 ];
-/// The goal tools `lgtm ask` keeps: both only read.
-const ASK_GOAL_TOOLS: [&str; 2] = ["task_inspect", "runner_list"];
-/// The scratchpad tools `lgtm ask` keeps: both only read.
-const ASK_SCRATCHPAD_TOOLS: [&str; 2] = ["scratchpads_list", "scratchpad_open"];
 
 /// Which run this server answers for. The harness spawns it with no
 /// arguments of its own, so the runner passes this in the environment.
@@ -59,6 +83,23 @@ pub enum Env {
     /// `lgtm ask`: workspace reads only, so a question can never create,
     /// message, or approve work.
     Ask,
+}
+
+impl Env {
+    /// The repository a run's reads are held to. `None` reads everything.
+    fn scope(&self) -> Option<&str> {
+        match self {
+            Env::Run { repository, .. } => Some(repository),
+            _ => None,
+        }
+    }
+
+    fn goal(&self) -> Option<&str> {
+        match self {
+            Env::Orchestrate { goal_id, .. } => Some(goal_id),
+            _ => None,
+        }
+    }
 }
 
 pub async fn serve(client: &Client) -> Result<i32> {
@@ -124,7 +165,7 @@ async fn reply(method: &str, params: &Value, client: &Client, env: &Env) -> Resu
     match method {
         "initialize" => Ok(json!({
             "protocolVersion": PROTOCOL,
-            "capabilities": { "tools": {} },
+            "capabilities": { "tools": {}, "resources": {} },
             "serverInfo": { "name": "lgtm", "version": env!("CARGO_PKG_VERSION") },
         })),
         "tools/list" => Ok(json!({ "tools": tools(env) })),
@@ -136,6 +177,20 @@ async fn reply(method: &str, params: &Value, client: &Client, env: &Env) -> Resu
                 "isError": true,
             }),
         }),
+        "resources/list" => resources(client, env.scope())
+            .await
+            .map_err(|err| json!({ "code": RESOURCE_NOT_FOUND, "message": format!("{err:#}") })),
+        "resources/read" => {
+            let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+            match open(client, uri, env.scope()).await {
+                Ok(text) => Ok(json!({
+                    "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": text }],
+                })),
+                Err(err) => {
+                    Err(json!({ "code": RESOURCE_NOT_FOUND, "message": format!("{err:#}") }))
+                }
+            }
+        }
         _ => Err(json!({ "code": -32601, "message": format!("no such method: {method}") })),
     }
 }
@@ -172,8 +227,12 @@ fn first_line(text: &str) -> &str {
 }
 
 async fn call(name: &str, args: &Value, client: &Client, env: &Env) -> Result<String> {
+    if READ_TOOLS.contains(&name) {
+        return read_call(name, args, client, env.scope(), env.goal()).await;
+    }
     match env {
-        Env::Ask => ask_call(name, args, client).await,
+        Env::Ask if WORKSPACE_TOOLS.contains(&name) => workspace_call(name, args, client).await,
+        Env::Ask => anyhow::bail!("no such tool: {name}"),
         Env::Run {
             task_id,
             repository,
@@ -182,42 +241,428 @@ async fn call(name: &str, args: &Value, client: &Client, env: &Env) -> Result<St
             task_id,
             repository,
             goal_id,
-        } => match RUN_TOOLS.contains(&name) {
-            true => run_call(name, args, client, task_id, repository).await,
-            false => orchestration_call(name, args, client, goal_id).await,
-        },
+        } => {
+            if RUN_TOOLS.contains(&name) {
+                run_call(name, args, client, task_id, repository).await
+            } else if WORKSPACE_TOOLS.contains(&name) {
+                workspace_call(name, args, client).await
+            } else {
+                orchestration_call(name, args, client, goal_id).await
+            }
+        }
     }
 }
 
-/// `lgtm ask`: the workspace reads, and the two goal tools that only read.
-/// `todos_list` here spans the workspace, unlike the run tool of the same
-/// name, because "what is everyone working on" includes work nobody started.
-async fn ask_call(name: &str, args: &Value, client: &Client) -> Result<String> {
+// ---------------------------------------------------------------------------
+// Links
+
+/// The kinds of object a link can name, in the order `search` lists them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    Task,
+    Todo,
+    Goal,
+    Memory,
+    Session,
+    Scratchpad,
+}
+
+impl Kind {
+    const ALL: [Kind; 6] = [
+        Kind::Task,
+        Kind::Todo,
+        Kind::Goal,
+        Kind::Memory,
+        Kind::Session,
+        Kind::Scratchpad,
+    ];
+
+    /// The path segment: the web app's route for the kind, so a link reads
+    /// like the page it stands for.
+    fn path(self) -> &'static str {
+        match self {
+            Kind::Task => "tasks",
+            Kind::Todo => "todos",
+            Kind::Goal => "goals",
+            Kind::Memory => "memories",
+            Kind::Session => "sessions",
+            Kind::Scratchpad => "scratchpads",
+        }
+    }
+
+    fn from_path(path: &str) -> Option<Kind> {
+        Kind::ALL.into_iter().find(|kind| kind.path() == path)
+    }
+}
+
+fn link(kind: Kind, id: &str) -> String {
+    format!("lgtm://{}/{id}", kind.path())
+}
+
+/// `lgtm://<kind>/<id>`. A scratchpad link from the web app may carry an
+/// encoded repository between the two; ids are unique on their own, so only
+/// the last segment is resolved and the repository is a hint for people.
+fn parse_link(value: &str) -> Result<(Kind, &str)> {
+    let rest = value
+        .strip_prefix("lgtm://")
+        .ok_or_else(|| anyhow::anyhow!("not an lgtm:// link: {value}"))?;
+    let mut parts = rest.trim_end_matches('/').split('/');
+    let kind = parts.next().and_then(Kind::from_path).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{value} names no kind; links are lgtm://tasks/<id>, todos, goals, memories, sessions or scratchpads"
+        )
+    })?;
+    let id = parts
+        .next_back()
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("{value} names no id"))?;
+    Ok((kind, id))
+}
+
+/// A kind's own tool takes a bare id or a link of that kind.
+fn id_of(kind: Kind, value: &str) -> Result<&str> {
+    if !value.starts_with("lgtm://") {
+        return Ok(value);
+    }
+    let (found, id) = parse_link(value)?;
+    if found != kind {
+        anyhow::bail!(
+            "{value} is a {} link, not a {} one",
+            found.path(),
+            kind.path()
+        );
+    }
+    Ok(id)
+}
+
+/// A run reads its repository's objects and the ones that apply to every
+/// repository; a link from another repository is refused, not resolved.
+fn in_scope(scope: Option<&str>, repository: Option<&str>, what: &str) -> Result<()> {
+    match (scope, repository) {
+        (Some(scope), Some(repository)) if scope != repository => {
+            anyhow::bail!("{what} belongs to another repository")
+        }
+        _ => Ok(()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reads
+
+async fn read_call(
+    name: &str,
+    args: &Value,
+    client: &Client,
+    scope: Option<&str>,
+    goal: Option<&str>,
+) -> Result<String> {
     match name {
-        "task_inspect" => task_inspect(client, string(args, "task_id")?).await,
-        "runner_list" => runner_list(client).await,
-        "todos_list" => workspace_todos(client).await,
-        "scratchpads_list" => scratchpads_list(client, None).await,
-        "scratchpad_open" => scratchpad_open(client, args).await,
-        _ => workspace_call(name, args, client).await,
+        "open" => open(client, string(args, "link")?, scope).await,
+        "search" => search(client, string(args, "query")?, scope).await,
+        "memories_list" => memories_list(client, scope).await,
+        "memory_open" => {
+            memory_open(client, id_of(Kind::Memory, string(args, "id")?)?, scope).await
+        }
+        "todos_list" => todos_list(client, scope).await,
+        "todo_open" => todo_open(client, id_of(Kind::Todo, string(args, "id")?)?, scope).await,
+        "scratchpads_list" => scratchpads_list(client, scope).await,
+        "scratchpad_open" => {
+            scratchpad_open(client, id_of(Kind::Scratchpad, string(args, "id")?)?, scope).await
+        }
+        "task_inspect" => {
+            task_inspect(client, id_of(Kind::Task, string(args, "task_id")?)?, scope).await
+        }
+        // The loop's own goal when it names none; anyone else has to say which.
+        "goal_inspect" => {
+            let id = match args.get("id").and_then(Value::as_str) {
+                Some(id) => id_of(Kind::Goal, id)?,
+                None => goal.ok_or_else(|| anyhow::anyhow!("goal_inspect needs an id"))?,
+            };
+            goal_inspect(client, id, scope).await
+        }
+        "session_open" => {
+            session_open(client, id_of(Kind::Session, string(args, "id")?)?, scope).await
+        }
+        _ => anyhow::bail!("no such tool: {name}"),
     }
 }
 
-async fn workspace_todos(client: &Client) -> Result<String> {
+async fn open(client: &Client, value: &str, scope: Option<&str>) -> Result<String> {
+    let (kind, id) = parse_link(value)?;
+    match kind {
+        Kind::Task => task_inspect(client, id, scope).await,
+        Kind::Todo => todo_open(client, id, scope).await,
+        Kind::Goal => goal_inspect(client, id, scope).await,
+        Kind::Memory => memory_open(client, id, scope).await,
+        Kind::Session => session_open(client, id, scope).await,
+        Kind::Scratchpad => scratchpad_open(client, id, scope).await,
+    }
+}
+
+/// A case-insensitive substring over what a model would know from a prompt:
+/// titles, prompts, objectives, contents. Ranking would be a guess.
+async fn search(client: &Client, query: &str, scope: Option<&str>) -> Result<String> {
+    let query = query.to_lowercase();
+    let hit = |texts: &[&str]| texts.iter().any(|t| t.to_lowercase().contains(&query));
+    let mut rows = Vec::new();
+    for task in client.tasks().await? {
+        if in_scope(scope, Some(&task.spec.repository), "").is_ok() && hit(&[&task.spec.prompt]) {
+            rows.push(format!(
+                "{}  \"{}\"",
+                link(Kind::Task, &task.id),
+                first_line(&task.spec.prompt)
+            ));
+        }
+    }
+    for todo in client.todos(scope).await? {
+        if hit(&[&todo.title, &todo.description]) {
+            rows.push(format!("{}  {}", link(Kind::Todo, &todo.id), todo.title));
+        }
+    }
+    for summary in client.goals().await? {
+        let goal = summary.goal;
+        if in_scope(scope, Some(&goal.repository), "").is_ok() && hit(&[&goal.objective]) {
+            rows.push(format!(
+                "{}  \"{}\"",
+                link(Kind::Goal, &goal.id),
+                first_line(&goal.objective)
+            ));
+        }
+    }
+    for memory in client.memories(scope, false).await? {
+        if hit(&[&memory.content]) {
+            rows.push(format!(
+                "{}  {}",
+                link(Kind::Memory, &memory.id),
+                memory.content
+            ));
+        }
+    }
+    for session in client.sessions(scope).await? {
+        if hit(&[&session.title]) {
+            rows.push(format!(
+                "{}  {}",
+                link(Kind::Session, &session.id),
+                session.title
+            ));
+        }
+    }
+    for pad in client.scratchpads(scope).await? {
+        if !pad.archived && hit(&[&pad.title, &pad.content]) {
+            rows.push(format!(
+                "{}  {}",
+                link(Kind::Scratchpad, &pad.id),
+                pad.title
+            ));
+        }
+    }
+    Ok(capped(rows))
+}
+
+async fn memories_list(client: &Client, scope: Option<&str>) -> Result<String> {
+    Ok(capped(
+        client
+            .memories(scope, false)
+            .await?
+            .iter()
+            .map(|m| format!("{}  {}", m.id, m.content))
+            .collect(),
+    ))
+}
+
+/// There is no endpoint for one memory: the list is short, so it is scanned.
+async fn memory_open(client: &Client, id: &str, scope: Option<&str>) -> Result<String> {
+    let memory = client
+        .memories(None, false)
+        .await?
+        .into_iter()
+        .find(|memory| memory.id == id)
+        .ok_or_else(|| anyhow::anyhow!("memory {id} not found"))?;
+    in_scope(scope, memory.repository.as_deref(), "the memory")?;
+    let standing = match memory.verification {
+        Verification::UserApproved => "approved",
+        Verification::AgentProposed => "proposed, awaiting a person",
+    };
+    Ok(format!("{} ({standing})\n{}", memory.id, memory.content))
+}
+
+/// Open todos, newest first. `created_by` is an id; a person reads names.
+async fn todos_list(client: &Client, scope: Option<&str>) -> Result<String> {
     let owners = owners(client).await?;
-    let mut todos = client.todos(None).await?;
+    let mut todos = client.todos(scope).await?;
     todos.retain(|todo| todo.status == TodoStatus::Open);
     todos.sort_by_key(|todo| std::cmp::Reverse(todo.created_at));
-    Ok(joined(todos.iter().map(|todo| {
-        format!(
-            "{} {} {} {}",
-            todo.id,
-            owner(&owners, todo.created_by.as_deref()),
-            todo.repository.as_deref().map(repo_short).unwrap_or("-"),
-            todo.title,
-        )
-    })))
+    Ok(capped(
+        todos
+            .iter()
+            .map(|todo| {
+                format!(
+                    "{} {} {} {}",
+                    todo.id,
+                    owner(&owners, todo.created_by.as_deref()),
+                    todo.repository.as_deref().map(repo_short).unwrap_or("-"),
+                    todo.title,
+                )
+            })
+            .collect(),
+    ))
 }
+
+async fn todo_open(client: &Client, id: &str, scope: Option<&str>) -> Result<String> {
+    let detail = client.todo(id).await?;
+    let todo = &detail.todo;
+    in_scope(scope, todo.repository.as_deref(), "the todo")?;
+    let owners = owners(client).await?;
+    let mut out = format!(
+        "{} {} {} {}\n",
+        todo.id,
+        status_word(todo.status),
+        status_word(todo.priority),
+        todo.title
+    );
+    if !todo.description.is_empty() {
+        out.push_str(&format!("{}\n", todo.description));
+    }
+    if let Some(assignee) = &todo.assignee {
+        out.push_str(&format!("assignee: {}\n", owner(&owners, Some(assignee))));
+    }
+    if !todo.blockers.is_empty() {
+        out.push_str(&format!("blocked by: {}\n", todo.blockers.join(", ")));
+    }
+    if let Some(task) = &todo.task {
+        out.push_str(&format!("task: {task}\n"));
+    }
+    if !todo.tags.is_empty() {
+        out.push_str(&format!("tags: {}\n", todo.tags.join(", ")));
+    }
+    for comment in &detail.comments {
+        out.push_str(&format!(
+            "- {}: {}\n",
+            owner(&owners, comment.author.as_deref()),
+            comment.body
+        ));
+    }
+    Ok(out)
+}
+
+async fn scratchpads_list(client: &Client, scope: Option<&str>) -> Result<String> {
+    Ok(capped(
+        client
+            .scratchpads(scope)
+            .await?
+            .iter()
+            .filter(|pad| !pad.archived)
+            .map(|pad| format!("{}  {}", pad.id, pad.title))
+            .collect(),
+    ))
+}
+
+/// The same text the web app's "Copy as Markdown" produces, so a pasted
+/// document and an opened link read alike.
+async fn scratchpad_open(client: &Client, id: &str, scope: Option<&str>) -> Result<String> {
+    let pad = client.scratchpad(id).await?;
+    in_scope(scope, pad.repository.as_deref(), "the scratchpad")?;
+    Ok(format!("# {}\n\n{}", pad.title, pad.content))
+}
+
+async fn task_inspect(client: &Client, id: &str, scope: Option<&str>) -> Result<String> {
+    let detail = client.task(id).await?;
+    let task = &detail.task;
+    in_scope(scope, Some(&task.spec.repository), "the task")?;
+    let mut out = format!(
+        "{} {}\n{}\n",
+        task.id,
+        status_word(task.status),
+        task.spec.prompt
+    );
+    for exec in &task.executions {
+        out.push_str(&format!(
+            "attempt {} {} {}\n",
+            exec.attempt,
+            status_word(exec.status),
+            exec.error.as_deref().unwrap_or("")
+        ));
+    }
+    out.push_str(&result_block(task));
+    // Only a plan task has versions; the request is skipped rather than
+    // answered with an empty list for every other task.
+    if task.spec.kind == TaskKind::Plan {
+        for version in client.task_plans(id).await? {
+            out.push_str(&format!(
+                "plan v{} {}: {}\n",
+                version.version,
+                status_word(version.status),
+                version
+                    .plan
+                    .steps
+                    .iter()
+                    .map(|step| step.title.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ));
+        }
+    }
+    out.push_str(&recent(&detail.events));
+    if !task.scratchpad.is_empty() {
+        out.push_str(&format!("notes:\n{}\n", task.scratchpad));
+    }
+    Ok(out)
+}
+
+async fn goal_inspect(client: &Client, id: &str, scope: Option<&str>) -> Result<String> {
+    let detail = client.goal(id).await?;
+    in_scope(scope, Some(&detail.summary.goal.repository), "the goal")?;
+    let head = format!(
+        "{}\nstatus: {}\n",
+        detail.summary.goal.objective,
+        status_word(detail.summary.status)
+    );
+    Ok(head + &joined(detail.tasks.iter().map(task_line)))
+}
+
+async fn session_open(client: &Client, id: &str, scope: Option<&str>) -> Result<String> {
+    let detail = client.session(id).await?;
+    in_scope(scope, Some(&detail.session.repository), "the session")?;
+    let head = format!(
+        "{} {} \"{}\"\n",
+        detail.session.id,
+        repo_short(&detail.session.repository),
+        detail.session.title
+    );
+    Ok(head + &joined(detail.tasks.iter().map(task_line)))
+}
+
+/// What a person can attach from a prompt box: the documents and the open
+/// work. Everything else is reachable by URI, but listing it would bury these.
+async fn resources(client: &Client, scope: Option<&str>) -> Result<Value> {
+    let resource = |kind: Kind, id: &str, name: &str| json!({ "uri": link(kind, id), "name": name, "mimeType": "text/markdown" });
+    let mut list = Vec::new();
+    for pad in client.scratchpads(scope).await? {
+        if !pad.archived {
+            list.push(resource(Kind::Scratchpad, &pad.id, &pad.title));
+        }
+    }
+    for todo in client.todos(scope).await? {
+        if todo.status == TodoStatus::Open {
+            list.push(resource(Kind::Todo, &todo.id, &todo.title));
+        }
+    }
+    Ok(json!({ "resources": list }))
+}
+
+/// A tail line says what was cut, so a model that needs the rest searches
+/// instead of assuming the list was complete.
+fn capped(rows: Vec<String>) -> String {
+    let more = rows.len().saturating_sub(ROWS);
+    let mut out = joined(rows.into_iter().take(ROWS));
+    if more > 0 {
+        out.push_str(&format!("\n…and {more} more"));
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// A run's writes
 
 async fn run_call(
     name: &str,
@@ -226,28 +671,13 @@ async fn run_call(
     task_id: &str,
     repository: &str,
 ) -> Result<String> {
-    let repository = Some(repository);
+    let scope = Some(repository);
     match name {
-        "memories_list" => Ok(joined(
-            client
-                .memories(repository, false)
-                .await?
-                .iter()
-                .map(|m| format!("- {}", m.content)),
-        )),
-        "memory_propose" => propose(client, repository, task_id, args).await,
-        "todos_list" => Ok(joined(
-            client
-                .todos(repository)
-                .await?
-                .iter()
-                .filter(|todo| todo.status == TodoStatus::Open)
-                .map(|todo| format!("{}  {}", todo.id, todo.title)),
-        )),
+        "memory_propose" => propose(client, scope, task_id, args).await,
         "todo_create" => {
             let todo = client
                 .create_todo(
-                    repository,
+                    scope,
                     string(args, "title")?,
                     text(args, "description"),
                     lgtm_protocol::Priority::default(),
@@ -257,6 +687,28 @@ async fn run_call(
                 .await?;
             Ok(todo.id)
         }
+        "todo_finish" => {
+            let id = own_todo(client, args, repository).await?;
+            client.finish_todo(id).await?;
+            Ok("done".to_string())
+        }
+        "todo_comment" => {
+            let id = own_todo(client, args, repository).await?;
+            client.comment_todo(id, string(args, "body")?).await?;
+            Ok("commented".to_string())
+        }
+        "todo_update" => {
+            let id = own_todo(client, args, repository).await?;
+            let patch = TodoPatch {
+                title: optional(args, "title"),
+                description: optional(args, "description"),
+                priority: serde_json::from_value(args.get("priority").cloned().unwrap_or_default())
+                    .ok(),
+                ..TodoPatch::default()
+            };
+            client.update_todo(id, &patch).await?;
+            Ok("todo saved".to_string())
+        }
         "scratchpad_read" => Ok(client.task(task_id).await?.task.scratchpad),
         "scratchpad_write" => {
             client
@@ -264,28 +716,26 @@ async fn run_call(
                 .await?;
             Ok("notes saved".to_string())
         }
-        "scratchpads_list" => scratchpads_list(client, repository).await,
-        "scratchpad_open" => scratchpad_open(client, args).await,
         "scratchpad_create" => {
             let pad = client
-                .create_scratchpad(repository, string(args, "title")?, text(args, "content"))
+                .create_scratchpad(
+                    scope,
+                    string(args, "title")?,
+                    text(args, "content"),
+                    &tags(args),
+                )
                 .await?;
-            Ok(scratchpad_link(&pad.id))
+            Ok(link(Kind::Scratchpad, &pad.id))
         }
         "scratchpad_update" => {
             let patch = ScratchpadPatch {
-                title: args
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                content: args
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
+                title: optional(args, "title"),
+                content: optional(args, "content"),
                 archived: None,
+                tags: args.get("tags").map(|_| tags(args)),
             };
             client
-                .update_scratchpad(scratchpad_id(string(args, "link")?), &patch)
+                .update_scratchpad(id_of(Kind::Scratchpad, string(args, "id")?)?, &patch)
                 .await?;
             Ok("scratchpad saved".to_string())
         }
@@ -295,7 +745,7 @@ async fn run_call(
                 ..ScratchpadPatch::default()
             };
             client
-                .update_scratchpad(scratchpad_id(string(args, "link")?), &patch)
+                .update_scratchpad(id_of(Kind::Scratchpad, string(args, "id")?)?, &patch)
                 .await?;
             Ok("scratchpad archived".to_string())
         }
@@ -303,6 +753,23 @@ async fn run_call(
         _ => anyhow::bail!("no such tool: {name}"),
     }
 }
+
+/// A run changes only the todos of its repository, or the ones that apply to
+/// every repository; the check reads the todo first, so a wrong link fails
+/// before anything is written.
+async fn own_todo<'a>(client: &Client, args: &'a Value, repository: &str) -> Result<&'a str> {
+    let id = id_of(Kind::Todo, string(args, "id")?)?;
+    let detail = client.todo(id).await?;
+    in_scope(
+        Some(repository),
+        detail.todo.repository.as_deref(),
+        "the todo",
+    )?;
+    Ok(id)
+}
+
+// ---------------------------------------------------------------------------
+// The loop's writes
 
 /// Only reachable with `LGTM_GOAL_ID`, so a plain agent run cannot drive the
 /// goal it is one task of.
@@ -313,8 +780,6 @@ async fn orchestration_call(
     goal: &str,
 ) -> Result<String> {
     match name {
-        "goal_inspect" => goal_inspect(client, goal).await,
-        "task_inspect" => task_inspect(client, string(args, "task_id")?).await,
         "task_create" => task_create(client, goal, args).await,
         "task_message" => {
             let task = string(args, "task_id")?;
@@ -339,14 +804,13 @@ async fn orchestration_call(
             client.approve_as_orchestrator(task).await?;
             Ok("approved".to_string())
         }
-        "runner_list" => runner_list(client).await,
         "wait" => {
             client
                 .set_attention(goal, Some(string(args, "reason")?))
                 .await?;
             Ok("recorded".to_string())
         }
-        _ => workspace_call(name, args, client).await,
+        _ => anyhow::bail!("no such tool: {name}"),
     }
 }
 
@@ -364,6 +828,20 @@ async fn under_goal(client: &Client, task_id: &str, goal: &str) -> Result<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Workspace reads
+
+async fn workspace_call(name: &str, args: &Value, client: &Client) -> Result<String> {
+    match name {
+        "tasks_list" => tasks_list(client).await,
+        "goals_list" => goals_list(client).await,
+        "sessions_list" => sessions_list(client).await,
+        "activity" => activity(client, args).await,
+        "runner_list" => runner_list(client).await,
+        _ => anyhow::bail!("no such tool: {name}"),
+    }
+}
+
 async fn runner_list(client: &Client) -> Result<String> {
     Ok(joined(client.runners().await?.iter().map(|runner| {
         let executors: Vec<&str> = runner.info.executors.iter().map(|e| e.binary()).collect();
@@ -375,18 +853,6 @@ async fn runner_list(client: &Client) -> Result<String> {
             runner.info.slots,
         )
     })))
-}
-
-/// Reads across the whole workspace: the loop is told what else is happening
-/// before it decides, and `lgtm ask` gets nothing but these.
-async fn workspace_call(name: &str, args: &Value, client: &Client) -> Result<String> {
-    match name {
-        "goals_list" => goals_list(client).await,
-        "sessions_list" => sessions_list(client).await,
-        "tasks_list" => tasks_list(client).await,
-        "activity" => activity(client, args).await,
-        _ => anyhow::bail!("no such tool: {name}"),
-    }
 }
 
 /// `created_by` is an id; a person reads names, so every workspace line
@@ -428,39 +894,49 @@ async fn goals_list(client: &Client) -> Result<String> {
     let owners = owners(client).await?;
     let mut goals = client.goals().await?;
     goals.sort_by_key(|summary| std::cmp::Reverse(summary.goal.created_at));
-    Ok(joined(goals.iter().map(|summary| {
-        let goal = &summary.goal;
-        let line = format!(
-            "{} {} {} {} \"{}\"",
-            goal.id,
-            status_word(summary.status),
-            owner(&owners, goal.created_by.as_deref()),
-            summary.tasks.total(),
-            first_line(&goal.objective),
-        );
-        match &goal.attention {
-            Some(why) => format!("{line}\n  needs a person: {why}"),
-            None => line,
-        }
-    })))
+    Ok(capped(
+        goals
+            .iter()
+            .map(|summary| {
+                let goal = &summary.goal;
+                let line = format!(
+                    "{} {} {} {} \"{}\"",
+                    goal.id,
+                    status_word(summary.status),
+                    owner(&owners, goal.created_by.as_deref()),
+                    summary.tasks.total(),
+                    first_line(&goal.objective),
+                );
+                match &goal.attention {
+                    Some(why) => format!("{line}\n  needs a person: {why}"),
+                    None => line,
+                }
+            })
+            .collect(),
+    ))
 }
 
 async fn sessions_list(client: &Client) -> Result<String> {
     let owners = owners(client).await?;
     let mut sessions = client.sessions(None).await?;
     sessions.sort_by_key(|session| std::cmp::Reverse(session.created_at));
-    Ok(joined(sessions.iter().map(|session| {
-        let title = match session.title.is_empty() {
-            true => "-",
-            false => &session.title,
-        };
-        format!(
-            "{} {} {} \"{title}\"",
-            session.id,
-            owner(&owners, session.created_by.as_deref()),
-            repo_short(&session.repository),
-        )
-    })))
+    Ok(capped(
+        sessions
+            .iter()
+            .map(|session| {
+                let title = match session.title.is_empty() {
+                    true => "-",
+                    false => &session.title,
+                };
+                format!(
+                    "{} {} {} \"{title}\"",
+                    session.id,
+                    owner(&owners, session.created_by.as_deref()),
+                    repo_short(&session.repository),
+                )
+            })
+            .collect(),
+    ))
 }
 
 async fn tasks_list(client: &Client) -> Result<String> {
@@ -468,26 +944,31 @@ async fn tasks_list(client: &Client) -> Result<String> {
     let mut tasks = client.tasks().await?;
     tasks.sort_by_key(|task| std::cmp::Reverse(task.created_at));
     let all: Vec<&Task> = tasks.iter().collect();
-    Ok(joined(tasks.iter().take(TASK_LINES).map(|task| {
-        let mut line = format!(
-            "{} {} {} {} \"{}\"",
-            task.id,
-            status_word(task.status),
-            owner(&owners, task.created_by.as_deref()),
-            repo_short(&task.spec.repository),
-            first_line(&task.spec.prompt),
-        );
-        if !task.status.is_terminal() {
-            for overlap in lgtm_protocol::overlaps(task, &all) {
-                line.push_str(&format!(
-                    " [overlaps {}: {} files]",
-                    overlap.task,
-                    overlap.files.len()
-                ));
-            }
-        }
-        line
-    })))
+    Ok(capped(
+        tasks
+            .iter()
+            .map(|task| {
+                let mut line = format!(
+                    "{} {} {} {} \"{}\"",
+                    task.id,
+                    status_word(task.status),
+                    owner(&owners, task.created_by.as_deref()),
+                    repo_short(&task.spec.repository),
+                    first_line(&task.spec.prompt),
+                );
+                if !task.status.is_terminal() {
+                    for overlap in lgtm_protocol::overlaps(task, &all) {
+                        line.push_str(&format!(
+                            " [overlaps {}: {} files]",
+                            overlap.task,
+                            overlap.files.len()
+                        ));
+                    }
+                }
+                line
+            })
+            .collect(),
+    ))
 }
 
 async fn activity(client: &Client, args: &Value) -> Result<String> {
@@ -507,17 +988,6 @@ async fn activity(client: &Client, args: &Value) -> Result<String> {
             line.event,
         )
     })))
-}
-
-async fn goal_inspect(client: &Client, goal: &str) -> Result<String> {
-    let detail = client.goal(goal).await?;
-    let status = serde_json::to_value(detail.summary.status)?;
-    let head = format!(
-        "{}\nstatus: {}\n",
-        detail.summary.goal.objective,
-        status.as_str().unwrap_or_default()
-    );
-    Ok(head + &joined(detail.tasks.iter().map(task_line)))
 }
 
 fn task_line(task: &Task) -> String {
@@ -541,31 +1011,6 @@ fn status_word(status: impl serde::Serialize) -> String {
         .ok()
         .and_then(|value| value.as_str().map(str::to_string))
         .unwrap_or_default()
-}
-
-async fn task_inspect(client: &Client, id: &str) -> Result<String> {
-    let detail = client.task(id).await?;
-    let task = &detail.task;
-    let mut out = format!(
-        "{} {}\n{}\n",
-        task.id,
-        status_word(task.status),
-        task.spec.prompt
-    );
-    for exec in &task.executions {
-        out.push_str(&format!(
-            "attempt {} {} {}\n",
-            exec.attempt,
-            status_word(exec.status),
-            exec.error.as_deref().unwrap_or("")
-        ));
-    }
-    out.push_str(&result_block(task));
-    out.push_str(&recent(&detail.events));
-    if !task.scratchpad.is_empty() {
-        out.push_str(&format!("notes:\n{}\n", task.scratchpad));
-    }
-    Ok(out)
 }
 
 fn result_block(task: &Task) -> String {
@@ -676,131 +1121,110 @@ async fn request_network(client: &Client, task_id: &str, args: &Value) -> Result
     ))
 }
 
-/// The web app copies `lgtm://scratchpads/<encoded-repository>/<id>` or
-/// `lgtm://scratchpads/<id>`; ids are unique on their own, so the last segment
-/// is all that is resolved and a bare id works too.
-fn scratchpad_id(link: &str) -> &str {
-    link.trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .unwrap_or(link)
-}
-
-fn scratchpad_link(id: &str) -> String {
-    format!("lgtm://scratchpads/{id}")
-}
-
-async fn scratchpads_list(client: &Client, repository: Option<&str>) -> Result<String> {
-    Ok(joined(
-        client
-            .scratchpads(repository)
-            .await?
-            .iter()
-            .filter(|pad| !pad.archived)
-            .map(|pad| format!("{}  {}", scratchpad_link(&pad.id), pad.title)),
-    ))
-}
-
-/// The same text the web app's "Copy as Markdown" produces, so a pasted
-/// document and an opened link read alike.
-async fn scratchpad_open(client: &Client, args: &Value) -> Result<String> {
-    let pad = client
-        .scratchpad(scratchpad_id(string(args, "link")?))
-        .await?;
-    Ok(format!("# {}\n\n{}", pad.title, pad.content))
-}
+// ---------------------------------------------------------------------------
+// Arguments
 
 fn string<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
     args.get(key)
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("missing argument: {key}"))
+        .ok_or_else(|| anyhow::anyhow!("{key} is required"))
 }
 
 fn text<'a>(args: &'a Value, key: &str) -> &'a str {
     args.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
+fn optional(args: &Value, key: &str) -> Option<String> {
+    args.get(key).and_then(Value::as_str).map(str::to_string)
+}
+
+fn tags(args: &Value) -> Vec<String> {
+    args.get("tags")
+        .and_then(Value::as_array)
+        .map(|tags| {
+            tags.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn joined(lines: impl Iterator<Item = String>) -> String {
     lines.collect::<Vec<_>>().join("\n")
 }
 
+// ---------------------------------------------------------------------------
+// Tool schemas
+
 fn tools(env: &Env) -> Value {
-    Value::Array(match env {
-        Env::Run { .. } => run_tools(),
+    let mut tools = read_tools();
+    match env {
+        Env::Run { .. } => tools.extend(run_tools()),
         Env::Orchestrate { .. } => {
-            let mut tools = run_tools();
+            tools.extend(run_tools());
             tools.extend(goal_tools());
             tools.extend(workspace_tools());
-            tools
         }
-        Env::Ask => {
-            let mut tools = workspace_tools();
-            tools.push(tool(
-                "todos_list",
-                "Open todos across the whole workspace: id, owner, repository, title.",
-                json!({}),
-                &[],
-            ));
-            tools.extend(goal_tools().into_iter().filter(|tool| {
-                ASK_GOAL_TOOLS.contains(&tool["name"].as_str().unwrap_or_default())
-            }));
-            tools.extend(scratchpad_tools().into_iter().filter(|tool| {
-                ASK_SCRATCHPAD_TOOLS.contains(&tool["name"].as_str().unwrap_or_default())
-            }));
-            tools
-        }
-    })
+        Env::Ask => tools.extend(workspace_tools()),
+    }
+    Value::Array(tools)
 }
 
-/// Shared markdown documents, distinct from the task's own notes above. A
-/// link is what a person pastes into a prompt, so opening one is the tool a
-/// model reaches for first.
-fn scratchpad_tools() -> Vec<Value> {
-    let string = |about: &str| json!({ "type": "string", "description": about });
-    let link = || string("The scratchpad's link, lgtm://scratchpads/<id>, or its id.");
+fn string_schema(about: &str) -> Value {
+    json!({ "type": "string", "description": about })
+}
+
+fn id_schema(kind: Kind) -> Value {
+    json!({ "id": string_schema(&format!("Its id, or its lgtm://{}/<id> link.", kind.path())) })
+}
+
+fn read_tools() -> Vec<Value> {
     vec![
-        tool("scratchpads_list", "Shared scratchpads for this repository: link, then title.", json!({}), &[]),
-        tool("scratchpad_open", "Read a shared scratchpad by its lgtm://scratchpads/... link. A prompt, todo or message that carries one means: open it and act on it.", json!({ "link": link() }), &["link"]),
-        tool("scratchpad_create", "Start a shared scratchpad for this repository. Returns its link.", json!({ "title": string("One line."), "content": string("The document, in markdown.") }), &["title"]),
-        tool("scratchpad_update", "Replace a shared scratchpad's title, content, or both.", json!({ "link": link(), "title": string("The new title."), "content": string("The full document, in markdown.") }), &["link"]),
-        tool("scratchpad_archive", "Archive a shared scratchpad. A person can restore it.", json!({ "link": link() }), &["link"]),
+        tool("open", "Read any workspace object by its lgtm:// link: a task, todo, goal, memory, session or scratchpad. A prompt, todo or message that carries a link means: open it before acting.", json!({ "link": string_schema("An lgtm://<kind>/<id> link.") }), &["link"]),
+        tool("search", "Find tasks, todos, goals, memories, sessions and scratchpads whose text contains a phrase. Rows start with the link that opens them.", json!({ "query": string_schema("A word or phrase; case does not matter.") }), &["query"]),
+        tool("memories_list", "Facts recorded for this repository that every agent run is told: id, then the fact.", json!({}), &[]),
+        tool("memory_open", "One memory: the fact and whether a person has approved it.", id_schema(Kind::Memory), &["id"]),
+        tool("todos_list", "Open todos: id, owner, repository, title.", json!({}), &[]),
+        tool("todo_open", "One todo in full: status, priority, description, assignee, blockers, its task, and the comment thread.", id_schema(Kind::Todo), &["id"]),
+        tool("scratchpads_list", "Shared scratchpads: id, then title.", json!({}), &[]),
+        tool("scratchpad_open", "One shared scratchpad as markdown, its title as the heading.", id_schema(Kind::Scratchpad), &["id"]),
+        tool("task_inspect", "Everything recorded for one task: its prompt, attempts, checks, blocking findings, changed files, plan versions, recent activity and notes. On a retry, read your own task first.", json!({ "task_id": string_schema("The task's id, or its lgtm://tasks/<id> link.") }), &["task_id"]),
+        tool("goal_inspect", "A goal's objective, its status, and one line per task under it. The orchestration loop may omit the id for its own goal.", id_schema(Kind::Goal), &[]),
+        tool("session_open", "A chat session: its title, repository, and one line per task it produced.", id_schema(Kind::Session), &["id"]),
     ]
 }
 
 fn run_tools() -> Vec<Value> {
-    let string = |about: &str| json!({ "type": "string", "description": about });
-    let mut tools = vec![
-        tool("memories_list", "Facts recorded for this repository that every agent run is told.", json!({}), &[]),
+    let string = string_schema;
+    vec![
         tool("memory_propose", "Propose a fact worth telling every later run. It waits as a pending memory until a person approves it.", json!({ "content": string("The fact, in one sentence.") }), &["content"]),
-        tool("todos_list", "Open todos for this repository.", json!({}), &[]),
         tool("todo_create", "Note work that should happen but is not part of this task.", json!({ "title": string("One line."), "description": string("Optional detail.") }), &["title"]),
+        tool("todo_finish", "Mark a todo done, once its work is in this task.", id_schema(Kind::Todo), &["id"]),
+        tool("todo_comment", "Leave a note on a todo: what was found, or why it could not be done.", json!({ "id": string("The todo's id, or its lgtm://todos/<id> link."), "body": string("The note, in markdown.") }), &["id", "body"]),
+        tool("todo_update", "Change a todo's title, description or priority.", json!({ "id": string("The todo's id, or its lgtm://todos/<id> link."), "title": string("The new title."), "description": string("The new description."), "priority": { "type": "string", "enum": ["low", "medium", "high"] } }), &["id"]),
         tool("scratchpad_read", "This task's own working notes, private to it.", json!({}), &[]),
         tool("scratchpad_write", "Replace this task's own working notes.", json!({ "content": string("The full notes, in markdown.") }), &["content"]),
-    ];
-    tools.extend(scratchpad_tools());
-    tools.push(
+        tool("scratchpad_create", "Start a shared scratchpad for this repository. Returns its link.", json!({ "title": string("One line."), "content": string("The document, in markdown."), "tags": { "type": "array", "items": { "type": "string" } } }), &["title"]),
+        tool("scratchpad_update", "Replace a shared scratchpad's title, content or tags.", json!({ "id": string("The scratchpad's id, or its lgtm://scratchpads/<id> link."), "title": string("The new title."), "content": string("The full document, in markdown."), "tags": { "type": "array", "items": { "type": "string" } } }), &["id"]),
+        tool("scratchpad_archive", "Archive a shared scratchpad. A person can restore it.", id_schema(Kind::Scratchpad), &["id"]),
         tool("request_network", "Ask a person to allow this task to reach a host its sandbox refused. Recorded for the task's next run, not this one.", json!({ "host": string("The host to allow, e.g. registry.internal."), "reason": string("Why the run needs it.") }), &["host", "reason"]),
-    );
-    tools
+    ]
 }
 
-/// Reads over the whole workspace, not one goal: what else is running, who
-/// started it, and where two tasks are about to collide.
 fn workspace_tools() -> Vec<Value> {
     vec![
+        tool("tasks_list", "Every task in the workspace: id, status, owner, repository, prompt — and which unmerged tasks changed the same files.", json!({}), &[]),
         tool("goals_list", "Every goal in the workspace: id, status, owner, task count, objective.", json!({}), &[]),
         tool("sessions_list", "Every chat session in the workspace: id, owner, repository, title.", json!({}), &[]),
-        tool("tasks_list", "Every task in the workspace: id, status, owner, repository, prompt — and which unmerged tasks changed the same files.", json!({}), &[]),
         tool("activity", "The most recent events across every task: who did what, where.", json!({ "limit": { "type": "integer", "description": "How many lines, default 30." } }), &[]),
+        tool("runner_list", "The connected runners and what they are running.", json!({}), &[]),
     ]
 }
 
 fn goal_tools() -> Vec<Value> {
-    let string = |about: &str| json!({ "type": "string", "description": about });
-    let task_id = || json!({ "task_id": string("Id of a task under this goal.") });
+    let string = string_schema;
     vec![
-        tool("goal_inspect", "The goal's objective, its status, and one line per task under it.", json!({}), &[]),
-        tool("task_inspect", "Everything recorded for one task: its prompt, attempts, checks, blocking findings, changed files, recent activity and notes.", task_id(), &["task_id"]),
         tool("task_create", "Add a task the goal needs. It runs in the goal's repository, off the same base branch.", json!({
             "title": string("One line."),
             "prompt": string("Full instructions for a coding agent."),
@@ -810,7 +1234,6 @@ fn goal_tools() -> Vec<Value> {
         tool("task_message", "Send a follow-up to a task so its agent fixes something itself.", json!({ "task_id": string("Id of a task under this goal."), "text": string("What to tell the agent."), "reason": string("Why.") }), &["task_id", "text"]),
         tool("task_retry", "Requeue a task that crashed or timed out.", json!({ "task_id": string("Id of a task under this goal."), "runner": string("Optional runner to move it to."), "executor": string("Optional executor to swap to: claude or codex."), "reason": string("Why.") }), &["task_id"]),
         tool("task_approve", "Approve and push a task. Refused unless the checks passed and no blocking review finding is left.", json!({ "task_id": string("Id of a task under this goal."), "reason": string("Why.") }), &["task_id"]),
-        tool("runner_list", "The connected runners and what they are running.", json!({}), &[]),
         tool("wait", "Stop and leave the goal to a person. The next task or message under the goal clears it.", json!({ "reason": string("What a person has to decide or do.") }), &["reason"]),
     ]
 }
@@ -871,13 +1294,18 @@ mod tests {
         names_in(env(goal_id)).await
     }
 
-    #[test]
-    fn the_run_tool_names_and_their_schemas_cannot_drift() {
-        let names: Vec<String> = run_tools()
+    fn names(tools: Vec<Value>) -> Vec<String> {
+        tools
             .iter()
             .map(|tool| tool["name"].as_str().unwrap().to_string())
-            .collect();
-        assert_eq!(names, RUN_TOOLS);
+            .collect()
+    }
+
+    #[test]
+    fn the_tool_names_and_their_schemas_cannot_drift() {
+        assert_eq!(names(read_tools()), READ_TOOLS);
+        assert_eq!(names(run_tools()), RUN_TOOLS);
+        assert_eq!(names(workspace_tools()), WORKSPACE_TOOLS);
     }
 
     #[test]
@@ -889,62 +1317,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn initialize_names_the_protocol_and_the_server() {
+    async fn initialize_names_the_protocol_the_server_and_both_capabilities() {
         let reply = answer(
             json!({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
             None,
         )
         .await
         .unwrap();
-        assert_eq!(reply["id"], 1);
         assert_eq!(reply["result"]["protocolVersion"], PROTOCOL);
         assert_eq!(reply["result"]["serverInfo"]["name"], "lgtm");
+        assert!(reply["result"]["capabilities"]["tools"].is_object());
+        assert!(reply["result"]["capabilities"]["resources"].is_object());
     }
 
     #[tokio::test]
-    async fn a_run_without_a_goal_gets_only_the_run_tools() {
-        assert_eq!(
-            tool_names(None).await,
-            [
-                "memories_list",
-                "memory_propose",
-                "todos_list",
-                "todo_create",
-                "scratchpad_read",
-                "scratchpad_write",
-                "scratchpads_list",
-                "scratchpad_open",
-                "scratchpad_create",
-                "scratchpad_update",
-                "scratchpad_archive",
-                "request_network"
-            ]
-        );
-    }
-
-    #[test]
-    fn every_link_shape_and_a_bare_id_name_the_same_scratchpad() {
-        for link in [
-            "lgtm://scratchpads/https%3A%2F%2Fexample.com%2Fr.git/sp1",
-            "lgtm://scratchpads/sp1",
-            "lgtm://scratchpads/sp1/",
-            "sp1",
-        ] {
-            assert_eq!(scratchpad_id(link), "sp1", "{link}");
-        }
+    async fn a_run_without_a_goal_gets_the_reads_and_its_own_writes() {
+        let expected: Vec<&str> = READ_TOOLS.iter().chain(RUN_TOOLS.iter()).copied().collect();
+        assert_eq!(tool_names(None).await, expected);
     }
 
     #[tokio::test]
     async fn a_goal_id_unlocks_the_orchestration_tools() {
         let names = tool_names(Some("g1")).await;
         for name in [
-            "goal_inspect",
-            "task_inspect",
             "task_create",
             "task_message",
             "task_retry",
             "task_approve",
-            "runner_list",
             "wait",
         ] {
             assert!(
@@ -958,7 +1357,7 @@ mod tests {
     async fn orchestrate_mode_adds_the_workspace_tools() {
         let with_goal = tool_names(Some("g1")).await;
         let plain = tool_names(None).await;
-        for name in ["goals_list", "sessions_list", "tasks_list", "activity"] {
+        for name in WORKSPACE_TOOLS {
             assert!(
                 with_goal.contains(&name.to_string()),
                 "{name} missing: {with_goal:?}"
@@ -968,37 +1367,131 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ask_mode_serves_only_workspace_reads() {
-        assert_eq!(
-            names_in(Env::Ask).await,
-            [
-                "goals_list",
-                "sessions_list",
-                "tasks_list",
-                "activity",
-                "todos_list",
-                "task_inspect",
-                "runner_list",
-                "scratchpads_list",
-                "scratchpad_open"
-            ]
-        );
+    async fn ask_mode_serves_only_reads() {
+        let expected: Vec<&str> = READ_TOOLS
+            .iter()
+            .chain(WORKSPACE_TOOLS.iter())
+            .copied()
+            .collect();
+        assert_eq!(names_in(Env::Ask).await, expected);
     }
 
     #[tokio::test]
     async fn a_write_tool_is_refused_in_ask_mode() {
-        for name in ["task_create", "task_approve", "scratchpad_create"] {
+        for name in RUN_TOOLS
+            .iter()
+            .chain(["task_create", "task_approve"].iter())
+        {
             let call = json!({
                 "jsonrpc": "2.0", "id": 5, "method": "tools/call",
-                "params": { "name": name, "arguments": { "task_id": "t2" } },
+                "params": { "name": name, "arguments": { "task_id": "t2", "id": "x" } },
             });
             let reply = answer_in(call, Env::Ask).await.unwrap();
             assert_eq!(reply["result"]["isError"], true, "{name}");
-            assert!(reply["result"]["content"][0]["text"]
-                .as_str()
-                .unwrap()
-                .contains("no such tool"));
+            assert!(
+                reply["result"]["content"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("no such tool"),
+                "{name}"
+            );
         }
+    }
+
+    #[tokio::test]
+    async fn a_workspace_tool_is_refused_in_a_run() {
+        let call = json!({
+            "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+            "params": { "name": "tasks_list", "arguments": {} },
+        });
+        let reply = answer(call, None).await.unwrap();
+        assert_eq!(reply["result"]["isError"], true);
+        assert!(reply["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("no such tool"));
+    }
+
+    #[test]
+    fn every_kind_has_a_link_that_parses_back() {
+        for kind in Kind::ALL {
+            assert_eq!(
+                parse_link(&link(kind, "ab12cd34")).unwrap(),
+                (kind, "ab12cd34")
+            );
+        }
+    }
+
+    #[test]
+    fn a_scratchpad_link_may_carry_the_repository_and_a_trailing_slash() {
+        for value in [
+            "lgtm://scratchpads/https%3A%2F%2Fexample.com%2Fr.git/sp1",
+            "lgtm://scratchpads/sp1",
+            "lgtm://scratchpads/sp1/",
+        ] {
+            assert_eq!(
+                parse_link(value).unwrap(),
+                (Kind::Scratchpad, "sp1"),
+                "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_link_without_a_kind_or_an_id_is_refused_by_name() {
+        let err = parse_link("lgtm://widgets/w1").unwrap_err().to_string();
+        assert!(err.contains("names no kind"), "{err}");
+        let err = parse_link("lgtm://todos/").unwrap_err().to_string();
+        assert!(err.contains("names no id"), "{err}");
+        let err = parse_link("t1").unwrap_err().to_string();
+        assert!(err.contains("not an lgtm:// link"), "{err}");
+    }
+
+    #[test]
+    fn a_kinds_tool_takes_a_bare_id_or_its_own_link_only() {
+        assert_eq!(id_of(Kind::Todo, "td1").unwrap(), "td1");
+        assert_eq!(id_of(Kind::Todo, "lgtm://todos/td1").unwrap(), "td1");
+        let err = id_of(Kind::Todo, "lgtm://tasks/t1")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("is a tasks link, not a todos one"), "{err}");
+    }
+
+    #[test]
+    fn a_run_reads_its_repository_and_the_global_ones() {
+        let repo = Some("https://example.com/r.git");
+        assert!(in_scope(repo, repo, "the todo").is_ok());
+        assert!(in_scope(repo, None, "the todo").is_ok());
+        assert!(in_scope(None, Some("https://example.com/other.git"), "the todo").is_ok());
+        let err = in_scope(repo, Some("https://example.com/other.git"), "the todo")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, "the todo belongs to another repository");
+    }
+
+    #[test]
+    fn lists_stop_at_fifty_rows_and_say_what_was_cut() {
+        let rows: Vec<String> = (1..=ROWS + 1).map(|n| n.to_string()).collect();
+        let out = capped(rows.clone());
+        assert_eq!(out.lines().count(), ROWS + 1);
+        assert!(out.ends_with("50\n…and 1 more"), "{out}");
+        assert_eq!(capped(rows[..ROWS].to_vec()).lines().count(), ROWS);
+        assert!(!capped(rows[..ROWS].to_vec()).contains("more"));
+    }
+
+    #[tokio::test]
+    async fn a_resource_uri_of_no_kind_is_a_not_found_error() {
+        let reply = answer(
+            json!({"jsonrpc": "2.0", "id": 6, "method": "resources/read", "params": { "uri": "lgtm://widgets/w1" }}),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(reply["error"]["code"], RESOURCE_NOT_FOUND);
+        assert!(reply["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("names no kind"));
     }
 
     #[test]
@@ -1022,7 +1515,7 @@ mod tests {
     async fn an_orchestration_tool_is_refused_without_a_goal() {
         let call = json!({
             "jsonrpc": "2.0", "id": 4, "method": "tools/call",
-            "params": { "name": "goal_inspect", "arguments": {} },
+            "params": { "name": "task_create", "arguments": { "title": "t", "prompt": "p" } },
         });
         let reply = answer(call, None).await.unwrap();
         assert_eq!(reply["result"]["isError"], true);
@@ -1035,7 +1528,7 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_method_is_an_error_reply() {
         let reply = answer(
-            json!({"jsonrpc": "2.0", "id": 3, "method": "resources/list"}),
+            json!({"jsonrpc": "2.0", "id": 3, "method": "prompts/list"}),
             None,
         )
         .await

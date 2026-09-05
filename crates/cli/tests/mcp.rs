@@ -66,7 +66,7 @@ fn seed(dir: &std::path::Path) {
 }
 
 #[tokio::test]
-async fn the_server_answers_initialize_and_round_trips_the_scratchpad() {
+async fn the_server_answers_initialize_round_trips_notes_and_serves_a_scratchpad_resource() {
     let dir = std::env::temp_dir().join(format!("lgtm-mcp-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     seed(&dir);
@@ -128,6 +128,47 @@ async fn the_server_answers_initialize_and_round_trips_the_scratchpad() {
     assert_eq!(
         replies[3]["result"]["content"][0]["text"],
         format!("recorded; a person can allow it with: lgtm allow {TASK_ID} registry.internal")
+    );
+
+    // A shared scratchpad made by a tool is readable back as a resource by the
+    // link the tool returned: the same link the web app copies.
+    let create = json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {
+        "name": "scratchpad_create", "arguments": { "title": "Runner notes", "content": "No sandbox on Windows." }
+    }});
+    stdin
+        .write_all(format!("{create}\n").as_bytes())
+        .await
+        .unwrap();
+    let line = stdout.next_line().await.unwrap().expect("server exited");
+    let created = serde_json::from_str::<Value>(&line).unwrap();
+    let link = created["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(link.starts_with("lgtm://scratchpads/"), "{created}");
+
+    for request in [
+        json!({"jsonrpc": "2.0", "id": 6, "method": "resources/list"}),
+        json!({"jsonrpc": "2.0", "id": 7, "method": "resources/read", "params": { "uri": link }}),
+    ] {
+        stdin
+            .write_all(format!("{request}\n").as_bytes())
+            .await
+            .unwrap();
+    }
+    let mut replies = Vec::new();
+    while replies.len() < 2 {
+        let line = stdout.next_line().await.unwrap().expect("server exited");
+        replies.push(serde_json::from_str::<Value>(&line).unwrap());
+    }
+    let listed = replies[0]["result"]["resources"].as_array().unwrap();
+    assert!(
+        listed
+            .iter()
+            .any(|r| r["uri"] == link && r["name"] == "Runner notes"),
+        "{}",
+        replies[0]
+    );
+    assert_eq!(
+        replies[1]["result"]["contents"][0]["text"],
+        "# Runner notes\n\nNo sandbox on Windows."
     );
 
     let _ = std::fs::remove_dir_all(&dir);
