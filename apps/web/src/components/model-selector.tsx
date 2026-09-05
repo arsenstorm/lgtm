@@ -1,9 +1,8 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { PreviewCard } from "@base-ui/react/preview-card";
-import { Lightning } from "@phosphor-icons/react";
 import type { ChangeEvent } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ChevronIcon, SearchIcon } from "@/components/icons";
+import { BoltIcon, ChevronIcon, SearchIcon } from "@/components/icons";
 import {
   Tooltip,
   TooltipContent,
@@ -334,7 +333,7 @@ function ModelPreview({
       </div>
       <fieldset className="flex flex-col p-3">
         <div className="flex items-center gap-1.5">
-          <Lightning
+          <BoltIcon
             aria-hidden="true"
             className="size-3.5 text-muted-foreground"
           />

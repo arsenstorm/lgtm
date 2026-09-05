@@ -1,20 +1,18 @@
-import {
-  ChatCircleText,
-  Clock,
-  GitMerge,
-  MinusCircle,
-  Plugs,
-  Prohibit,
-  Timer,
-} from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import {
+  BanIcon,
+  ChatBubbleContentIcon,
   CircleCheckIcon,
+  CircleMinusIcon,
   CircleXIcon,
+  ClockIcon,
   CodeBranchIcon,
+  CodeMergeIcon,
   HandCheckIcon,
   type IconComponent,
   LoaderIcon,
+  PlugOffIcon,
+  StopwatchIcon,
 } from "@/components/icons";
 import { TimeAgo } from "@/components/time-ago";
 import type { Task, TaskStatus } from "@/lib/lgtm/types";
@@ -37,20 +35,20 @@ export const STATUS: Record<
     label: "Awaiting review",
     tone: "attention",
   },
-  cancelled: { icon: MinusCircle, label: "Cancelled", tone: "idle" },
+  cancelled: { icon: CircleMinusIcon, label: "Cancelled", tone: "idle" },
   changes_requested: {
-    icon: ChatCircleText,
+    icon: ChatBubbleContentIcon,
     label: "Changes requested",
     tone: "attention",
   },
   conflicted: { icon: CodeBranchIcon, label: "Conflicted", tone: "attention" },
   failed: { icon: CircleXIcon, label: "Failed", tone: "broken" },
-  merged: { icon: GitMerge, label: "Merged", tone: "done" },
-  queued: { icon: Clock, label: "Queued", tone: "idle" },
-  rejected: { icon: Prohibit, label: "Rejected", tone: "idle" },
-  runner_lost: { icon: Plugs, label: "Runner lost", tone: "broken" },
+  merged: { icon: CodeMergeIcon, label: "Merged", tone: "done" },
+  queued: { icon: ClockIcon, label: "Queued", tone: "idle" },
+  rejected: { icon: BanIcon, label: "Rejected", tone: "idle" },
+  runner_lost: { icon: PlugOffIcon, label: "Runner lost", tone: "broken" },
   running: { icon: LoaderIcon, label: "Running", tone: "live" },
-  timed_out: { icon: Timer, label: "Timed out", tone: "broken" },
+  timed_out: { icon: StopwatchIcon, label: "Timed out", tone: "broken" },
 };
 
 export const TONE_TEXT: Record<Tone, string> = {

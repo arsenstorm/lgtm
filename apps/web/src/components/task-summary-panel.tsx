@@ -1,4 +1,3 @@
-import { FileCode, FileText, ShieldSlash } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 
 import { DiffView } from "@/components/diff-view";
@@ -8,6 +7,9 @@ import {
   CircleWarningIcon,
   CircleXIcon,
   CodeBranchIcon,
+  CodeIcon,
+  FileContentIcon,
+  ShieldSlashIcon,
   WarningIcon,
 } from "@/components/icons";
 import type {
@@ -49,7 +51,7 @@ export function TaskSummaryPanel({
             <ul className="divide-y overflow-hidden rounded-lg border">
               {result.changed_files.map((file) => (
                 <li className="flex items-start gap-2.5 px-3 py-2" key={file}>
-                  <FileCode className="mt-px size-3.5 shrink-0 text-muted-foreground" />
+                  <CodeIcon className="mt-px size-3.5 shrink-0 text-muted-foreground" />
                   <FilePath className="min-w-0 text-xs" path={file} />
                 </li>
               ))}
@@ -143,7 +145,7 @@ function Environment({ detail }: { detail: TaskDetail }) {
         <Fact term="Sandbox">
           {spec.sandbox === "off" ? (
             <span className="inline-flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
-              <ShieldSlash className="size-3.5 shrink-0" />
+              <ShieldSlashIcon className="size-3.5 shrink-0" />
               off
             </span>
           ) : (
@@ -248,7 +250,7 @@ function EmptyDiff({ status }: { status: TaskStatus }) {
 
   return (
     <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-8 text-center">
-      <FileText className="size-5 text-muted-foreground" />
+      <FileContentIcon className="size-5 text-muted-foreground" />
       <p className="font-medium text-sm">
         {pending ? "No diff yet" : "This task produced no diff"}
       </p>

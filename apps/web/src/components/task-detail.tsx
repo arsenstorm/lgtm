@@ -1,6 +1,5 @@
-import { Stack } from "@phosphor-icons/react";
-
 import { FilePath } from "@/components/file-path";
+import { LayersIcon } from "@/components/icons";
 import { TaskComposer } from "@/components/task-composer";
 import { TaskTranscript } from "@/components/task-transcript";
 import type { Overlap, TaskDetail } from "@/lib/lgtm/types";
@@ -31,7 +30,7 @@ function OverlapPanel({ overlaps }: { overlaps: Overlap[] }) {
   return (
     <section className="rounded-lg border border-amber-500/35 bg-amber-500/5 p-4">
       <h2 className="flex items-center gap-2 font-medium text-amber-700 text-sm dark:text-amber-400">
-        <Stack className="size-4 shrink-0" />
+        <LayersIcon className="size-4 shrink-0" />
         {overlaps.length === 1
           ? "One other unmerged task touches these files"
           : `${overlaps.length} other unmerged tasks touch these files`}

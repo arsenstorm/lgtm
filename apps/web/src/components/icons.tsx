@@ -733,3 +733,385 @@ export function LinkIcon(props: IconProps) {
     </Base>
   );
 }
+
+/** Nucleo ui `arrow-turn-left`. */
+export function EnterIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path {...STROKE} d="M2.75,9.75H13.25c1.105,0,2-.895,2-2V3.75" />
+      <polyline {...STROKE} points="7 5.5 2.75 9.75 7 14" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `arrows-expand-diagonal`. */
+export function ExpandIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <polyline {...STROKE} points="10.75 2.75 15.25 2.75 15.25 7.25" />
+      <line {...STROKE} x1="15.25" x2="10.75" y1="2.75" y2="7.25" />
+      <polyline {...STROKE} points="2.75 10.75 2.75 15.25 7.25 15.25" />
+      <line {...STROKE} x1="2.75" x2="7.25" y1="15.25" y2="10.75" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `square-check-3`. */
+export function SquareCheckIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M5.5,9c.863,.867,1.537,1.868,2.1,2.962,1.307-2.491,2.94-4.466,4.9-5.923"
+      />
+      <rect
+        {...STROKE}
+        height="12.5"
+        rx="2"
+        ry="2"
+        width="12.5"
+        x="2.75"
+        y="2.75"
+      />
+    </Base>
+  );
+}
+
+/** Nucleo ui `terminal`. */
+export function TerminalIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <polyline {...STROKE} points="2.75 14.25 8 9 2.75 3.75" />
+      <line {...STROKE} x1="9.5" x2="15.25" y1="14.25" y2="14.25" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `book-open`. */
+export function BookOpenIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M9,15.051c.17,0,.339-.045,.494-.134,.643-.371,1.732-.847,3.141-.845,.899,.001,1.667,.197,2.27,.435,.648,.255,1.344-.24,1.344-.937V4.487c0-.354-.181-.68-.486-.86-.637-.376-1.726-.863-3.14-.863-1.89,0-3.198,.872-3.624,1.182"
+      />
+      <path
+        {...STROKE}
+        d="M9,15.051c-.17,0-.339-.045-.494-.134-.643-.371-1.732-.847-3.141-.845-.899,.001-1.667,.197-2.27,.435-.648,.255-1.344-.237-1.344-.933,0-2.593,0-7.472,0-9.09,0-.354,.181-.676,.486-.856,.637-.376,1.726-.863,3.14-.863,1.89,0,3.198,.872,3.624,1.182h0s0,11.104,0,11.104Z"
+      />
+    </Base>
+  );
+}
+
+/** Nucleo ui `image`. */
+export function ImageIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M3.762,14.989l6.074-6.075c.781-.781,2.047-.781,2.828,0l2.586,2.586"
+      />
+      <rect
+        {...STROKE}
+        height="12.5"
+        rx="2"
+        ry="2"
+        width="12.5"
+        x="2.75"
+        y="2.75"
+      />
+      <circle cx="6.25" cy="7.25" fill="currentColor" r="1.25" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `paperclip`. */
+export function PaperclipIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M7.75,5v6.75c0,.828,.672,1.5,1.5,1.5h0c.828,0,1.5-.672,1.5-1.5V4.75c0-1.657-1.343-3-3-3h0c-1.657,0-3,1.343-3,3v7c0,2.485,2.015,4.5,4.5,4.5h0c2.485,0,4.5-2.015,4.5-4.5V5"
+      />
+    </Base>
+  );
+}
+
+/** Nucleo ui `circle-minus`. */
+export function CircleMinusIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <circle {...STROKE} cx="9" cy="9" r="7.25" />
+      <line {...STROKE} x1="5.75" x2="12.25" y1="9" y2="9" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `chat-bubble-content`. */
+export function ChatBubbleContentIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M13.75,2.75H4.25c-1.105,0-2,.895-2,2v11.5l3.75-3h7.75c1.105,0,2-.895,2-2V4.75c0-1.105-.895-2-2-2Z"
+      />
+      <line {...STROKE} x1="5.75" x2="12.25" y1="6.25" y2="6.25" />
+      <line {...STROKE} x1="5.75" x2="10" y1="9.75" y2="9.75" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `code-merge`. */
+export function CodeMergeIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <line {...STROKE} x1="4.75" x2="4.75" y1="6.25" y2="16.25" />
+      <path {...STROKE} d="M11,12.5c-3.452,0-6.25-2.798-6.25-6.25" />
+      <circle {...STROKE} cx="4.75" cy="4" r="2.25" />
+      <circle {...STROKE} cx="13.25" cy="12.5" r="2.25" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `clock`. */
+export function ClockIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <circle {...STROKE} cx="9" cy="9" r="7.25" />
+      <polyline {...STROKE} points="9 4.75 9 9 12.25 11.25" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `ban`. */
+export function BanIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <line {...STROKE} x1="3.873" x2="14.118" y1="14.127" y2="3.882" />
+      <circle {...STROKE} cx="9" cy="9" r="7.25" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `plug-off`. */
+export function PlugOffIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <line {...STROKE} x1="6.25" x2="6.25" y1="4.75" y2="1.75" />
+      <line {...STROKE} x1="11.75" x2="11.75" y1="4.75" y2="1.75" />
+      <line {...STROKE} x1="12" x2="16" y1="12.25" y2="16.25" />
+      <path
+        {...STROKE}
+        d="m9,16.25v-2.5l-.3401-.0171c-3.2902-.1782-5.9099-2.8987-5.9099-6.2329v-1.75c0-.552.448-1,1-1h10.5c.552,0,1,.448,1,1v1.75c0,.6189-.0934,1.2156-.2614,1.7803"
+      />
+      <line {...STROKE} x1="16" x2="12" y1="12.25" y2="16.25" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `stopwatch`. */
+export function StopwatchIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <line {...STROKE} x1="6.75" x2="11.25" y1="1.25" y2="1.25" />
+      <line {...STROKE} x1="9" x2="9" y1="1.25" y2="3.75" />
+      <circle {...STROKE} cx="9" cy="10" r="6.25" />
+      <line {...STROKE} x1="6.702" x2="9" y1="7.702" y2="10" />
+      <line {...STROKE} x1="14.25" x2="16.25" y1="2.75" y2="4.75" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `circle-check`. */
+export function CircleIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <circle {...STROKE} cx="9" cy="9" r="7.25" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `progress-circle-2-of-4`. */
+export function ProgressHalfIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path {...STROKE} d="M16.135,7.75c-.522-3-2.885-5.363-5.885-5.885" />
+      <path {...STROKE} d="M10.25,16.135c3-.522,5.363-2.885,5.885-5.885" />
+      <path
+        {...STROKE}
+        d="M1.865,10.25c.522,3,2.885,5.363,5.885,5.885"
+        opacity=".3"
+      />
+      <path
+        {...STROKE}
+        d="M7.75,1.865c-3,.522-5.363,2.885-5.885,5.885"
+        opacity=".3"
+      />
+      <circle {...STROKE} cx="9" cy="9" r="2.25" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `bolt`. */
+export function BoltIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M14.7505 7.25H9.49905L9.81065 1.9868C9.82325 1.7732 9.55085 1.6734 9.42255 1.8446L3.04965 10.3501C2.92615 10.5149 3.04376 10.75 3.24976 10.75H8.50115L8.18955 16.0132C8.17695 16.2268 8.44935 16.3266 8.57765 16.1554L14.9506 7.6499C15.0741 7.4851 14.9565 7.25 14.7505 7.25Z"
+      />
+    </Base>
+  );
+}
+
+/** Nucleo ui `layers`. */
+export function LayersIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M2.58,6.149L8.385,1.949c.367-.266,.864-.266,1.231,0l5.805,4.2c.579,.419,.579,1.282,0,1.701l-5.805,4.2c-.367,.266-.864,.266-1.231,0L2.58,7.851c-.579-.419-.579-1.282,0-1.701Z"
+      />
+      <path
+        {...STROKE}
+        d="M15.746,10.533c.217,.439,.109,1.003-.326,1.317l-5.805,4.2c-.184,.133-.4,.199-.615,.199-.216,0-.432-.066-.615-.199L2.58,11.851c-.434-.314-.543-.878-.326-1.317"
+      />
+    </Base>
+  );
+}
+
+/** Nucleo ui `code`. */
+export function CodeIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <polyline {...STROKE} points="6.5 13.75 1.75 9 6.5 4.25" />
+      <polyline {...STROKE} points="11.5 13.75 16.25 9 11.5 4.25" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `shield-alert`. */
+export function ShieldAlertIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M9.305 1.848L14.555 3.528C14.969 3.661 15.25 4.046 15.25 4.48V11C15.25 14.03 10.566 15.748 9.308 16.155C9.105 16.221 8.895 16.221 8.692 16.155C7.434 15.748 2.75 14.03 2.75 11V4.48C2.75 4.045 3.031 3.66 3.445 3.528L8.695 1.848C8.893 1.785 9.106 1.785 9.305 1.848Z"
+      />
+      <path {...STROKE} d="M9 5.75V9" />
+      <path
+        d="M9 13C8.449 13 8 12.551 8 12C8 11.449 8.449 11 9 11C9.551 11 10 11.449 10 12C10 12.551 9.551 13 9 13Z"
+        fill="currentColor"
+      />
+    </Base>
+  );
+}
+
+/** Nucleo ui `file-content`. */
+export function FileContentIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <line {...STROKE} x1="5.75" x2="7.75" y1="6.75" y2="6.75" />
+      <line {...STROKE} x1="5.75" x2="12.25" y1="9.75" y2="9.75" />
+      <line {...STROKE} x1="5.75" x2="12.25" y1="12.75" y2="12.75" />
+      <path
+        {...STROKE}
+        d="M2.75,14.25V3.75c0-1.105,.895-2,2-2h5.586c.265,0,.52,.105,.707,.293l3.914,3.914c.188,.188,.293,.442,.293,.707v7.586c0,1.105-.895,2-2,2H4.75c-1.105,0-2-.895-2-2Z"
+      />
+      <path {...STROKE} d="M15.16,6.25h-3.41c-.552,0-1-.448-1-1V1.852" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `shield-slash`. */
+export function ShieldSlashIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M4.216 13.784C3.368 13.029 2.75 12.101 2.75 11V4.48C2.75 4.045 3.03101 3.66 3.44501 3.528L8.69501 1.848C8.89301 1.785 9.10599 1.785 9.30499 1.848L14.493 3.508"
+      />
+      <path {...STROKE} d="M2 16L16 2" />
+      <path
+        {...STROKE}
+        d="M6.82532 15.417C7.61002 15.781 8.31104 16.0317 8.69214 16.155C8.89514 16.2209 9.10514 16.2209 9.30814 16.155C10.5661 15.748 15.2501 14.03 15.2501 11V6.9922"
+      />
+    </Base>
+  );
+}
+
+/** Nucleo ui `circle-info`. */
+export function CircleInfoIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        {...STROKE}
+        d="M9 16.25C13.004 16.25 16.25 13.004 16.25 9C16.25 4.996 13.004 1.75 9 1.75C4.996 1.75 1.75 4.996 1.75 9C1.75 13.004 4.996 16.25 9 16.25Z"
+      />
+      <path {...STROKE} d="M9 12.75V9.25C9 8.9739 8.7761 8.75 8.5 8.75H7.75" />
+      <path
+        d="M9 6.75C8.448 6.75 8 6.301 8 5.75C8 5.199 8.448 4.75 9 4.75C9.552 4.75 10 5.199 10 5.75C10 6.301 9.552 6.75 9 6.75Z"
+        fill="currentColor"
+      />
+    </Base>
+  );
+}
+
+/** Nucleo ui `arrow-down-left`. */
+export function ArrowDownLeftIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <line {...STROKE} x1="3.75" x2="14.25" y1="14.25" y2="3.75" />
+      <polyline {...STROKE} points="9.76 14.25 3.75 14.25 3.75 8.24" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `arrow-up-right`. */
+export function ArrowUpRightIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <line {...STROKE} x1="14.25" x2="3.75" y1="3.75" y2="14.25" />
+      <polyline {...STROKE} points="8.24 3.75 14.25 3.75 14.25 9.76" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `circle-arrow-right`. */
+export function CircleArrowRightIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <polyline {...STROKE} points="9.75 6.5 12.25 9 9.75 11.5" />
+      <line {...STROKE} x1="12.25" x2="5.75" y1="9" y2="9" />
+      <circle {...STROKE} cx="9" cy="9" r="7.25" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `circle-dashed`. */
+export function CircleDashedIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path {...STROKE} d="M4.987,2.961c.778-.518,1.662-.89,2.612-1.075" />
+      <path {...STROKE} d="M1.879,7.631c.185-.968,.562-1.867,1.091-2.657" />
+      <path {...STROKE} d="M4.987,15.039c.778,.518,1.662,.89,2.612,1.075" />
+      <path {...STROKE} d="M1.879,10.369c.185,.968,.562,1.867,1.091,2.657" />
+      <path {...STROKE} d="M10.401,1.886c.95,.185,1.834,.557,2.612,1.075" />
+      <path {...STROKE} d="M15.03,4.974c.529,.79,.906,1.689,1.091,2.657" />
+      <path {...STROKE} d="M10.401,16.114c.95-.185,1.834-.557,2.612-1.075" />
+      <path {...STROKE} d="M15.03,13.026c.529-.79,.906-1.689,1.091-2.657" />
+    </Base>
+  );
+}
+
+/** Nucleo ui `circle-check` (glyph). */
+export function CircleCheckFilledIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path
+        d="M9,1C4.589,1,1,4.589,1,9s3.589,8,8,8,8-3.589,8-8S13.411,1,9,1Zm3.843,5.708l-4.25,5.5c-.136,.176-.343,.283-.565,.291-.01,0-.019,0-.028,0-.212,0-.415-.09-.558-.248l-2.25-2.5c-.277-.308-.252-.782,.056-1.06,.309-.276,.781-.252,1.06,.056l1.648,1.832,3.701-4.789c.253-.328,.725-.388,1.052-.135,.328,.253,.388,.724,.135,1.052Z"
+        fill="currentColor"
+      />
+    </Base>
+  );
+}

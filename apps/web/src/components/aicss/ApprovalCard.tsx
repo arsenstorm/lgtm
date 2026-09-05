@@ -1,17 +1,16 @@
 "use client";
 
-import {
-  ArrowElbowDownLeft,
-  ArrowsOutSimple,
-  CaretDown,
-  CaretUp,
-  ChatsCircle,
-  CheckSquare,
-  ListChecks,
-  Terminal,
-  X,
-} from "@phosphor-icons/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  ChevronIcon,
+  EnterIcon,
+  ExpandIcon,
+  ListCheckboxIcon,
+  MsgsIcon,
+  SquareCheckIcon,
+  TerminalIcon,
+  XIcon,
+} from "@/components/icons";
 import styles from "./ApprovalCard.module.css";
 
 export type ApprovalVariant = "questions" | "command" | "plan";
@@ -476,10 +475,10 @@ export function ApprovalCard({
 
   const Icon =
     variant === "questions"
-      ? ChatsCircle
+      ? MsgsIcon
       : variant === "command"
-        ? Terminal
-        : CheckSquare;
+        ? TerminalIcon
+        : SquareCheckIcon;
 
   return (
     <div
@@ -527,11 +526,7 @@ export function ApprovalCard({
               }}
               type="button"
             >
-              <ArrowsOutSimple
-                aria-hidden
-                className={styles.headActionIcon}
-                strokeWidth={2}
-              />
+              <ExpandIcon className={styles.headActionIcon} />
             </button>
           </div>
         )}
@@ -699,11 +694,7 @@ export function ApprovalCard({
           <div className={styles.todoWell}>
             <div className={styles.todoHead}>
               <span className={styles.todoHeadIcon}>
-                <ListChecks
-                  aria-hidden
-                  className={styles.todoListIcon}
-                  strokeWidth={2}
-                />
+                <ListCheckboxIcon className={styles.todoListIcon} />
               </span>
               <span className={styles.todoTitle}>To-dos</span>
               <span className={styles.todoCount}>{plan.length}</span>
@@ -811,11 +802,7 @@ export function ApprovalCard({
               }}
               type="button"
             >
-              <CaretUp
-                aria-hidden
-                className={styles.stepArrowIcon}
-                strokeWidth={2}
-              />
+              <ChevronIcon className={styles.stepArrowIcon} direction="up" />
             </button>
             <span aria-live="polite" className={styles.stepBadge}>
               <RollingDigits value={stepLabel} />
@@ -830,11 +817,7 @@ export function ApprovalCard({
               }}
               type="button"
             >
-              <CaretDown
-                aria-hidden
-                className={styles.stepArrowIcon}
-                strokeWidth={2}
-              />
+              <ChevronIcon className={styles.stepArrowIcon} direction="down" />
             </button>
           </div>
         ) : variant === "plan" && autoUI !== "gone" ? (
@@ -888,7 +871,7 @@ export function ApprovalCard({
                   />
                 </svg>
                 <span aria-hidden className={styles.autoApproveCancelGlyph}>
-                  <X size={8} strokeWidth={2.5} />
+                  <XIcon height={8} width={8} />
                 </span>
               </button>
             </span>
@@ -924,11 +907,10 @@ export function ApprovalCard({
             type="button"
           >
             {resolvedApprove}
-            <ArrowElbowDownLeft
-              aria-hidden
+            <EnterIcon
               className={styles.btnSubmitIcon}
-              size={12}
-              strokeWidth={2}
+              height={12}
+              width={12}
             />
           </button>
         </div>

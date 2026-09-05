@@ -1,10 +1,15 @@
-import { FileCode, ShieldWarning, Terminal } from "@phosphor-icons/react";
 import Markdown from "react-markdown";
 
 import { TextResponse } from "@/components/aicss/TextResponse";
 import { ThinkingState } from "@/components/aicss/ThinkingState";
 import { FilePath } from "@/components/file-path";
-import { ChevronIcon, type IconComponent } from "@/components/icons";
+import {
+  ChevronIcon,
+  CodeIcon,
+  type IconComponent,
+  ShieldAlertIcon,
+  TerminalIcon,
+} from "@/components/icons";
 import { TimeAgo } from "@/components/time-ago";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
@@ -105,7 +110,7 @@ function toItem({ at, event }: StoredEvent): Item | null {
       return {
         at,
         body: <span className="min-w-0">{str(event, "command")}</span>,
-        icon: Terminal,
+        icon: TerminalIcon,
         kind: "tool",
         lines: [],
         tool: "command",
@@ -114,7 +119,7 @@ function toItem({ at, event }: StoredEvent): Item | null {
       return {
         at,
         body: <FilePath path={str(event, "path")} />,
-        icon: FileCode,
+        icon: CodeIcon,
         kind: "tool",
         lines: [],
         tool: "file",
@@ -494,7 +499,7 @@ function PermissionRow({ what, reason }: { reason: string; what: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-lg border border-amber-500/35 bg-amber-500/5 p-3">
       <p className="flex items-center gap-2 font-medium text-amber-700 text-sm dark:text-amber-400">
-        <ShieldWarning className="size-4 shrink-0" />
+        <ShieldAlertIcon className="size-4 shrink-0" />
         The sandbox refused {what}
       </p>
       {reason ? (

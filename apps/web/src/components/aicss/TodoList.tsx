@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  ChevronIcon,
+  CircleArrowRightIcon,
+  CircleCheckFilledIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
+  ListCheckboxIcon,
+} from "@/components/icons";
 import styles from "./TodoList.module.css";
 
 const LABELS = [
@@ -16,60 +24,25 @@ const STEP_MS = 2250; // how long each task stays "working"
 
 const cls = (base: string, on?: boolean) => base + (on ? " " + styles.on : "");
 const CheckIcon = ({ on }: { on?: boolean }) => (
-  <svg
-    aria-hidden="true"
+  <CircleCheckIcon
     className={cls(styles.todoIcon, on)}
-    height="16"
-    viewBox="0 0 24 24"
-    width="16"
-  >
-    <path
-      d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.6"
-    />
-  </svg>
+    height={16}
+    width={16}
+  />
 );
 const ArrowIcon = ({ on }: { on?: boolean }) => (
-  <svg
-    aria-hidden="true"
+  <CircleArrowRightIcon
     className={cls(styles.todoIcon + " " + styles.strong, on)}
-    height="16"
-    viewBox="0 0 24 24"
-    width="16"
-  >
-    <path
-      d="m12.75 15 3-3m0 0-3-3m3 3h-7.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.6"
-    />
-  </svg>
+    height={16}
+    width={16}
+  />
 );
 const DashedIcon = ({ on }: { on?: boolean }) => (
-  <svg
-    aria-hidden="true"
+  <CircleDashedIcon
     className={cls(styles.todoIcon, on)}
-    height="16"
-    viewBox="0 0 24 24"
-    width="16"
-  >
-    <circle
-      cx="12"
-      cy="12"
-      fill="none"
-      r="9"
-      stroke="currentColor"
-      strokeDasharray="1.8 3.6"
-      strokeLinecap="round"
-      strokeWidth="1.8"
-    />
-  </svg>
+    height={16}
+    width={16}
+  />
 );
 
 // one character slot that rolls the old glyph up and the new one in on change
@@ -114,20 +87,11 @@ const RollingCount = ({ value }: { value: string }) => (
   </span>
 );
 const FilledCheckIcon = () => (
-  <svg
-    aria-hidden="true"
+  <CircleCheckFilledIcon
     className={styles.todoHeadCheck}
-    height="16"
-    viewBox="0 0 24 24"
-    width="16"
-  >
-    <path
-      clipRule="evenodd"
-      d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm13.36-1.814a.75.75 0 1 0-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.14-.094l3.75-5.25Z"
-      fill="currentColor"
-      fillRule="evenodd"
-    />
-  </svg>
+    height={16}
+    width={16}
+  />
 );
 
 export interface TodoItem {
@@ -205,41 +169,18 @@ export function TodoList({ items }: { items?: TodoItem[] } = {}) {
               </svg>
             </span>
           ) : (
-            <svg
-              aria-hidden="true"
+            <ListCheckboxIcon
               className={styles.todoListIcon}
-              fill="none"
-              height="16"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-              width="16"
-            >
-              <path d="M13 5h8" />
-              <path d="M13 12h8" />
-              <path d="M13 19h8" />
-              <path d="m3 17 2 2 4-4" />
-              <path d="m3 7 2 2 4-4" />
-            </svg>
-          )}
-          <svg
-            aria-hidden="true"
-            className={styles.todoChevron}
-            height="16"
-            viewBox="0 0 24 24"
-            width="16"
-          >
-            <path
-              d="m19.5 8.25-7.5 7.5-7.5-7.5"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.8"
+              height={16}
+              width={16}
             />
-          </svg>
+          )}
+          <ChevronIcon
+            className={styles.todoChevron}
+            direction="down"
+            height={16}
+            width={16}
+          />
         </span>
         <span className={styles.todoTitle}>To-dos</span>
         <span className={styles.todoCount}>

@@ -1,17 +1,6 @@
 "use client";
 
 import {
-  ArrowUp,
-  BookOpen,
-  CaretRight,
-  Check,
-  CircleNotch,
-  Image as ImageIcon,
-  Paperclip,
-  Plus,
-  X,
-} from "@phosphor-icons/react";
-import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   useEffect,
@@ -19,6 +8,17 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  ArrowUpIcon,
+  BookOpenIcon,
+  CheckIcon,
+  ChevronIcon,
+  ImageIcon,
+  LoaderIcon,
+  PaperclipIcon,
+  PlusIcon,
+  XIcon,
+} from "@/components/icons";
 import styles from "./PromptInput.module.css";
 
 const ENHANCED =
@@ -321,7 +321,7 @@ export function PromptInput({
       styles.skillPillX +
       '" data-remove="1" aria-label="Remove ' +
       escapeHtml(name) +
-      '"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
+      '"><svg width="11" height="11" viewBox="0 0 18 18" aria-hidden="true"><line x1="14" y1="4" x2="4" y2="14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line><line x1="4" y1="4" x2="14" y2="14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line></svg></button>';
     return el;
   };
 
@@ -826,9 +826,9 @@ export function PromptInput({
               >
                 <span className={styles.chipIcon}>
                   {att.kind === "image" ? (
-                    <ImageIcon size={13} />
+                    <ImageIcon height={13} width={13} />
                   ) : (
-                    <Paperclip size={13} />
+                    <PaperclipIcon height={13} width={13} />
                   )}
                 </span>
                 <span className={styles.chipName}>{att.name}</span>
@@ -838,7 +838,7 @@ export function PromptInput({
                   onClick={() => removeAttachment(att.id)}
                   type="button"
                 >
-                  <X size={11} />
+                  <XIcon height={11} width={11} />
                 </button>
               </span>
             ))}
@@ -927,7 +927,7 @@ export function PromptInput({
               type="button"
             >
               <span className={styles.plusIcon}>
-                <Plus size={14} />
+                <PlusIcon height={14} width={14} />
               </span>
             </button>
 
@@ -942,7 +942,7 @@ export function PromptInput({
                       type="button"
                     >
                       <span className={styles.menuIcon}>
-                        <ImageIcon size={14} />
+                        <ImageIcon height={14} width={14} />
                       </span>
                       <span className={styles.menuName}>Add photos</span>
                     </button>
@@ -953,7 +953,7 @@ export function PromptInput({
                       type="button"
                     >
                       <span className={styles.menuIcon}>
-                        <Paperclip size={14} />
+                        <PaperclipIcon height={14} width={14} />
                       </span>
                       <span className={styles.menuName}>Attach files</span>
                     </button>
@@ -972,11 +972,11 @@ export function PromptInput({
                         type="button"
                       >
                         <span className={styles.menuIcon}>
-                          <BookOpen size={14} />
+                          <BookOpenIcon height={14} width={14} />
                         </span>
                         <span className={styles.menuName}>Skills</span>
                         <span className={styles.menuChevron}>
-                          <CaretRight size={14} />
+                          <ChevronIcon height={14} width={14} />
                         </span>
                       </button>
                       {skillsOpen && (
@@ -1023,7 +1023,7 @@ export function PromptInput({
                       <span className={styles.menuName}>{m.name}</span>
                       {model === m.id && (
                         <span className={styles.menuCheck}>
-                          <Check size={14} />
+                          <CheckIcon height={14} width={14} />
                         </span>
                       )}
                     </button>
@@ -1046,7 +1046,7 @@ export function PromptInput({
                 aria-label="Enhancing prompt"
                 className={[styles.iconBtn, styles.spinnerBtn].join(" ")}
               >
-                <CircleNotch className={styles.spinner} size={14} />
+                <LoaderIcon className={styles.spinner} height={14} width={14} />
               </span>
             ) : (
               pillMounted && (
@@ -1074,7 +1074,7 @@ export function PromptInput({
               onClick={send}
               type="button"
             >
-              <ArrowUp size={14} />
+              <ArrowUpIcon height={14} width={14} />
             </button>
           </div>
         </div>

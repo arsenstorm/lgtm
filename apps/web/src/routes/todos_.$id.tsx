@@ -1,4 +1,3 @@
-import { ArrowDownLeft, ArrowUpRight } from "@phosphor-icons/react";
 import type { ErrorComponentProps } from "@tanstack/react-router";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { FormEvent, ReactNode } from "react";
@@ -6,7 +5,11 @@ import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { projectName } from "@/components/app-sidebar";
-import { PencilIcon } from "@/components/icons";
+import {
+  ArrowDownLeftIcon,
+  ArrowUpRightIcon,
+  PencilIcon,
+} from "@/components/icons";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { TagsRow } from "@/components/tags-row";
@@ -104,14 +107,14 @@ function TodoDetailPage() {
           />
           {todo.blockers.length > 0 ? (
             <span className={cn(CHIP, "border-border text-muted-foreground")}>
-              <ArrowDownLeft />
+              <ArrowDownLeftIcon />
               Blocked by{" "}
               <span className="tabular-nums">{todo.blockers.length}</span>
             </span>
           ) : null}
           {blocking > 0 ? (
             <span className={cn(CHIP, "border-border text-muted-foreground")}>
-              <ArrowUpRight />
+              <ArrowUpRightIcon />
               Blocking <span className="tabular-nums">{blocking}</span>
             </span>
           ) : null}

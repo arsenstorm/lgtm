@@ -1,8 +1,8 @@
-import { Info } from "@phosphor-icons/react";
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 import {
   CircleCheckIcon,
+  CircleInfoIcon,
   CircleXIcon,
   LoaderIcon,
   WarningIcon,
@@ -16,7 +16,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group"
       icons={{
         error: <CircleXIcon className="size-4" />,
-        info: <Info className="size-4" />,
+        info: <CircleInfoIcon className="size-4" />,
         loading: <LoaderIcon className="size-4 animate-spin" />,
         success: <CircleCheckIcon className="size-4" />,
         warning: <WarningIcon className="size-4" />,

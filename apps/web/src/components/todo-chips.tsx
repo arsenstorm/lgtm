@@ -1,9 +1,10 @@
-import { Circle, CircleHalf } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import {
   ChevronIcon,
   CircleCheckIcon,
+  CircleIcon,
   type IconComponent,
+  ProgressHalfIcon,
 } from "@/components/icons";
 import { PriorityIcon } from "@/components/priority-icon";
 import {
@@ -27,10 +28,10 @@ export const MARK: Record<
   },
   in_progress: {
     className: "text-amber-600 dark:text-amber-400",
-    icon: CircleHalf,
+    icon: ProgressHalfIcon,
     label: "In progress",
   },
-  open: { className: "text-muted-foreground", icon: Circle, label: "Open" },
+  open: { className: "text-muted-foreground", icon: CircleIcon, label: "Open" },
 };
 
 const STATUS_OPTIONS: TodoStatus[] = ["open", "in_progress", "done"];

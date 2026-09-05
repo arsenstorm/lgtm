@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ChevronIcon } from "@/components/icons";
 import styles from "./ThinkingReasoning.module.css";
 
 const SENTENCES = [
@@ -122,22 +123,12 @@ export function ThinkingReasoning({
           </span>
         )}
         {done && (
-          <svg
-            aria-hidden="true"
+          <ChevronIcon
             className={styles.trChevron}
-            height="12"
-            viewBox="0 0 24 24"
-            width="12"
-          >
-            <path
-              d="m4.5 15.75 7.5-7.5 7.5 7.5"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.8"
-            />
-          </svg>
+            direction="up"
+            height={12}
+            width={12}
+          />
         )}
       </button>
 

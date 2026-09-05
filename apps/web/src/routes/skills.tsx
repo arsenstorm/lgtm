@@ -20,14 +20,27 @@ export const Route = createFileRoute("/skills")({
   errorComponent: SkillsError,
 });
 
-/** The frontmatter the orchestrator insists on, with a name stamped from the
- *  browser's clock so a page of fresh skills still reads in order; the spec
- *  allows only lowercase letters, digits and single hyphens. */
-function template(now = new Date()): string {
+/** A name stamped from the browser's clock so a page of fresh skills still
+ *  reads in order, with a counter when this minute already made one: the
+ *  orchestrator refuses two skills of one name in a scope. The spec allows
+ *  only lowercase letters, digits and single hyphens. */
+function freeName(skills: Skill[], now = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  const stamp = `${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const base = `new-skill-${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const taken = new Set(
+    skills.filter((skill) => skill.repository === null).map((s) => s.name)
+  );
+  let name = base;
+  for (let n = 2; taken.has(name); n += 1) {
+    name = `${base}-${n}`;
+  }
+  return name;
+}
+
+/** The frontmatter the orchestrator insists on. */
+function template(name: string): string {
   return `---
-name: new-skill-${stamp}
+name: ${name}
 description: What this does and when an agent should use it.
 ---
 
@@ -47,7 +60,7 @@ function SkillsPage() {
     setCreating(true);
     try {
       const skill = await createSkill({
-        data: { content: template(), repository: null },
+        data: { content: template(freeName(skills)), repository: null },
       });
       // The blank document opening is the success signal; a toast on top of it
       // would only say what the screen already shows.
@@ -120,10 +133,7 @@ function SkillRow({ skill }: { skill: Skill }) {
       params={{ id: skill.id }}
       to="/skills/$id"
     >
-      <span className="min-w-0 truncate">{skill.name}</span>
-      <span className="min-w-0 flex-1 truncate text-muted-foreground">
-        {skill.description}
-      </span>
+      <span className="min-w-0 flex-1 truncate">{skill.name}</span>
 
       {/* Approved is the boring default; only a proposal needs saying. */}
       {skill.verification === "agent_proposed" && (
