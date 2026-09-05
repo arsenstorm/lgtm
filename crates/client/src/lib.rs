@@ -19,10 +19,11 @@ use tokio_tungstenite::Connector;
 pub use types::{
     ActivityLine, BatchDetail, BatchRequest, BatchResponse, EventStream, FromIssue, FromLinear,
     GoalDetail, IssuePreview, NewCredential, NewGoal, NewSession, Orchestrated, PromoteTodo, Retry,
-    SessionMessage, SessionPatch, TaskDetail, TerminalStream,
+    ScratchpadPatch, SessionMessage, SessionPatch, TaskDetail, TerminalStream,
 };
 use types::{
-    AllowHost, Attention, ErrorBody, FollowUp, NewMemory, NewTodo, Notes, PermissionRequest, Socket,
+    AllowHost, Attention, ErrorBody, FollowUp, NewMemory, NewScratchpad, NewTodo, Notes,
+    PermissionRequest, Socket,
 };
 
 /// Marks a call as the orchestration loop's, not a person's. Only `approve`
@@ -542,6 +543,47 @@ impl Client {
     ) -> anyhow::Result<lgtm_protocol::Task> {
         self.post(&format!("/api/sessions/{id}/messages"), Some(body))
             .await
+    }
+
+    /// Scratchpads that apply to `repository`, or every one when it is `None`.
+    pub async fn scratchpads(
+        &self,
+        repository: Option<&str>,
+    ) -> anyhow::Result<Vec<lgtm_protocol::Scratchpad>> {
+        let mut req = self.authed(self.http.get(format!("{}/api/scratchpads", self.base)));
+        if let Some(repository) = repository {
+            req = req.query(&[("repository", repository)]);
+        }
+        Self::handle(req.send().await?).await
+    }
+
+    pub async fn scratchpad(&self, id: &str) -> anyhow::Result<lgtm_protocol::Scratchpad> {
+        self.get(&format!("/api/scratchpads/{id}")).await
+    }
+
+    pub async fn create_scratchpad(
+        &self,
+        repository: Option<&str>,
+        title: &str,
+        content: &str,
+    ) -> anyhow::Result<lgtm_protocol::Scratchpad> {
+        self.post(
+            "/api/scratchpads",
+            Some(&NewScratchpad {
+                repository,
+                title,
+                content,
+            }),
+        )
+        .await
+    }
+
+    pub async fn update_scratchpad(
+        &self,
+        id: &str,
+        patch: &ScratchpadPatch,
+    ) -> anyhow::Result<lgtm_protocol::Scratchpad> {
+        self.patch(&format!("/api/scratchpads/{id}"), patch).await
     }
 
     /// Todos that apply to `repository`, or every one when it is `None`.

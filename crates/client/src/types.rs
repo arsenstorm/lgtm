@@ -226,6 +226,25 @@ pub(crate) struct NewTodo<'a> {
     pub(crate) blockers: &'a [String],
 }
 
+/// Body of `POST /api/scratchpads`.
+#[derive(Serialize)]
+pub(crate) struct NewScratchpad<'a> {
+    pub(crate) repository: Option<&'a str>,
+    pub(crate) title: &'a str,
+    pub(crate) content: &'a str,
+}
+
+/// Body of `PATCH /api/scratchpads/:id`: whichever fields are being changed.
+#[derive(Serialize, Default, Clone, Debug)]
+pub struct ScratchpadPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
+}
+
 /// Body of `POST /api/todos/:id/promote`.
 #[derive(Serialize, Clone, Debug)]
 pub struct PromoteTodo {
