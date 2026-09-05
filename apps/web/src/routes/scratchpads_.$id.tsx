@@ -249,8 +249,9 @@ function ScratchpadDocument({
     // The shell's <main> is an unpadded scroll container, so the page owns its
     // own gutters. One grid holds the title and document on the left and the
     // actions and details on the right, so the right column starts at the top
-    // however many lines the title takes.
-    <article className="mx-auto grid w-full max-w-5xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_14rem] lg:px-8">
+    // however many lines the title takes. The second row is the flexible one,
+    // so a rail taller than the document grows that row, never the title's.
+    <article className="mx-auto grid w-full max-w-5xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_14rem] lg:grid-rows-[auto_1fr] lg:px-8">
       {/* The first line is as tall as PageHeading's row, so the title sits where
           every other page's does and the dots beside it centre on that line. */}
       <header className="flex min-w-0 items-start gap-3 py-1">
