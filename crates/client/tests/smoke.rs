@@ -100,7 +100,10 @@ async fn end_to_end() {
     w.send(TMsg::Text(
         serde_json::to_string(&RunnerMessage::Event {
             task_id: task.id.clone(),
-            event: TaskEvent::Started { model: None },
+            event: TaskEvent::Started {
+                model: None,
+                skills: Vec::new(),
+            },
         })
         .unwrap()
         .into(),
@@ -108,7 +111,13 @@ async fn end_to_end() {
     .await
     .unwrap();
     let event = events.next().await.unwrap();
-    assert_eq!(event.event, TaskEvent::Started { model: None });
+    assert_eq!(
+        event.event,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new()
+        }
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }

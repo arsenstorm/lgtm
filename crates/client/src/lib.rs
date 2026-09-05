@@ -22,8 +22,8 @@ pub use types::{
     ScratchpadPatch, SessionMessage, SessionPatch, TaskDetail, TerminalStream,
 };
 use types::{
-    AllowHost, Attention, ErrorBody, FollowUp, NewComment, NewMemory, NewScratchpad, NewTodo,
-    Notes, PermissionRequest, Socket,
+    AllowHost, Attention, ErrorBody, FollowUp, NewComment, NewMemory, NewScratchpad, NewSkill,
+    NewTodo, Notes, PermissionRequest, SkillEdit, Socket,
 };
 
 /// Marks a call as the orchestration loop's, not a person's. Only `approve`
@@ -401,6 +401,95 @@ impl Client {
     pub async fn approve_memory(&self, id: &str) -> anyhow::Result<lgtm_protocol::Memory> {
         self.post(&format!("/api/memories/{id}/approve"), None::<&()>)
             .await
+    }
+
+    /// Skills that apply to `repository`, or every one when it is `None`;
+    /// `pending` narrows the list to proposals awaiting approval.
+    pub async fn skills(
+        &self,
+        repository: Option<&str>,
+        pending: bool,
+    ) -> anyhow::Result<Vec<lgtm_protocol::Skill>> {
+        let mut req = self.authed(self.http.get(format!("{}/api/skills", self.base)));
+        // A git URL needs escaping, which reqwest's query builder does.
+        let mut query = Vec::new();
+        if let Some(repository) = repository {
+            query.push(("repository", repository));
+        }
+        if pending {
+            query.push(("pending", "true"));
+        }
+        if !query.is_empty() {
+            req = req.query(&query);
+        }
+        Self::handle(req.send().await?).await
+    }
+
+    pub async fn create_skill(
+        &self,
+        repository: Option<&str>,
+        content: &str,
+        files: &[lgtm_protocol::SkillFile],
+    ) -> anyhow::Result<lgtm_protocol::Skill> {
+        self.post(
+            "/api/skills",
+            Some(&NewSkill {
+                repository,
+                content,
+                files,
+                source: None,
+                proposed_by: None,
+            }),
+        )
+        .await
+    }
+
+    /// Files a whole SKILL.md as a pending skill `proposed_by` a task; a
+    /// person approves it with `lgtm skill approve`.
+    pub async fn propose_skill(
+        &self,
+        repository: Option<&str>,
+        content: &str,
+        proposed_by: &str,
+    ) -> anyhow::Result<lgtm_protocol::Skill> {
+        self.post(
+            "/api/skills",
+            Some(&NewSkill {
+                repository,
+                content,
+                files: &[],
+                source: Some(lgtm_protocol::MemorySource::Agent),
+                proposed_by: Some(proposed_by),
+            }),
+        )
+        .await
+    }
+
+    pub async fn update_skill(
+        &self,
+        id: &str,
+        content: &str,
+        files: Option<&[lgtm_protocol::SkillFile]>,
+    ) -> anyhow::Result<lgtm_protocol::Skill> {
+        self.patch(&format!("/api/skills/{id}"), &SkillEdit { content, files })
+            .await
+    }
+
+    pub async fn approve_skill(&self, id: &str) -> anyhow::Result<lgtm_protocol::Skill> {
+        self.post(&format!("/api/skills/{id}/approve"), None::<&()>)
+            .await
+    }
+
+    /// The 204 carries no body, so nothing is deserialized here.
+    pub async fn delete_skill(&self, id: &str) -> anyhow::Result<()> {
+        let resp = self
+            .authed(self.http.delete(format!("{}/api/skills/{id}", self.base)))
+            .send()
+            .await?;
+        if resp.status().is_success() {
+            return Ok(());
+        }
+        Err(Self::failure(resp).await)
     }
 
     pub async fn credentials(&self) -> anyhow::Result<Vec<lgtm_protocol::CredentialSummary>> {
