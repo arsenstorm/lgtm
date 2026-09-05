@@ -378,7 +378,7 @@ function ScratchpadDocument({
             </>
           )}
 
-          <dt className="self-start pt-1.5 text-muted-foreground">Tags</dt>
+          <dt className="self-start pt-1 text-muted-foreground">Tags</dt>
           <dd className="py-1">
             <TagsRow disabled={busy} onChange={setTags} tags={pad.tags} />
           </dd>
