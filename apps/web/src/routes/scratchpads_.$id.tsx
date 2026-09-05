@@ -4,6 +4,7 @@ import type { FocusEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useRightPanel } from "@/components/app-shell";
 import { EditorToc } from "@/components/editor-toc";
 import {
   ArchiveIcon,
@@ -245,86 +246,12 @@ function ScratchpadDocument({
     }
   }, [armed, navigate, run, pad.id]);
 
-  return (
-    // The shell's <main> is an unpadded scroll container, so the page owns its
-    // own gutters. One grid holds the title and document on the left and the
-    // actions and details on the right, so the right column starts at the top
-    // however many lines the title takes. The second row is the flexible one,
-    // so a rail taller than the document grows that row, never the title's.
-    <article className="mx-auto grid w-full max-w-5xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_14rem] lg:grid-rows-[auto_1fr] lg:px-8">
-      {/* The first line is as tall as PageHeading's row, so the title sits where
-          every other page's does and the dots beside it centre on that line. */}
-      <header className="flex min-w-0 items-start gap-3 py-1">
-        {/* The heading is the input: click it, type, and leaving it saves.
-            Emptied, it shows the saved title and leaving it changes nothing. */}
-        <h1 className="min-w-0 max-w-3xl flex-1 font-medium text-xl tracking-tight">
-          {/* A textarea, so a long title wraps like the document under it;
-              the caret is its only focus mark. */}
-          <textarea
-            aria-label="Title"
-            className="field-sizing-content w-full resize-none overflow-hidden bg-transparent outline-none"
-            defaultValue={pad.title}
-            disabled={busy}
-            key={pad.title}
-            onBlur={rename}
-            onKeyDown={commitOrRestore}
-            placeholder={pad.title}
-            rows={1}
-          />
-        </h1>
-        {pad.archived ? (
-          <Badge className="mt-1" variant="outline">
-            archived
-          </Badge>
-        ) : null}
-      </header>
-
-      {/* Between the title and the document in the DOM, so a narrow screen
-          shows the actions and details before the document, not under it. */}
-      <aside className="flex flex-col gap-6 self-start lg:sticky lg:top-6 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:w-56">
-        <div className="flex h-9 items-center justify-end gap-2">
-          <span
-            aria-live="polite"
-            className="min-w-14 text-end text-muted-foreground text-xs"
-          >
-            {SAVE_LABEL[saveState]}
-          </span>
-          <DropdownMenu onOpenChange={onMenuOpenChange}>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  aria-label="Scratchpad actions"
-                  className="text-muted-foreground"
-                  disabled={busy}
-                  size="icon-sm"
-                  variant="ghost"
-                />
-              }
-            >
-              <DotsIcon aria-hidden="true" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44 rounded-lg">
-              <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={archive}>
-                {pad.archived ? <ArrowBackIcon /> : <ArchiveIcon />}
-                <span>{pad.archived ? "Unarchive" : "Archive"}</span>
-              </DropdownMenuItem>
-              {/* The first press arms and keeps the menu open; the second
-                  deletes. Closing the menu any other way disarms. */}
-              <DropdownMenuItem
-                className="gap-2 px-2 py-1.5"
-                closeOnClick={armed}
-                onClick={onDelete}
-                variant="destructive"
-              >
-                <TrashIcon />
-                <span>{armed ? "Confirm delete" : "Delete"}</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
+  useRightPanel({
+    title: "Details",
+    content: (
+      <div className="flex flex-col gap-6">
         {/* A property list: labels in one column, values in the other, every
-            value plain text and the editable ones ghost controls. */}
+        value plain text and the editable ones ghost controls. */}
         <dl className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-sm">
           <dt className="text-muted-foreground">Repository</dt>
           <dd className="min-w-0">
@@ -384,25 +311,104 @@ function ScratchpadDocument({
             <TagsRow disabled={busy} onChange={setTags} tags={pad.tags} />
           </dd>
         </dl>
-
-        <div className="hidden lg:block">
+        <div className="xl:hidden">
           <EditorToc containerRef={contentRef} headings={headings} />
         </div>
-      </aside>
+      </div>
+    ),
+  });
 
-      {/* The rail scrolls the headings this element contains, so it has to wrap
-          the rendered editor and nothing else. */}
-      <div
-        className="min-w-0 max-w-3xl lg:col-start-1 lg:row-start-2"
-        ref={contentRef}
-      >
-        <MarkdownEditor
-          autoFocus={pad.content === ""}
-          onHeadings={setHeadings}
-          onMarkdown={onMarkdown}
-          placeholder="Start writing…"
-          value={pad.content}
-        />
+  return (
+    // The shell's <main> is an unpadded scroll container, so the page owns its
+    // own gutters. The outline sits beside the document only when the screen
+    // is wide enough for both; otherwise it lives in the panel.
+    <article className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+      {/* The first line is as tall as PageHeading's row, so the title sits where
+          every other page's does and the dots beside it centre on that line. */}
+      <header className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3 py-1">
+          {/* The heading is the input: click it, type, and leaving it saves.
+              Emptied, it shows the saved title and leaving it changes nothing. */}
+          <h1 className="min-w-0 max-w-3xl flex-1 font-medium text-xl tracking-tight">
+            {/* A textarea, so a long title wraps like the document under it;
+                the caret is its only focus mark. */}
+            <textarea
+              aria-label="Title"
+              className="field-sizing-content w-full resize-none overflow-hidden bg-transparent outline-none"
+              defaultValue={pad.title}
+              disabled={busy}
+              key={pad.title}
+              onBlur={rename}
+              onKeyDown={commitOrRestore}
+              placeholder={pad.title}
+              rows={1}
+            />
+          </h1>
+          {pad.archived ? (
+            <Badge className="mt-1" variant="outline">
+              archived
+            </Badge>
+          ) : null}
+        </div>
+
+        <div className="flex h-9 shrink-0 items-center gap-2">
+          <span
+            aria-live="polite"
+            className="min-w-14 text-end text-muted-foreground text-xs"
+          >
+            {SAVE_LABEL[saveState]}
+          </span>
+          <DropdownMenu onOpenChange={onMenuOpenChange}>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  aria-label="Scratchpad actions"
+                  className="text-muted-foreground"
+                  disabled={busy}
+                  size="icon-sm"
+                  variant="ghost"
+                />
+              }
+            >
+              <DotsIcon aria-hidden="true" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44 rounded-lg">
+              <DropdownMenuItem className="gap-2 px-2 py-1.5" onClick={archive}>
+                {pad.archived ? <ArrowBackIcon /> : <ArchiveIcon />}
+                <span>{pad.archived ? "Unarchive" : "Archive"}</span>
+              </DropdownMenuItem>
+              {/* The first press arms and keeps the menu open; the second
+                  deletes. Closing the menu any other way disarms. */}
+              <DropdownMenuItem
+                className="gap-2 px-2 py-1.5"
+                closeOnClick={armed}
+                onClick={onDelete}
+                variant="destructive"
+              >
+                <TrashIcon />
+                <span>{armed ? "Confirm delete" : "Delete"}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </header>
+
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_14rem]">
+        {/* The rail scrolls the headings this element contains, so it has to
+            wrap the rendered editor and nothing else. */}
+        <div className="min-w-0 max-w-3xl" ref={contentRef}>
+          <MarkdownEditor
+            autoFocus={pad.content === ""}
+            onHeadings={setHeadings}
+            onMarkdown={onMarkdown}
+            placeholder="Start writing…"
+            value={pad.content}
+          />
+        </div>
+
+        <aside className="hidden self-start xl:sticky xl:top-6 xl:block xl:w-56">
+          <EditorToc containerRef={contentRef} headings={headings} />
+        </aside>
       </div>
     </article>
   );
