@@ -428,6 +428,21 @@ pub enum SkillCommand {
         repo: Option<String>,
         path: PathBuf,
     },
+    /// Import every skill found under a directory: your `~/.claude/skills`,
+    /// a checkout of a skills repository, or one skill's directory. Asks
+    /// which to take unless `--all` or `--only` says.
+    Import {
+        /// Git URL; omit for every repository.
+        #[arg(long)]
+        repo: Option<String>,
+        /// Take everything found, without asking.
+        #[arg(long)]
+        all: bool,
+        /// Take only these skills, by name; repeat the flag or separate with commas.
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
+        dir: PathBuf,
+    },
     /// List recorded skills.
     List {
         #[arg(long)]

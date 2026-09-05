@@ -4,25 +4,26 @@ mod mcp;
 mod render;
 mod run;
 mod serve;
+mod skills;
 mod table;
 mod terminal;
 mod upgrade;
 
-use std::path::{Path, PathBuf};
+use std::io::IsTerminal;
+use std::path::Path;
 
-use anyhow::Context;
 use clap::Parser;
 use lgtm_client::{Client, FromIssue, FromLinear, NewGoal, PromoteTodo};
 use lgtm_orchestrator::token::{data_dir, resolve_client_token, store_user_token};
-use lgtm_protocol::{BatchSource, SkillFile, TaskKind, TaskSpec, TodoPatch};
+use lgtm_protocol::{BatchSource, TaskKind, TaskSpec, TodoPatch};
 
 use crate::cli::{
     AuthCommand, BacklogCommand, Cli, Command, MemoryCommand, SkillCommand, Target, TodoCommand,
     UserCommand,
 };
 use crate::table::{
-    ci_str, mem_gb_cell, print_goal_table, print_memory_table, print_skill_table, print_task_table,
-    print_todo_table, status_str,
+    ci_str, first_line_truncated, mem_gb_cell, print_goal_table, print_memory_table,
+    print_skill_table, print_task_table, print_todo_table, status_str,
 };
 
 pub(crate) fn now_ms() -> u64 {
@@ -609,12 +610,28 @@ async fn memory_command(client: &Client, command: MemoryCommand) -> anyhow::Resu
 async fn skill_command(client: &Client, command: SkillCommand) -> anyhow::Result<i32> {
     match command {
         SkillCommand::Add { repo, path } => {
-            let (content, files) = read_skill(&path)?;
+            let (content, files) = skills::read_skill(&path)?;
+            let dir = if path.is_dir() {
+                path.as_path()
+            } else {
+                path.parent().unwrap_or(&path)
+            };
+            let origin = dir
+                .canonicalize()
+                .unwrap_or_else(|_| dir.to_path_buf())
+                .display()
+                .to_string();
             let skill = client
-                .create_skill(repo.as_deref(), &content, &files)
+                .create_skill(repo.as_deref(), &content, &files, Some(&origin))
                 .await?;
             println!("skill {} ({}) added", skill.id, skill.name);
         }
+        SkillCommand::Import {
+            repo,
+            all,
+            only,
+            dir,
+        } => return import_skills(client, repo.as_deref(), all, &only, &dir).await,
         SkillCommand::List { repo, pending } => {
             print_skill_table(&client.skills(repo.as_deref(), pending).await?);
         }
@@ -630,64 +647,121 @@ async fn skill_command(client: &Client, command: SkillCommand) -> anyhow::Result
     Ok(0)
 }
 
-/// A `SKILL.md` on its own, or the directory around it with every regular
-/// file beside it. Hidden entries are skipped: an editor's swap file is not
-/// part of a skill. Validated here so a bad file fails before the request.
-fn read_skill(path: &Path) -> anyhow::Result<(String, Vec<SkillFile>)> {
-    let dir = if path.is_dir() {
-        path.to_path_buf()
-    } else {
-        path.parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."))
-    };
-    let manifest = if path.is_dir() {
-        path.join("SKILL.md")
-    } else {
-        path.to_path_buf()
-    };
-    let content = std::fs::read_to_string(&manifest)
-        .with_context(|| format!("read {}", manifest.display()))?;
-    let mut files = Vec::new();
-    if path.is_dir() {
-        collect_files(&dir, &dir, &mut files)?;
+/// Discovers every `SKILL.md` under `dir`, shows what each one would do
+/// (create or update), and applies the ones the person (or `--all`/`--only`)
+/// picks.
+async fn import_skills(
+    client: &Client,
+    repo: Option<&str>,
+    all: bool,
+    only: &[String],
+    dir: &Path,
+) -> anyhow::Result<i32> {
+    let dirs = skills::discover(dir);
+    if dirs.is_empty() {
+        eprintln!("no SKILL.md under {}", dir.display());
+        return Ok(1);
     }
-    lgtm_protocol::validate_skill(&content, &files).map_err(anyhow::Error::msg)?;
-    Ok((content, files))
-}
 
-fn collect_files(root: &Path, dir: &Path, out: &mut Vec<SkillFile>) -> anyhow::Result<()> {
-    let mut entries: Vec<_> = std::fs::read_dir(dir)?.collect::<Result<_, _>>()?;
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-    for entry in entries {
-        let name = entry.file_name();
-        if name.to_string_lossy().starts_with('.') {
-            continue;
+    let found = skills::load(&dirs);
+    let mut candidates = Vec::new();
+    let mut skipped = Vec::new();
+    for entry in found {
+        match entry.outcome {
+            Ok(candidate) => candidates.push(candidate),
+            Err(reason) => skipped.push((entry.dir, reason)),
         }
-        let path = entry.path();
-        if path.is_dir() {
-            collect_files(root, &path, out)?;
-            continue;
-        }
-        let relative = path
-            .strip_prefix(root)
-            .expect("a walked file is under its root")
-            .components()
-            .map(|c| c.as_os_str().to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
-            .join("/");
-        if relative == "SKILL.md" {
-            continue;
-        }
-        let content = std::fs::read_to_string(&path)
-            .with_context(|| format!("read {} (skills carry text files only)", path.display()))?;
-        out.push(SkillFile {
-            path: relative,
-            content,
-        });
     }
-    Ok(())
+
+    let existing: Vec<_> = client
+        .skills(repo, false)
+        .await?
+        .into_iter()
+        .filter(|s| s.repository.as_deref() == repo)
+        .collect();
+
+    let names: Vec<&str> = candidates.iter().map(|c| c.name.as_str()).collect();
+    println!("{:<4}{:<24}{:<14}DESCRIPTION", "#", "NAME", "PLAN");
+    for (i, candidate) in candidates.iter().enumerate() {
+        let plan_text = match skills::plan(candidate, &existing) {
+            skills::Plan::Create => "new".to_string(),
+            skills::Plan::Update { revision, .. } => format!("update v{revision}"),
+        };
+        println!(
+            "{:<4}{:<24}{:<14}{}",
+            i + 1,
+            first_line_truncated(&candidate.name, 22),
+            plan_text,
+            first_line_truncated(&candidate.description, 60)
+        );
+    }
+    for (dir, reason) in &skipped {
+        eprintln!("skipped {}: {reason}", dir.display());
+    }
+    if candidates.is_empty() {
+        return Ok(1);
+    }
+
+    let selected = match skills::select(&names, all, only).map_err(|err| anyhow::anyhow!(err))? {
+        Some(indices) => indices,
+        None => {
+            if !std::io::stdin().is_terminal() {
+                anyhow::bail!("stdin is not a terminal; pass --all or --only");
+            }
+            print!("Import which? [all, none, or numbers like 1,3-5]: ");
+            std::io::Write::flush(&mut std::io::stdout())?;
+            let mut answer = String::new();
+            std::io::stdin().read_line(&mut answer)?;
+            match skills::parse_selection(&answer, candidates.len()) {
+                Ok(indices) => indices,
+                Err(err) => {
+                    eprintln!("{err}");
+                    return Ok(1);
+                }
+            }
+        }
+    };
+
+    let mut created = 0;
+    let mut updated = 0;
+    for &i in &selected {
+        let candidate = &candidates[i];
+        match skills::plan(candidate, &existing) {
+            skills::Plan::Create => {
+                let skill = client
+                    .create_skill(
+                        repo,
+                        &candidate.content,
+                        &candidate.files,
+                        Some(&candidate.origin),
+                    )
+                    .await?;
+                created += 1;
+                println!("imported {} (new, {})", skill.name, skill.id);
+            }
+            skills::Plan::Update { id, revision } => {
+                let skill = client
+                    .update_skill(
+                        &id,
+                        &candidate.content,
+                        Some(&candidate.files),
+                        Some(&candidate.origin),
+                    )
+                    .await?;
+                updated += 1;
+                println!(
+                    "imported {} (v{revision} -> v{}, {})",
+                    skill.name, skill.revision, skill.id
+                );
+            }
+        }
+    }
+    println!(
+        "{} imported ({created} new, {updated} updated), {} skipped",
+        selected.len(),
+        skipped.len()
+    );
+    Ok(0)
 }
 
 async fn todo_command(client: &Client, command: TodoCommand) -> anyhow::Result<i32> {
