@@ -333,6 +333,8 @@ export const updateScratchpad = createServerFn({ method: "POST" })
       id: string;
       content?: string;
       archived?: boolean;
+      /** Null moves the document back to every repository. */
+      repository?: string | null;
       tags?: string[];
     }) => input
   )
@@ -344,6 +346,7 @@ export const updateScratchpad = createServerFn({ method: "POST" })
         body: {
           archived: data.archived,
           content: data.content,
+          repository: data.repository,
           tags: data.tags,
         },
         method: "PATCH",

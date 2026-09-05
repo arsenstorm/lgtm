@@ -106,7 +106,7 @@ export function PriorityChip({
   );
 }
 
-function Picker<T extends string>({
+export function Picker<T extends string>({
   value,
   options,
   format,

@@ -4,34 +4,46 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ActionIcon } from "@/components/action-icon";
-import { projectName } from "@/components/app-sidebar";
 import { EditorToc } from "@/components/editor-toc";
-import { ArchiveIcon, ArrowBackIcon, TrashIcon } from "@/components/icons";
+import {
+  ArchiveIcon,
+  ArrowBackIcon,
+  FolderIcon,
+  TrashIcon,
+} from "@/components/icons";
 import type { EditorHeading } from "@/components/markdown-editor";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { TagsRow } from "@/components/tags-row";
 import { TimeAgo } from "@/components/time-ago";
+import { Picker } from "@/components/todo-chips";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAction } from "@/hooks/use-action";
 import { ARMED_CLASS, useArmedConfirm } from "@/hooks/use-armed-confirm";
 import {
   deleteScratchpad,
+  getProjects,
   getScratchpad,
   updateScratchpad,
 } from "@/lib/lgtm/server";
-import type { Scratchpad } from "@/lib/lgtm/types";
+import type { Project, Scratchpad } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 import { padTitle } from "@/routes/scratchpads";
 
 export const Route = createFileRoute("/scratchpads_/$id")({
-  loader: ({ params }) => getScratchpad({ data: params.id }),
+  loader: async ({ params }) => {
+    const [pad, projects] = await Promise.all([
+      getScratchpad({ data: params.id }),
+      getProjects(),
+    ]);
+    return { pad, projects };
+  },
   component: ScratchpadPage,
   errorComponent: ScratchpadError,
 });
 
-type Action = "archive" | "delete" | "tags";
+type Action = "archive" | "delete" | "repository" | "tags";
 
 type SaveState = "idle" | "saving" | "saved";
 
@@ -47,13 +59,22 @@ const SAVE_LABEL: Record<SaveState, string> = {
 const SAVED_MS = 2000;
 
 function ScratchpadPage() {
-  const pad = Route.useLoaderData();
+  const { pad, projects } = Route.useLoaderData();
   // Everything below — the derived title, the outline, the queued markdown — is
   // state about one document, so opening another one starts it over.
-  return <ScratchpadDocument key={pad.id} pad={pad} />;
+  return <ScratchpadDocument key={pad.id} pad={pad} projects={projects} />;
 }
 
-function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
+/** The picker's "no repository" choice; a real repository is never blank. */
+const EVERY_REPOSITORY = "";
+
+function ScratchpadDocument({
+  pad,
+  projects,
+}: {
+  pad: Scratchpad;
+  projects: Project[];
+}) {
   const navigate = useNavigate();
   const [title, setTitle] = useState(() => padTitle(pad.content));
   const [headings, setHeadings] = useState<EditorHeading[]>([]);
@@ -126,6 +147,34 @@ function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
     [run, pad.archived, pad.id]
   );
 
+  const repositories = projects.flatMap((project) =>
+    project.repository === null ? [] : [project.repository]
+  );
+  const repositoryName = useCallback(
+    (repository: string) =>
+      projects.find((project) => project.repository === repository)?.name ??
+      "Every repository",
+    [projects]
+  );
+  const setRepository = useCallback(
+    (repository: string) => {
+      run(
+        "repository",
+        () =>
+          updateScratchpad({
+            data: {
+              id: pad.id,
+              repository: repository === EVERY_REPOSITORY ? null : repository,
+            },
+          }),
+        repository === EVERY_REPOSITORY
+          ? "Scratchpad applies to every repository"
+          : `Scratchpad moved to ${repositoryName(repository)}`
+      );
+    },
+    [run, pad.id, repositoryName]
+  );
+
   const setTags = useCallback(
     (tags: string[], message: string) => {
       run(
@@ -166,9 +215,19 @@ function ScratchpadDocument({ pad }: { pad: Scratchpad }) {
           </div>
 
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-sm">
-            {pad.repository !== null && (
-              <span>{projectName(pad.repository)}</span>
-            )}
+            <Picker
+              disabled={busy}
+              format={repositoryName}
+              onPick={setRepository}
+              options={[EVERY_REPOSITORY, ...repositories]}
+              triggerClassName="border-border"
+              value={pad.repository ?? EVERY_REPOSITORY}
+            >
+              <FolderIcon />
+              <span className="truncate">
+                {repositoryName(pad.repository ?? EVERY_REPOSITORY)}
+              </span>
+            </Picker>
             <span>
               created <TimeAgo at={pad.created_at} />
             </span>
