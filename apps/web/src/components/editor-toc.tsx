@@ -108,6 +108,10 @@ interface Segment {
   x: number;
 }
 
+/** The dots sit level with the first and last row's text, so the line runs
+ *  from the middle of one to the middle of the other. */
+const middle = (segment: Segment) => (segment.top + segment.bottom) / 2;
+
 /** The line through the first `count` rows. It stops short of the dots at
  *  either end of the whole line, so nothing shows through a translucent dot. */
 function linePath(segments: Segment[], count = segments.length): string {
@@ -115,13 +119,13 @@ function linePath(segments: Segment[], count = segments.length): string {
   let previous: Segment | null = null;
   for (const [i, segment] of segments.slice(0, count).entries()) {
     if (previous === null) {
-      d += `M${segment.x} ${segment.top + DOT}`;
+      d += `M${segment.x} ${middle(segment) + DOT}`;
     } else if (previous.x !== segment.x) {
       const mid = segment.top + BEND / 2;
       d += `C${previous.x} ${mid} ${segment.x} ${mid} ${segment.x} ${segment.top + BEND}`;
     }
     const end =
-      i === segments.length - 1 ? segment.bottom - DOT : segment.bottom;
+      i === segments.length - 1 ? middle(segment) - DOT : segment.bottom;
     d += `L${segment.x} ${end}`;
     previous = segment;
   }
@@ -238,13 +242,13 @@ export function EditorToc({
             <circle
               className={first === 0 ? DOT_LIT : DOT_UNLIT}
               cx={start.x}
-              cy={start.top}
+              cy={middle(start)}
               r={DOT}
             />
             <circle
               className={last === segments.length - 1 ? DOT_LIT : DOT_UNLIT}
               cx={end.x}
-              cy={end.bottom}
+              cy={middle(end)}
               r={DOT}
             />
           </svg>
