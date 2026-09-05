@@ -50,6 +50,7 @@ fn running() -> Task {
 fn started(model: Option<&str>) -> TaskEvent {
     TaskEvent::Started {
         model: model.map(str::to_string),
+        skills: Vec::new(),
     }
 }
 

@@ -10,6 +10,7 @@ mod memories;
 mod projects;
 mod scratchpads;
 mod sessions;
+mod skills;
 mod terminal;
 mod todos;
 mod users;
@@ -115,6 +116,15 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
             delete(memories::delete_memory).patch(memories::update_memory),
         )
         .route("/memories/{id}/approve", post(memories::approve_memory))
+        .route(
+            "/skills",
+            get(skills::list_skills).post(skills::create_skill),
+        )
+        .route(
+            "/skills/{id}",
+            delete(skills::delete_skill).patch(skills::update_skill),
+        )
+        .route("/skills/{id}/approve", post(skills::approve_skill))
         .route("/goals", get(goals::list_goals).post(goals::create_goal))
         .route("/goals/{id}", get(goals::get_goal))
         .route("/goals/{id}/attention", post(goals::set_attention))

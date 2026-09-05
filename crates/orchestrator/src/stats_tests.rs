@@ -85,13 +85,17 @@ fn execution(
         cost_usd: 0.0,
         validation: Vec::new(),
         artefacts: Vec::new(),
+        skills: Vec::new(),
     }
 }
 
 fn started(at: u64) -> StoredEvent {
     StoredEvent {
         at,
-        event: TaskEvent::Started { model: None },
+        event: TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
     }
 }
 

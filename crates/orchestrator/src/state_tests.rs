@@ -96,6 +96,7 @@ fn finished_execution(runner: &str, started_at: u64, finished_at: u64) -> Execut
         error: None,
         cost_usd: 0.0,
         validation: Vec::new(),
+        skills: Vec::new(),
     }
 }
 
@@ -218,7 +219,13 @@ fn reconnect_within_grace_keeps_tasks() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let task = create(&mut state, Executor::Claude);
-    state.apply_event(&task.id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &task.id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
 
     let stale = state.disconnect("a", 1).unwrap();
     assert!(!state.runners["a"].is_connected());
@@ -247,7 +254,13 @@ fn reconnect_missing_task_is_lost_and_reassigned_back_onto_the_only_runner() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let task = create(&mut state, Executor::Claude);
-    state.apply_event(&task.id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &task.id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.disconnect("a", 1).unwrap();
 
     let (tx, _rx) = mpsc::unbounded_channel();
@@ -278,7 +291,13 @@ fn grace_expiry_loses_tasks_and_their_dependents() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let task = create(&mut state, Executor::Claude);
-    state.apply_event(&task.id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &task.id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     let mut waiting = spec(Executor::Claude, None);
     waiting.depends_on = vec![task.id.clone()];
     let waiting = state.create_task(waiting).unwrap().0;
@@ -390,7 +409,13 @@ fn interrupt_routes_to_the_running_task_runner() {
     let mut state = State::default();
     let mut a = connect(&mut state, "a", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     assert_eq!(status(&state, &id), TaskStatus::Running);
 
     let task = state.interrupt(&id).unwrap();
@@ -420,7 +445,13 @@ fn apply_event_transitions() {
     let id = create(&mut state, Executor::Claude).id;
     assert!(state.runners["idle"].running.contains(&id));
 
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     assert_eq!(status(&state, &id), TaskStatus::Running);
 
     let result = TaskResult {
@@ -456,13 +487,25 @@ fn file_changed_collects_this_attempts_files_once_each() {
     let _idle = connect(&mut state, "idle", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
 
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     for path in ["a.rs", "b.rs", "a.rs"] {
         state.apply_event(&id, TaskEvent::FileChanged { path: path.into() });
     }
     assert_eq!(state.tasks[&id].task.files, vec!["a.rs", "b.rs"]);
 
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     assert!(state.tasks[&id].task.files.is_empty());
 }
 
@@ -518,7 +561,13 @@ fn pull_request_plan_needs_github_and_approval() {
 
     // Not approved yet, and not on GitHub, are both nothing to open.
     let running = create(&mut state, Executor::Claude).id;
-    state.apply_event(&running, TaskEvent::Started { model: None });
+    state.apply_event(
+        &running,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     assert_eq!(status(&state, &running), TaskStatus::Running);
     assert!(state.pull_request_plan(&running, true).is_none());
     let elsewhere = create(&mut state, Executor::Claude).id;
@@ -573,7 +622,13 @@ fn message_requires_awaiting_review() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     assert_eq!(status(&state, &id), TaskStatus::Running);
 
     assert!(matches!(
@@ -615,7 +670,13 @@ fn message_requires_awaiting_review() {
         "slot taken again for the follow-up"
     );
 
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     assert_eq!(status(&state, &id), TaskStatus::Running);
 
     state.apply_event(&id, TaskEvent::Completed { result });
@@ -655,7 +716,13 @@ fn a_follow_up_carries_the_current_spec() {
     let mut rx = connect(&mut state, "a", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
     state.allow_host(&id, "registry.internal".into()).unwrap();
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &id,
         TaskEvent::Completed {
@@ -698,7 +765,13 @@ fn a_conflict_becomes_work_for_the_agent() {
     let mut state = State::default();
     let mut a = connect(&mut state, "a", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &id,
         TaskEvent::Completed {
@@ -750,7 +823,13 @@ fn retry_queues_a_failed_task_as_a_second_attempt() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &id,
         TaskEvent::Failed {
@@ -772,7 +851,13 @@ fn retry_queues_a_failed_task_as_a_second_attempt() {
         }
     ));
 
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     assert_eq!(status(&state, &id), TaskStatus::Running);
     let executions = &state.tasks[&id].task.executions;
     assert_eq!(executions.len(), 2);
@@ -884,7 +969,13 @@ fn a_failed_task_with_reassign_one_requeues_once_then_stays_failed() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &id,
         TaskEvent::Completed {
@@ -892,7 +983,13 @@ fn a_failed_task_with_reassign_one_requeues_once_then_stays_failed() {
         },
     );
 
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &id,
         TaskEvent::Failed {
@@ -902,7 +999,13 @@ fn a_failed_task_with_reassign_one_requeues_once_then_stays_failed() {
     assert_eq!(status(&state, &id), TaskStatus::Queued, "reassigned once");
     assert_eq!(requeues(&state, &id).len(), 1);
 
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &id,
         TaskEvent::Failed {
@@ -922,7 +1025,13 @@ fn a_failed_task_without_the_policy_stays_failed() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &id,
         TaskEvent::Failed {
@@ -963,6 +1072,167 @@ fn a_follow_up_carries_the_memories() {
         frame,
         OrchestratorMessage::Message { memories, .. } if memories.as_slice() == [memory.clone()]
     )));
+}
+
+#[test]
+fn a_start_frame_carries_the_skills() {
+    let mut state = State::default();
+    let mut a = connect(&mut state, "a", 1, 1);
+    let repository = spec(Executor::Claude, None).repository;
+    let skill = state
+        .create_skill(
+            Some(repository),
+            "---\nname: review\ndescription: Review a PR.\n---\nSteps.".into(),
+            Vec::new(),
+            MemorySource::User,
+            None,
+            None,
+        )
+        .unwrap();
+    create(&mut state, Executor::Claude);
+
+    assert!(matches!(
+        a.try_recv().unwrap(),
+        OrchestratorMessage::Start { skills, .. } if skills == vec![skill.clone()]
+    ));
+}
+
+#[test]
+fn a_follow_up_carries_the_skills() {
+    let mut state = State::default();
+    let mut a = connect(&mut state, "a", 1, 1);
+    let skill = state
+        .create_skill(
+            Some(spec(Executor::Claude, None).repository),
+            "---\nname: review\ndescription: Review a PR.\n---\nSteps.".into(),
+            Vec::new(),
+            MemorySource::User,
+            None,
+            None,
+        )
+        .unwrap();
+    let id = create(&mut state, Executor::Claude).id;
+    let result = TaskResult {
+        branch: format!("lgtm/{id}"),
+        diff: "diff".into(),
+        changed_files: vec!["a.rs".into()],
+        validation: Vec::new(),
+        plan: None,
+        review: None,
+        policy: None,
+        cost_usd: 0.0,
+    };
+    state.apply_event(&id, TaskEvent::Completed { result });
+    state.message(&id, "keep going".into(), None).unwrap();
+
+    let frames: Vec<OrchestratorMessage> = std::iter::from_fn(|| a.try_recv().ok()).collect();
+    assert!(frames.iter().any(|frame| matches!(
+        frame,
+        OrchestratorMessage::Message { skills, .. } if skills.as_slice() == [skill.clone()]
+    )));
+}
+
+#[test]
+fn a_proposed_skill_is_not_handed_out_until_approved() {
+    let mut state = State::default();
+    let repository = spec(Executor::Claude, None).repository;
+    let skill = state
+        .create_skill(
+            Some(repository.clone()),
+            "---\nname: review\ndescription: Review a PR.\n---\nSteps.".into(),
+            Vec::new(),
+            MemorySource::Agent,
+            Some("t1".into()),
+            None,
+        )
+        .unwrap();
+    assert_eq!(skill.verification, Verification::AgentProposed);
+    assert!(state.skills_for(&repository).is_empty());
+
+    let approved = state.approve_skill(&skill.id).unwrap();
+    assert_eq!(approved.verification, Verification::UserApproved);
+    assert_eq!(state.skills_for(&repository), [approved]);
+}
+
+#[test]
+fn a_repository_skill_shadows_the_workspace_one_of_the_same_name() {
+    let mut state = State::default();
+    let repository = spec(Executor::Claude, None).repository;
+    state
+        .create_skill(
+            None,
+            "---\nname: review\ndescription: Review any PR.\n---\nSteps.".into(),
+            Vec::new(),
+            MemorySource::User,
+            None,
+            None,
+        )
+        .unwrap();
+    state
+        .create_skill(
+            Some(repository.clone()),
+            "---\nname: review\ndescription: Review this repository's PRs.\n---\nSteps.".into(),
+            Vec::new(),
+            MemorySource::User,
+            None,
+            None,
+        )
+        .unwrap();
+
+    let here = state.skills_for(&repository);
+    assert_eq!(here.len(), 1);
+    assert_eq!(here[0].repository.as_deref(), Some(repository.as_str()));
+
+    let elsewhere = state.skills_for("https://example.com/other.git");
+    assert_eq!(elsewhere.len(), 1);
+    assert_eq!(elsewhere[0].repository, None);
+}
+
+#[test]
+fn a_skill_that_is_not_a_skill_is_refused() {
+    let mut state = State::default();
+    assert!(state
+        .create_skill(
+            None,
+            "just text".into(),
+            Vec::new(),
+            MemorySource::User,
+            None,
+            None
+        )
+        .is_err());
+    assert!(state.skills.is_empty());
+}
+
+#[test]
+fn editing_a_skill_bumps_its_revision() {
+    let mut state = State::default();
+    let skill = state
+        .create_skill(
+            None,
+            "---\nname: review\ndescription: Review a PR.\n---\nSteps.".into(),
+            Vec::new(),
+            MemorySource::User,
+            None,
+            None,
+        )
+        .unwrap();
+
+    let edited = state
+        .edit_skill(
+            &skill.id,
+            "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.".into(),
+            None,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(edited.revision, 2);
+    assert_eq!(edited.description, "Review a PR carefully.");
+    assert_eq!(edited.files, skill.files);
+
+    let err = state.edit_skill(&skill.id, "---\nname: review\n---\nSteps.".into(), None);
+    assert!(err.is_err());
+    assert_eq!(state.skills[&skill.id].revision, 2);
 }
 
 #[test]
@@ -1095,7 +1365,13 @@ pub(crate) fn planned(state: &mut State, steps: Vec<PlanStep>) -> TaskId {
     let mut spec = spec(Executor::Claude, None);
     spec.kind = TaskKind::Plan;
     let id = state.create_task(spec).unwrap().0.id;
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &id,
         TaskEvent::Completed {
@@ -1128,7 +1404,13 @@ pub(crate) fn children(state: &State, parent: &str) -> Vec<Task> {
 
 /// Drives a child task to `Approved` the way a runner and a reviewer would.
 fn approve(state: &mut State, id: &str) {
-    state.apply_event(id, TaskEvent::Started { model: None });
+    state.apply_event(
+        id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         id,
         TaskEvent::Completed {
@@ -1281,7 +1563,13 @@ fn completed_condition_starts_once_the_dependency_finishes_a_run() {
     let a = create(&mut state, Executor::Claude).id;
     let b = waiting_on(&mut state, &a, DependsOn::Completed);
 
-    state.apply_event(&a, TaskEvent::Started { model: None });
+    state.apply_event(
+        &a,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &a,
         TaskEvent::Completed {
@@ -1304,7 +1592,13 @@ fn approved_condition_still_waits_once_the_dependency_finishes_a_run() {
     let a = create(&mut state, Executor::Claude).id;
     let b = waiting_on(&mut state, &a, DependsOn::Approved);
 
-    state.apply_event(&a, TaskEvent::Started { model: None });
+    state.apply_event(
+        &a,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &a,
         TaskEvent::Completed {
@@ -1335,7 +1629,13 @@ fn merged_condition_waits_past_approval() {
     let a = create(&mut state, Executor::Claude).id;
     let b = waiting_on(&mut state, &a, DependsOn::Merged);
 
-    state.apply_event(&a, TaskEvent::Started { model: None });
+    state.apply_event(
+        &a,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &a,
         TaskEvent::Completed {
@@ -1367,7 +1667,13 @@ fn completed_condition_child_bases_on_the_plan_branch_not_the_dependency() {
     plan_spec.kind = TaskKind::Plan;
     plan_spec.depends_on_condition = DependsOn::Completed;
     let plan = state.create_task(plan_spec).unwrap().0.id;
-    state.apply_event(&plan, TaskEvent::Started { model: None });
+    state.apply_event(
+        &plan,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &plan,
         TaskEvent::Completed {
@@ -1588,7 +1894,13 @@ fn timeout_ends_the_task_and_frees_the_slot() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let task = create(&mut state, Executor::Claude);
-    state.apply_event(&task.id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &task.id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     let queued = create(&mut state, Executor::Claude);
     assert_eq!(queued.runner, None);
 
@@ -1759,7 +2071,13 @@ fn schedule_skips_a_task_over_its_repositorys_daily_budget() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let done = create(&mut state, Executor::Claude).id;
-    state.apply_event(&done, TaskEvent::Started { model: None });
+    state.apply_event(
+        &done,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &done,
         TaskEvent::Completed {
@@ -1817,7 +2135,13 @@ fn schedule_ignores_the_budget_once_spend_is_back_under_it() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let done = create(&mut state, Executor::Claude).id;
-    state.apply_event(&done, TaskEvent::Started { model: None });
+    state.apply_event(
+        &done,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &done,
         TaskEvent::Completed {

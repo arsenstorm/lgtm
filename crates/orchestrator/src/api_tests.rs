@@ -656,6 +656,91 @@ async fn editing_an_agent_proposal_approves_the_memory() {
     );
 }
 
+#[tokio::test]
+async fn a_skill_without_a_valid_header_is_refused() {
+    let app = app();
+    let body = serde_json::from_value(serde_json::json!({
+        "content": "no frontmatter",
+    }))
+    .unwrap();
+    assert_eq!(
+        skills::create_skill(
+            State(app.clone()),
+            Extension(AuthedUser(None)),
+            Ok(Json(body))
+        )
+        .await
+        .err()
+        .map(|err| err.0),
+        Some(StatusCode::BAD_REQUEST)
+    );
+
+    let body = serde_json::from_value(serde_json::json!({
+        "content": "---\nname: Bad Name\ndescription: x\n---\n",
+    }))
+    .unwrap();
+    assert_eq!(
+        skills::create_skill(State(app), Extension(AuthedUser(None)), Ok(Json(body)))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::BAD_REQUEST)
+    );
+}
+
+#[tokio::test]
+async fn editing_an_agent_proposed_skill_approves_it_and_bumps_the_revision() {
+    let app = app();
+    let body = serde_json::from_value(serde_json::json!({
+        "content": "---\nname: review\ndescription: Review a PR.\n---\nSteps.",
+        "source": "agent",
+    }))
+    .unwrap();
+    let (_, Json(skill)) = skills::create_skill(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Ok(Json(body)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        skill.verification,
+        lgtm_protocol::Verification::AgentProposed
+    );
+    assert_eq!(skill.revision, 1);
+
+    let patch = serde_json::from_value(serde_json::json!({
+        "content": "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.",
+    }))
+    .unwrap();
+    let Json(edited) =
+        skills::update_skill(State(app.clone()), Path(skill.id.clone()), Ok(Json(patch)))
+            .await
+            .unwrap();
+    assert_eq!(
+        edited.verification,
+        lgtm_protocol::Verification::UserApproved
+    );
+    assert_eq!(edited.revision, 2);
+
+    let blank = serde_json::from_value(serde_json::json!({ "content": "  " })).unwrap();
+    assert_eq!(
+        skills::update_skill(State(app.clone()), Path(skill.id), Ok(Json(blank)))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::BAD_REQUEST)
+    );
+    let patch = serde_json::from_value(serde_json::json!({ "content": "x" })).unwrap();
+    assert_eq!(
+        skills::update_skill(State(app), Path("deadbeef".into()), Ok(Json(patch)))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::NOT_FOUND)
+    );
+}
+
 async fn new_todo(app: &Arc<App>) -> lgtm_protocol::Todo {
     let body = serde_json::from_value(serde_json::json!({ "title": "ship it" })).unwrap();
     let (_, Json(todo)) = todos::create_todo(

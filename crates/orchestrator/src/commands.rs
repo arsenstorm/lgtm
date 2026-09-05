@@ -174,6 +174,7 @@ impl State {
             },
         );
         let memories = self.memories_for(&repository);
+        let skills = self.skills_for(&repository);
         // The runner's own copy of the task predates any spec change (e.g. an
         // allowed host) made since its last run, so the current one rides along.
         let task = self
@@ -192,6 +193,7 @@ impl State {
                 task_id: task_id.to_string(),
                 text: instruction,
                 memories,
+                skills,
                 task,
                 authorship,
             });

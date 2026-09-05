@@ -1,8 +1,9 @@
 //! One JSON file per task under `<data_dir>/tasks`, one per batch under
 //! `<data_dir>/batches`, one per memory under `<data_dir>/memories`, one per
-//! goal under `<data_dir>/goals`, one per todo under `<data_dir>/todos`, one
-//! per todo comment under `<data_dir>/todo_comments`, one per scratchpad
-//! under `<data_dir>/scratchpads`, one per project under
+//! skill under `<data_dir>/skills`, one per goal under `<data_dir>/goals`,
+//! one per todo under `<data_dir>/todos`, one per todo comment under
+//! `<data_dir>/todo_comments`, one per scratchpad under
+//! `<data_dir>/scratchpads`, one per project under
 //! `<data_dir>/projects`, one per session under `<data_dir>/sessions`, and
 //! one per chat under `<data_dir>/chats`.
 //!
@@ -15,8 +16,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use lgtm_protocol::{
-    Batch, Chat, Goal, Memory, Overlap, Project, Scratchpad, Session, StoredEvent, Task, TaskId,
-    Todo, TodoComment,
+    Batch, Chat, Goal, Memory, Overlap, Project, Scratchpad, Session, Skill, StoredEvent, Task,
+    TaskId, Todo, TodoComment,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,8 @@ pub enum Persist {
     Batch(Batch),
     Memory(Memory),
     RemoveMemory(String),
+    Skill(Skill),
+    RemoveSkill(String),
     Goal(Goal),
     Todo(Todo),
     RemoveTodo(String),
@@ -95,6 +98,7 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
     let tasks = dir.join("tasks");
     let batches = dir.join("batches");
     let memories = dir.join("memories");
+    let skills = dir.join("skills");
     let goals = dir.join("goals");
     let todos = dir.join("todos");
     let todo_comments = dir.join("todo_comments");
@@ -122,6 +126,8 @@ pub async fn writer(dir: PathBuf, mut rx: mpsc::UnboundedReceiver<Persist>) {
             Persist::Batch(batch) => save_batch(&batches, &batch),
             Persist::Memory(memory) => save_memory(&memories, &memory),
             Persist::RemoveMemory(id) => remove_by_id(&memories, "memory", &id),
+            Persist::Skill(skill) => save_skill(&skills, &skill),
+            Persist::RemoveSkill(id) => remove_by_id(&skills, "skill", &id),
             Persist::Goal(goal) => save_goal(&goals, &goal),
             Persist::Todo(todo) => save_todo(&todos, &todo),
             Persist::RemoveTodo(id) => remove_by_id(&todos, "todo", &id),
@@ -241,6 +247,10 @@ pub fn save_goal(dir: &Path, goal: &Goal) {
 
 pub fn save_memory(dir: &Path, memory: &Memory) {
     save_by_id(dir, "memory", &memory.id, memory);
+}
+
+pub fn save_skill(dir: &Path, skill: &Skill) {
+    save_by_id(dir, "skill", &skill.id, skill);
 }
 
 pub fn save_todo(dir: &Path, todo: &Todo) {
@@ -467,6 +477,10 @@ pub fn load_all_memories(dir: &Path) -> Vec<Memory> {
     load_dir(dir, |memory: &Memory| memory.id.as_str())
 }
 
+pub fn load_all_skills(dir: &Path) -> Vec<Skill> {
+    load_dir(dir, |skill: &Skill| skill.id.as_str())
+}
+
 pub fn load_all_goals(dir: &Path) -> Vec<Goal> {
     load_dir(dir, |goal: &Goal| goal.id.as_str())
 }
@@ -570,7 +584,10 @@ mod tests {
     fn event(at: u64) -> StoredEvent {
         StoredEvent {
             at,
-            event: TaskEvent::Started { model: None },
+            event: TaskEvent::Started {
+                model: None,
+                skills: Vec::new(),
+            },
         }
     }
 

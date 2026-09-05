@@ -8,8 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
     first_line_title, goal_status, Batch, Chat, ChatRole, ChatTurn, Goal, GoalSummary, Memory,
-    MemorySource, OrchestratorMessage, Project, Scratchpad, Session, StoredEvent, Task, TaskEvent,
-    TaskId, TaskSpec, TaskStatus, Todo, TodoComment, TodoStatus, Verification,
+    MemorySource, OrchestratorMessage, Project, Scratchpad, Session, Skill, SkillFile, StoredEvent,
+    Task, TaskEvent, TaskId, TaskSpec, TaskStatus, Todo, TodoComment, TodoStatus, Verification,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 
@@ -144,6 +144,14 @@ impl App {
         let _ = self.persist.send(Persist::RemoveMemory(id.to_string()));
     }
 
+    pub fn persist_skill(&self, skill: &Skill) {
+        let _ = self.persist.send(Persist::Skill(skill.clone()));
+    }
+
+    pub fn forget_skill(&self, id: &str) {
+        let _ = self.persist.send(Persist::RemoveSkill(id.to_string()));
+    }
+
     pub fn persist_goal(&self, goal: &Goal) {
         let _ = self.persist.send(Persist::Goal(goal.clone()));
     }
@@ -243,6 +251,8 @@ pub struct State {
     pub batches: HashMap<String, Batch>,
     /// Durable facts every run in a repository is told, by id.
     pub memories: HashMap<String, Memory>,
+    /// Reusable procedures every run in a repository is handed, by id.
+    pub skills: HashMap<String, Skill>,
     /// Goals, by id. A task points back with `spec.goal`.
     pub goals: HashMap<String, Goal>,
     /// Chat threads, by id. A task points back with `spec.session`.
@@ -543,6 +553,110 @@ impl State {
             .cloned()
             .collect();
         out.sort_by_key(|memory| memory.created_at);
+        out
+    }
+
+    fn new_skill_id(&self) -> String {
+        std::iter::repeat_with(random_id)
+            .find(|id| !self.skills.contains_key(id))
+            .unwrap_or_default()
+    }
+
+    /// Validates the SKILL.md and stores it at revision 1. `Err` is the reason
+    /// the text is not a skill, for the API to hand back verbatim.
+    pub fn create_skill(
+        &mut self,
+        repository: Option<String>,
+        content: String,
+        files: Vec<SkillFile>,
+        source: MemorySource,
+        proposed_by: Option<TaskId>,
+        created_by: Option<String>,
+    ) -> Result<Skill, String> {
+        let header = lgtm_protocol::validate_skill(&content, &files)?;
+        // An agent cannot write what every later run is handed, whatever
+        // verification the request claims: its source forces the state.
+        let verification = match source {
+            MemorySource::Agent => Verification::AgentProposed,
+            MemorySource::User => Verification::UserApproved,
+        };
+        let now = now_ms();
+        let skill = Skill {
+            id: self.new_skill_id(),
+            name: header.name,
+            description: header.description,
+            repository,
+            content,
+            files,
+            revision: 1,
+            created_at: now,
+            updated_at: now,
+            source,
+            verification,
+            proposed_by,
+            workspace: self.workspace.clone(),
+            created_by,
+        };
+        self.skills.insert(skill.id.clone(), skill.clone());
+        Ok(skill)
+    }
+
+    /// Marks a proposal as handed out from now on. `None` if there is no such
+    /// skill.
+    pub fn approve_skill(&mut self, id: &str) -> Option<Skill> {
+        let skill = self.skills.get_mut(id)?;
+        skill.verification = Verification::UserApproved;
+        Some(skill.clone())
+    }
+
+    /// Replaces the text and re-validates it; `files` of `None` keeps the ones
+    /// stored. `Ok(None)` is no such skill. As with a memory, rewriting an
+    /// agent's proposal approves it.
+    pub fn edit_skill(
+        &mut self,
+        id: &str,
+        content: String,
+        files: Option<Vec<SkillFile>>,
+    ) -> Result<Option<Skill>, String> {
+        let Some(existing) = self.skills.get(id) else {
+            return Ok(None);
+        };
+        let files = files.unwrap_or_else(|| existing.files.clone());
+        let header = lgtm_protocol::validate_skill(&content, &files)?;
+        let skill = self.skills.get_mut(id).expect("checked above");
+        skill.name = header.name;
+        skill.description = header.description;
+        skill.content = content;
+        skill.files = files;
+        skill.revision += 1;
+        skill.updated_at = now_ms();
+        skill.verification = Verification::UserApproved;
+        Ok(Some(skill.clone()))
+    }
+
+    pub fn remove_skill(&mut self, id: &str) -> bool {
+        self.skills.remove(id).is_some()
+    }
+
+    /// What a run in `repository` is handed: approved, in this workspace,
+    /// one per name. On a shared name the repository's own skill beats the
+    /// workspace-wide one, then the newer edit wins.
+    pub(crate) fn skills_for(&self, repository: &str) -> Vec<Skill> {
+        let mut out: Vec<Skill> = self
+            .skills
+            .values()
+            .filter(|skill| {
+                skill.is_told_to(repository) && self.in_workspace(skill.workspace.as_deref())
+            })
+            .cloned()
+            .collect();
+        out.sort_by(|a, b| {
+            a.name
+                .cmp(&b.name)
+                .then(a.repository.is_none().cmp(&b.repository.is_none()))
+                .then(b.updated_at.cmp(&a.updated_at))
+        });
+        out.dedup_by(|later, earlier| later.name == earlier.name);
         out
     }
 
@@ -1101,12 +1215,14 @@ impl State {
             rec.task.runner = Some(name.clone());
             let task = rec.task.clone();
             let memories = self.memories_for(&task.spec.repository);
+            let skills = self.skills_for(&task.spec.repository);
             let authorship = self.authorship(&task);
             if let Some(runner) = self.runners.get_mut(&name) {
                 runner.running.insert(id.clone());
                 runner.send(OrchestratorMessage::Start {
                     task: Box::new(task),
                     memories,
+                    skills,
                     authorship,
                 });
             }

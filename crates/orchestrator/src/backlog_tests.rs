@@ -195,7 +195,13 @@ fn batch_with_plan(state: &mut State, approve_plans: bool) -> TaskId {
             created_by: None,
         },
     );
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &id,
         TaskEvent::Completed {

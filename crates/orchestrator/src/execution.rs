@@ -1,12 +1,12 @@
 //! A task's attempt history, derived here rather than reported: the runner
 //! knows nothing about attempts, it only sends events.
 
-use lgtm_protocol::{Execution, ExecutionStatus, Task, TaskEvent};
+use lgtm_protocol::{Execution, ExecutionStatus, SkillRef, Task, TaskEvent};
 
 /// Folds one event into `task.executions`.
 pub fn record(task: &mut Task, event: &TaskEvent, now: u64) {
-    if let TaskEvent::Started { model } = event {
-        return start(task, model.clone(), now);
+    if let TaskEvent::Started { model, skills } = event {
+        return start(task, model.clone(), skills.clone(), now);
     }
     let Some(exec) = task
         .executions
@@ -47,7 +47,7 @@ pub fn record(task: &mut Task, event: &TaskEvent, now: u64) {
 
 /// A fix-the-checks or review run reports `Started` again inside the attempt
 /// that is already open, so only a closed history opens a new one.
-fn start(task: &mut Task, model: Option<String>, now: u64) {
+fn start(task: &mut Task, model: Option<String>, skills: Vec<SkillRef>, now: u64) {
     let open = task
         .executions
         .last()
@@ -67,6 +67,7 @@ fn start(task: &mut Task, model: Option<String>, now: u64) {
         cost_usd: 0.0,
         validation: Vec::new(),
         artefacts: Vec::new(),
+        skills,
     });
 }
 

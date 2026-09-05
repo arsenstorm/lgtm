@@ -24,7 +24,13 @@ fn full_sha_match_carries_the_goal_review_and_decisions() {
     let (goal, spec) = goal_spec(&mut state);
     let id = state.create_task(spec).unwrap().0.id;
 
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &id,
         TaskEvent::PolicyDecision {
@@ -63,7 +69,13 @@ fn prefix_match_needs_at_least_seven_characters() {
     let mut state = State::default();
     let _a = connect(&mut state, "a", 1, 1);
     let id = create(&mut state, Executor::Claude).id;
-    state.apply_event(&id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &id,
         TaskEvent::Completed {
@@ -95,7 +107,13 @@ fn approval_is_auto_approved_or_else_the_push_itself() {
     state.approve_plan(&plan).unwrap();
     let child = children(&state, &plan).remove(0);
 
-    state.apply_event(&child.id, TaskEvent::Started { model: None });
+    state.apply_event(
+        &child.id,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &child.id,
         TaskEvent::Completed {
@@ -118,7 +136,13 @@ fn approval_is_auto_approved_or_else_the_push_itself() {
     );
 
     let by_hand = create(&mut state, Executor::Claude).id;
-    state.apply_event(&by_hand, TaskEvent::Started { model: None });
+    state.apply_event(
+        &by_hand,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new(),
+        },
+    );
     state.apply_event(
         &by_hand,
         TaskEvent::Completed {

@@ -182,7 +182,10 @@ async fn end_to_end() {
     w.send(TMsg::Text(
         serde_json::to_string(&RunnerMessage::Event {
             task_id: task.id.clone(),
-            event: TaskEvent::Started { model: None },
+            event: TaskEvent::Started {
+                model: None,
+                skills: Vec::new(),
+            },
         })
         .unwrap()
         .into(),
@@ -191,7 +194,13 @@ async fn end_to_end() {
     .unwrap();
     let first: StoredEvent =
         serde_json::from_str(ev.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
-    assert_eq!(first.event, TaskEvent::Started { model: None });
+    assert_eq!(
+        first.event,
+        TaskEvent::Started {
+            model: None,
+            skills: Vec::new()
+        }
+    );
 
     let result = TaskResult {
         branch: format!("lgtm/{}", task.id),
@@ -297,7 +306,10 @@ async fn end_to_end() {
     w.send(TMsg::Text(
         serde_json::to_string(&RunnerMessage::Event {
             task_id: task2.id.clone(),
-            event: TaskEvent::Started { model: None },
+            event: TaskEvent::Started {
+                model: None,
+                skills: Vec::new(),
+            },
         })
         .unwrap()
         .into(),

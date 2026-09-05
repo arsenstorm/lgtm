@@ -153,9 +153,11 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     let tasks_dir = data_dir.join("tasks");
     let batches_dir = data_dir.join("batches");
     let memories_dir = data_dir.join("memories");
+    let skills_dir = data_dir.join("skills");
     std::fs::create_dir_all(&tasks_dir)?;
     std::fs::create_dir_all(&batches_dir)?;
     std::fs::create_dir_all(&memories_dir)?;
+    std::fs::create_dir_all(&skills_dir)?;
     let goals_dir = data_dir.join("goals");
     std::fs::create_dir_all(&goals_dir)?;
     let todos_dir = data_dir.join("todos");
@@ -187,6 +189,9 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     }
     for memory in persist::load_all_memories(&memories_dir) {
         state.memories.insert(memory.id.clone(), memory);
+    }
+    for skill in persist::load_all_skills(&skills_dir) {
+        state.skills.insert(skill.id.clone(), skill);
     }
     for goal in persist::load_all_goals(&goals_dir) {
         state.goals.insert(goal.id.clone(), goal);
@@ -228,6 +233,7 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
         tasks = state.tasks.len(),
         batches = state.batches.len(),
         memories = state.memories.len(),
+        skills = state.skills.len(),
         goals = state.goals.len(),
         todos = state.todos.len(),
         sessions = state.sessions.len(),
