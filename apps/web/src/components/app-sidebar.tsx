@@ -94,7 +94,7 @@ const HEADING_REVEAL =
   "opacity-0 pointer-coarse:opacity-100 group-has-focus-visible/heading:opacity-100 group-hover/heading:opacity-100";
 // A collapsed group keeps its caret: it is the only sign the rows are hidden.
 // `rotate-90` sets the `rotate` property, so the transition has to name it.
-const GROUP_CARET = `${HEADING_REVEAL} size-2.5! ml-1 text-muted-foreground transition-[opacity,rotate] duration-200 group-aria-[expanded=false]/label:opacity-100 group-data-[panel-open]/label:rotate-90`;
+const GROUP_CARET = `${HEADING_REVEAL} size-2! ml-1 text-muted-foreground transition-[opacity,rotate] duration-200 group-aria-[expanded=false]/label:opacity-100 group-data-[panel-open]/label:rotate-90`;
 
 type OpenMap = Record<string, boolean>;
 
