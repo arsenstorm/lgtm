@@ -740,14 +740,13 @@ async fn import_skills(
                 println!("imported {} (new, {})", skill.name, skill.id);
             }
             skills::Plan::Update { id, revision } => {
-                let skill = client
-                    .update_skill(
-                        &id,
-                        &candidate.content,
-                        Some(&candidate.files),
-                        Some(&candidate.origin),
-                    )
-                    .await?;
+                let patch = lgtm_protocol::SkillPatch {
+                    content: Some(candidate.content.clone()),
+                    files: Some(candidate.files.clone()),
+                    origin: Some(candidate.origin.clone()),
+                    ..Default::default()
+                };
+                let skill = client.update_skill(&id, &patch).await?;
                 updated += 1;
                 println!(
                     "imported {} (v{revision} -> v{}, {})",

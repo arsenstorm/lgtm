@@ -23,7 +23,7 @@ pub use types::{
 };
 use types::{
     AllowHost, Attention, ErrorBody, FollowUp, NewComment, NewMemory, NewScratchpad, NewSkill,
-    NewTodo, Notes, PermissionRequest, SkillEdit, Socket,
+    NewTodo, Notes, PermissionRequest, Socket,
 };
 
 /// Marks a call as the orchestration loop's, not a person's. Only `approve`
@@ -468,22 +468,16 @@ impl Client {
         .await
     }
 
+    pub async fn skill(&self, id: &str) -> anyhow::Result<lgtm_protocol::Skill> {
+        self.get(&format!("/api/skills/{id}")).await
+    }
+
     pub async fn update_skill(
         &self,
         id: &str,
-        content: &str,
-        files: Option<&[lgtm_protocol::SkillFile]>,
-        origin: Option<&str>,
+        patch: &lgtm_protocol::SkillPatch,
     ) -> anyhow::Result<lgtm_protocol::Skill> {
-        self.patch(
-            &format!("/api/skills/{id}"),
-            &SkillEdit {
-                content,
-                files,
-                origin,
-            },
-        )
-        .await
+        self.patch(&format!("/api/skills/{id}"), patch).await
     }
 
     pub async fn approve_skill(&self, id: &str) -> anyhow::Result<lgtm_protocol::Skill> {

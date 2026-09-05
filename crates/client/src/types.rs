@@ -97,17 +97,6 @@ pub(crate) struct NewSkill<'a> {
     pub(crate) proposed_by: Option<&'a str>,
 }
 
-/// Body of `PATCH /api/skills/:id`; `files` of `None` keeps the stored ones,
-/// and `origin` of `None` keeps the stored one.
-#[derive(Serialize)]
-pub(crate) struct SkillEdit<'a> {
-    pub(crate) content: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) files: Option<&'a [lgtm_protocol::SkillFile]>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) origin: Option<&'a str>,
-}
-
 /// Body of `POST /api/tasks/from-issue`.
 #[derive(Serialize)]
 pub struct FromIssue<'a> {
