@@ -312,10 +312,6 @@ function SkillRow({ skill }: { skill: Skill }) {
         </span>
       )}
 
-      <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
-        v{skill.revision}
-      </span>
-
       <TimeAgo
         at={skill.updated_at}
         className="w-16 shrink-0 truncate text-end text-muted-foreground tabular-nums"
