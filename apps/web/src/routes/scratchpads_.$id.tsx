@@ -109,7 +109,7 @@ function ScratchpadSkeleton() {
       <header className="flex h-9 items-center">
         <Skeleton className="h-6 w-64" />
       </header>
-      <EditorSkeleton className="mt-2 max-w-3xl" />
+      <EditorSkeleton className="mt-2" />
     </article>
   );
 }
@@ -366,7 +366,7 @@ function ScratchpadDocument({
         <div className="flex min-w-0 flex-1 items-start gap-3 py-1">
           {/* The heading is the input: click it, type, and leaving it saves.
               Emptied, it shows the saved title and leaving it changes nothing. */}
-          <h1 className="min-w-0 max-w-3xl flex-1 font-medium text-xl tracking-tight">
+          <h1 className="min-w-0 flex-1 font-medium text-xl tracking-tight">
             {/* A textarea, so a long title wraps like the document under it;
                 the caret is its only focus mark. */}
             <textarea
@@ -432,7 +432,7 @@ function ScratchpadDocument({
 
       {/* The panel's outline scrolls the headings this element contains, so it
           has to wrap the rendered editor and nothing else. */}
-      <div className="min-w-0 max-w-3xl" ref={contentRef}>
+      <div className="min-w-0" ref={contentRef}>
         <MarkdownEditor
           autoFocus={pad.content === ""}
           onHeadings={setHeadings}
