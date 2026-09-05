@@ -1,30 +1,16 @@
-import { type RefObject, useCallback, useEffect, useState } from "react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import type { EditorHeading } from "@/components/markdown-editor";
 import { scrollToHeading } from "@/components/markdown-editor";
 import { cn } from "@/lib/utils";
-
-interface Branch {
-  children: Branch[];
-  heading: EditorHeading;
-}
-
-/** Nests headings by level: each one goes under the nearest shallower
- *  heading above it, so the guide line beside a section's children runs
- *  unbroken from the first to the last. */
-function nest(headings: EditorHeading[]): Branch[] {
-  const roots: Branch[] = [];
-  const open: Branch[] = [];
-  for (const heading of headings) {
-    const branch: Branch = { children: [], heading };
-    while ((open.at(-1)?.heading.level ?? 0) >= heading.level) {
-      open.pop();
-    }
-    (open.at(-1)?.children ?? roots).push(branch);
-    open.push(branch);
-  }
-  return roots;
-}
 
 /** How far below the top of the scroll container a heading counts as the
  *  one being read; the same clearance a teleport lands with, plus the
@@ -74,13 +60,54 @@ function useActiveHeading(
   return active;
 }
 
+/** Where the line runs for each depth, and how far the text sits past it.
+ *  One line threads every row, bending as the depth changes. */
+const LINE_X = [1, 13, 25];
+
+/** A document that opens with an H2 is not indented for the H1 it lacks:
+ *  depth counts from the shallowest heading present. */
+function depths(headings: EditorHeading[]): number[] {
+  const shallowest = Math.min(...headings.map((heading) => heading.level));
+  return headings.map((heading) =>
+    Math.min(heading.level - shallowest, LINE_X.length - 1)
+  );
+}
+const TEXT_GAP = 12;
+const LINE_WIDTH = (LINE_X.at(-1) ?? 0) + 3;
+/** How much of a row the bend into a new level takes. */
+const BEND = 12;
+
+interface Segment {
+  bottom: number;
+  top: number;
+  x: number;
+}
+
+function linePath(segments: Segment[]): string {
+  let d = "";
+  let previous: Segment | null = null;
+  for (const segment of segments) {
+    if (previous === null) {
+      d += `M${segment.x} ${segment.top}`;
+    } else if (previous.x !== segment.x) {
+      const mid = segment.top + BEND / 2;
+      d += `C${previous.x} ${mid} ${segment.x} ${mid} ${segment.x} ${segment.top + BEND}`;
+    }
+    d += `L${segment.x} ${segment.bottom}`;
+    previous = segment;
+  }
+  return d;
+}
+
 function TocRow({
   heading,
+  depth,
   active,
   containerRef,
 }: {
   active: boolean;
   containerRef: RefObject<HTMLElement | null>;
+  depth: number;
   heading: EditorHeading;
 }) {
   const scroll = useCallback(
@@ -92,53 +119,15 @@ function TocRow({
     <button
       aria-current={active ? "location" : undefined}
       className={cn(
-        "flex h-7 w-full min-w-0 items-center rounded-md px-2 text-left text-sm transition-colors hover:bg-muted hover:text-foreground",
-        active ? "bg-muted text-foreground" : "text-muted-foreground"
+        "flex h-7 w-full min-w-0 items-center text-left text-sm transition-colors hover:text-foreground",
+        active ? "text-foreground" : "text-muted-foreground"
       )}
       onClick={scroll}
+      style={{ paddingLeft: LINE_X[depth] + TEXT_GAP }}
       type="button"
     >
       <span className="truncate">{heading.text}</span>
     </button>
-  );
-}
-
-function Branches({
-  branches,
-  active,
-  containerRef,
-  nested = false,
-}: {
-  active: number;
-  branches: Branch[];
-  containerRef: RefObject<HTMLElement | null>;
-  nested?: boolean;
-}) {
-  return (
-    <ul
-      className={cn(
-        "flex flex-col",
-        nested && "ml-3 border-border border-l pl-3"
-      )}
-    >
-      {branches.map((branch) => (
-        <li key={branch.heading.index}>
-          <TocRow
-            active={branch.heading.index === active}
-            containerRef={containerRef}
-            heading={branch.heading}
-          />
-          {branch.children.length > 0 && (
-            <Branches
-              active={active}
-              branches={branch.children}
-              containerRef={containerRef}
-              nested
-            />
-          )}
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -151,18 +140,77 @@ export function EditorToc({
   containerRef: RefObject<HTMLElement | null>;
 }) {
   const active = useActiveHeading(containerRef, headings);
+  const list = useRef<HTMLDivElement>(null);
+  const [segments, setSegments] = useState<Segment[]>([]);
+  const clipId = useId();
+
+  // The rows are measured once laid out, so the line follows whatever height
+  // and wrapping they end up with.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the rows change with the headings
+  useLayoutEffect(() => {
+    const rows = list.current?.querySelectorAll<HTMLElement>("button") ?? [];
+    const depth = depths(headings);
+    setSegments(
+      [...rows].map((row, i) => ({
+        bottom: row.offsetTop + row.offsetHeight,
+        top: row.offsetTop,
+        x: LINE_X[depth[i]],
+      }))
+    );
+  }, [headings]);
+
   if (headings.length === 0) {
     return null;
   }
 
+  const d = linePath(segments);
+  const height = segments.at(-1)?.bottom ?? 0;
+  const current = segments[active];
+  const depth = depths(headings);
+
   return (
     <nav aria-label="Outline" className="flex flex-col gap-2">
       <h2 className="font-medium text-sm tracking-tight">Outline</h2>
-      <Branches
-        active={active}
-        branches={nest(headings)}
-        containerRef={containerRef}
-      />
+      <div className="relative flex flex-col" ref={list}>
+        {segments.length > 0 ? (
+          <svg
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 left-0 fill-none stroke-1"
+            height={height}
+            width={LINE_WIDTH}
+          >
+            <path className="stroke-border" d={d} strokeLinecap="round" />
+            {current ? (
+              <>
+                <clipPath id={clipId}>
+                  <rect
+                    className="transition-[y,height] duration-150 motion-reduce:transition-none"
+                    height={current.bottom - current.top}
+                    width={LINE_WIDTH}
+                    x={0}
+                    y={current.top}
+                  />
+                </clipPath>
+                <path
+                  className="stroke-foreground"
+                  clipPath={`url(#${clipId})`}
+                  d={d}
+                  strokeLinecap="round"
+                />
+              </>
+            ) : null}
+          </svg>
+        ) : null}
+        {headings.map((heading, i) => (
+          <TocRow
+            active={heading.index === active}
+            containerRef={containerRef}
+            depth={depth[i]}
+            heading={heading}
+            key={heading.index}
+          />
+        ))}
+      </div>
     </nav>
   );
 }
