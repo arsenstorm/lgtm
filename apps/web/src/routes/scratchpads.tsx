@@ -3,8 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { projectName } from "@/components/app-sidebar";
-import { LoaderIcon, NotesIcon, PlusIcon } from "@/components/icons";
+import { LoaderIcon, PlusIcon } from "@/components/icons";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { PageHeading } from "@/components/page-heading";
 import { TAG_CHIP } from "@/components/tags-row";
@@ -13,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { createScratchpad, getScratchpads } from "@/lib/lgtm/server";
 import type { Scratchpad } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
+import { groupByRepository } from "@/routes/memories";
 
 export const Route = createFileRoute("/scratchpads")({
   loader: async () => ({ scratchpads: await getScratchpads() }),
@@ -49,8 +49,9 @@ function ScratchpadsPage() {
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
 
-  const live = scratchpads.filter((pad) => !pad.archived).sort(byEdited);
+  const live = scratchpads.filter((pad) => !pad.archived);
   const archived = scratchpads.filter((pad) => pad.archived).sort(byEdited);
+  const groups = groupByRepository(live, byEdited);
 
   async function create() {
     setCreating(true);
@@ -92,17 +93,24 @@ function ScratchpadsPage() {
         </p>
       ) : (
         <>
-          <ul className="-mx-2 divide-y divide-foreground/5" role="list">
-            {live.map((pad) => (
-              <li key={pad.id}>
-                <ScratchpadRow pad={pad} />
-              </li>
-            ))}
-          </ul>
+          {groups.map((entry) => (
+            <section className="flex flex-col gap-2" key={entry.key}>
+              <h2 className="truncate font-medium text-muted-foreground text-sm">
+                {entry.label}
+              </h2>
+              <ul className="-mx-2 divide-y divide-foreground/5" role="list">
+                {entry.items.map((pad) => (
+                  <li key={pad.id}>
+                    <ScratchpadRow pad={pad} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
 
           {archived.length > 0 && (
             <section className="flex flex-col gap-2">
-              <h2 className="font-medium text-muted-foreground text-sm">
+              <h2 className="truncate font-medium text-muted-foreground text-sm">
                 Archived
               </h2>
               <ul className="-mx-2 divide-y divide-foreground/5" role="list">
@@ -127,7 +135,6 @@ function ScratchpadRow({ pad }: { pad: Scratchpad }) {
       params={{ id: pad.id }}
       to="/scratchpads/$id"
     >
-      <NotesIcon className="size-4 shrink-0 text-muted-foreground" />
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="min-w-0 truncate">{padTitle(pad.content)}</span>
         {pad.tags.slice(0, TAGS_SHOWN).map((tag) => (
@@ -142,15 +149,9 @@ function ScratchpadRow({ pad }: { pad: Scratchpad }) {
         )}
       </span>
 
-      {pad.repository !== null && (
-        <span className="w-32 shrink-0 truncate text-muted-foreground">
-          {projectName(pad.repository)}
-        </span>
-      )}
-
       <TimeAgo
         at={pad.updated_at}
-        className="max-w-24 shrink-0 truncate text-end text-muted-foreground tabular-nums"
+        className="w-16 shrink-0 truncate text-end text-muted-foreground tabular-nums"
       />
     </Link>
   );

@@ -28,42 +28,46 @@ export const Route = createFileRoute("/memories")({
   errorComponent: MemoriesError,
 });
 
-interface Group {
+interface Group<T> {
+  items: T[];
   key: string;
   label: string;
-  memories: Memory[];
 }
 
-function group(memories: Memory[]): Group[] {
-  const byRepository = new Map<string | null, Memory[]>();
-  for (const memory of memories) {
-    const bucket = byRepository.get(memory.repository);
+/** Memories and scratchpads both list by repository. Items with no
+ *  repository apply everywhere, so they lead. */
+export function groupByRepository<T extends { repository: string | null }>(
+  items: T[],
+  compare: (a: T, b: T) => number
+): Group<T>[] {
+  const byRepository = new Map<string | null, T[]>();
+  for (const item of items) {
+    const bucket = byRepository.get(item.repository);
     if (bucket) {
-      bucket.push(memory);
+      bucket.push(item);
     } else {
-      byRepository.set(memory.repository, [memory]);
+      byRepository.set(item.repository, [item]);
     }
   }
 
-  return (
-    [...byRepository]
-      .map(([repository, list]) => ({
-        key: repository ?? "",
-        label:
-          repository === null ? "Every repository" : projectName(repository),
-        memories: [...list].sort((a, b) => b.created_at - a.created_at),
-      }))
-      // Memories with no repository apply everywhere, so they lead.
-      .sort(
-        (a, b) =>
-          Number(!!a.key) - Number(!!b.key) || a.label.localeCompare(b.label)
-      )
-  );
+  return [...byRepository]
+    .map(([repository, list]) => ({
+      key: repository ?? "",
+      label: repository === null ? "Every repository" : projectName(repository),
+      items: [...list].sort(compare),
+    }))
+    .sort(
+      (a, b) =>
+        Number(!!a.key) - Number(!!b.key) || a.label.localeCompare(b.label)
+    );
 }
 
 function MemoriesPage() {
   const { memories } = Route.useLoaderData();
-  const groups = group(memories);
+  const groups = groupByRepository(
+    memories,
+    (a, b) => b.created_at - a.created_at
+  );
 
   return (
     // The shell's <main> is an unpadded scroll container, so the page owns its
@@ -80,7 +84,7 @@ function MemoriesPage() {
               {entry.label}
             </h2>
             <ul className="-mx-2 divide-y divide-foreground/5" role="list">
-              {entry.memories.map((memory) => (
+              {entry.items.map((memory) => (
                 <li key={memory.id}>
                   <MemoryRow memory={memory} />
                 </li>
