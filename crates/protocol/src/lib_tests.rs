@@ -61,6 +61,7 @@ fn sample_task() -> Task {
             cost_usd: 0.42,
             validation: Vec::new(),
             artefacts: Vec::new(),
+            skills: Vec::new(),
         }],
         scratchpad: "## Findings\n- the parser is in src/parse.rs\n".into(),
         files: Vec::new(),
@@ -140,6 +141,10 @@ fn every_message_round_trips() {
     for event in [
         TaskEvent::Started {
             model: Some("opus".into()),
+            skills: vec![SkillRef {
+                name: "review-pr".into(),
+                revision: 1,
+            }],
         },
         TaskEvent::Message {
             text: "use the existing helper".into(),
@@ -262,6 +267,7 @@ fn every_message_round_trips() {
         OrchestratorMessage::Start {
             task: Box::new(sample_task()),
             memories: vec![memory(Some("r"), "ship small commits")],
+            skills: vec![],
             authorship: Authorship::default(),
         },
         OrchestratorMessage::Cancel {
@@ -274,6 +280,7 @@ fn every_message_round_trips() {
             task_id: "0123abcd".into(),
             text: "again".into(),
             memories: vec![memory(None, "deploys are manual")],
+            skills: vec![],
             task: None,
             authorship: Authorship::default(),
         },
@@ -281,6 +288,7 @@ fn every_message_round_trips() {
             task_id: "0123abcd".into(),
             text: "again, with an allowed host".into(),
             memories: vec![],
+            skills: vec![],
             task: Some(Box::new(sample_task())),
             // A commit with two names on it has to survive the wire.
             authorship: Authorship {
@@ -403,7 +411,13 @@ fn phase_one_frames_still_parse() {
     let pushed: TaskEvent = serde_json::from_str(r#"{"type":"pushed","branch":"b"}"#).unwrap();
     assert!(matches!(pushed, TaskEvent::Pushed { sha, .. } if sha.is_empty()));
     let started: TaskEvent = serde_json::from_str(r#"{"type":"started"}"#).unwrap();
-    assert!(matches!(started, TaskEvent::Started { model: None }));
+    assert!(matches!(
+        started,
+        TaskEvent::Started {
+            model: None,
+            skills
+        } if skills.is_empty()
+    ));
 }
 
 fn memory(repository: Option<&str>, content: &str) -> Memory {
@@ -955,7 +969,10 @@ fn an_approved_review_wants_nobody() {
 fn routine_events_want_nobody() {
     let task = attention_task("p", TaskStatus::Running, None);
     for event in [
-        TaskEvent::Started { model: None },
+        TaskEvent::Started {
+            model: None,
+            skills: vec![],
+        },
         TaskEvent::AutoApproved,
         TaskEvent::Cancelled,
         TaskEvent::Discarded,
@@ -1187,4 +1204,156 @@ fn same_workspace_separates_only_two_explicit_names() {
     assert!(same_workspace(Some("acme"), None));
     assert!(same_workspace(Some("acme"), Some("acme")));
     assert!(!same_workspace(Some("acme"), Some("other")));
+}
+
+#[test]
+fn a_start_frame_without_skills_defaults_to_empty() {
+    let json = r#"{"type":"start","task":{"id":"0123abcd","spec":{"repository":"r","base_branch":"main","prompt":"p","executor":"claude","runner":null},"status":"approved","runner":"w","created_at":1,"result":null,"error":null}}"#;
+    let msg: OrchestratorMessage = serde_json::from_str(json).unwrap();
+    assert!(matches!(
+        msg,
+        OrchestratorMessage::Start { skills, .. } if skills.is_empty()
+    ));
+}
+
+#[test]
+fn a_skill_header_reads_bare_quoted_and_block_scalar_values() {
+    let bare =
+        parse_skill_header("---\nname: review-pr\ndescription: Review a pull request.\n---\nbody")
+            .unwrap();
+    assert_eq!(bare.name, "review-pr");
+    assert_eq!(bare.description, "Review a pull request.");
+
+    let quoted = parse_skill_header(
+        "---\nname: \"commit\"\nversion: 1.0.0\ndescription: 'Write commits'\n---\n",
+    )
+    .unwrap();
+    assert_eq!(quoted.name, "commit");
+    assert_eq!(quoted.description, "Write commits");
+
+    let block = parse_skill_header(
+        "---\nname: simple-english\nversion: 1.0.0\ndescription: |\n  Write technical text\n  with STE rules.\nmetadata:\n  author: x\n---\n# Title",
+    )
+    .unwrap();
+    assert_eq!(block.name, "simple-english");
+    assert_eq!(block.description, "Write technical text with STE rules.");
+}
+
+#[test]
+fn a_skill_header_is_refused_when_incomplete() {
+    assert!(parse_skill_header("name: x\ndescription: y\n").is_err());
+    assert!(parse_skill_header("---\nname: x\ndescription: y\n").is_err());
+    assert!(parse_skill_header("---\nname: x\n---\n")
+        .unwrap_err()
+        .contains("description"));
+    assert!(parse_skill_header("---\ndescription: y\n---\n")
+        .unwrap_err()
+        .contains("name"));
+    let long_description = "a".repeat(1025);
+    assert!(parse_skill_header(&format!(
+        "---\nname: x\ndescription: {long_description}\n---\n"
+    ))
+    .is_err());
+}
+
+#[test]
+fn skill_names_follow_the_spec() {
+    for name in ["pdf-processing", "a", "x1"] {
+        assert!(validate_skill_name(name).is_ok());
+    }
+    for name in [
+        "PDF",
+        "-pdf",
+        "pdf-",
+        "pdf--processing",
+        "pdf_processing",
+        "",
+        &"a".repeat(65),
+    ] {
+        assert!(validate_skill_name(name).is_err());
+    }
+}
+
+#[test]
+fn skill_file_paths_stay_inside_the_skill() {
+    for path in ["references/rules.md", "scripts/run.sh", "notes.md"] {
+        assert!(validate_skill_path(path).is_ok());
+    }
+    for path in [
+        "../x.md", "/abs.md", "a//b.md", ".hidden", "dir/./x", "SKILL.md", "C:\\x", "",
+    ] {
+        assert!(validate_skill_path(path).is_err());
+    }
+}
+
+#[test]
+fn validate_skill_refuses_duplicate_paths_and_oversize() {
+    let content = "---\nname: review-pr\ndescription: Review a pull request.\n---\nbody";
+
+    let duplicate = vec![
+        SkillFile {
+            path: "a.md".into(),
+            content: "x".into(),
+        },
+        SkillFile {
+            path: "a.md".into(),
+            content: "y".into(),
+        },
+    ];
+    assert!(validate_skill(content, &duplicate)
+        .unwrap_err()
+        .contains("twice"));
+
+    let oversize = vec![SkillFile {
+        path: "big.md".into(),
+        content: "a".repeat(SKILL_MAX_BYTES),
+    }];
+    assert!(validate_skill(content, &oversize)
+        .unwrap_err()
+        .contains("bytes"));
+
+    let single = vec![SkillFile {
+        path: "notes.md".into(),
+        content: "hi".into(),
+    }];
+    assert_eq!(
+        validate_skill(content, &single).unwrap(),
+        parse_skill_header(content).unwrap()
+    );
+}
+
+#[test]
+fn a_skill_is_handed_to_its_repository_once_approved() {
+    let mut skill = Skill {
+        id: "0123abcd".into(),
+        name: "review-pr".into(),
+        description: "Review a pull request.".into(),
+        repository: Some("https://github.com/a/b.git".into()),
+        content: "---\nname: review-pr\ndescription: Review a pull request.\n---\nbody".into(),
+        files: Vec::new(),
+        revision: 1,
+        created_at: 1,
+        updated_at: 1,
+        source: MemorySource::Agent,
+        verification: Verification::AgentProposed,
+        proposed_by: Some("t1".into()),
+        workspace: None,
+        created_by: None,
+    };
+    assert!(!skill.is_told_to("https://github.com/a/b.git"));
+
+    skill.verification = Verification::UserApproved;
+    assert!(skill.is_told_to("https://github.com/a/b.git"));
+    assert!(!skill.is_told_to("https://github.com/c/d.git"));
+
+    skill.repository = None;
+    assert!(skill.is_told_to("anything"));
+
+    assert_eq!(
+        skill.reference(),
+        SkillRef {
+            name: "review-pr".into(),
+            revision: 1,
+        }
+    );
 }

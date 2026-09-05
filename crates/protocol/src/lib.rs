@@ -324,7 +324,7 @@ pub struct BatchSummary {
     pub rejected: u32,
 }
 
-/// Who wrote a `Memory`.
+/// Who wrote a `Memory` or a `Skill`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MemorySource {
@@ -562,6 +562,229 @@ impl Memory {
     pub fn is_told_to(&self, repository: &str) -> bool {
         self.verification == Verification::UserApproved
             && self.repository.as_deref().is_none_or(|r| r == repository)
+    }
+}
+
+/// A file a skill ships beside its `SKILL.md`: a reference, a template, a
+/// script. `path` is relative to the skill's directory.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct SkillFile {
+    pub path: String,
+    pub content: String,
+}
+
+/// A reusable procedure in the Agent Skills format (a `SKILL.md` directory),
+/// handed to every run in its scope by materialising it in the worktree
+/// where Claude and Codex each look for skills. A memory is a fact told in
+/// the prompt; a skill is a how-to the agent opens when it needs it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Skill {
+    pub id: String,
+    /// The frontmatter `name`, also the directory the skill lands in.
+    pub name: String,
+    /// The frontmatter `description`: what the agent reads before the body.
+    pub description: String,
+    /// `None` applies to every repository the orchestrator sees.
+    pub repository: Option<String>,
+    /// The whole `SKILL.md`, frontmatter included.
+    pub content: String,
+    #[serde(default)]
+    pub files: Vec<SkillFile>,
+    /// Bumped by every edit, so a run can say which text it was given.
+    pub revision: u32,
+    /// Unix milliseconds.
+    pub created_at: u64,
+    /// Unix milliseconds.
+    pub updated_at: u64,
+    #[serde(default)]
+    pub source: MemorySource,
+    #[serde(default = "approved")]
+    pub verification: Verification,
+    /// The task that proposed it, when `source` is `Agent`.
+    #[serde(default)]
+    pub proposed_by: Option<TaskId>,
+    /// The workspace this belongs to; one per orchestrator until teams exist.
+    #[serde(default)]
+    pub workspace: Option<String>,
+    /// The user who created this; `None` for the shared token or automation.
+    #[serde(default)]
+    pub created_by: Option<String>,
+}
+
+/// Which skill, at which revision, a run was handed.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct SkillRef {
+    pub name: String,
+    pub revision: u32,
+}
+
+impl Skill {
+    /// Whether a run in `repository` is handed this: it applies to the
+    /// repository, and a person has approved it.
+    pub fn is_told_to(&self, repository: &str) -> bool {
+        self.verification == Verification::UserApproved
+            && self.repository.as_deref().is_none_or(|r| r == repository)
+    }
+
+    pub fn reference(&self) -> SkillRef {
+        SkillRef {
+            name: self.name.clone(),
+            revision: self.revision,
+        }
+    }
+}
+
+/// The two fields the Agent Skills spec requires of a `SKILL.md`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SkillHeader {
+    pub name: String,
+    pub description: String,
+}
+
+/// Bytes of `content` plus every file. A skill over this is refused rather
+/// than truncated: a cut procedure is a wrong procedure.
+pub const SKILL_MAX_BYTES: usize = 1024 * 1024;
+
+/// Everything a skill must satisfy before it is stored or written to a
+/// worktree: a spec-valid header, sane file paths, and a size a worktree
+/// can take.
+pub fn validate_skill(content: &str, files: &[SkillFile]) -> Result<SkillHeader, String> {
+    let header = parse_skill_header(content)?;
+    let mut seen = std::collections::HashSet::new();
+    for file in files {
+        validate_skill_path(&file.path)?;
+        if !seen.insert(file.path.as_str()) {
+            return Err(format!("file path `{}` appears twice", file.path));
+        }
+    }
+    let bytes = content.len() + files.iter().map(|f| f.content.len()).sum::<usize>();
+    if bytes > SKILL_MAX_BYTES {
+        return Err(format!(
+            "skill is {bytes} bytes; the limit is {SKILL_MAX_BYTES}"
+        ));
+    }
+    Ok(header)
+}
+
+/// Reads `name` and `description` from a `SKILL.md`'s YAML frontmatter.
+/// Only what the spec needs is understood: top-level `key: value` lines,
+/// bare or quoted, and a `|`/`>` block scalar. A YAML parser would be a
+/// dependency for two fields.
+pub fn parse_skill_header(content: &str) -> Result<SkillHeader, String> {
+    let body = content
+        .strip_prefix("---")
+        .and_then(|rest| {
+            rest.strip_prefix("\r\n")
+                .or_else(|| rest.strip_prefix('\n'))
+        })
+        .ok_or("SKILL.md must start with a `---` frontmatter line")?;
+    let mut lines = body.lines().peekable();
+    let mut name = None;
+    let mut description = None;
+    let mut closed = false;
+    while let Some(line) = lines.next() {
+        if line.trim_end() == "---" {
+            closed = true;
+            break;
+        }
+        // An indented key belongs to a nested mapping, not the top level.
+        if line.starts_with([' ', '\t']) {
+            continue;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+        if key != "name" && key != "description" {
+            continue;
+        }
+        let value = value.trim();
+        let value = if is_block_scalar(value) {
+            let mut block = Vec::new();
+            while let Some(next) = lines.next_if(|next| next.starts_with([' ', '\t'])) {
+                block.push(next.trim());
+            }
+            block.join(" ")
+        } else {
+            unquote(value).to_string()
+        };
+        match key {
+            "name" => name = Some(value),
+            _ => description = Some(value),
+        }
+    }
+    if !closed {
+        return Err("frontmatter is not closed with a `---` line".into());
+    }
+    let name = name
+        .filter(|name| !name.is_empty())
+        .ok_or("frontmatter needs a `name`")?;
+    validate_skill_name(&name)?;
+    let description = description
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty())
+        .ok_or("frontmatter needs a `description`")?;
+    if description.chars().count() > 1024 {
+        return Err("description is over 1024 characters".into());
+    }
+    Ok(SkillHeader { name, description })
+}
+
+/// `|`, `>`, and their `-`/`+` chomping variants.
+fn is_block_scalar(value: &str) -> bool {
+    let mut chars = value.chars();
+    matches!(chars.next(), Some('|' | '>')) && chars.all(|c| matches!(c, '-' | '+'))
+}
+
+fn unquote(value: &str) -> &str {
+    for quote in ['"', '\''] {
+        if let Some(inner) = value
+            .strip_prefix(quote)
+            .and_then(|rest| rest.strip_suffix(quote))
+        {
+            return inner;
+        }
+    }
+    value
+}
+
+/// The spec's rules for a skill name, which is also a directory name on
+/// every runner.
+pub fn validate_skill_name(name: &str) -> Result<(), String> {
+    let chars_ok = name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if name.is_empty()
+        || name.len() > 64
+        || !chars_ok
+        || name.starts_with('-')
+        || name.ends_with('-')
+        || name.contains("--")
+    {
+        return Err(format!(
+            "skill name `{name}` must be 1-64 lowercase letters, digits and single hyphens, not at either end"
+        ));
+    }
+    Ok(())
+}
+
+/// A path beside `SKILL.md`: relative, forward-slashed, no empty, dotted or
+/// hidden segment, so it can never escape the skill's directory.
+pub fn validate_skill_path(path: &str) -> Result<(), String> {
+    let plain = !path.starts_with('/')
+        && !path.contains('\\')
+        && !path.contains(':')
+        && path != "SKILL.md"
+        && !path.is_empty()
+        && path
+            .split('/')
+            .all(|segment| !segment.is_empty() && !segment.starts_with('.'));
+    if plain {
+        Ok(())
+    } else {
+        Err(format!(
+            "file path `{path}` must be relative, forward-slashed, with no empty, dotted or hidden segments"
+        ))
     }
 }
 
@@ -1134,6 +1357,9 @@ pub struct Execution {
     /// Names of the files this attempt left for the reviewer.
     #[serde(default)]
     pub artefacts: Vec<String>,
+    /// The skills this attempt's runs were handed, by name and revision.
+    #[serde(default)]
+    pub skills: Vec<SkillRef>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

@@ -3,7 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Authorship, Executor, Memory, ReviewState, RunnerInfo, Task, TaskId, TaskResult};
+use crate::{
+    Authorship, Executor, Memory, ReviewState, RunnerInfo, Skill, SkillRef, Task, TaskId,
+    TaskResult,
+};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -23,6 +26,9 @@ pub enum TaskEvent {
         /// the execution without the runner needing the store.
         #[serde(default)]
         model: Option<String>,
+        /// What the runner put in the worktree for this run.
+        #[serde(default)]
+        skills: Vec<SkillRef>,
     },
     /// A follow-up from the developer, recorded before the run it triggers.
     Message {
@@ -219,6 +225,10 @@ pub enum OrchestratorMessage {
         /// orchestrator so a runner never needs the store.
         #[serde(default)]
         memories: Vec<Memory>,
+        /// Written into the worktree before the run; resolved by the
+        /// orchestrator for the same reason as `memories`.
+        #[serde(default)]
+        skills: Vec<Skill>,
         /// Whose names go on the commit, resolved by the orchestrator from
         /// the workspace's credentials.
         #[serde(default)]
@@ -239,6 +249,10 @@ pub enum OrchestratorMessage {
         /// orchestrator so a runner never needs the store.
         #[serde(default)]
         memories: Vec<Memory>,
+        /// Written into the worktree before the run; resolved by the
+        /// orchestrator for the same reason as `memories`.
+        #[serde(default)]
+        skills: Vec<Skill>,
         /// The task as the orchestrator has it now, so a follow-up carries a
         /// spec change (e.g. an allowed host) the runner's own stored copy
         /// predates.
