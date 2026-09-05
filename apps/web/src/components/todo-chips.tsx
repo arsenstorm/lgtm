@@ -36,7 +36,10 @@ export const MARK: Record<
 const STATUS_OPTIONS: TodoStatus[] = ["open", "in_progress", "done"];
 const PRIORITY_OPTIONS: TodoPriority[] = ["low", "medium", "high"];
 
-const PRIORITY: Record<TodoPriority, { className: string; label: string }> = {
+export const PRIORITY: Record<
+  TodoPriority,
+  { className: string; label: string }
+> = {
   high: {
     className: "border-red-600/30 text-red-700 dark:text-red-400",
     label: "High priority",

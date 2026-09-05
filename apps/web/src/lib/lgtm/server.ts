@@ -310,6 +310,13 @@ export const updateTodo = createServerFn({ method: "POST" })
       api<Todo>(`/todos/${data.id}`, { body: data.patch, method: "PATCH" })
   );
 
+export const deleteTodo = createServerFn({ method: "POST" })
+  .validator((id: string) => id)
+  .handler(
+    async ({ data }): Promise<void> =>
+      api<void>(`/todos/${data}`, { method: "DELETE" })
+  );
+
 export const commentOnTodo = createServerFn({ method: "POST" })
   .validator((input: { id: string; body: string }) => input)
   .handler(
