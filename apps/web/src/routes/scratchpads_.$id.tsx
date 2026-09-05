@@ -8,8 +8,8 @@ import { EditorToc } from "@/components/editor-toc";
 import {
   ArchiveIcon,
   ArrowBackIcon,
+  ChevronIcon,
   DotsIcon,
-  FolderIcon,
   TrashIcon,
 } from "@/components/icons";
 import type { EditorHeading } from "@/components/markdown-editor";
@@ -17,13 +17,14 @@ import { MarkdownEditor } from "@/components/markdown-editor";
 import { OrchestratorError } from "@/components/orchestrator-error";
 import { TagsRow } from "@/components/tags-row";
 import { TimeAgo } from "@/components/time-ago";
-import { Picker } from "@/components/todo-chips";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAction } from "@/hooks/use-action";
@@ -182,6 +183,9 @@ function ScratchpadDocument({
   );
   const setRepository = useCallback(
     (repository: string) => {
+      if (repository === (pad.repository ?? EVERY_REPOSITORY)) {
+        return;
+      }
       run(
         "repository",
         () =>
@@ -196,7 +200,7 @@ function ScratchpadDocument({
           : `Scratchpad moved to ${repositoryName(repository)}`
       );
     },
-    [run, pad.id, repositoryName]
+    [run, pad.id, pad.repository, repositoryName]
   );
 
   const rename = useCallback(
@@ -318,30 +322,67 @@ function ScratchpadDocument({
           </DropdownMenu>
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm lg:flex-col lg:items-start">
-          <Picker
-            disabled={busy}
-            format={repositoryName}
-            onPick={setRepository}
-            options={[EVERY_REPOSITORY, ...repositories]}
-            triggerClassName="border-border"
-            value={pad.repository ?? EVERY_REPOSITORY}
-          >
-            <FolderIcon />
-            <span className="truncate">
-              {repositoryName(pad.repository ?? EVERY_REPOSITORY)}
-            </span>
-          </Picker>
-          <span className="text-muted-foreground">
-            created <TimeAgo at={pad.created_at} />
-          </span>
+        {/* A property list: labels in one column, values in the other, every
+            value plain text and the editable ones ghost controls. */}
+        <dl className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-sm">
+          <dt className="text-muted-foreground">Repository</dt>
+          <dd className="min-w-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <button
+                    className="-mx-1.5 flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0"
+                    disabled={busy}
+                    type="button"
+                  />
+                }
+              >
+                <span className="truncate">
+                  {repositoryName(pad.repository ?? EVERY_REPOSITORY)}
+                </span>
+                <ChevronIcon
+                  className="text-muted-foreground"
+                  direction="down"
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56 rounded-lg">
+                <DropdownMenuRadioGroup
+                  onValueChange={setRepository}
+                  value={pad.repository ?? EVERY_REPOSITORY}
+                >
+                  {[EVERY_REPOSITORY, ...repositories].map((option) => (
+                    <DropdownMenuRadioItem
+                      className="gap-2 px-2 py-1.5"
+                      key={option}
+                      value={option}
+                    >
+                      <span>{repositoryName(option)}</span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </dd>
+
+          <dt className="text-muted-foreground">Created</dt>
+          <dd className="flex h-7 items-center">
+            <TimeAgo at={pad.created_at} />
+          </dd>
+
           {pad.updated_at !== pad.created_at && (
-            <span className="text-muted-foreground">
-              edited <TimeAgo at={pad.updated_at} />
-            </span>
+            <>
+              <dt className="text-muted-foreground">Edited</dt>
+              <dd className="flex h-7 items-center">
+                <TimeAgo at={pad.updated_at} />
+              </dd>
+            </>
           )}
-          <TagsRow disabled={busy} onChange={setTags} tags={pad.tags} />
-        </div>
+
+          <dt className="self-start pt-1.5 text-muted-foreground">Tags</dt>
+          <dd className="py-1">
+            <TagsRow disabled={busy} onChange={setTags} tags={pad.tags} />
+          </dd>
+        </dl>
 
         <div className="hidden lg:block">
           <EditorToc containerRef={contentRef} headings={headings} />
