@@ -88,10 +88,13 @@ const CHATS_GROUP = ":chats";
 // always on where there is no hover to reach it with.
 // The heading is its own hover group, not the whole section: reaching a row
 // inside the section must not light the heading's furniture up.
+// `has-focus-visible`, not `focus-within`: a click leaves focus on the
+// trigger, and that must not pin the furniture on after the pointer leaves.
 const HEADING_REVEAL =
-  "opacity-0 pointer-coarse:opacity-100 group-focus-within/heading:opacity-100 group-hover/heading:opacity-100";
+  "opacity-0 pointer-coarse:opacity-100 group-has-focus-visible/heading:opacity-100 group-hover/heading:opacity-100";
+// A collapsed group keeps its caret: it is the only sign the rows are hidden.
 // `rotate-90` sets the `rotate` property, so the transition has to name it.
-const GROUP_CARET = `${HEADING_REVEAL} size-3.5! ml-1 text-muted-foreground transition-[opacity,rotate] duration-200 group-data-[panel-open]/label:rotate-90`;
+const GROUP_CARET = `${HEADING_REVEAL} size-3! ml-1 text-muted-foreground transition-[opacity,rotate] duration-200 group-aria-[expanded=false]/label:opacity-100 group-data-[panel-open]/label:rotate-90`;
 
 type OpenMap = Record<string, boolean>;
 
