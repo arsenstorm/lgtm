@@ -64,6 +64,8 @@ const MORE = [
   { icon: ActivityIcon, label: "Activity", to: "/activity" },
 ] as const;
 
+// The popup's padding and border would otherwise inset its rows and icons from the sidebar buttons.
+const POPUP_INSET = 5;
 // The menu sits over the row it came from, so the row reads as expanding in place.
 const overTheAnchor = ({ anchor }: { anchor: { height: number } }) =>
   -anchor.height;
@@ -450,9 +452,11 @@ function MoreItem() {
 
         <DropdownMenuContent
           align="start"
+          alignOffset={-POPUP_INSET}
           className="rounded-lg"
           side="bottom"
           sideOffset={overTheAnchor}
+          style={{ width: `calc(var(--anchor-width) + ${2 * POPUP_INSET}px)` }}
         >
           {MORE.map(({ to, label, icon: Icon }) => (
             <DropdownMenuItem
