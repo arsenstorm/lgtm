@@ -98,7 +98,7 @@ function ScratchpadsPage() {
               <h2 className="truncate font-medium text-muted-foreground text-sm">
                 {entry.label}
               </h2>
-              <ul className="-mx-2 divide-y divide-foreground/5" role="list">
+              <ul className="-mx-2 flex flex-col gap-0.5" role="list">
                 {entry.items.map((pad) => (
                   <li key={pad.id}>
                     <ScratchpadRow pad={pad} />
@@ -113,7 +113,7 @@ function ScratchpadsPage() {
               <h2 className="truncate font-medium text-muted-foreground text-sm">
                 Archived
               </h2>
-              <ul className="-mx-2 divide-y divide-foreground/5" role="list">
+              <ul className="-mx-2 flex flex-col gap-0.5" role="list">
                 {archived.map((pad) => (
                   <li key={pad.id}>
                     <ScratchpadRow pad={pad} />
