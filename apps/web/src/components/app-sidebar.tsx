@@ -92,7 +92,8 @@ const CHATS_GROUP = ":chats";
 // inside the section must not light the heading's furniture up.
 const HEADING_REVEAL =
   "opacity-0 pointer-coarse:opacity-100 group-focus-within/heading:opacity-100 group-hover/heading:opacity-100";
-const GROUP_CARET = `${HEADING_REVEAL} size-3.5! ml-1 text-muted-foreground transition-[opacity,transform] duration-200 group-data-[panel-open]/label:rotate-90`;
+// `rotate-90` sets the `rotate` property, so the transition has to name it.
+const GROUP_CARET = `${HEADING_REVEAL} size-3.5! ml-1 text-muted-foreground transition-[opacity,rotate] duration-200 group-data-[panel-open]/label:rotate-90`;
 
 type OpenMap = Record<string, boolean>;
 

@@ -134,7 +134,9 @@ export function ProjectItem({
                 REVEAL,
                 // Trailing glyphs are a step smaller than leading ones; the
                 // button's child-svg rule would force 16px without the `!`.
-                "size-3.5! text-muted-foreground transition-[opacity,transform,color] duration-200 hover:text-foreground group-data-[panel-open]/menu-button:rotate-90"
+                // `rotate-90` sets the `rotate` property, so `transform` in
+                // the list would leave the turn unanimated.
+                "size-3.5! text-muted-foreground transition-[opacity,rotate,color] duration-200 hover:text-foreground group-data-[panel-open]/menu-button:rotate-90"
               )}
             />
           </CollapsibleTrigger>
