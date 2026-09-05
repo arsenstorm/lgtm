@@ -1,19 +1,3 @@
-import type { Icon } from "@phosphor-icons/react";
-import {
-  Code,
-  CodeBlock,
-  LinkSimple,
-  ListBullets,
-  ListChecks,
-  ListNumbers,
-  Minus,
-  Quotes,
-  TextB,
-  TextHThree,
-  TextHTwo,
-  TextItalic,
-  TextStrikethrough,
-} from "@phosphor-icons/react";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskItem from "@tiptap/extension-task-item";
@@ -24,7 +8,6 @@ import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useRef } from "react";
 import { Markdown } from "tiptap-markdown";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export interface EditorHeading {
@@ -96,146 +79,6 @@ const CONTENT_CLASSES = [
   "[&_.ProseMirror_a]:underline [&_.ProseMirror_a]:underline-offset-2",
   "[&_.ProseMirror_p.is-editor-empty:first-child]:before:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child]:before:float-left [&_.ProseMirror_p.is-editor-empty:first-child]:before:h-0 [&_.ProseMirror_p.is-editor-empty:first-child]:before:text-muted-foreground [&_.ProseMirror_p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]",
 ].join(" ");
-
-interface ToolbarItem {
-  active: boolean;
-  icon: Icon;
-  label: string;
-  run: () => void;
-}
-
-const preventBlur = (event: { preventDefault: () => void }) =>
-  event.preventDefault();
-
-function toolbarItems(editor: Editor): ToolbarItem[] {
-  const chain = () => editor.chain().focus();
-
-  const setLink = () => {
-    // ponytail: window.prompt is the deliberate cheap path; swap in a popover
-    // with a real input when someone asks for one.
-    // biome-ignore lint/suspicious/noAlert: cheap path, see above
-    const url = window.prompt(
-      "Link URL",
-      editor.getAttributes("link").href ?? ""
-    );
-    if (url === null) {
-      return;
-    }
-    if (url === "") {
-      chain().extendMarkRange("link").unsetLink().run();
-      return;
-    }
-    chain().extendMarkRange("link").setLink({ href: url }).run();
-  };
-
-  return [
-    {
-      active: editor.isActive("bold"),
-      icon: TextB,
-      label: "Bold",
-      run: () => chain().toggleBold().run(),
-    },
-    {
-      active: editor.isActive("italic"),
-      icon: TextItalic,
-      label: "Italic",
-      run: () => chain().toggleItalic().run(),
-    },
-    {
-      active: editor.isActive("strike"),
-      icon: TextStrikethrough,
-      label: "Strikethrough",
-      run: () => chain().toggleStrike().run(),
-    },
-    {
-      active: editor.isActive("code"),
-      icon: Code,
-      label: "Inline code",
-      run: () => chain().toggleCode().run(),
-    },
-    {
-      active: editor.isActive("link"),
-      icon: LinkSimple,
-      label: "Link",
-      run: setLink,
-    },
-    {
-      active: editor.isActive("heading", { level: 2 }),
-      icon: TextHTwo,
-      label: "Heading 2",
-      run: () => chain().toggleHeading({ level: 2 }).run(),
-    },
-    {
-      active: editor.isActive("heading", { level: 3 }),
-      icon: TextHThree,
-      label: "Heading 3",
-      run: () => chain().toggleHeading({ level: 3 }).run(),
-    },
-    {
-      active: editor.isActive("bulletList"),
-      icon: ListBullets,
-      label: "Bullet list",
-      run: () => chain().toggleBulletList().run(),
-    },
-    {
-      active: editor.isActive("orderedList"),
-      icon: ListNumbers,
-      label: "Numbered list",
-      run: () => chain().toggleOrderedList().run(),
-    },
-    {
-      active: editor.isActive("taskList"),
-      icon: ListChecks,
-      label: "Task list",
-      run: () => chain().toggleTaskList().run(),
-    },
-    {
-      active: editor.isActive("blockquote"),
-      icon: Quotes,
-      label: "Blockquote",
-      run: () => chain().toggleBlockquote().run(),
-    },
-    {
-      active: editor.isActive("codeBlock"),
-      icon: CodeBlock,
-      label: "Code block",
-      run: () => chain().toggleCodeBlock().run(),
-    },
-    {
-      active: false,
-      icon: Minus,
-      label: "Horizontal rule",
-      run: () => chain().setHorizontalRule().run(),
-    },
-  ];
-}
-
-function Toolbar({ editor }: { editor: Editor }) {
-  return (
-    <div className="flex flex-wrap items-center gap-0.5 border-border border-b pb-1">
-      {toolbarItems(editor).map(
-        ({ icon: IconComponent, label, active, run }) => (
-          <Button
-            aria-label={label}
-            className="text-muted-foreground data-[active=true]:bg-accent data-[active=true]:text-accent-foreground"
-            data-active={active ? "true" : undefined}
-            key={label}
-            onClick={run}
-            // Clicking a button blurs the document first, which would collapse the
-            // selection the command is meant to act on.
-            onMouseDown={preventBlur}
-            size="icon-sm"
-            title={label}
-            type="button"
-            variant="ghost"
-          >
-            <IconComponent />
-          </Button>
-        )
-      )}
-    </div>
-  );
-}
 
 export function MarkdownEditor({
   value,
@@ -317,7 +160,6 @@ export function MarkdownEditor({
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      <Toolbar editor={editor} />
       <EditorContent className={CONTENT_CLASSES} editor={editor} />
     </div>
   );
