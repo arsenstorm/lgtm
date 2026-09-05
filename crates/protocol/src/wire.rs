@@ -330,6 +330,42 @@ pub fn artefact_name(raw: &str) -> Option<String> {
     usable.then_some(name)
 }
 
+const BASE64_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// No crate in the workspace speaks base64; the alphabet is small enough to
+/// spell out here.
+pub fn encode_base64(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+        let chars = [
+            BASE64_ALPHABET[(n >> 18 & 0x3f) as usize],
+            BASE64_ALPHABET[(n >> 12 & 0x3f) as usize],
+            BASE64_ALPHABET[(n >> 6 & 0x3f) as usize],
+            BASE64_ALPHABET[(n & 0x3f) as usize],
+        ];
+        out.push(chars[0] as char);
+        out.push(chars[1] as char);
+        out.push(if chunk.len() > 1 {
+            chars[2] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            chars[3] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 /// Decodes what [`TaskEvent::Artefact`] carries. Padding and length are
 /// checked because the bytes are written to a file, not shown to a person.
 pub fn decode_base64(text: &str) -> Option<Vec<u8>> {
@@ -380,6 +416,13 @@ mod tests {
     }
 
     #[test]
+    fn base64_matches_known_vectors() {
+        assert_eq!(encode_base64(b"Man"), "TWFu");
+        assert_eq!(encode_base64(b"Ma"), "TWE=");
+        assert_eq!(encode_base64(b"M"), "TQ==");
+    }
+
+    #[test]
     fn base64_round_trips_and_rejects_junk() {
         assert_eq!(decode_base64("TWFu").unwrap(), b"Man");
         assert_eq!(decode_base64("TWE=").unwrap(), b"Ma");
@@ -387,5 +430,8 @@ mod tests {
         assert_eq!(decode_base64("").unwrap(), b"");
         assert_eq!(decode_base64("TWF"), None);
         assert_eq!(decode_base64("TW!="), None);
+        for bytes in [b"Man".as_slice(), b"Ma", b"M", b""] {
+            assert_eq!(decode_base64(&encode_base64(bytes)).unwrap(), bytes);
+        }
     }
 }

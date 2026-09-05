@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use lgtm_protocol::{
-    Authorship, Executor, OutputStream, Policy, ReasoningEffort, Review, SandboxProfile, SkillRef,
-    Task, TaskEvent, TaskKind, TaskResult, ValidationResult,
+    encode_base64, Authorship, Executor, OutputStream, Policy, ReasoningEffort, Review,
+    SandboxProfile, SkillRef, Task, TaskEvent, TaskKind, TaskResult, ValidationResult,
 };
 use serde_json::json;
 use tokio::process::Command;
@@ -19,7 +19,7 @@ use tokio::task::JoinHandle;
 
 use crate::artefacts;
 use crate::connection::Ctx;
-use crate::git::{base64_encode, branch_name, commit, mirror_path, session_path, SCRATCHPAD};
+use crate::git::{branch_name, commit, mirror_path, session_path, SCRATCHPAD};
 use crate::plan::extract_plan;
 use crate::policy::{
     effective_sandbox, failed_names, fix_prompt, load_policy, parse_review, review_prompt,
@@ -518,7 +518,7 @@ impl<'a> Run<'a> {
                 &self.task.id,
                 TaskEvent::Artefact {
                     size: bytes.len(),
-                    bytes_base64: base64_encode(&bytes),
+                    bytes_base64: encode_base64(&bytes),
                     name,
                 },
             );

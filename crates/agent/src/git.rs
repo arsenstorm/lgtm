@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use lgtm_protocol::{Authorship, TaskResult};
+use lgtm_protocol::{encode_base64, Authorship, TaskResult};
 use tokio::process::Command;
 
 /// Identity for commits made on behalf of the agent; the runner machine has no
@@ -112,47 +112,11 @@ pub fn auth_args(token: Option<&str>) -> Vec<String> {
     let Some(token) = token else {
         return Vec::new();
     };
-    let basic = base64_encode(format!("x-access-token:{token}").as_bytes());
+    let basic = encode_base64(format!("x-access-token:{token}").as_bytes());
     vec![
         "-c".to_string(),
         format!("http.extraheader=AUTHORIZATION: basic {basic}"),
     ]
-}
-
-const BASE64_ALPHABET: &[u8; 64] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-/// No crate in the workspace speaks base64; the alphabet is small enough to
-/// spell out here.
-pub fn base64_encode(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
-        let chars = [
-            BASE64_ALPHABET[(n >> 18 & 0x3f) as usize],
-            BASE64_ALPHABET[(n >> 12 & 0x3f) as usize],
-            BASE64_ALPHABET[(n >> 6 & 0x3f) as usize],
-            BASE64_ALPHABET[(n & 0x3f) as usize],
-        ];
-        out.push(chars[0] as char);
-        out.push(chars[1] as char);
-        out.push(if chunk.len() > 1 {
-            chars[2] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            chars[3] as char
-        } else {
-            '='
-        });
-    }
-    out
 }
 
 /// `git diff --cached --quiet` exits 1 when something is staged.
@@ -631,13 +595,6 @@ mod tests {
         );
         assert!(conflicted_files("").is_empty());
         assert!(conflicted_files("\n \n").is_empty());
-    }
-
-    #[test]
-    fn base64_matches_known_vectors() {
-        assert_eq!(base64_encode(b"Man"), "TWFu");
-        assert_eq!(base64_encode(b"Ma"), "TWE=");
-        assert_eq!(base64_encode(b"M"), "TQ==");
     }
 
     #[test]
