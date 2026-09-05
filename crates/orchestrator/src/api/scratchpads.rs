@@ -7,7 +7,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
 use lgtm_protocol::Scratchpad;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use super::{tags, ApiError, AuthedUser};
 use crate::state::App;
@@ -87,12 +87,22 @@ pub(super) async fn get_scratchpad(
 /// Body of `PATCH /api/scratchpads/:id`: whichever fields are being changed.
 #[derive(Deserialize)]
 pub(super) struct ScratchpadPatch {
+    /// Absent leaves the repository alone; `null` moves the document back to
+    /// every repository.
+    #[serde(default, deserialize_with = "nullable")]
+    repository: Option<Option<String>>,
     #[serde(default)]
     content: Option<String>,
     #[serde(default)]
     archived: Option<bool>,
     #[serde(default)]
     tags: Option<Vec<String>>,
+}
+
+fn nullable<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error> {
+    Option::deserialize(deserializer).map(Some)
 }
 
 pub(super) async fn update_scratchpad(
@@ -104,7 +114,7 @@ pub(super) async fn update_scratchpad(
     let tags = body.tags.map(tags).transpose()?;
     let mut state = app.state.lock().unwrap();
     let scratchpad = state
-        .update_scratchpad(&id, body.content, body.archived, tags)
+        .update_scratchpad(&id, body.repository, body.content, body.archived, tags)
         .ok_or_else(not_found)?;
     app.persist_scratchpad(&scratchpad);
     Ok(Json(scratchpad))

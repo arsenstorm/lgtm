@@ -1994,20 +1994,43 @@ fn a_scratchpad_bumps_updated_at_only_when_the_content_changes() {
     state.scratchpads.get_mut(&pad.id).unwrap().updated_at = 1;
 
     let same = state
-        .update_scratchpad(&pad.id, Some("notes".into()), None, None)
+        .update_scratchpad(&pad.id, None, Some("notes".into()), None, None)
         .unwrap();
     assert_eq!(same.updated_at, 1);
     let archived = state
-        .update_scratchpad(&pad.id, None, Some(true), None)
+        .update_scratchpad(&pad.id, None, None, Some(true), None)
         .unwrap();
     assert!(archived.archived);
     assert_eq!(archived.updated_at, 1);
 
     let written = state
-        .update_scratchpad(&pad.id, Some("more notes".into()), None, None)
+        .update_scratchpad(&pad.id, None, Some("more notes".into()), None, None)
         .unwrap();
     assert_eq!(written.content, "more notes");
     assert!(written.updated_at > 1);
+}
+
+#[test]
+fn a_scratchpad_moves_between_repositories_without_counting_as_an_edit() {
+    let mut state = State::default();
+    let pad = state.create_scratchpad(None, "prd".into(), Vec::new(), None);
+    state.scratchpads.get_mut(&pad.id).unwrap().updated_at = 1;
+
+    let moved = state
+        .update_scratchpad(&pad.id, Some(Some("git@x/y.git".into())), None, None, None)
+        .unwrap();
+    assert_eq!(moved.repository.as_deref(), Some("git@x/y.git"));
+    assert_eq!(moved.updated_at, 1);
+
+    let left = state
+        .update_scratchpad(&pad.id, None, None, None, None)
+        .unwrap();
+    assert_eq!(left.repository.as_deref(), Some("git@x/y.git"));
+
+    let general = state
+        .update_scratchpad(&pad.id, Some(None), None, None, None)
+        .unwrap();
+    assert_eq!(general.repository, None);
 }
 
 #[test]
@@ -2017,6 +2040,6 @@ fn a_scratchpad_is_gone_once_deleted() {
     assert!(state.remove_scratchpad(&pad.id));
     assert!(!state.remove_scratchpad(&pad.id));
     assert!(state
-        .update_scratchpad(&pad.id, Some("x".into()), None, None)
+        .update_scratchpad(&pad.id, None, Some("x".into()), None, None)
         .is_none());
 }

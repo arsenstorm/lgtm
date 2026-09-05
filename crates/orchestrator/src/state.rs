@@ -844,17 +844,21 @@ impl State {
         scratchpad
     }
 
-    /// Rewrites a document, archives it, or both. `None` when there is no such
-    /// scratchpad. `updated_at` tracks the content alone, so archiving does
+    /// Rewrites a document, moves it to another repository, archives it, or
+    /// any of those together. `None` when there is no such scratchpad. `updated_at` tracks the content alone, so archiving does
     /// not make a document look freshly written.
     pub fn update_scratchpad(
         &mut self,
         id: &str,
+        repository: Option<Option<String>>,
         content: Option<String>,
         archived: Option<bool>,
         tags: Option<Vec<String>>,
     ) -> Option<Scratchpad> {
         let scratchpad = self.scratchpads.get_mut(id)?;
+        if let Some(repository) = repository {
+            scratchpad.repository = repository;
+        }
         if let Some(content) = content.filter(|content| *content != scratchpad.content) {
             scratchpad.content = content;
             scratchpad.updated_at = now_ms();

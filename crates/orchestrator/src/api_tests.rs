@@ -766,6 +766,25 @@ async fn a_scratchpad_is_created_listed_archived_and_deleted() {
             .unwrap();
     assert_eq!(updated.content, "# notes");
     assert!(updated.archived);
+    assert_eq!(
+        updated.repository.as_deref(),
+        Some("https://example.com/repo.git")
+    );
+
+    let patch = serde_json::from_value(serde_json::json!({ "repository": null })).unwrap();
+    let Json(general) =
+        scratchpads::update_scratchpad(State(app.clone()), Path(pad.id.clone()), Ok(Json(patch)))
+            .await
+            .unwrap();
+    assert_eq!(general.repository, None);
+    let patch = serde_json::from_value(serde_json::json!({
+        "repository": "https://example.com/repo.git",
+    }))
+    .unwrap();
+    let Json(updated) =
+        scratchpads::update_scratchpad(State(app.clone()), Path(pad.id.clone()), Ok(Json(patch)))
+            .await
+            .unwrap();
 
     let query = serde_json::from_value(serde_json::json!({
         "repository": "https://example.com/repo.git",
