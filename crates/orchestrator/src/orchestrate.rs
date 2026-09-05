@@ -172,7 +172,9 @@ fn ask_prompt(question: &str) -> String {
         "You are the shared engineering agent for this workspace. A person asks:\n\n\
          {question}\n\n\
          Answer from the lgtm tools (goals_list, tasks_list, sessions_list, todos_list, \
-         activity, task_inspect, runner_list). Reply with one short sentence, under 25 words, \
+         activity, runner_list, search, and open or the kind's own tool for one object: \
+         task_inspect, goal_inspect, todo_open, memory_open, session_open, scratchpad_open). \
+         Reply with one short sentence, under 25 words, \
          that sums up the answer for a person: no headings, no lists, no markdown, no ids, and \
          no describing items one by one. Then end with one line that starts with `refs:` \
          followed by every task id, todo id and runner name the answer is about, separated by \
