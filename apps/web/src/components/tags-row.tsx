@@ -36,6 +36,9 @@ function TagName({ tag }: { tag: string }) {
   );
 }
 
+/** Past this many rows the rest of the tags fold behind a count. */
+const MAX_ROWS = 2;
+
 /** Todos and scratchpads edit tags the same way. Every piece is one chip
  *  tall, so swapping the plus for the field moves nothing around it. */
 export function TagsRow({
@@ -48,6 +51,56 @@ export function TagsRow({
   tags: string[];
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  // How many chips fit in MAX_ROWS with the controls after them. Starts at
+  // all of them and is cut back one at a time until it fits. The cutting
+  // renders the folded row even while expanded, but only in layout effects,
+  // so nothing of it reaches the screen.
+  const [shown, setShown] = useState(tags.length);
+  const [fitting, setFitting] = useState(true);
+  const [measured, setMeasured] = useState(tags);
+  const row = useRef<HTMLDivElement>(null);
+  if (measured !== tags) {
+    setMeasured(tags);
+    setShown(tags.length);
+    setFitting(true);
+  }
+
+  useLayoutEffect(() => {
+    const el = row.current;
+    if (!fitting || el === null) {
+      return;
+    }
+    const rows = new Set(
+      [...el.children].map((child) => (child as HTMLElement).offsetTop)
+    );
+    if (rows.size > MAX_ROWS && shown > 0) {
+      setShown(shown - 1);
+    } else {
+      setFitting(false);
+    }
+  }, [fitting, shown]);
+
+  useLayoutEffect(() => {
+    const el = row.current;
+    if (el === null) {
+      return;
+    }
+    // Only a new width can change what fits; the height changes whenever
+    // chips fold, and reacting to that would fold and unfold forever.
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth !== width) {
+        width = el.clientWidth;
+        setShown(tags.length);
+        setFitting(true);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [tags.length]);
+
+  const folded = tags.length - shown;
 
   function commit() {
     const tag = (draft ?? "").trim();
@@ -58,8 +111,8 @@ export function TagsRow({
   }
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-      {tags.map((tag) => (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5" ref={row}>
+      {(expanded && !fitting ? tags : tags.slice(0, shown)).map((tag) => (
         <span className={TAG_CHIP} key={tag}>
           <TagIcon aria-hidden="true" className="size-3" />
           <TagName tag={tag} />
@@ -79,6 +132,16 @@ export function TagsRow({
           </button>
         </span>
       ))}
+
+      {folded > 0 && (
+        <button
+          className="h-5 rounded-full px-1 text-muted-foreground text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          onClick={() => setExpanded(!expanded)}
+          type="button"
+        >
+          {expanded ? "Show less" : `${folded} more`}
+        </button>
+      )}
 
       {draft === null ? (
         // The hit area grows past the 20px glyph only as far as the gap to
