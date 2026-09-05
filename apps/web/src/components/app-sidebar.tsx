@@ -453,7 +453,7 @@ function MoreItem() {
         <DropdownMenuContent
           align="start"
           alignOffset={-POPUP_INSET}
-          className="rounded-lg"
+          className="rounded-lg data-closed:animate-fold! data-open:animate-unfold!"
           side="bottom"
           sideOffset={overTheAnchor}
           style={{ width: `calc(var(--anchor-width) + ${2 * POPUP_INSET}px)` }}

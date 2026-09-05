@@ -10,6 +10,19 @@
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
+  /* A menu that sits over its own row reads as the row unfolding, not a panel arriving. */
+  --animate-unfold: unfold 200ms cubic-bezier(0.19, 1, 0.22, 1);
+  --animate-fold: fold 150ms cubic-bezier(0.19, 1, 0.22, 1);
+  @keyframes unfold {
+    from {
+      clip-path: inset(0 0 100% 0);
+    }
+  }
+  @keyframes fold {
+    to {
+      clip-path: inset(0 0 100% 0);
+    }
+  }
 }
 
 @theme inline {
