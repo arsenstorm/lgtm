@@ -14,7 +14,6 @@ const TITLES = [
   ["/todos", "Todos"],
   ["/memories", "Memories"],
   ["/scratchpads", "Scratchpads"],
-  ["/sessions", "Sessions"],
   ["/activity", "Activity"],
 ] as const;
 

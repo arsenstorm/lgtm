@@ -9,7 +9,6 @@ import type {
   Project,
   RunnerStatus,
   Scratchpad,
-  Session,
   Skill,
   Stats,
   Task,
@@ -131,10 +130,6 @@ export const updateProjectPrefix = createServerFn({ method: "POST" })
         method: "PATCH",
       })
   );
-
-export const getSessions = createServerFn({ method: "GET" }).handler(
-  async (): Promise<Session[]> => api<Session[]>("/sessions")
-);
 
 export const getActivity = createServerFn({ method: "GET" }).handler(
   async (): Promise<ActivityEntry[]> => api<ActivityEntry[]>("/activity")

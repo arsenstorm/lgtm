@@ -13,7 +13,6 @@ import {
   ComposeIcon,
   DotsIcon,
   ListCheckboxIcon,
-  MsgsIcon,
   NotesIcon,
   PlusIcon,
   SkillsIcon,
@@ -62,7 +61,6 @@ const NAV = [
 const MORE = [
   { icon: SkillsIcon, label: "Skills", to: "/skills" },
   { icon: AiDeveloperIcon, label: "Runners", to: "/runners" },
-  { icon: MsgsIcon, label: "Sessions", to: "/sessions" },
   { icon: ActivityIcon, label: "Activity", to: "/activity" },
 ] as const;
 

@@ -286,18 +286,6 @@ export interface Scratchpad {
   workspace: string | null;
 }
 
-export interface Session {
-  archived: boolean;
-  base_branch: string;
-  created_at: number;
-  created_by: string | null;
-  id: string;
-  repository: string;
-  /** The first message cut to 60 chars; empty until one is sent. */
-  title: string;
-  workspace: string | null;
-}
-
 export interface ActivityEntry {
   at: number;
   detail: string;
