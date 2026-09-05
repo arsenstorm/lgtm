@@ -1227,9 +1227,12 @@ fn editing_a_skill_bumps_its_revision() {
     let edited = state
         .edit_skill(
             &skill.id,
-            "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.".into(),
-            None,
-            None,
+            SkillPatch {
+                content: Some(
+                    "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.".into(),
+                ),
+                ..Default::default()
+            },
         )
         .unwrap()
         .unwrap();
@@ -1239,9 +1242,10 @@ fn editing_a_skill_bumps_its_revision() {
 
     let err = state.edit_skill(
         &skill.id,
-        "---\nname: review\n---\nSteps.".into(),
-        None,
-        None,
+        SkillPatch {
+            content: Some("---\nname: review\n---\nSteps.".into()),
+            ..Default::default()
+        },
     );
     assert!(err.is_err());
     assert_eq!(state.skills[&skill.id].revision, 2);
@@ -1269,9 +1273,12 @@ fn an_import_records_and_keeps_its_origin() {
     let kept = state
         .edit_skill(
             &skill.id,
-            "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.".into(),
-            None,
-            None,
+            SkillPatch {
+                content: Some(
+                    "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.".into(),
+                ),
+                ..Default::default()
+            },
         )
         .unwrap()
         .unwrap();
@@ -1283,13 +1290,101 @@ fn an_import_records_and_keeps_its_origin() {
     let replaced = state
         .edit_skill(
             &skill.id,
-            "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.".into(),
-            None,
-            Some("/elsewhere".into()),
+            SkillPatch {
+                content: Some(
+                    "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.".into(),
+                ),
+                origin: Some("/elsewhere".into()),
+                ..Default::default()
+            },
         )
         .unwrap()
         .unwrap();
     assert_eq!(replaced.origin.as_deref(), Some("/elsewhere"));
+}
+
+#[test]
+fn a_patch_rewrites_one_part_of_the_skill_and_keeps_the_rest() {
+    let mut state = State::default();
+    let skill = state
+        .create_skill(
+            Some("https://example.com/repo.git".into()),
+            "---\nname: review\nlicense: MIT\ndescription: Old.\n---\n\nSteps.\n".into(),
+            Vec::new(),
+            None,
+            MemorySource::User,
+            None,
+            None,
+        )
+        .unwrap();
+
+    let renamed = state
+        .edit_skill(
+            &skill.id,
+            SkillPatch {
+                name: Some("review-pr".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(renamed.name, "review-pr");
+    assert!(renamed.content.contains("license: MIT"));
+    assert!(renamed.content.contains("description: Old."));
+    assert!(renamed.content.contains("Steps."));
+
+    let described = state
+        .edit_skill(
+            &skill.id,
+            SkillPatch {
+                description: Some("New.".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(described.description, "New.");
+
+    let bodied = state
+        .edit_skill(
+            &skill.id,
+            SkillPatch {
+                body: Some("# Steps\n\n1. Read.\n".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert!(bodied.content.ends_with("---\n\n# Steps\n\n1. Read.\n"));
+    assert!(bodied.content.contains("name: review-pr"));
+    assert!(bodied.content.contains("license: MIT"));
+    assert_eq!(bodied.description, "New.");
+
+    let moved = state
+        .edit_skill(
+            &skill.id,
+            SkillPatch {
+                repository: Some(None),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(moved.repository, None);
+
+    let empty = state.edit_skill(&skill.id, SkillPatch::default());
+    assert!(empty.is_err());
+
+    let revision = state.skills[&skill.id].revision;
+    let bad_name = state.edit_skill(
+        &skill.id,
+        SkillPatch {
+            name: Some("Bad Name".into()),
+            ..Default::default()
+        },
+    );
+    assert!(bad_name.is_err());
+    assert_eq!(state.skills[&skill.id].revision, revision);
 }
 
 #[test]

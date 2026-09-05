@@ -7,9 +7,10 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lgtm_protocol::{
-    first_line_title, goal_status, Batch, Chat, ChatRole, ChatTurn, Goal, GoalSummary, Memory,
-    MemorySource, OrchestratorMessage, Project, Scratchpad, Skill, SkillFile, StoredEvent, Task,
-    TaskEvent, TaskId, TaskSpec, TaskStatus, Todo, TodoComment, TodoStatus, Verification,
+    first_line_title, goal_status, with_body, with_header_value, Batch, Chat, ChatRole, ChatTurn,
+    Goal, GoalSummary, Memory, MemorySource, OrchestratorMessage, Project, Scratchpad, Skill,
+    SkillFile, SkillPatch, StoredEvent, Task, TaskEvent, TaskId, TaskSpec, TaskStatus, Todo,
+    TodoComment, TodoStatus, Verification,
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 
@@ -602,29 +603,40 @@ impl State {
         Some(skill.clone())
     }
 
-    /// Replaces the text and re-validates it; `files` of `None` keeps the ones
-    /// stored, and `origin` of `None` keeps the one stored. `Ok(None)` is no
-    /// such skill. As with a memory, rewriting an agent's proposal approves
-    /// it.
-    pub fn edit_skill(
-        &mut self,
-        id: &str,
-        content: String,
-        files: Option<Vec<SkillFile>>,
-        origin: Option<String>,
-    ) -> Result<Option<Skill>, String> {
+    /// Applies a patch and re-validates the result. `Ok(None)` is no such
+    /// skill; `Err` is why the patched text is not a skill, or an empty patch.
+    /// As with a memory, rewriting an agent's proposal approves it.
+    pub fn edit_skill(&mut self, id: &str, patch: SkillPatch) -> Result<Option<Skill>, String> {
+        if patch.is_empty() {
+            return Err("nothing to change".into());
+        }
         let Some(existing) = self.skills.get(id) else {
             return Ok(None);
         };
-        let files = files.unwrap_or_else(|| existing.files.clone());
+        let mut content = patch.content.unwrap_or_else(|| existing.content.clone());
+        if let Some(name) = patch.name {
+            content =
+                with_header_value(&content, "name", &name).ok_or("not a skill: no frontmatter")?;
+        }
+        if let Some(description) = patch.description {
+            content = with_header_value(&content, "description", &description)
+                .ok_or("not a skill: no frontmatter")?;
+        }
+        if let Some(body) = patch.body {
+            content = with_body(&content, &body).ok_or("not a skill: no frontmatter")?;
+        }
+        let files = patch.files.unwrap_or_else(|| existing.files.clone());
         let header = lgtm_protocol::validate_skill(&content, &files)?;
         let skill = self.skills.get_mut(id).expect("checked above");
         skill.name = header.name;
         skill.description = header.description;
         skill.content = content;
         skill.files = files;
-        if origin.is_some() {
-            skill.origin = origin;
+        if let Some(origin) = patch.origin {
+            skill.origin = Some(origin);
+        }
+        if let Some(repository) = patch.repository {
+            skill.repository = repository;
         }
         skill.revision += 1;
         skill.updated_at = now_ms();

@@ -6,11 +6,15 @@ use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use lgtm_protocol::{MemorySource, Skill, SkillFile, TaskId, Verification};
+use lgtm_protocol::{MemorySource, Skill, SkillFile, SkillPatch, TaskId, Verification};
 use serde::Deserialize;
 
 use super::{ApiError, AuthedUser};
 use crate::state::App;
+
+fn not_found() -> ApiError {
+    ApiError(StatusCode::NOT_FOUND, "skill not found".into())
+}
 
 /// Query of `GET /api/skills`.
 #[derive(Deserialize)]
@@ -91,33 +95,31 @@ pub(super) async fn create_skill(
     Ok((StatusCode::CREATED, Json(skill)))
 }
 
-/// Body of `PATCH /api/skills/:id`.
-#[derive(Deserialize)]
-pub(super) struct SkillEdit {
-    content: String,
-    #[serde(default)]
-    files: Option<Vec<SkillFile>>,
-    #[serde(default)]
-    origin: Option<String>,
+pub(super) async fn get_skill(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+) -> Result<Json<Skill>, ApiError> {
+    let state = app.state.lock().unwrap();
+    state
+        .skills
+        .get(&id)
+        .filter(|skill| state.in_workspace(skill.workspace.as_deref()))
+        .cloned()
+        .map(Json)
+        .ok_or_else(not_found)
 }
 
 pub(super) async fn update_skill(
     State(app): State<Arc<App>>,
     Path(id): Path<String>,
-    body: Result<Json<SkillEdit>, JsonRejection>,
+    body: Result<Json<SkillPatch>, JsonRejection>,
 ) -> Result<Json<Skill>, ApiError> {
-    let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
-    if body.content.trim().is_empty() {
-        return Err(ApiError(
-            StatusCode::BAD_REQUEST,
-            "content is required".into(),
-        ));
-    }
+    let Json(patch) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
     let mut state = app.state.lock().unwrap();
     let skill = state
-        .edit_skill(&id, body.content, body.files, body.origin)
+        .edit_skill(&id, patch)
         .map_err(|reason| ApiError(StatusCode::BAD_REQUEST, reason))?
-        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "skill not found".into()))?;
+        .ok_or_else(not_found)?;
     app.persist_skill(&skill);
     Ok(Json(skill))
 }
@@ -127,9 +129,7 @@ pub(super) async fn approve_skill(
     Path(id): Path<String>,
 ) -> Result<Json<Skill>, ApiError> {
     let mut state = app.state.lock().unwrap();
-    let skill = state
-        .approve_skill(&id)
-        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "skill not found".into()))?;
+    let skill = state.approve_skill(&id).ok_or_else(not_found)?;
     app.persist_skill(&skill);
     Ok(Json(skill))
 }
@@ -140,7 +140,7 @@ pub(super) async fn delete_skill(
 ) -> Result<StatusCode, ApiError> {
     let mut state = app.state.lock().unwrap();
     if !state.remove_skill(&id) {
-        return Err(ApiError(StatusCode::NOT_FOUND, "skill not found".into()));
+        return Err(not_found());
     }
     app.forget_skill(&id);
     Ok(StatusCode::NO_CONTENT)

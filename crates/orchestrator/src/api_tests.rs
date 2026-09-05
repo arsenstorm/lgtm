@@ -537,10 +537,7 @@ async fn editing_an_agent_proposed_skill_approves_it_and_bumps_the_revision() {
     );
     assert_eq!(skill.revision, 1);
 
-    let patch = serde_json::from_value(serde_json::json!({
-        "content": "---\nname: review\ndescription: Review a PR carefully.\n---\nSteps.",
-    }))
-    .unwrap();
+    let patch = serde_json::from_value(serde_json::json!({ "body": "new body" })).unwrap();
     let Json(edited) =
         skills::update_skill(State(app.clone()), Path(skill.id.clone()), Ok(Json(patch)))
             .await
@@ -551,7 +548,7 @@ async fn editing_an_agent_proposed_skill_approves_it_and_bumps_the_revision() {
     );
     assert_eq!(edited.revision, 2);
 
-    let blank = serde_json::from_value(serde_json::json!({ "content": "  " })).unwrap();
+    let blank = serde_json::from_value(serde_json::json!({})).unwrap();
     assert_eq!(
         skills::update_skill(State(app.clone()), Path(skill.id), Ok(Json(blank)))
             .await
@@ -562,6 +559,35 @@ async fn editing_an_agent_proposed_skill_approves_it_and_bumps_the_revision() {
     let patch = serde_json::from_value(serde_json::json!({ "content": "x" })).unwrap();
     assert_eq!(
         skills::update_skill(State(app), Path("deadbeef".into()), Ok(Json(patch)))
+            .await
+            .err()
+            .map(|err| err.0),
+        Some(StatusCode::NOT_FOUND)
+    );
+}
+
+#[tokio::test]
+async fn a_skill_is_read_back_by_id() {
+    let app = app();
+    let body = serde_json::from_value(serde_json::json!({
+        "content": "---\nname: review\ndescription: Review a PR.\n---\nSteps.",
+    }))
+    .unwrap();
+    let (_, Json(skill)) = skills::create_skill(
+        State(app.clone()),
+        Extension(AuthedUser(None)),
+        Ok(Json(body)),
+    )
+    .await
+    .unwrap();
+
+    let Json(fetched) = skills::get_skill(State(app.clone()), Path(skill.id.clone()))
+        .await
+        .unwrap();
+    assert_eq!(fetched, skill);
+
+    assert_eq!(
+        skills::get_skill(State(app), Path("deadbeef".into()))
             .await
             .err()
             .map(|err| err.0),

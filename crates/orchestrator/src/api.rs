@@ -121,7 +121,9 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         )
         .route(
             "/skills/{id}",
-            delete(skills::delete_skill).patch(skills::update_skill),
+            get(skills::get_skill)
+                .delete(skills::delete_skill)
+                .patch(skills::update_skill),
         )
         .route("/skills/{id}/approve", post(skills::approve_skill))
         .route("/goals", get(goals::list_goals).post(goals::create_goal))
