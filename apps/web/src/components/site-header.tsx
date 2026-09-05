@@ -55,8 +55,11 @@ export function SiteHeader({
   chats,
   task,
   leftSidebar,
+  hasPanel = false,
 }: {
   chats: Chat[];
+  /** Whether the page has a right panel for the toggle to show and hide. */
+  hasPanel?: boolean;
   leftSidebar: { shown: boolean; toggle: () => void };
   task?: Task;
   tasks: Task[];
@@ -89,13 +92,13 @@ export function SiteHeader({
           orientation="vertical"
         />
         <h1 className="min-w-0 truncate font-medium text-base">{title}</h1>
-        {task ? (
+        {hasPanel ? (
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            <StatusPill status={task.status} />
+            {task ? <StatusPill status={task.status} /> : null}
             <Button
               aria-expanded={rightShown}
               aria-label={
-                rightShown ? "Hide task sidebar" : "Show task sidebar"
+                rightShown ? "Hide details sidebar" : "Show details sidebar"
               }
               className="aria-expanded:!bg-transparent aria-expanded:!text-foreground"
               onClick={rightSidebar.toggleSidebar}

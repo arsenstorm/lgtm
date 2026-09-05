@@ -1,7 +1,13 @@
 import type { AnyRouter } from "@tanstack/react-router";
 import { useMatches } from "@tanstack/react-router";
-import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useState,
+} from "react";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
@@ -17,6 +23,27 @@ import type { Chat, Task, TaskDetail } from "@/lib/lgtm/types";
 import { cn } from "@/lib/utils";
 
 const TASK_PANEL_KEY = "lgtm-task-panel-open";
+
+interface RightPanel {
+  content: ReactNode;
+  title: string;
+}
+
+const RightPanelContext = createContext<(panel: RightPanel | null) => void>(
+  () => undefined
+);
+
+/** A page with a right-hand panel hands the shell its content here. The
+ *  shell owns the column, the header toggle, and whether it is open, so every
+ *  page's panel behaves the same way. Runs in a layout effect so the panel
+ *  never paints a render behind the page. */
+export function useRightPanel(panel: RightPanel) {
+  const set = useContext(RightPanelContext);
+  useLayoutEffect(() => {
+    set(panel);
+  });
+  useLayoutEffect(() => () => set(null), [set]);
+}
 
 function useTaskPanelOpen() {
   const [open, setOpen] = useState(true);
@@ -90,6 +117,13 @@ function AppFrame({
         | undefined,
   });
   const taskPanel = useTaskPanelOpen();
+  const [pagePanel, setPagePanel] = useState<RightPanel | null>(null);
+  const panel: RightPanel | null = taskDetail
+    ? {
+        content: <TaskSummaryPanel detail={taskDetail} />,
+        title: "Task details",
+      }
+    : pagePanel;
   const leftShown = leftSidebar.isMobile
     ? leftSidebar.openMobile
     : leftSidebar.open;
@@ -100,7 +134,7 @@ function AppFrame({
       cookieName={null}
       keyboardShortcut={null}
       onOpenChange={taskPanel.setOpen}
-      open={taskDetail ? taskPanel.open : false}
+      open={panel ? taskPanel.open : false}
       style={
         {
           "--sidebar-width": "calc(var(--spacing) * 96)",
@@ -110,11 +144,12 @@ function AppFrame({
       <main
         className={cn(
           "relative flex min-w-0 flex-1 flex-col bg-background md:m-2 md:ml-0 md:rounded-xl md:shadow-sm",
-          taskDetail && taskPanel.open && "md:mr-0"
+          panel && taskPanel.open && "md:mr-0"
         )}
       >
         <SiteHeader
           chats={chats}
+          hasPanel={panel !== null}
           leftSidebar={{
             shown: leftShown,
             toggle: leftSidebar.toggleSidebar,
@@ -123,17 +158,19 @@ function AppFrame({
           tasks={tasks}
         />
         <div className="scrollbar-gutter-stable min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
-          {children}
+          <RightPanelContext.Provider value={setPagePanel}>
+            {children}
+          </RightPanelContext.Provider>
         </div>
       </main>
-      {taskDetail ? (
+      {panel ? (
         <Sidebar collapsible="offcanvas" side="right" variant="inset">
           <SidebarHeader className="px-4 pt-4 pb-2">
-            <h2 className="font-medium text-sm tracking-tight">Task details</h2>
+            <h2 className="font-medium text-sm tracking-tight">
+              {panel.title}
+            </h2>
           </SidebarHeader>
-          <SidebarContent className="px-4 pb-4">
-            <TaskSummaryPanel detail={taskDetail} />
-          </SidebarContent>
+          <SidebarContent className="px-4 pb-4">{panel.content}</SidebarContent>
         </Sidebar>
       ) : null}
     </SidebarProvider>
