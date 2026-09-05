@@ -1205,6 +1205,10 @@ fn a_skill_header_reads_bare_quoted_and_block_scalar_values() {
     .unwrap();
     assert_eq!(block.name, "simple-english");
     assert_eq!(block.description, "Write technical text with STE rules.");
+
+    let escaped =
+        parse_skill_header("---\nname: a\ndescription: \"Say: \\\"hi\\\"\"\n---\n").unwrap();
+    assert_eq!(escaped.description, "Say: \"hi\"");
 }
 
 #[test]
@@ -1252,6 +1256,108 @@ fn skill_file_paths_stay_inside_the_skill() {
     ] {
         assert!(validate_skill_path(path).is_err());
     }
+}
+
+#[test]
+fn split_skill_separates_the_frontmatter_from_the_body() {
+    let (frontmatter, body) = split_skill("---\nname: a\ndescription: b\n---\n\nBody\n").unwrap();
+    assert_eq!(frontmatter, "---\nname: a\ndescription: b\n---\n");
+    assert_eq!(body, "\nBody\n");
+
+    assert!(split_skill("---\nname: a\n").is_none());
+
+    let (frontmatter, body) = split_skill("---\nname: a\n---").unwrap();
+    assert!(frontmatter.ends_with("---"));
+    assert_eq!(body, "");
+}
+
+#[test]
+fn with_body_keeps_the_frontmatter_byte_for_byte() {
+    let content = "---\nname: a\nlicense: MIT\ndescription: \"b: c\"\n---\nold\n";
+    let updated = with_body(content, "\n\nnew\n").unwrap();
+    assert_eq!(
+        updated,
+        "---\nname: a\nlicense: MIT\ndescription: \"b: c\"\n---\n\nnew\n"
+    );
+
+    let updated = with_body(content, "new").unwrap();
+    assert!(updated.ends_with("\n\nnew\n"));
+}
+
+#[test]
+fn with_header_value_replaces_bare_quoted_and_block_values_and_adds_missing_ones() {
+    let bare = with_header_value(
+        "---\nname: old\ndescription: d\n---\nbody",
+        "name",
+        "new-name",
+    )
+    .unwrap();
+    assert_eq!(bare, "---\nname: new-name\ndescription: d\n---\nbody");
+    assert_eq!(parse_skill_header(&bare).unwrap().name, "new-name");
+
+    let quoted = with_header_value(
+        "---\nname: a\nversion: 1.0.0\ndescription: 'x'\nmetadata:\n  author: me\n---\n",
+        "description",
+        "Say: \"hi\"",
+    )
+    .unwrap();
+    assert_eq!(
+        quoted,
+        "---\nname: a\nversion: 1.0.0\ndescription: \"Say: \\\"hi\\\"\"\nmetadata:\n  author: me\n---\n"
+    );
+    assert_eq!(
+        parse_skill_header(&quoted).unwrap().description,
+        "Say: \"hi\""
+    );
+
+    let block = with_header_value(
+        "---\nname: a\ndescription: |\n  one\n  two\nlicense: MIT\n---\n",
+        "description",
+        "Flat text.",
+    )
+    .unwrap();
+    assert_eq!(
+        block,
+        "---\nname: a\ndescription: \"Flat text.\"\nlicense: MIT\n---\n"
+    );
+    assert_eq!(
+        parse_skill_header(&block).unwrap().description,
+        "Flat text."
+    );
+
+    let missing = with_header_value("---\nname: a\n---\n", "description", "d").unwrap();
+    assert_eq!(missing, "---\nname: a\ndescription: d\n---\n");
+    assert_eq!(parse_skill_header(&missing).unwrap().description, "d");
+
+    let collapsed = with_header_value(
+        "---\nname: a\ndescription: d\n---\n",
+        "description",
+        "one\n  two",
+    )
+    .unwrap();
+    assert_eq!(collapsed, "---\nname: a\ndescription: \"one two\"\n---\n");
+    assert_eq!(
+        parse_skill_header(&collapsed).unwrap().description,
+        "one two"
+    );
+}
+
+#[test]
+fn a_skill_patch_serialises_only_what_it_sets() {
+    let patch = SkillPatch {
+        name: Some("x".into()),
+        ..Default::default()
+    };
+    assert_eq!(serde_json::to_string(&patch).unwrap(), r#"{"name":"x"}"#);
+
+    let patch: SkillPatch = serde_json::from_str(r#"{"repository":null}"#).unwrap();
+    assert_eq!(patch.repository, Some(None));
+
+    let patch: SkillPatch = serde_json::from_str("{}").unwrap();
+    assert!(patch.is_empty());
+
+    let patch: SkillPatch = serde_json::from_str(r#"{"body":""}"#).unwrap();
+    assert!(!patch.is_empty());
 }
 
 #[test]

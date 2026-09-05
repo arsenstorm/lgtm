@@ -667,6 +667,47 @@ pub struct SkillRef {
     pub revision: u32,
 }
 
+/// Body of `PATCH /api/skills/:id`: whichever fields change. `content`
+/// replaces the whole `SKILL.md`; `name`, `description` and `body` each
+/// rewrite one part of it and keep the rest byte for byte. `repository`
+/// absent leaves the scope alone; `null` moves the skill to every
+/// repository.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct SkillPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<SkillFile>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_some"
+    )]
+    pub repository: Option<Option<String>>,
+}
+
+impl SkillPatch {
+    /// Whether the patch changes anything at all; an empty one is a bad
+    /// request, not a no-op edit.
+    pub fn is_empty(&self) -> bool {
+        self.content.is_none()
+            && self.name.is_none()
+            && self.description.is_none()
+            && self.body.is_none()
+            && self.files.is_none()
+            && self.origin.is_none()
+            && self.repository.is_none()
+    }
+}
+
 impl Skill {
     /// Whether a run in `repository` is handed this: it applies to the
     /// repository, and a person has approved it.
@@ -758,7 +799,7 @@ pub fn parse_skill_header(content: &str) -> Result<SkillHeader, String> {
             }
             block.join(" ")
         } else {
-            unquote(value).to_string()
+            unquote(value)
         };
         match key {
             "name" => name = Some(value),
@@ -788,16 +829,20 @@ fn is_block_scalar(value: &str) -> bool {
     matches!(chars.next(), Some('|' | '>')) && chars.all(|c| matches!(c, '-' | '+'))
 }
 
-fn unquote(value: &str) -> &str {
-    for quote in ['"', '\''] {
-        if let Some(inner) = value
-            .strip_prefix(quote)
-            .and_then(|rest| rest.strip_suffix(quote))
-        {
-            return inner;
-        }
+fn unquote(value: &str) -> String {
+    if let Some(inner) = value
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+    {
+        return inner.replace("\\\"", "\"").replace("\\\\", "\\");
     }
-    value
+    if let Some(inner) = value
+        .strip_prefix('\'')
+        .and_then(|rest| rest.strip_suffix('\''))
+    {
+        return inner.to_string();
+    }
+    value.to_string()
 }
 
 /// The spec's rules for a skill name, which is also a directory name on
@@ -838,6 +883,93 @@ pub fn validate_skill_path(path: &str) -> Result<(), String> {
             "file path `{path}` must be relative, forward-slashed, with no empty, dotted or hidden segments"
         ))
     }
+}
+
+/// The frontmatter block (opening `---` through the closing `---` line,
+/// newline included) and the body after it. `None` when the text has no
+/// closing line, which `parse_skill_header` already refuses.
+pub fn split_skill(content: &str) -> Option<(&str, &str)> {
+    let mut lines = content.split_inclusive('\n');
+    let first = lines.next()?;
+    if first.trim_end() != "---" {
+        return None;
+    }
+    let mut end = first.len();
+    for line in lines {
+        end += line.len();
+        if line.trim_end() == "---" {
+            return Some((&content[..end], &content[end..]));
+        }
+    }
+    None
+}
+
+/// `content` with its body replaced and its frontmatter kept byte for
+/// byte. One blank line separates the two, as in the spec's examples, and
+/// the text ends in a newline.
+pub fn with_body(content: &str, body: &str) -> Option<String> {
+    let (frontmatter, _) = split_skill(content)?;
+    let mut out = String::from(frontmatter);
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push('\n');
+    out.push_str(body.trim_start_matches(['\r', '\n']));
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    Some(out)
+}
+
+/// `content` with the top-level `key` of its frontmatter set to `value`:
+/// a bare, quoted or block-scalar value is replaced, a missing key is
+/// added before the closing line, and every other line is kept byte for
+/// byte, so a harness's own fields survive an edit. Line breaks in `value`
+/// become spaces; a value that is not a plain skill name is double-quoted.
+pub fn with_header_value(content: &str, key: &str, value: &str) -> Option<String> {
+    let (frontmatter, body) = split_skill(content)?;
+    let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let line_for = |value: &str| format!("{key}: {}\n", quote_header_value(value));
+    let mut out = String::new();
+    let mut lines = frontmatter.split_inclusive('\n').peekable();
+    out.push_str(lines.next()?);
+    let mut replaced = false;
+    while let Some(line) = lines.next() {
+        if lines.peek().is_none() {
+            // The closing `---`.
+            if !replaced {
+                out.push_str(&line_for(&value));
+            }
+            out.push_str(line);
+            break;
+        }
+        let this_key = (!line.starts_with([' ', '\t']))
+            .then(|| line.split_once(':'))
+            .flatten();
+        let Some((_, old)) = this_key.filter(|(found, _)| found.trim() == key) else {
+            out.push_str(line);
+            continue;
+        };
+        replaced = true;
+        out.push_str(&line_for(&value));
+        if is_block_scalar(old.trim()) {
+            while lines
+                .next_if(|next| next.starts_with([' ', '\t']))
+                .is_some()
+            {}
+        }
+    }
+    out.push_str(body);
+    Some(out)
+}
+
+/// A skill name is safe bare; anything else is double-quoted with `\` and
+/// `"` escaped, which `unquote` reverses.
+fn quote_header_value(value: &str) -> String {
+    if validate_skill_name(value).is_ok() {
+        return value.to_string();
+    }
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 /// One conversation with the read-only workspace agent. Nothing in it changes
