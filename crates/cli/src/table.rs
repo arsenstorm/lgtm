@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 
-use lgtm_protocol::{CiState, GoalSummary, Memory, Review, Task, TaskStatus, Todo, Verification};
+use lgtm_protocol::{
+    CiState, GoalSummary, Memory, Review, Skill, Task, TaskStatus, Todo, Verification,
+};
 
 /// The wire form ("awaiting_review") rather than Rust's Debug form, so a
 /// cell matches the JSON everywhere else in the CLI's output.
@@ -132,6 +134,34 @@ pub fn print_memory_table(memories: &[Memory]) {
     );
     for memory in memories {
         println!("{}", memory_row(memory));
+    }
+}
+
+/// One row of the `skill list` table, shaped like `memory_row`: the name
+/// stands in for the content, since that is what the agent sees first.
+pub fn skill_row(skill: &Skill) -> String {
+    let state = match skill.verification {
+        Verification::UserApproved => "approved",
+        Verification::AgentProposed => "proposed",
+    };
+    format!(
+        "{:<10}{:<10}{:<10}{:<48}{:<24}{}",
+        skill.id,
+        state,
+        skill.proposed_by.as_deref().unwrap_or("-"),
+        skill.repository.as_deref().unwrap_or("*"),
+        first_line_truncated(&skill.name, 22),
+        first_line_truncated(&skill.description, 60)
+    )
+}
+
+pub fn print_skill_table(skills: &[Skill]) {
+    println!(
+        "{:<10}{:<10}{:<10}{:<48}{:<24}DESCRIPTION",
+        "ID", "STATE", "BY", "REPOSITORY", "NAME"
+    );
+    for skill in skills {
+        println!("{}", skill_row(skill));
     }
 }
 
@@ -303,6 +333,43 @@ mod tests {
         memory.verification = Verification::AgentProposed;
         memory.proposed_by = Some("t1".into());
         let row = memory_row(&memory);
+        assert!(row.starts_with("0123abcd  proposed  t1        "));
+    }
+
+    fn skill(name: &str, description: &str) -> Skill {
+        Skill {
+            id: "0123abcd".into(),
+            name: name.into(),
+            description: description.into(),
+            repository: None,
+            content: String::new(),
+            files: Vec::new(),
+            revision: 1,
+            created_at: 1,
+            updated_at: 1,
+            source: lgtm_protocol::MemorySource::User,
+            verification: Verification::UserApproved,
+            proposed_by: None,
+            workspace: None,
+            created_by: None,
+        }
+    }
+
+    #[test]
+    fn skill_row_stars_every_repository_and_truncates_the_name() {
+        let row = skill_row(&skill(&"a".repeat(40), "reviews a PR before it merges"));
+        assert!(row.starts_with("0123abcd  approved  -         *"));
+        assert!(row.contains(&"a".repeat(22)));
+        assert!(!row.contains(&"a".repeat(23)));
+        assert!(row.ends_with("reviews a PR before it merges"));
+    }
+
+    #[test]
+    fn skill_row_shows_proposed_state_and_task() {
+        let mut skill = skill("review", "reviews a PR before it merges");
+        skill.verification = Verification::AgentProposed;
+        skill.proposed_by = Some("t1".into());
+        let row = skill_row(&skill);
         assert!(row.starts_with("0123abcd  proposed  t1        "));
     }
 

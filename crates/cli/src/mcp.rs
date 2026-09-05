@@ -54,8 +54,9 @@ const WORKSPACE_TOOLS: [&str; 5] = [
 ];
 /// The tools only a task's run (and the loop, which runs as one) has: its
 /// writes, and the notes that live with the task.
-const RUN_TOOLS: [&str; 11] = [
+const RUN_TOOLS: [&str; 12] = [
     "memory_propose",
+    "skill_propose",
     "todo_create",
     "todo_finish",
     "todo_comment",
@@ -674,6 +675,7 @@ async fn run_call(
     let scope = Some(repository);
     match name {
         "memory_propose" => propose(client, scope, task_id, args).await,
+        "skill_propose" => propose_skill(client, scope, task_id, args).await,
         "todo_create" => {
             let todo = client
                 .create_todo(
@@ -1109,6 +1111,23 @@ fn proposed_reply(id: &str) -> String {
     format!("proposed {id}; a person approves it with: lgtm memory approve {id}")
 }
 
+/// An agent cannot write what every later run is handed: the skill it
+/// proposes waits unapproved until a person runs `lgtm skill approve`.
+async fn propose_skill(
+    client: &Client,
+    repository: Option<&str>,
+    task_id: &str,
+    args: &Value,
+) -> Result<String> {
+    let skill = client
+        .propose_skill(repository, string(args, "content")?, task_id)
+        .await?;
+    Ok(format!(
+        "proposed skill {} ({}); a person approves it with: lgtm skill approve {}",
+        skill.id, skill.name, skill.id
+    ))
+}
+
 /// A run can't be paused mid-flight to ask a person, so the request is only
 /// recorded; `lgtm allow` answers it before the task's next run.
 async fn request_network(client: &Client, task_id: &str, args: &Value) -> Result<String> {
@@ -1199,6 +1218,7 @@ fn run_tools() -> Vec<Value> {
     let string = string_schema;
     vec![
         tool("memory_propose", "Propose a fact worth telling every later run. It waits as a pending memory until a person approves it.", json!({ "content": string("The fact, in one sentence.") }), &["content"]),
+        tool("skill_propose", "Propose a reusable procedure for every later run in this repository, as a whole SKILL.md. It waits as a pending skill until a person approves it.", json!({ "content": string("The complete SKILL.md: a `---` frontmatter block with `name` (lowercase-kebab) and `description` (what it does and when to use it), then the instructions in markdown.") }), &["content"]),
         tool("todo_create", "Note work that should happen but is not part of this task.", json!({ "title": string("One line."), "description": string("Optional detail.") }), &["title"]),
         tool("todo_finish", "Mark a todo done, once its work is in this task.", id_schema(Kind::Todo), &["id"]),
         tool("todo_comment", "Leave a note on a todo: what was found, or why it could not be done.", json!({ "id": string("The todo's id, or its lgtm://todos/<id> link."), "body": string("The note, in markdown.") }), &["id", "body"]),

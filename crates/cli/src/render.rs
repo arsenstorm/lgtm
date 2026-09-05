@@ -8,17 +8,33 @@
 use lgtm_agent::codex_error;
 use lgtm_protocol::{
     first_line_title, Execution, ExecutionStatus, OutputStream, Plan, PlanVersion, Provenance,
-    Review, ReviewState, Severity, Stats, Task, TaskEvent, ValidationResult,
+    Review, ReviewState, Severity, SkillRef, Stats, Task, TaskEvent, ValidationResult,
 };
 use serde_json::Value;
 use std::io::Write;
 
 use crate::table::wire_str;
 
+/// The "agent started" line: the model in parens when one was requested,
+/// then every skill it was handed, since both answer "what is this run
+/// working with" before any output has arrived.
+fn started_line(model: Option<&str>, skills: &[SkillRef]) -> String {
+    let mut line = "agent started".to_string();
+    if let Some(model) = model {
+        line.push_str(&format!(" ({model})"));
+    }
+    if !skills.is_empty() {
+        let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
+        line.push_str(&format!(", skills: {}", names.join(", ")));
+    }
+    line
+}
+
 pub fn render(event: &TaskEvent, out: &mut impl Write) -> std::io::Result<()> {
     match event {
-        TaskEvent::Started { model: Some(m) } => writeln!(out, "agent started ({m})"),
-        TaskEvent::Started { .. } => writeln!(out, "agent started"),
+        TaskEvent::Started { model, skills } => {
+            writeln!(out, "{}", started_line(model.as_deref(), skills))
+        }
         TaskEvent::Message { text, .. } => writeln!(out, "> {text}"),
         TaskEvent::Output {
             stream: OutputStream::Stderr,
@@ -459,13 +475,47 @@ mod tests {
     fn started_names_the_requested_model_when_one_was_asked_for() {
         assert_eq!(
             rendered(&TaskEvent::Started {
-                model: Some("opus".into())
+                model: Some("opus".into()),
+                skills: Vec::new(),
             }),
             "agent started (opus)\n"
         );
         assert_eq!(
-            rendered(&TaskEvent::Started { model: None }),
+            rendered(&TaskEvent::Started {
+                model: None,
+                skills: Vec::new(),
+            }),
             "agent started\n"
+        );
+    }
+
+    #[test]
+    fn started_lists_the_skills_it_was_handed() {
+        assert_eq!(
+            rendered(&TaskEvent::Started {
+                model: Some("opus".into()),
+                skills: vec![
+                    SkillRef {
+                        name: "review".into(),
+                        revision: 1,
+                    },
+                    SkillRef {
+                        name: "commit".into(),
+                        revision: 1,
+                    },
+                ],
+            }),
+            "agent started (opus), skills: review, commit\n"
+        );
+        assert_eq!(
+            rendered(&TaskEvent::Started {
+                model: None,
+                skills: vec![SkillRef {
+                    name: "review".into(),
+                    revision: 1,
+                }],
+            }),
+            "agent started, skills: review\n"
         );
     }
 
@@ -699,6 +749,7 @@ mod tests {
             cost_usd: 0.0,
             validation: Vec::new(),
             artefacts: Vec::new(),
+            skills: Vec::new(),
         }
     }
 

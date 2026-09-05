@@ -8,19 +8,21 @@ mod table;
 mod terminal;
 mod upgrade;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use clap::Parser;
 use lgtm_client::{Client, FromIssue, FromLinear, NewGoal, PromoteTodo};
 use lgtm_orchestrator::token::{data_dir, resolve_client_token, store_user_token};
-use lgtm_protocol::{BatchSource, TaskKind, TaskSpec, TodoPatch};
+use lgtm_protocol::{BatchSource, SkillFile, TaskKind, TaskSpec, TodoPatch};
 
 use crate::cli::{
-    AuthCommand, BacklogCommand, Cli, Command, MemoryCommand, Target, TodoCommand, UserCommand,
+    AuthCommand, BacklogCommand, Cli, Command, MemoryCommand, SkillCommand, Target, TodoCommand,
+    UserCommand,
 };
 use crate::table::{
-    ci_str, mem_gb_cell, print_goal_table, print_memory_table, print_task_table, print_todo_table,
-    status_str,
+    ci_str, mem_gb_cell, print_goal_table, print_memory_table, print_skill_table, print_task_table,
+    print_todo_table, status_str,
 };
 
 pub(crate) fn now_ms() -> u64 {
@@ -155,6 +157,7 @@ async fn run_command(client: &Client, command: Command) -> anyhow::Result<i32> {
         Command::Artefacts { id, get, out } => artefacts(client, &id, get, out).await,
         Command::Backlog { command } => backlog_command(client, command).await,
         Command::Memory { command } => memory_command(client, command).await,
+        Command::Skill { command } => skill_command(client, command).await,
         Command::Todo { command } => todo_command(client, command).await,
         other => task_command(client, other).await,
     }
@@ -602,6 +605,90 @@ async fn memory_command(client: &Client, command: MemoryCommand) -> anyhow::Resu
         }
     }
     Ok(0)
+}
+
+async fn skill_command(client: &Client, command: SkillCommand) -> anyhow::Result<i32> {
+    match command {
+        SkillCommand::Add { repo, path } => {
+            let (content, files) = read_skill(&path)?;
+            let skill = client
+                .create_skill(repo.as_deref(), &content, &files)
+                .await?;
+            println!("skill {} ({}) added", skill.id, skill.name);
+        }
+        SkillCommand::List { repo, pending } => {
+            print_skill_table(&client.skills(repo.as_deref(), pending).await?);
+        }
+        SkillCommand::Approve { id } => {
+            client.approve_skill(&id).await?;
+            println!("skill {id} approved");
+        }
+        SkillCommand::Rm { id } => {
+            client.delete_skill(&id).await?;
+            println!("skill {id} removed");
+        }
+    }
+    Ok(0)
+}
+
+/// A `SKILL.md` on its own, or the directory around it with every regular
+/// file beside it. Hidden entries are skipped: an editor's swap file is not
+/// part of a skill. Validated here so a bad file fails before the request.
+fn read_skill(path: &Path) -> anyhow::Result<(String, Vec<SkillFile>)> {
+    let dir = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."))
+    };
+    let manifest = if path.is_dir() {
+        path.join("SKILL.md")
+    } else {
+        path.to_path_buf()
+    };
+    let content = std::fs::read_to_string(&manifest)
+        .with_context(|| format!("read {}", manifest.display()))?;
+    let mut files = Vec::new();
+    if path.is_dir() {
+        collect_files(&dir, &dir, &mut files)?;
+    }
+    lgtm_protocol::validate_skill(&content, &files).map_err(anyhow::Error::msg)?;
+    Ok((content, files))
+}
+
+fn collect_files(root: &Path, dir: &Path, out: &mut Vec<SkillFile>) -> anyhow::Result<()> {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)?.collect::<Result<_, _>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files(root, &path, out)?;
+            continue;
+        }
+        let relative = path
+            .strip_prefix(root)
+            .expect("a walked file is under its root")
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
+        if relative == "SKILL.md" {
+            continue;
+        }
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("read {} (skills carry text files only)", path.display()))?;
+        out.push(SkillFile {
+            path: relative,
+            content,
+        });
+    }
+    Ok(())
 }
 
 async fn todo_command(client: &Client, command: TodoCommand) -> anyhow::Result<i32> {

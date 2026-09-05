@@ -166,6 +166,11 @@ pub enum Command {
         #[command(subcommand)]
         command: MemoryCommand,
     },
+    /// Record a SKILL.md every agent run in the repository is handed.
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
     /// Note work to do, and promote a note into a task when it's ready.
     Todo {
         #[command(subcommand)]
@@ -413,6 +418,30 @@ pub enum MemoryCommand {
     /// Approve a memory an agent proposed, so later runs are told it.
     Approve { id: String },
     /// Forget one memory.
+    Rm { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum SkillCommand {
+    /// Add a skill from a SKILL.md, or a directory holding one and its
+    /// reference files.
+    Add {
+        /// Git URL; omit for every repository.
+        #[arg(long)]
+        repo: Option<String>,
+        path: PathBuf,
+    },
+    /// List recorded skills.
+    List {
+        #[arg(long)]
+        repo: Option<String>,
+        /// Only proposals still awaiting approval.
+        #[arg(long)]
+        pending: bool,
+    },
+    /// Approve a skill an agent proposed, so later runs are handed it.
+    Approve { id: String },
+    /// Forget one skill.
     Rm { id: String },
 }
 
