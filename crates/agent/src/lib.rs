@@ -13,6 +13,7 @@ mod runner;
 /// Public so the seatbelt and bubblewrap builders stay compiled, and tested,
 /// on every platform.
 pub mod sandbox;
+mod skills;
 pub mod terminal;
 mod validate;
 

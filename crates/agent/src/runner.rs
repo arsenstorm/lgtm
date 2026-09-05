@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, Result};
-use lgtm_protocol::{knowledge_block, Authorship, Memory, Task, TaskEvent, TaskId, TaskKind};
+use lgtm_protocol::{
+    knowledge_block, Authorship, Memory, Skill, Task, TaskEvent, TaskId, TaskKind,
+};
 use tokio::sync::oneshot;
 
 use crate::automation::{execute, recorded_session, restore_notes, with_notes, Run};
@@ -18,27 +20,40 @@ use crate::plan::{planning_prompt, revision_prompt};
 pub async fn run_task(
     task: Task,
     memories: Vec<Memory>,
+    skills: Vec<Skill>,
     authorship: Authorship,
     ctx: Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) {
-    let result = run(&task, &memories, &authorship, &ctx, cancel).await;
+    let result = run(&task, &memories, &skills, &authorship, &ctx, cancel).await;
     finished(&task.id, &ctx, result);
 }
 
 /// A follow-up in the worktree of a task that already ran, resuming the agent
 /// session when the first run recorded one. `task` is the orchestrator's
 /// current copy, ahead of whatever this runner last wrote to disk for it.
+#[allow(clippy::too_many_arguments)]
 pub async fn follow_up(
     task_id: TaskId,
     text: String,
     memories: Vec<Memory>,
+    skills: Vec<Skill>,
     task: Option<Box<Task>>,
     authorship: Authorship,
     ctx: Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
 ) {
-    let result = resume(&task_id, &text, &memories, task, &authorship, &ctx, cancel).await;
+    let result = resume(
+        &task_id,
+        &text,
+        &memories,
+        &skills,
+        task,
+        &authorship,
+        &ctx,
+        cancel,
+    )
+    .await;
     finished(&task_id, &ctx, result);
 }
 
@@ -56,6 +71,7 @@ fn finished(task_id: &str, ctx: &Arc<Ctx>, result: Result<()>) {
 async fn run(
     task: &Task,
     memories: &[Memory],
+    skills: &[Skill],
     authorship: &Authorship,
     ctx: &Arc<Ctx>,
     cancel: oneshot::Receiver<()>,
@@ -72,6 +88,7 @@ async fn run(
     let mirror = prepare_repo(task, ctx).await?;
     add_worktree(&mirror, &worktree, &branch, &task.spec.base_branch).await?;
     restore_notes(&worktree, &task.scratchpad).await?;
+    let delivered = crate::skills::materialise(&worktree, skills).await?;
 
     let prompt = match task.spec.kind {
         TaskKind::Plan => planning_prompt(&task.spec.prompt),
@@ -83,12 +100,9 @@ async fn run(
         knowledge_block(memories),
         with_notes(&prompt, task.spec.kind)
     );
-    execute(
-        Run::new(task, &worktree, ctx, cancel, authorship.clone()),
-        &prompt,
-        None,
-    )
-    .await
+    let mut run = Run::new(task, &worktree, ctx, cancel, authorship.clone());
+    run.skills = delivered;
+    execute(run, &prompt, None).await
 }
 
 /// The task as the orchestrator sent it, or `None` when this runner has no
@@ -109,10 +123,12 @@ async fn rewrite_task(ctx: &Arc<Ctx>, task_id: &str, task: &Task) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn resume(
     task_id: &TaskId,
     text: &str,
     memories: &[Memory],
+    skills: &[Skill],
     task: Option<Box<Task>>,
     authorship: &Authorship,
     ctx: &Arc<Ctx>,
@@ -131,6 +147,8 @@ async fn resume(
     if !worktree.exists() {
         bail!("worktree missing");
     }
+    // A resumed session sees the files on disk again; that is the point.
+    let delivered = crate::skills::materialise(&worktree, skills).await?;
     if task.spec.kind == TaskKind::Plan {
         // A revision is a fresh process, not a resumed session, so it is told
         // again.
@@ -139,23 +157,17 @@ async fn resume(
             knowledge_block(memories),
             revision_prompt(&task.spec.prompt, text)
         );
-        return execute(
-            Run::new(&task, &worktree, ctx, cancel, authorship.clone()),
-            &prompt,
-            None,
-        )
-        .await;
+        let mut run = Run::new(&task, &worktree, ctx, cancel, authorship.clone());
+        run.skills = delivered;
+        return execute(run, &prompt, None).await;
     }
     let session = recorded_session(ctx, task_id).await;
     if session.is_none() {
         tracing::warn!("no session id for {task_id}, running the follow-up fresh");
     }
-    execute(
-        Run::new(&task, &worktree, ctx, cancel, authorship.clone()),
-        text,
-        session,
-    )
-    .await
+    let mut run = Run::new(&task, &worktree, ctx, cancel, authorship.clone());
+    run.skills = delivered;
+    execute(run, text, session).await
 }
 
 /// Clones the bare mirror or refreshes it, and records it for a later discard.

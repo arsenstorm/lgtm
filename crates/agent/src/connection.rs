@@ -309,6 +309,7 @@ async fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
         OrchestratorMessage::Start {
             task,
             memories,
+            skills,
             authorship,
         } => {
             let (cancel_tx, cancel_rx) = oneshot::channel();
@@ -319,6 +320,7 @@ async fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
             tokio::spawn(runner::run_task(
                 *task,
                 memories,
+                skills,
                 authorship,
                 ctx.clone(),
                 cancel_rx,
@@ -328,6 +330,7 @@ async fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
             task_id,
             text,
             memories,
+            skills,
             task,
             authorship,
         } => {
@@ -340,6 +343,7 @@ async fn dispatch(msg: OrchestratorMessage, ctx: &Arc<Ctx>) {
                 task_id,
                 text,
                 memories,
+                skills,
                 task,
                 authorship,
                 ctx.clone(),

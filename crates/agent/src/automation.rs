@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use lgtm_protocol::{
-    Authorship, Executor, OutputStream, Policy, ReasoningEffort, Review, SandboxProfile, Task,
-    TaskEvent, TaskKind, TaskResult, ValidationResult,
+    Authorship, Executor, OutputStream, Policy, ReasoningEffort, Review, SandboxProfile, SkillRef,
+    Task, TaskEvent, TaskKind, TaskResult, ValidationResult,
 };
 use serde_json::json;
 use tokio::process::Command;
@@ -41,7 +41,7 @@ const FIX_MESSAGE: &str = "fix failing checks";
 const INTERRUPT_GRACE: Duration = Duration::from_secs(10);
 
 /// Told to a `Run` as the last paragraph of its prompt.
-const NOTES: &str = "\n\nKeep your working notes in .lgtm/scratchpad.md, or with the `scratchpad_write` tool: findings, open questions, decisions, and the files that matter. Whoever continues this task reads them first. Use `memory_propose` for a fact the next run should know, and `todo_create` for work you noticed but did not do. Put screenshots or generated files for the reviewer in .lgtm/artefacts/.";
+const NOTES: &str = "\n\nKeep your working notes in .lgtm/scratchpad.md, or with the `scratchpad_write` tool: findings, open questions, decisions, and the files that matter. Whoever continues this task reads them first. Use `memory_propose` for a fact the next run should know, and `todo_create` for work you noticed but did not do. Use `skill_propose` for a procedure worth reusing, as a whole SKILL.md. Put screenshots or generated files for the reviewer in .lgtm/artefacts/.";
 
 /// The notes travel over the socket and are stored with the task, so a file
 /// that ran away is truncated rather than carried.
@@ -143,6 +143,8 @@ pub struct Run<'a> {
     /// Whose names go on the commit; the orchestrator resolved them, because
     /// the credentials they come from never leave it.
     authorship: Authorship,
+    /// What was put in the worktree for this task, reported on every `Started`.
+    pub(crate) skills: Vec<SkillRef>,
 }
 
 /// The allowlist proxy serving one run: the task that accepts on it, and the
@@ -175,6 +177,7 @@ impl<'a> Run<'a> {
             notes: task.scratchpad.clone(),
             artefacts: Vec::new(),
             authorship,
+            skills: Vec::new(),
         }
     }
 }
@@ -431,6 +434,7 @@ impl<'a> Run<'a> {
             &self.task.id,
             TaskEvent::Started {
                 model: self.task.spec.model.clone(),
+                skills: self.skills.clone(),
             },
         );
 
