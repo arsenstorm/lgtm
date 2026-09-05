@@ -197,7 +197,10 @@ fn load_state(data_dir: &std::path::Path, queue_without_runners: bool) -> anyhow
     for comment in persist::load_all_todo_comments(&todo_comments_dir) {
         state.todo_comments.insert(comment.id.clone(), comment);
     }
-    for scratchpad in persist::load_all_scratchpads(&scratchpads_dir) {
+    for mut scratchpad in persist::load_all_scratchpads(&scratchpads_dir) {
+        if scratchpad.title.is_empty() {
+            scratchpad.title = state::legacy_title(&scratchpad.content);
+        }
         state.scratchpads.insert(scratchpad.id.clone(), scratchpad);
     }
     for project in persist::load_all_projects(&projects_dir) {

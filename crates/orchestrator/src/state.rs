@@ -821,6 +821,7 @@ impl State {
 
     pub fn create_scratchpad(
         &mut self,
+        title: String,
         repository: Option<String>,
         content: String,
         tags: Vec<String>,
@@ -829,6 +830,7 @@ impl State {
         let now = now_ms();
         let scratchpad = Scratchpad {
             id: self.new_scratchpad_id(),
+            title,
             repository,
             content,
             created_at: now,
@@ -844,18 +846,22 @@ impl State {
         scratchpad
     }
 
-    /// Rewrites a document, moves it to another repository, archives it, or
-    /// any of those together. `None` when there is no such scratchpad. `updated_at` tracks the content alone, so archiving does
+    /// Renames a document, rewrites it, moves it to another repository,
+    /// archives it, or any of those together. `None` when there is no such scratchpad. `updated_at` tracks the content alone, so archiving does
     /// not make a document look freshly written.
     pub fn update_scratchpad(
         &mut self,
         id: &str,
+        title: Option<String>,
         repository: Option<Option<String>>,
         content: Option<String>,
         archived: Option<bool>,
         tags: Option<Vec<String>>,
     ) -> Option<Scratchpad> {
         let scratchpad = self.scratchpads.get_mut(id)?;
+        if let Some(title) = title {
+            scratchpad.title = title;
+        }
         if let Some(repository) = repository {
             scratchpad.repository = repository;
         }
@@ -1374,3 +1380,18 @@ fn transition(task: &mut Task, event: &TaskEvent) -> bool {
 #[cfg(test)]
 #[path = "state_tests.rs"]
 pub(crate) mod tests;
+
+/// The name a document had before titles were stored: its first `# ` heading,
+/// failing that its first written line. Only for documents saved without one.
+pub fn legacy_title(content: &str) -> String {
+    let heading = content
+        .lines()
+        .find_map(|line| line.strip_prefix("# "))
+        .map(str::trim);
+    let first = content.lines().map(str::trim).find(|line| !line.is_empty());
+    heading
+        .or(first)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("Untitled")
+        .to_string()
+}

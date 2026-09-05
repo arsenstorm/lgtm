@@ -28,6 +28,8 @@ pub(super) struct ScratchpadFilter {
 #[derive(Deserialize)]
 pub(super) struct ScratchpadRequest {
     #[serde(default)]
+    title: String,
+    #[serde(default)]
     repository: Option<String>,
     /// May be empty: a fresh blank document is a legitimate thing to make.
     #[serde(default)]
@@ -66,7 +68,8 @@ pub(super) async fn create_scratchpad(
     let Json(body) = body.map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.body_text()))?;
     let tags = tags(body.tags)?;
     let mut state = app.state.lock().unwrap();
-    let scratchpad = state.create_scratchpad(body.repository, body.content, tags, user.0);
+    let scratchpad =
+        state.create_scratchpad(body.title, body.repository, body.content, tags, user.0);
     app.persist_scratchpad(&scratchpad);
     Ok((StatusCode::CREATED, Json(scratchpad)))
 }
@@ -87,6 +90,8 @@ pub(super) async fn get_scratchpad(
 /// Body of `PATCH /api/scratchpads/:id`: whichever fields are being changed.
 #[derive(Deserialize)]
 pub(super) struct ScratchpadPatch {
+    #[serde(default)]
+    title: Option<String>,
     /// Absent leaves the repository alone; `null` moves the document back to
     /// every repository.
     #[serde(default, deserialize_with = "nullable")]
@@ -114,7 +119,14 @@ pub(super) async fn update_scratchpad(
     let tags = body.tags.map(tags).transpose()?;
     let mut state = app.state.lock().unwrap();
     let scratchpad = state
-        .update_scratchpad(&id, body.repository, body.content, body.archived, tags)
+        .update_scratchpad(
+            &id,
+            body.title,
+            body.repository,
+            body.content,
+            body.archived,
+            tags,
+        )
         .ok_or_else(not_found)?;
     app.persist_scratchpad(&scratchpad);
     Ok(Json(scratchpad))

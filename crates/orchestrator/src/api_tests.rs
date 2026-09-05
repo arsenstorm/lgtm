@@ -740,6 +740,7 @@ async fn an_empty_comment_is_rejected_and_an_unknown_todo_404s() {
 async fn a_scratchpad_is_created_listed_archived_and_deleted() {
     let app = app();
     let body = serde_json::from_value(serde_json::json!({
+        "title": "09-05-09-35 Scratchpad",
         "repository": "https://example.com/repo.git",
         "content": "",
     }))
@@ -753,9 +754,11 @@ async fn a_scratchpad_is_created_listed_archived_and_deleted() {
     .unwrap();
     assert_eq!(code, StatusCode::CREATED);
     assert_eq!(pad.created_by.as_deref(), Some("u1"));
+    assert_eq!(pad.title, "09-05-09-35 Scratchpad");
     assert!(pad.content.is_empty());
 
     let patch = serde_json::from_value(serde_json::json!({
+        "title": "Notes",
         "content": "# notes",
         "archived": true,
     }))
@@ -764,6 +767,7 @@ async fn a_scratchpad_is_created_listed_archived_and_deleted() {
         scratchpads::update_scratchpad(State(app.clone()), Path(pad.id.clone()), Ok(Json(patch)))
             .await
             .unwrap();
+    assert_eq!(updated.title, "Notes");
     assert_eq!(updated.content, "# notes");
     assert!(updated.archived);
     assert_eq!(

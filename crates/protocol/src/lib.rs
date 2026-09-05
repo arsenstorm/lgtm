@@ -911,6 +911,9 @@ pub struct TodoDetail {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Scratchpad {
     pub id: String,
+    /// Named by whoever made it; the content never names the document.
+    #[serde(default)]
+    pub title: String,
     /// Git URL; `None` is not tied to a repository.
     #[serde(default)]
     pub repository: Option<String>,
