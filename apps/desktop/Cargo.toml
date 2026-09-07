@@ -22,7 +22,7 @@ tokio.workspace = true
 futures-util.workspace = true
 dirs.workspace = true
 gpui = "0.2.2"
-gpui-component = "0.5.1"
+gpui-component = "0.6.0"
 toml = "1"
 # The context menu is AppKit's own; gpui draws menus of its own instead of
 # opening one. Both crates are already in the tree under gpui.
