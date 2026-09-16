@@ -1,3 +1,5 @@
+> **Archived.** LGTM was an experimental orchestration platform for software-engineering agents. It is no longer maintained and is kept public for reference.
+
 # LGTM
 
 LGTM is an orchestrator for AI coding agents. You give it a prompt and a
